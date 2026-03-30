@@ -393,7 +393,7 @@ Use these libraries. Do not introduce alternatives without a documented reason.
 | Tabular formatting | `tabulate` |
 | Resource monitoring | `psutil` |
 
-Pin Python to `3.11`. Use `uv` as the package manager. Never use `pip` or
+Pin Python to `3.12`. Use `uv` as the package manager. Never use `pip` or
 `conda` in production. Never use `poetry` for new projects.
 
 ---
