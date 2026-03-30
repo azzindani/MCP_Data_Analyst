@@ -1,0 +1,501 @@
+Region,State,Revenue,Units_Sold,Discount
+East,Arizona,10612.07,41,0.21
+South,California,17923.44,7,0.0
+West,New York,3929.93,1,0.09
+North,Illinois,15119.84,50,0.24
+South,Washington,16618.3,46,0.23
+South,Texas,,29,0.14
+East,Illinois,16023.64,38,0.18
+North,Washington,2560.63,16,0.12
+Central,Illinois,9202.2,29,0.18
+East,Illinois,14386.04,20,0.09
+Central,Florida,16541.02,13,0.03
+East,New York,19360.41,46,0.08
+Central,Texas,13999.81,24,0.11
+East,California,8430.83,33,0.18
+North,New York,11057.25,49,0.08
+West,California,4495.38,1,0.25
+South,Illinois,13080.78,10,0.12
+North,Texas,16983.51,9,0.16
+Central,New York,9252.07,49,0.09
+Central,Arizona,19398.06,31,0.27
+West,Washington,8157.86,49,0.11
+East,Illinois,3470.32,10,0.17
+East,California,16252.62,18,0.29
+West,Florida,17533.9,35,0.04
+West,Texas,14783.16,1,0.23
+North,Florida,5284.36,10,0.01
+South,Arizona,19163.29,47,0.01
+Central,Arizona,2456.29,10,0.29
+East,California,17669.65,21,0.24
+North,Illinois,1419.3,27,0.25
+West,Texas,4804.92,27,0.29
+North,California,9142.03,47,0.1
+Central,Florida,1331.99,19,0.18
+East,Washington,1888.7,7,0.18
+North,Florida,15406.45,43,0.1
+East,Illinois,11042.38,1,0.28
+East,New York,2896.99,1,0.29
+North,Texas,,17,0.13
+North,California,2119.41,20,0.0
+South,Arizona,13357.68,27,0.03
+East,New York,13860.69,31,0.21
+Central,Texas,15906.68,25,0.03
+South,Arizona,13706.54,35,0.02
+North,Illinois,16142.94,5,0.15
+North,Washington,16245.18,39,0.14
+North,California,18721.21,24,0.09
+Central,California,12621.35,7,0.14
+South,Arizona,17128.64,22,0.23
+North,Texas,17718.47,38,0.12
+East,California,4731.28,30,0.13
+South,Arizona,6573.42,37,0.04
+East,Texas,16792.17,26,0.3
+West,Arizona,17642.29,34,0.13
+South,Illinois,17770.31,37,0.19
+East,California,8618.24,47,0.14
+South,Florida,14393.68,6,0.12
+South,Washington,12672.95,11,0.1
+West,Texas,5790.19,13,0.09
+South,New York,12820.86,31,0.05
+East,Texas,5475.19,49,0.24
+North,Washington,13967.19,15,0.2
+North,California,15535.75,37,0.27
+South,Washington,3368.7,38,0.03
+East,Florida,15602.04,9,0.17
+North,Arizona,9793.54,41,0.02
+North,California,6704.74,15,0.12
+West,California,3279.77,17,0.06
+East,Texas,4527.89,39,0.13
+East,California,9185.18,25,0.09
+Central,Washington,4247.29,42,0.3
+West,Texas,3076.09,28,0.07
+Central,Florida,2314.88,5,0.2
+East,Illinois,,7,0.27
+Central,Illinois,10921.51,2,0.03
+Central,New York,6898.57,22,0.17
+Central,Texas,14532.25,50,0.23
+West,New York,,31,0.12
+Central,Florida,18021.19,9,0.13
+West,California,14977.72,19,0.09
+Central,Texas,2890.66,22,0.3
+South,Florida,11873.06,21,0.29
+North,Arizona,7088.43,39,0.24
+West,Washington,2795.28,18,0.15
+North,Illinois,3575.49,27,0.27
+West,Florida,19147.17,4,0.27
+North,California,13656.78,10,0.16
+North,Florida,18192.73,4,0.22
+East,Texas,18631.95,31,0.09
+Central,New York,7642.51,19,0.09
+East,New York,19174.95,25,0.16
+South,Florida,7240.49,26,0.3
+East,Texas,4546.27,37,0.1
+Central,Florida,,37,0.1
+East,Texas,13461.1,43,0.09
+West,Illinois,18732.61,23,0.08
+Central,California,7455.88,28,0.13
+South,Illinois,1039.74,13,0.03
+North,Texas,13131.35,44,0.27
+East,Illinois,6755.73,45,0.11
+West,Arizona,7844.27,6,0.07
+South,Illinois,16882.48,40,0.07
+North,California,6942.6,9,0.1
+East,Texas,2566.45,41,0.11
+South,Florida,8435.74,42,0.11
+West,Washington,9049.86,30,0.13
+North,Arizona,1912.5,25,0.15
+West,Florida,18064.61,28,0.15
+West,Arizona,18696.28,7,0.16
+Central,Arizona,7633.42,1,0.02
+South,Texas,5028.57,28,0.19
+South,New York,6487.99,31,0.19
+Central,Illinois,16698.94,17,0.22
+South,Arizona,11029.36,22,0.24
+Central,New York,1869.49,39,0.09
+Central,Washington,16295.78,32,0.06
+West,Washington,6952.67,28,0.17
+North,New York,4752.51,4,0.19
+East,Florida,,20,0.13
+Central,Florida,1693.62,33,0.17
+East,Illinois,,16,0.14
+East,New York,7001.95,32,0.02
+East,Arizona,15082.39,8,0.2
+Central,Florida,3782.47,29,0.22
+North,Texas,17027.92,27,0.09
+North,California,15221.56,33,0.23
+North,Texas,11613.84,28,0.0
+East,California,13238.74,45,0.02
+South,Florida,18291.77,31,0.26
+West,Washington,10695.3,16,0.04
+East,New York,18461.17,3,0.09
+South,Washington,5703.86,36,0.25
+West,Florida,8045.19,21,0.19
+West,California,,5,0.02
+South,New York,7689.74,36,0.15
+North,Arizona,11661.7,8,0.27
+West,Washington,10861.92,41,0.05
+West,Arizona,,39,0.19
+West,California,3398.16,29,0.1
+West,California,4721.2,7,0.1
+East,Washington,19351.08,36,0.1
+Central,Texas,17880.83,46,0.2
+Central,California,5115.75,11,0.28
+North,Texas,14433.0,25,0.29
+South,New York,6365.49,16,0.05
+East,New York,9452.22,22,0.26
+North,California,,19,0.14
+North,New York,5057.77,23,0.06
+East,New York,16184.65,13,0.22
+Central,Arizona,4505.64,48,0.06
+South,Texas,9918.76,42,0.14
+East,Arizona,18108.47,9,0.17
+East,New York,10063.23,43,0.15
+South,New York,2900.31,25,0.21
+West,California,16777.04,49,0.25
+Central,Washington,11878.92,2,0.2
+Central,Illinois,16951.56,47,0.26
+East,Arizona,8059.22,43,0.2
+North,Arizona,17801.09,7,0.23
+East,Texas,10412.39,45,0.03
+North,Washington,7015.92,21,0.04
+Central,Arizona,14860.4,37,0.11
+South,California,3411.39,18,0.02
+South,Illinois,6430.78,30,0.2
+West,Washington,11206.62,41,0.13
+East,Texas,4847.82,44,0.23
+East,California,6920.98,36,0.06
+Central,Illinois,13628.83,28,0.04
+East,Washington,13715.91,10,0.19
+South,Illinois,13343.24,42,0.17
+South,Texas,7873.46,44,0.19
+East,Florida,11475.76,10,0.27
+South,California,19738.48,41,0.28
+South,Illinois,8357.58,39,0.27
+North,Illinois,,50,0.19
+North,California,18886.13,11,0.22
+North,Florida,7838.06,28,0.28
+South,California,8076.69,32,0.16
+West,New York,15587.31,37,0.27
+North,New York,16337.51,34,0.25
+Central,Washington,8425.1,45,0.19
+North,New York,13588.41,8,0.23
+South,Texas,2610.01,3,0.17
+South,New York,6633.24,12,0.28
+South,California,,1,0.13
+West,Washington,13771.66,21,0.18
+West,Arizona,15050.89,50,0.29
+East,New York,2447.22,47,0.2
+North,Washington,11631.78,45,0.14
+West,Florida,12701.09,28,0.21
+East,Washington,4798.29,31,0.11
+East,Texas,19314.07,50,0.26
+North,California,12575.29,16,0.18
+South,Arizona,17512.18,24,0.05
+South,Washington,16640.02,46,0.18
+Central,Washington,5328.06,17,0.02
+West,Illinois,2904.03,48,0.17
+Central,Arizona,18208.33,14,0.29
+West,Arizona,15412.53,7,0.06
+North,California,13165.73,33,0.28
+Central,California,,5,0.11
+Central,Texas,1098.96,32,0.24
+East,California,1393.79,21,0.06
+West,New York,12966.93,11,0.3
+Central,California,18218.16,12,0.28
+West,New York,15253.9,11,0.28
+East,Florida,3678.2,26,0.13
+Central,Washington,7132.9,38,0.29
+Central,Washington,18237.53,27,0.06
+West,Arizona,1912.06,4,0.15
+South,Arizona,19923.69,49,0.03
+South,Washington,13834.42,30,0.27
+North,Washington,,49,0.2
+East,Texas,1999.4,45,0.17
+West,Washington,10404.7,43,0.05
+East,Florida,13135.82,30,0.06
+West,California,13072.22,10,0.18
+North,Florida,5241.29,36,0.11
+South,Washington,3302.01,23,0.18
+Central,Texas,1371.74,35,0.28
+West,Illinois,,1,0.11
+East,Arizona,,3,0.07
+North,Arizona,11202.18,40,0.17
+North,Arizona,10855.5,45,0.06
+South,Illinois,11022.2,47,0.25
+West,Washington,2665.39,25,0.07
+North,Arizona,12641.63,11,0.3
+South,California,6693.59,27,0.04
+Central,New York,5766.96,39,0.04
+South,Washington,19625.59,43,0.14
+North,Washington,11115.82,43,0.23
+North,Illinois,4936.51,47,0.05
+West,New York,14304.44,24,0.07
+East,Florida,18468.68,33,0.28
+East,Washington,12889.0,31,0.11
+Central,California,14864.72,23,0.26
+Central,Arizona,2540.57,26,0.24
+South,Illinois,4518.19,47,0.24
+North,California,19338.33,25,0.19
+West,California,16497.36,6,0.26
+East,Florida,15920.5,7,0.01
+North,Florida,3090.11,4,0.07
+South,California,2293.31,2,0.3
+East,California,15604.72,27,0.02
+West,Texas,4619.99,23,0.14
+West,Arizona,5568.53,35,0.04
+East,Texas,12097.4,26,0.15
+Central,Florida,2691.29,14,0.18
+South,New York,12230.02,36,0.09
+North,Texas,7048.93,26,0.11
+Central,Washington,8496.1,23,0.28
+West,Texas,13798.8,5,0.05
+Central,California,14818.27,20,0.17
+Central,Illinois,4576.04,23,0.13
+Central,New York,13307.52,17,0.22
+Central,Florida,16145.95,9,0.2
+East,Florida,,33,0.21
+South,New York,13466.47,11,0.07
+East,Texas,2116.75,49,0.17
+West,Florida,19432.87,2,0.22
+East,Texas,3781.09,17,0.1
+Central,Arizona,17149.18,17,0.05
+East,Texas,5757.14,25,0.27
+East,Washington,11568.79,34,0.1
+West,Texas,2368.32,18,0.14
+North,Arizona,10699.82,27,0.03
+West,Illinois,14359.03,10,0.18
+Central,California,9638.14,40,0.3
+Central,Florida,18686.51,37,0.08
+East,Florida,10994.56,2,0.06
+South,Washington,,1,0.3
+South,Illinois,6555.76,7,0.21
+North,Texas,2447.36,15,0.27
+South,Washington,19726.05,11,0.07
+North,Washington,12909.92,20,0.2
+North,California,7548.6,9,0.12
+North,Texas,3631.48,11,0.24
+South,Washington,17803.49,8,0.21
+South,Illinois,14228.82,7,0.2
+South,Florida,10680.31,45,0.09
+North,Washington,9070.78,46,0.28
+North,California,7478.12,18,0.26
+West,California,19771.23,11,0.03
+South,Arizona,3456.78,10,0.19
+West,New York,19986.5,47,0.05
+Central,Arizona,7315.9,45,0.1
+North,California,12338.62,26,0.28
+Central,Illinois,15513.77,4,0.24
+West,Texas,15913.51,19,0.08
+West,Washington,17091.56,1,0.0
+South,California,4418.19,8,0.07
+West,Arizona,,23,0.24
+South,Arizona,1431.86,17,0.26
+East,Illinois,,17,0.2
+Central,New York,6044.83,46,0.1
+North,Washington,10445.77,21,0.15
+West,Illinois,17942.88,43,0.13
+East,New York,15295.02,39,0.27
+Central,Arizona,18110.74,42,0.23
+South,Washington,5415.42,26,0.15
+South,Florida,5663.09,33,0.28
+South,Illinois,10218.85,10,0.09
+South,Florida,14989.22,48,0.05
+West,Florida,18384.26,1,0.1
+Central,Illinois,19555.23,5,0.27
+North,California,6641.89,28,0.27
+Central,New York,17315.13,16,0.02
+East,Texas,8937.64,31,0.19
+North,Illinois,10435.0,48,0.28
+Central,New York,,17,0.23
+South,Arizona,10574.44,42,0.17
+East,New York,10023.55,36,0.18
+West,Washington,6521.93,11,0.09
+North,Arizona,5996.94,27,0.2
+South,Illinois,15354.45,14,0.24
+South,Washington,7631.43,31,0.13
+East,Washington,15936.11,13,0.13
+West,Arizona,14118.66,8,0.07
+East,California,12154.69,19,0.2
+Central,Florida,7078.37,36,0.12
+South,Florida,,35,0.2
+West,Washington,5318.64,10,0.2
+East,Washington,3909.05,41,0.2
+West,Washington,6819.01,30,0.2
+Central,Illinois,8392.22,25,0.23
+North,Washington,2930.26,27,0.15
+West,Texas,7569.04,26,0.22
+West,Illinois,1532.71,9,0.26
+West,Washington,5923.54,49,0.03
+West,Florida,3508.07,49,0.28
+South,Florida,4618.5,47,0.0
+Central,New York,3748.2,10,0.03
+East,Arizona,7493.51,37,0.24
+North,Illinois,3295.83,21,0.08
+South,California,17861.04,38,0.13
+North,Arizona,2329.4,21,0.29
+North,Texas,8329.58,40,0.05
+South,California,10943.94,47,0.25
+South,Arizona,8764.97,10,0.06
+East,New York,7059.81,46,0.05
+Central,Washington,12359.2,1,0.13
+Central,Texas,2453.97,16,0.03
+North,Florida,13843.29,28,0.05
+North,Washington,11609.04,30,0.28
+East,Arizona,2486.95,43,0.08
+South,Washington,8529.62,11,0.25
+South,California,,24,0.01
+West,Washington,9158.56,44,0.27
+North,Washington,5226.23,27,0.14
+Central,Florida,5373.13,8,0.27
+East,Florida,17577.5,9,0.01
+East,California,15408.87,27,0.28
+East,Texas,14068.53,7,0.21
+Central,Illinois,16263.31,7,0.29
+North,Texas,,32,0.21
+South,Florida,13037.26,18,0.19
+South,Texas,2869.1,46,0.24
+Central,Arizona,1574.08,43,0.19
+South,California,,37,0.05
+North,Texas,14443.42,26,0.09
+Central,Washington,14420.69,31,0.01
+North,Illinois,9940.4,40,0.15
+West,Illinois,3512.21,29,0.22
+South,New York,5348.34,48,0.08
+North,New York,,19,0.29
+North,Florida,5342.43,38,0.25
+West,New York,,36,0.11
+Central,Illinois,14035.72,24,0.27
+East,Washington,5486.95,33,0.21
+North,California,3222.23,47,0.24
+Central,New York,13795.97,44,0.29
+East,New York,6594.43,13,0.12
+East,California,1924.07,7,0.21
+West,Texas,7682.42,41,0.25
+North,Illinois,2126.86,9,0.09
+East,New York,2517.85,37,0.03
+East,Texas,6402.44,47,0.1
+Central,Arizona,5657.4,8,0.27
+South,New York,4528.76,16,0.25
+Central,California,7299.43,11,0.07
+North,Florida,3840.42,46,0.19
+East,New York,1074.37,33,0.07
+North,Washington,18227.8,42,0.16
+North,California,7072.93,2,0.04
+North,California,11023.55,46,0.26
+East,California,3652.76,45,0.21
+South,New York,16350.5,24,0.01
+West,Florida,13145.4,39,0.01
+South,Arizona,14058.32,44,0.17
+South,Illinois,3756.01,44,0.03
+East,Florida,13895.37,30,0.04
+West,California,8977.19,22,0.04
+South,Texas,11109.92,37,0.08
+North,Illinois,1197.35,45,0.09
+North,Arizona,15182.39,10,0.03
+South,Arizona,1819.33,19,0.11
+West,Arizona,13302.53,4,0.19
+Central,California,8160.51,26,0.2
+South,Illinois,10133.57,14,0.17
+South,Florida,1475.77,13,0.27
+West,Arizona,16686.17,32,0.01
+Central,Texas,9782.94,18,0.28
+West,California,12880.55,26,0.08
+West,Illinois,16577.53,1,0.23
+East,Arizona,5656.38,19,0.0
+Central,Washington,7242.0,38,0.13
+North,Washington,8991.32,33,0.27
+North,Washington,8613.97,40,0.11
+North,Arizona,10843.99,35,0.26
+Central,Illinois,18746.97,24,0.1
+East,California,9395.46,20,0.26
+West,New York,3889.29,29,0.12
+West,Arizona,14943.33,44,0.05
+North,Illinois,11968.94,7,0.14
+Central,Washington,1453.94,19,0.27
+East,Florida,11821.11,40,0.07
+South,Arizona,8838.71,28,0.22
+South,New York,8753.64,19,0.05
+North,Arizona,18619.19,8,0.21
+Central,California,7066.03,25,0.11
+South,California,7303.8,1,0.24
+South,Texas,19578.53,48,0.17
+West,Illinois,19719.91,34,0.16
+West,Washington,1019.45,45,0.16
+North,Illinois,13636.45,30,0.17
+South,New York,19616.93,36,0.01
+East,Washington,13183.25,26,0.17
+West,Florida,14588.74,45,0.01
+North,California,7051.62,47,0.21
+East,Washington,18392.17,17,0.11
+North,Texas,6207.93,2,0.07
+Central,Arizona,10721.83,38,0.26
+West,New York,8839.7,39,0.23
+West,Washington,5862.02,40,0.1
+Central,Arizona,12531.36,18,0.17
+East,Florida,15961.8,39,0.13
+South,Washington,15916.75,3,0.28
+West,Florida,10685.48,1,0.05
+Central,Illinois,18517.68,27,0.29
+West,Florida,1071.52,33,0.14
+East,New York,2770.75,27,0.06
+Central,California,13609.2,4,0.15
+North,Arizona,,29,0.17
+North,California,12251.47,4,0.19
+South,Illinois,2796.01,10,0.16
+Central,California,14234.98,41,0.08
+South,Illinois,17722.58,29,0.11
+East,California,7303.27,39,0.06
+South,Arizona,19122.47,7,0.16
+South,New York,18690.67,50,0.28
+West,Illinois,18344.18,35,0.02
+South,Arizona,8193.94,50,0.03
+East,Arizona,12962.63,26,0.25
+South,Illinois,9317.74,29,0.06
+North,Texas,3289.89,17,0.09
+South,Washington,4264.57,32,0.01
+North,Illinois,5579.66,48,0.12
+South,Washington,7351.65,17,0.15
+South,Arizona,2471.44,8,0.12
+East,Illinois,9655.42,19,0.1
+Central,Illinois,13490.37,32,0.08
+East,Texas,15069.38,6,0.21
+South,Texas,4055.41,40,0.22
+Central,Florida,3219.61,34,0.19
+West,California,9295.35,46,0.05
+North,Florida,6477.89,13,0.08
+Central,Washington,18905.04,37,0.21
+Central,Florida,,30,0.07
+North,California,5534.03,31,0.1
+East,Washington,4340.86,27,0.13
+South,New York,9881.69,13,0.09
+South,New York,17814.27,43,0.24
+Central,Texas,17405.28,31,0.24
+North,Florida,10350.58,39,0.19
+Central,Illinois,6358.98,20,0.23
+South,Washington,7998.7,47,0.03
+South,Washington,11300.97,5,0.12
+North,Illinois,9425.81,10,0.04
+South,Florida,4090.86,35,0.24
+South,Texas,3651.59,13,0.2
+South,California,8733.45,49,0.17
+East,New York,2987.98,42,0.06
+North,California,,24,0.01
+South,Texas,,2,0.23
+West,New York,5749.3,11,0.11
+Central,Washington,14274.82,12,0.22
+North,California,4861.94,3,0.02
+West,Arizona,4925.04,47,0.28
+East,Texas,3997.73,27,0.22
+North,Washington,7169.83,44,0.04
+West,Texas,17039.98,14,0.08
+East,Texas,3384.35,12,0.07
+West,Arizona,9637.54,35,0.12
+East,New York,2777.22,20,0.11
+West,New York,11385.15,39,0.3
+South,Texas,1890.27,12,0.11
+South,New York,7585.51,8,0.02
+West,New York,15946.16,8,0.26
+Central,Arizona,19658.76,31,0.15
+South,Arizona,3604.5,8,0.06
+West,Texas,4027.62,28,0.13

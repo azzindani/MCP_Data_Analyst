@@ -1,0 +1,1109 @@
+"""Tier 1 engine — all domain logic. Zero MCP imports."""
+from __future__ import annotations
+
+import logging
+import re
+import sys
+from pathlib import Path
+
+import pandas as pd
+
+# Shared utilities
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from shared.file_utils import resolve_path
+from shared.patch_validator import VALID_OPS, validate_ops
+from shared.platform_utils import get_max_results, get_max_rows
+from shared.progress import fail, info, ok, undo, warn
+from shared.receipt import append_receipt, read_receipt_log
+from shared.version_control import list_versions, restore, snapshot
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _token_estimate(obj) -> int:
+    return len(str(obj)) // 4
+
+
+def _read_csv(file_path: str, encoding: str = "utf-8", separator: str = ",",
+              max_rows: int = 0) -> pd.DataFrame:
+    kwargs: dict = {"encoding": encoding, "sep": separator, "low_memory": False}
+    if max_rows > 0:
+        kwargs["nrows"] = max_rows
+    return pd.read_csv(file_path, **kwargs)
+
+
+def _dtype_label(series: pd.Series) -> str:
+    if pd.api.types.is_integer_dtype(series):
+        return "int64"
+    if pd.api.types.is_float_dtype(series):
+        return "float64"
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return "datetime64"
+    return "object"
+
+
+def _classify_columns(df: pd.DataFrame) -> tuple[list[str], list[str], list[str]]:
+    numeric, categorical, datetime_cols = [], [], []
+    for col in df.columns:
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
+            datetime_cols.append(col)
+        elif pd.api.types.is_numeric_dtype(df[col]):
+            numeric.append(col)
+        else:
+            categorical.append(col)
+    return numeric, categorical, datetime_cols
+
+
+# ---------------------------------------------------------------------------
+# load_dataset
+# ---------------------------------------------------------------------------
+
+def load_dataset(
+    file_path: str,
+    encoding: str = "utf-8",
+    separator: str = ",",
+    max_rows: int = 0,
+) -> dict:
+    progress = []
+    try:
+        path = resolve_path(file_path)
+
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute.",
+                "progress": [fail("File not found", str(path))],
+                "token_estimate": 30,
+            }
+
+        if path.suffix.lower() != ".csv":
+            return {
+                "success": False,
+                "error": f"Expected .csv, got {path.suffix}",
+                "hint": "Use file_path pointing to a .csv file.",
+                "progress": [fail("Wrong file type", path.suffix)],
+                "token_estimate": 30,
+            }
+
+        if path.stat().st_size == 0:
+            return {
+                "success": False,
+                "error": f"File is empty: {path.name}",
+                "hint": "Verify the file has header + data rows.",
+                "progress": [fail("Empty file", path.name)],
+                "token_estimate": 30,
+            }
+
+        try:
+            df = _read_csv(str(path), encoding=encoding, separator=separator,
+                           max_rows=max_rows)
+        except UnicodeDecodeError:
+            return {
+                "success": False,
+                "error": f"Cannot decode with {encoding}",
+                "hint": "Try encoding='ISO-8859-1' or 'latin1'.",
+                "progress": [fail("Encoding error", encoding)],
+                "token_estimate": 30,
+            }
+
+        if df.empty and len(df.columns) == 0:
+            return {
+                "success": False,
+                "error": f"File is empty: {path.name}",
+                "hint": "Verify the file has header + data rows.",
+                "progress": [fail("Empty file", path.name)],
+                "token_estimate": 30,
+            }
+
+        if max_rows > 0:
+            progress.append(warn(
+                f"Row sampling active",
+                f"max_rows={max_rows}; constrained mode may apply"
+            ))
+
+        max_r = get_max_rows()
+        if len(df) > max_r and max_rows == 0:
+            progress.append(warn(
+                "Large dataset",
+                f"Constrained mode: returning metadata only, {len(df)} rows total"
+            ))
+
+        dtypes = {col: _dtype_label(df[col]) for col in df.columns}
+        null_counts = {col: int(df[col].isna().sum()) for col in df.columns}
+        unique_counts = {col: int(df[col].nunique()) for col in df.columns}
+        sample = df.head(2).fillna("").to_dict(orient="records")
+
+        progress.append(ok(f"Loaded {path.name}", f"{len(df):,} rows × {len(df.columns)} cols"))
+
+        result = {
+            "success": True,
+            "op": "load_dataset",
+            "file": path.name,
+            "rows": len(df),
+            "columns": len(df.columns),
+            "dtypes": dtypes,
+            "null_counts": null_counts,
+            "unique_counts": unique_counts,
+            "sample": sample,
+            "encoding_used": encoding,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("load_dataset error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check that file_path is absolute and the file exists.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# load_geo_dataset
+# ---------------------------------------------------------------------------
+
+def load_geo_dataset(
+    file_path: str,
+    rename_column: str = "",
+    keep_columns: list[str] = None,
+) -> dict:
+    progress = []
+    try:
+        try:
+            import geopandas as gpd
+        except ImportError:
+            return {
+                "success": False,
+                "error": "geopandas not installed",
+                "hint": "Install geopandas: uv add geopandas",
+                "progress": [fail("Missing dependency", "geopandas")],
+                "token_estimate": 20,
+            }
+
+        path = resolve_path(file_path)
+
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        valid_exts = {".geojson", ".shp", ".json"}
+        if path.suffix.lower() not in valid_exts:
+            return {
+                "success": False,
+                "error": f"Expected .geojson or .shp, got {path.suffix}",
+                "hint": "Use a .geojson or .shp file.",
+                "progress": [fail("Wrong file type", path.suffix)],
+                "token_estimate": 20,
+            }
+
+        gdf = gpd.read_file(str(path))
+
+        if rename_column:
+            if "name" in gdf.columns:
+                gdf = gdf.rename(columns={"name": rename_column})
+
+        if keep_columns:
+            geo_col = gdf.geometry.name
+            cols_to_keep = [c for c in keep_columns if c in gdf.columns]
+            if geo_col not in cols_to_keep:
+                cols_to_keep.append(geo_col)
+            gdf = gdf[cols_to_keep]
+
+        sample_rows = gdf.head(2).copy()
+        geo_col = gdf.geometry.name
+        sample_rows[geo_col] = sample_rows[geo_col].apply(
+            lambda g: g.wkt if g is not None else None
+        )
+        sample = sample_rows.fillna("").to_dict(orient="records")
+
+        crs = str(gdf.crs) if gdf.crs else "unknown"
+        geom_types = gdf.geometry.geom_type.dropna().unique().tolist()
+        geometry_type = geom_types[0] if geom_types else "unknown"
+
+        progress.append(ok(f"Loaded {path.name}", f"{len(gdf)} rows"))
+
+        result = {
+            "success": True,
+            "op": "load_geo_dataset",
+            "file": path.name,
+            "rows": len(gdf),
+            "columns": list(gdf.columns),
+            "crs": crs,
+            "geometry_type": geometry_type,
+            "sample": sample,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("load_geo_dataset error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Verify the file is a valid GeoJSON or shapefile.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# inspect_dataset
+# ---------------------------------------------------------------------------
+
+def inspect_dataset(
+    file_path: str,
+    include_sample: bool = False,
+) -> dict:
+    progress = []
+    try:
+        path = resolve_path(file_path)
+
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+        rows = len(df)
+        cols = len(df.columns)
+
+        dtypes = {col: _dtype_label(df[col]) for col in df.columns}
+        null_counts = {col: int(df[col].isna().sum()) for col in df.columns}
+        null_pct = {
+            col: round(null_counts[col] / rows * 100, 2) if rows > 0 else 0.0
+            for col in df.columns
+        }
+        unique_counts = {col: int(df[col].nunique()) for col in df.columns}
+
+        numeric_cols, categorical_cols, datetime_cols = _classify_columns(df)
+
+        result: dict = {
+            "success": True,
+            "op": "inspect_dataset",
+            "file": path.name,
+            "rows": rows,
+            "columns": cols,
+            "column_names": list(df.columns),
+            "dtypes": dtypes,
+            "null_counts": null_counts,
+            "null_pct": null_pct,
+            "unique_counts": unique_counts,
+            "numeric_columns": numeric_cols,
+            "categorical_columns": categorical_cols,
+            "datetime_columns": datetime_cols,
+        }
+
+        if include_sample:
+            result["sample"] = df.head(2).fillna("").to_dict(orient="records")
+
+        # Truncate column_names if response would exceed ~500 tokens
+        estimate = _token_estimate(result)
+        if estimate > 500:
+            max_c = get_max_results()
+            if len(result["column_names"]) > max_c:
+                result["column_names"] = result["column_names"][:max_c]
+                result["truncated"] = True
+                result["total_columns"] = cols
+                progress.append(warn(
+                    "Response truncated",
+                    f"Returned first {max_c} of {cols} column names"
+                ))
+
+        progress.append(ok(f"Inspected {path.name}", f"{rows:,} rows × {cols} cols"))
+        result["progress"] = progress
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("inspect_dataset error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# read_column_stats
+# ---------------------------------------------------------------------------
+
+def read_column_stats(
+    file_path: str,
+    column: str,
+) -> dict:
+    progress = []
+    try:
+        path = resolve_path(file_path)
+
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+
+        if column not in df.columns:
+            available = ", ".join(df.columns.tolist())
+            return {
+                "success": False,
+                "error": f"Column not found: {column}",
+                "hint": f"Use inspect_dataset() first. Available: {available}",
+                "progress": [fail("Column not found", column)],
+                "token_estimate": 30,
+            }
+
+        series = df[column]
+        dtype = _dtype_label(series)
+        count = int(series.count())
+        null_count = int(series.isna().sum())
+        null_pct = round(null_count / len(series) * 100, 2) if len(series) > 0 else 0.0
+
+        progress.append(ok(f"Stats for {column}", dtype))
+
+        # Datetime path
+        if pd.api.types.is_datetime64_any_dtype(series):
+            result = {
+                "success": True,
+                "op": "read_column_stats",
+                "column": column,
+                "dtype": dtype,
+                "count": count,
+                "null_count": null_count,
+                "null_pct": null_pct,
+                "min": str(series.min()),
+                "max": str(series.max()),
+                "progress": progress,
+            }
+            result["token_estimate"] = _token_estimate(result)
+            return result
+
+        # Numeric path
+        if pd.api.types.is_numeric_dtype(series):
+            clean = series.dropna()
+            mean_val = float(clean.mean()) if len(clean) > 0 else None
+            median_val = float(clean.median()) if len(clean) > 0 else None
+            std_val = float(clean.std()) if len(clean) > 1 else None
+            min_val = float(clean.min()) if len(clean) > 0 else None
+            max_val = float(clean.max()) if len(clean) > 0 else None
+            zero_count = int((series == 0).sum())
+
+            q1 = float(clean.quantile(0.25)) if len(clean) > 0 else None
+            q3 = float(clean.quantile(0.75)) if len(clean) > 0 else None
+            iqr = (q3 - q1) if (q1 is not None and q3 is not None) else None
+            lower_iqr = (q1 - 1.5 * iqr) if iqr is not None else None
+            upper_iqr = (q3 + 1.5 * iqr) if iqr is not None else None
+            outlier_iqr = int(((clean < lower_iqr) | (clean > upper_iqr)).sum()) \
+                if iqr is not None else 0
+
+            if mean_val is not None and std_val is not None:
+                lower_std = mean_val - 3 * std_val
+                upper_std = mean_val + 3 * std_val
+                outlier_std = int(((clean < lower_std) | (clean > upper_std)).sum())
+            else:
+                outlier_std = 0
+
+            result = {
+                "success": True,
+                "op": "read_column_stats",
+                "column": column,
+                "dtype": dtype,
+                "count": count,
+                "null_count": null_count,
+                "null_pct": null_pct,
+                "zero_count": zero_count,
+                "mean": round(mean_val, 4) if mean_val is not None else None,
+                "median": round(median_val, 4) if median_val is not None else None,
+                "std": round(std_val, 4) if std_val is not None else None,
+                "min": round(min_val, 4) if min_val is not None else None,
+                "max": round(max_val, 4) if max_val is not None else None,
+                "q1": round(q1, 4) if q1 is not None else None,
+                "q3": round(q3, 4) if q3 is not None else None,
+                "iqr": round(iqr, 4) if iqr is not None else None,
+                "outlier_count_iqr": outlier_iqr,
+                "outlier_count_std": outlier_std,
+                "progress": progress,
+            }
+            result["token_estimate"] = _token_estimate(result)
+            return result
+
+        # Categorical path
+        top_values = (
+            series.value_counts()
+            .head(10)
+            .to_dict()
+        )
+        top_values = {str(k): int(v) for k, v in top_values.items()}
+        unique_count = int(series.nunique())
+
+        result = {
+            "success": True,
+            "op": "read_column_stats",
+            "column": column,
+            "dtype": dtype,
+            "count": count,
+            "null_count": null_count,
+            "null_pct": null_pct,
+            "unique_count": unique_count,
+            "top_values": top_values,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("read_column_stats error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Use inspect_dataset() first to verify column names.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# search_columns
+# ---------------------------------------------------------------------------
+
+def search_columns(
+    file_path: str,
+    has_nulls: bool = False,
+    has_zeros: bool = False,
+    dtype: str = "",
+    name_contains: str = "",
+    min_null_pct: float = 0.0,
+) -> dict:
+    progress = []
+    try:
+        path = resolve_path(file_path)
+
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+        rows = len(df)
+        candidates = list(df.columns)
+
+        # Apply filters
+        if name_contains:
+            candidates = [c for c in candidates
+                          if name_contains.lower() in c.lower()]
+
+        if dtype:
+            if dtype == "numeric":
+                candidates = [c for c in candidates
+                              if pd.api.types.is_numeric_dtype(df[c])]
+            elif dtype == "datetime":
+                candidates = [c for c in candidates
+                              if pd.api.types.is_datetime64_any_dtype(df[c])]
+            elif dtype == "object":
+                candidates = [c for c in candidates
+                              if not pd.api.types.is_numeric_dtype(df[c])
+                              and not pd.api.types.is_datetime64_any_dtype(df[c])]
+
+        if has_nulls or min_null_pct > 0.0:
+            null_c = {c: int(df[c].isna().sum()) for c in candidates}
+            null_p = {c: null_c[c] / rows * 100 if rows > 0 else 0.0
+                      for c in candidates}
+            if has_nulls:
+                candidates = [c for c in candidates if null_c[c] > 0]
+            if min_null_pct > 0.0:
+                candidates = [c for c in candidates if null_p[c] >= min_null_pct]
+
+        if has_zeros:
+            candidates = [c for c in candidates
+                          if pd.api.types.is_numeric_dtype(df[c])
+                          and int((df[c] == 0).sum()) > 0]
+
+        # Build result counts
+        null_counts = {c: int(df[c].isna().sum()) for c in candidates}
+        zero_counts = {
+            c: int((df[c] == 0).sum())
+            if pd.api.types.is_numeric_dtype(df[c]) else 0
+            for c in candidates
+        }
+        dtypes_out = {c: _dtype_label(df[c]) for c in candidates}
+
+        # Truncate
+        max_r = get_max_results()
+        truncated = len(candidates) > max_r
+        if truncated:
+            candidates = candidates[:max_r]
+            progress.append(warn(
+                "Results truncated",
+                f"Showing first {max_r} matching columns"
+            ))
+
+        progress.append(ok(
+            f"Searched {path.name}",
+            f"{len(candidates)} column(s) matched"
+        ))
+
+        result = {
+            "success": True,
+            "op": "search_columns",
+            "matched": len(candidates),
+            "columns": candidates,
+            "null_counts": {c: null_counts[c] for c in candidates},
+            "zero_counts": {c: zero_counts[c] for c in candidates},
+            "dtypes": {c: dtypes_out[c] for c in candidates},
+            "truncated": truncated,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("search_columns error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# apply_patch — op implementations
+# ---------------------------------------------------------------------------
+
+def _op_drop_column(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
+    columns = op["columns"]
+    missing = [c for c in columns if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"Columns not found: {missing}. "
+            f"Available: {list(df.columns)}"
+        )
+    remaining = [c for c in df.columns if c not in columns]
+    df = df.drop(columns=columns)
+    return df, {"op": "drop_column", "dropped": columns, "remaining": len(remaining)}
+
+
+def _op_clean_text(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
+    scope = op.get("scope", "both")
+    affected = 0
+    if scope in ("headers", "both"):
+        df.columns = [c.strip().title() for c in df.columns]
+        affected = len(df.columns)
+    if scope in ("values", "both"):
+        for col in df.select_dtypes(include="object").columns:
+            df[col] = df[col].apply(
+                lambda v: v.strip().title() if isinstance(v, str) else v
+            )
+            affected += 1
+    return df, {"op": "clean_text", "scope": scope, "columns_affected": affected}
+
+
+def _op_cast_column(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
+    col = op["column"]
+    if col not in df.columns:
+        raise ValueError(
+            f"Column not found: {col}. Available: {list(df.columns)}"
+        )
+    dtype = op["dtype"]
+    from_dtype = _dtype_label(df[col])
+    failed = 0
+
+    if dtype == "int":
+        converted = pd.to_numeric(df[col], errors="coerce")
+        failed = int(converted.isna().sum() - df[col].isna().sum())
+        failed = max(0, failed)
+        df[col] = converted.astype("Int64")
+        to_dtype = "Int64"
+    elif dtype == "float":
+        converted = pd.to_numeric(df[col], errors="coerce")
+        failed = int(converted.isna().sum() - df[col].isna().sum())
+        failed = max(0, failed)
+        df[col] = converted
+        to_dtype = "float64"
+    elif dtype == "str":
+        df[col] = df[col].astype(str)
+        to_dtype = "object"
+    elif dtype == "datetime":
+        converted = pd.to_datetime(df[col], errors="coerce")
+        failed = int(converted.isna().sum() - df[col].isna().sum())
+        failed = max(0, failed)
+        df[col] = converted
+        to_dtype = "datetime64[ns]"
+    else:
+        raise ValueError(f"Unknown dtype: {dtype}")
+
+    return df, {
+        "op": "cast_column",
+        "column": col,
+        "from": from_dtype,
+        "to": to_dtype,
+        "failed": failed,
+    }
+
+
+def _op_replace_values(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
+    col = op["column"]
+    if col not in df.columns:
+        raise ValueError(
+            f"Column not found: {col}. Available: {list(df.columns)}"
+        )
+    mapping = op["mapping"]
+    replaced = int(df[col].isin(mapping.keys()).sum())
+    df[col] = df[col].replace(mapping)
+    return df, {"op": "replace_values", "column": col, "replaced": replaced}
+
+
+def _parse_expr(expr: str, df: pd.DataFrame) -> pd.Series:
+    """Parse simple math expression safely — no eval()."""
+    # Tokenise: split on +, -, *, /  keeping delimiters
+    tokens = re.split(r"(\s*[\+\-\*\/]\s*)", expr)
+    tokens = [t.strip() for t in tokens]
+
+    def resolve(token: str) -> pd.Series:
+        token = token.strip()
+        if token in df.columns:
+            return df[token].astype(float)
+        try:
+            return pd.Series([float(token)] * len(df), index=df.index)
+        except ValueError:
+            raise ValueError(
+                f"Unknown token in expr: '{token}'. "
+                f"Must be a column name or number."
+            )
+
+    if len(tokens) == 1:
+        return resolve(tokens[0])
+
+    result = resolve(tokens[0])
+    i = 1
+    while i < len(tokens):
+        op_sym = tokens[i].strip()
+        right = resolve(tokens[i + 1])
+        if op_sym == "+":
+            result = result + right
+        elif op_sym == "-":
+            result = result - right
+        elif op_sym == "*":
+            result = result * right
+        elif op_sym == "/":
+            result = result / right
+        else:
+            raise ValueError(f"Unsupported operator: '{op_sym}'")
+        i += 2
+
+    return result
+
+
+def _op_add_column(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
+    name = op["name"]
+    mode = op.get("mode", "math")
+
+    if mode == "math":
+        expr = op["expr"]
+        df[name] = _parse_expr(expr, df)
+    elif mode == "threshold":
+        source = op["source"]
+        if source not in df.columns:
+            raise ValueError(
+                f"Source column not found: {source}. Available: {list(df.columns)}"
+            )
+        threshold = op.get("threshold", 0)
+        freq = df[source].value_counts()
+        df[name] = df[source].apply(
+            lambda v: v if freq.get(v, 0) >= threshold else "Other"
+        )
+    else:
+        raise ValueError(f"Unknown mode: {mode}")
+
+    dtype = _dtype_label(df[name])
+    null_count = int(df[name].isna().sum())
+    return df, {
+        "op": "add_column",
+        "name": name,
+        "dtype": dtype,
+        "null_count": null_count,
+    }
+
+
+def _op_cap_outliers(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
+    col = op["column"]
+    if col not in df.columns:
+        raise ValueError(
+            f"Column not found: {col}. Available: {list(df.columns)}"
+        )
+    if not pd.api.types.is_numeric_dtype(df[col]):
+        raise ValueError(f"Column '{col}' is not numeric; cannot cap outliers.")
+
+    method = op.get("method", "iqr")
+    clean = df[col].dropna()
+    result_info: dict = {"op": "cap_outliers", "column": col, "method": method}
+
+    if method == "iqr":
+        th1 = op.get("th1", 0.25)
+        th3 = op.get("th3", 0.75)
+        q1 = float(clean.quantile(th1))
+        q3 = float(clean.quantile(th3))
+        iqr = q3 - q1
+        lower = q1 - 1.5 * iqr
+        upper = q3 + 1.5 * iqr
+        capped_lower = int((df[col] < lower).sum())
+        capped_upper = int((df[col] > upper).sum())
+        df[col] = df[col].clip(lower=lower, upper=upper)
+        result_info.update({
+            "capped_lower": capped_lower,
+            "capped_upper": capped_upper,
+            "lower_limit": round(lower, 4),
+            "upper_limit": round(upper, 4),
+        })
+    elif method == "std":
+        mean_val = float(clean.mean())
+        std_val = float(clean.std())
+        lower = mean_val - 3 * std_val
+        upper = mean_val + 3 * std_val
+        capped_lower = int((df[col] < lower).sum())
+        capped_upper = int((df[col] > upper).sum())
+        df[col] = df[col].clip(lower=lower, upper=upper)
+        result_info.update({
+            "capped_lower": capped_lower,
+            "capped_upper": capped_upper,
+            "lower_limit": round(lower, 4),
+            "upper_limit": round(upper, 4),
+        })
+
+    return df, result_info
+
+
+def _op_fill_nulls(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
+    col = op["column"]
+    if col not in df.columns:
+        raise ValueError(
+            f"Column not found: {col}. Available: {list(df.columns)}"
+        )
+    strategy = op["strategy"]
+    fill_zeros = op.get("fill_zeros", False)
+
+    if fill_zeros and pd.api.types.is_numeric_dtype(df[col]):
+        df[col] = df[col].replace(0, pd.NA)
+
+    null_before = int(df[col].isna().sum())
+    value_used = None
+
+    if strategy == "mean":
+        value_used = float(df[col].mean()) if not df[col].dropna().empty else None
+        df[col] = df[col].fillna(value_used) if value_used is not None else df[col]
+    elif strategy == "median":
+        value_used = float(df[col].median()) if not df[col].dropna().empty else None
+        df[col] = df[col].fillna(value_used) if value_used is not None else df[col]
+    elif strategy == "mode":
+        mode_series = df[col].mode()
+        if not mode_series.empty:
+            value_used = mode_series.iloc[0]
+            df[col] = df[col].fillna(value_used)
+    elif strategy == "ffill":
+        df[col] = df[col].ffill()
+    elif strategy == "bfill":
+        df[col] = df[col].bfill()
+    elif strategy == "drop":
+        df = df.dropna(subset=[col])
+
+    null_after = int(df[col].isna().sum()) if col in df.columns else 0
+    filled = null_before - null_after
+
+    return df, {
+        "op": "fill_nulls",
+        "column": col,
+        "strategy": strategy,
+        "filled": filled,
+        "value_used": (
+            round(float(value_used), 4)
+            if isinstance(value_used, (int, float)) else
+            str(value_used) if value_used is not None else None
+        ),
+    }
+
+
+def _op_drop_duplicates(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
+    subset = op.get("subset", None)
+    before = len(df)
+    df = df.drop_duplicates(subset=subset)
+    dropped = before - len(df)
+    return df, {
+        "op": "drop_duplicates",
+        "dropped": dropped,
+        "remaining": len(df),
+    }
+
+
+_OP_HANDLERS = {
+    "drop_column": _op_drop_column,
+    "clean_text": _op_clean_text,
+    "cast_column": _op_cast_column,
+    "replace_values": _op_replace_values,
+    "add_column": _op_add_column,
+    "cap_outliers": _op_cap_outliers,
+    "fill_nulls": _op_fill_nulls,
+    "drop_duplicates": _op_drop_duplicates,
+}
+
+
+def apply_patch(
+    file_path: str,
+    ops: list[dict],
+    dry_run: bool = False,
+) -> dict:
+    progress = []
+    backup = None
+    try:
+        path = resolve_path(file_path)
+
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        # Validate all ops before touching the file
+        errors = validate_ops(ops)
+        if errors:
+            return {
+                "success": False,
+                "error": "; ".join(errors),
+                "hint": f"Valid ops: {', '.join(sorted(VALID_OPS))}",
+                "progress": [fail("Validation failed", str(errors))],
+                "token_estimate": 30,
+            }
+
+        df = _read_csv(str(path))
+
+        if dry_run:
+            would_change = []
+            for op in ops:
+                op_name = op.get("op", "")
+                would_change.append({"op": op_name, "params": op})
+            result = {
+                "success": True,
+                "dry_run": True,
+                "op": "apply_patch",
+                "would_change": would_change,
+                "progress": [info("Dry run — no changes written", path.name)],
+            }
+            result["token_estimate"] = _token_estimate(result)
+            return result
+
+        # Take snapshot before first write
+        backup = snapshot(str(path))
+        progress.append(info("Snapshot created", Path(backup).name))
+
+        results = []
+        for i, op in enumerate(ops):
+            op_name = op.get("op", "")
+            handler = _OP_HANDLERS[op_name]
+            try:
+                df, op_result = handler(df, op)
+                results.append(op_result)
+                progress.append(ok(f"Applied {op_name}", str(op_result)))
+            except Exception as exc:
+                progress.append(fail(f"Op {i} ({op_name}) failed", str(exc)))
+                return {
+                    "success": False,
+                    "error": f"Op {i} ({op_name}): {exc}",
+                    "hint": "Use restore_version() to undo from the backup.",
+                    "applied": i,
+                    "backup": backup,
+                    "progress": progress,
+                    "token_estimate": _token_estimate(progress),
+                }
+
+        # Write result atomically
+        df.to_csv(str(path), index=False)
+        progress.append(ok(f"Saved {path.name}", f"{len(ops)} op(s) applied"))
+
+        append_receipt(
+            str(path),
+            tool="apply_patch",
+            args={"ops": ops},
+            result=f"applied {len(ops)} ops",
+            backup=backup,
+        )
+
+        result = {
+            "success": True,
+            "op": "apply_patch",
+            "applied": len(ops),
+            "results": results,
+            "backup": backup,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("apply_patch error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Use restore_version() to undo if a snapshot was taken.",
+            "backup": backup,
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# restore_version
+# ---------------------------------------------------------------------------
+
+def restore_version(
+    file_path: str,
+    timestamp: str = "",
+) -> dict:
+    progress = []
+    try:
+        path = resolve_path(file_path)
+
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        versions = list_versions(str(path))
+        if not versions:
+            return {
+                "success": False,
+                "error": f"No backups found for {path.name}",
+                "hint": "Use apply_patch first to create a snapshot.",
+                "available_versions": [],
+                "progress": [fail("No backups", path.name)],
+                "token_estimate": 20,
+            }
+
+        versions_dir = path.parent / ".mcp_versions"
+
+        if timestamp:
+            # Find backup matching timestamp
+            matching = [v for v in versions if timestamp in v]
+            if not matching:
+                return {
+                    "success": False,
+                    "error": f"No backup matching timestamp: {timestamp}",
+                    "hint": f"Available: {', '.join(versions)}",
+                    "available_versions": versions,
+                    "progress": [fail("Timestamp not found", timestamp)],
+                    "token_estimate": 40,
+                }
+            backup_name = matching[0]
+        else:
+            # Most recent
+            backup_name = versions[0]
+
+        backup_path = str(versions_dir / backup_name)
+
+        # Create a counter-snapshot before overwriting
+        counter_backup = snapshot(str(path))
+        progress.append(info("Counter-snapshot created", Path(counter_backup).name))
+
+        restore(str(path), backup_path)
+        progress.append(ok(f"Restored {path.name}", backup_name))
+
+        result = {
+            "success": True,
+            "op": "restore_version",
+            "file": path.name,
+            "restored_from": backup_path,
+            "available_versions": versions,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("restore_version error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check that the backup path is valid.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# read_receipt
+# ---------------------------------------------------------------------------
+
+def read_receipt(
+    file_path: str,
+    last_n: int = 10,
+) -> dict:
+    progress = []
+    try:
+        path = resolve_path(file_path)
+        entries = read_receipt_log(str(path), last_n=last_n)
+        total = len(read_receipt_log(str(path), last_n=0))
+
+        if last_n == 0 and total > get_max_rows():
+            progress.append(warn(
+                "Large receipt log",
+                f"Returning all {total} entries; constrained mode limit: {get_max_rows()}"
+            ))
+
+        progress.append(ok(f"Receipt for {path.name}", f"{len(entries)} entries returned"))
+
+        result = {
+            "success": True,
+            "op": "read_receipt",
+            "file": path.name,
+            "total_entries": total,
+            "returned": len(entries),
+            "entries": entries,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("read_receipt error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path is absolute and the file exists.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
