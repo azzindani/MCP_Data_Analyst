@@ -94,5 +94,9 @@ def read_receipt(
     return engine.read_receipt(file_path, last_n)
 
 
-if __name__ == "__main__":
+def main() -> None:
     mcp.run()
+
+
+if __name__ == "__main__":
+    main()

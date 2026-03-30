@@ -2,7 +2,7 @@
 name = "data-basic"
 version = "0.1.0"
 description = "MCP Tier 1 — basic data loading and patching tools"
-requires-python = "==3.11.*"
+requires-python = "==3.12.*"
 dependencies = [
     "fastmcp>=2.0",
     "pandas>=2.2",
@@ -17,4 +17,4 @@ build-backend = "hatchling.build"
 packages = ["servers/data_basic"]
 
 [tool.uv]
-python = "3.11"
+python = "3.12"
