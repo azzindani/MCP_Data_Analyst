@@ -1,0 +1,31 @@
+[project]
+name = "mcp-data-analyst"
+version = "0.1.0"
+description = "Local-first MCP server for data analytics"
+requires-python = "==3.11.*"
+dependencies = [
+    "fastmcp>=2.0",
+    "pandas>=2.2",
+    "geopandas>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--tb=short"
+
+[tool.coverage.run]
+source = ["shared", "servers/data_basic"]
+omit = ["tests/*"]
+
+[tool.uv]
+python = "3.11"

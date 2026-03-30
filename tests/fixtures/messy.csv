@@ -1,0 +1,8 @@
+region ,State,City,revenue,Units Sold,Discount,Order Date
+west,California, los angeles ,5000.0,10,0.1,2024-01-15
+East,New York,New York City,,15,,2024-02-20
+South,Texas,Houston,3200.0,0,0.05,not-a-date
+,Illinois,Chicago,4800.0,12,0.2,2024-04-05
+West,Washington,Seattle,6100.0,14,0.0,2024-05-18
+East,New York,New York City,,15,,2024-02-20
+West,California, los angeles ,5000.0,10,0.1,2024-01-15

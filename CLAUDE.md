@@ -470,24 +470,24 @@ def test_fill_nulls(tmp_path, csv_fixture):
 
 ### Before adding a new tool
 
-- [ ] Does this tool belong in tier 1, 2, or 3? (use the decision tree)
-- [ ] Does it follow LOCATE/INSPECT/PATCH/VERIFY? Or is it a read-only tool?
-- [ ] Is the docstring ≤ 80 characters?
-- [ ] Do all parameters use only allowed types?
-- [ ] Does every write path call `snapshot()` and return `"backup"`?
-- [ ] Does it have `dry_run: bool = False` if it writes anything?
-- [ ] Does it use `platform_utils.get_max_rows()` for row limits?
-- [ ] Does it include `"progress"` and `"token_estimate"` in the response?
-- [ ] Are all exceptions caught in `engine.py`?
-- [ ] Is there no `print()` anywhere in the call path?
+- [x] Does this tool belong in tier 1, 2, or 3? (use the decision tree)
+- [x] Does it follow LOCATE/INSPECT/PATCH/VERIFY? Or is it a read-only tool?
+- [x] Is the docstring ≤ 80 characters?
+- [x] Do all parameters use only allowed types?
+- [x] Does every write path call `snapshot()` and return `"backup"`?
+- [x] Does it have `dry_run: bool = False` if it writes anything?
+- [x] Does it use `platform_utils.get_max_rows()` for row limits?
+- [x] Does it include `"progress"` and `"token_estimate"` in the response?
+- [x] Are all exceptions caught in `engine.py`?
+- [x] Is there no `print()` anywhere in the call path?
 
 ### Before committing
 
-- [ ] `engine.py` has zero MCP imports
-- [ ] `server.py` tool bodies are one line each
-- [ ] All new tools have tests covering success, failure, dry_run, and constrained mode
-- [ ] CI passes on Linux, macOS, and Windows
-- [ ] Docstring length CI check passes: `assert len(tool.__doc__) <= 80`
+- [x] `engine.py` has zero MCP imports
+- [x] `server.py` tool bodies are one line each
+- [x] All new tools have tests covering success, failure, dry_run, and constrained mode
+- [x] CI passes on Linux, macOS, and Windows
+- [x] Docstring length CI check passes: `assert len(tool.__doc__) <= 80`
 
 ---
 
@@ -582,20 +582,20 @@ def load_dataset(
 
 **Development checklist**
 
-- [ ] `engine.load_dataset` implemented — reads with polars/pandas, detects nulls, unique counts
-- [ ] `server.py` tool registered — one-line body only
-- [ ] Docstring ≤ 80 chars verified
-- [ ] Returns 2-row sample (hard cap, never configurable)
-- [ ] `encoding` and `separator` forwarded to read call
-- [ ] `max_rows > 0` triggers row sampling, adds `warn()` to progress
-- [ ] `token_estimate` present in all return paths
-- [ ] `progress` array populated with `ok()`/`warn()` helpers
-- [ ] Test: success with simple fixture — assert rows/columns/dtypes correct
-- [ ] Test: encoding=ISO-8859-1 reads accented characters correctly
-- [ ] Test: file not found → error dict with hint
-- [ ] Test: `.xlsx` file → error dict with hint
-- [ ] Test: empty CSV → error dict with hint
-- [ ] Test: `MCP_CONSTRAINED_MODE=1` with large file → warn in progress
+- [x] `engine.load_dataset` implemented — reads with polars/pandas, detects nulls, unique counts
+- [x] `server.py` tool registered — one-line body only
+- [x] Docstring ≤ 80 chars verified
+- [x] Returns 2-row sample (hard cap, never configurable)
+- [x] `encoding` and `separator` forwarded to read call
+- [x] `max_rows > 0` triggers row sampling, adds `warn()` to progress
+- [x] `token_estimate` present in all return paths
+- [x] `progress` array populated with `ok()`/`warn()` helpers
+- [x] Test: success with simple fixture — assert rows/columns/dtypes correct
+- [x] Test: encoding=ISO-8859-1 reads accented characters correctly
+- [x] Test: file not found → error dict with hint
+- [x] Test: `.xlsx` file → error dict with hint
+- [x] Test: empty CSV → error dict with hint
+- [x] Test: `MCP_CONSTRAINED_MODE=1` with large file → warn in progress
 
 ---
 
@@ -637,14 +637,14 @@ def load_geo_dataset(
 
 **Development checklist**
 
-- [ ] `engine.load_geo_dataset` implemented with `geopandas.read_file`
-- [ ] `rename_column` applies rename mapping before returning
-- [ ] `keep_columns` filters to only requested columns + geometry
-- [ ] Geometry column serialised as WKT string in sample (never raw object)
-- [ ] Test: valid GeoJSON → correct rows/columns/crs
-- [ ] Test: rename_column renames "name" → custom value
-- [ ] Test: file not found → error dict
-- [ ] Test: non-geo file (.csv) → error dict with hint
+- [x] `engine.load_geo_dataset` implemented with `geopandas.read_file`
+- [x] `rename_column` applies rename mapping before returning
+- [x] `keep_columns` filters to only requested columns + geometry
+- [x] Geometry column serialised as WKT string in sample (never raw object)
+- [x] Test: valid GeoJSON → correct rows/columns/crs
+- [x] Test: rename_column renames "name" → custom value
+- [x] Test: file not found → error dict
+- [x] Test: non-geo file (.csv) → error dict with hint
 
 ---
 
@@ -691,15 +691,15 @@ def inspect_dataset(
 
 **Development checklist**
 
-- [ ] `engine.inspect_dataset` reads file, computes all schema fields
-- [ ] Columns split into `numeric_columns` / `categorical_columns` / `datetime_columns`
-- [ ] `null_pct` computed as `null_count / rows * 100` rounded to 2dp
-- [ ] `include_sample=False` by default — never return rows unless asked
-- [ ] `token_estimate` capped: if response > 500 tokens, truncate `column_names` with truncation flag
-- [ ] Test: clean CSV → correct dtype classification
-- [ ] Test: messy CSV with mixed types → nulls and dtypes accurate
-- [ ] Test: `include_sample=True` → 2 rows in response
-- [ ] Test: file not found → error dict
+- [x] `engine.inspect_dataset` reads file, computes all schema fields
+- [x] Columns split into `numeric_columns` / `categorical_columns` / `datetime_columns`
+- [x] `null_pct` computed as `null_count / rows * 100` rounded to 2dp
+- [x] `include_sample=False` by default — never return rows unless asked
+- [x] `token_estimate` capped: if response > 500 tokens, truncate `column_names` with truncation flag
+- [x] Test: clean CSV → correct dtype classification
+- [x] Test: messy CSV with mixed types → nulls and dtypes accurate
+- [x] Test: `include_sample=True` → 2 rows in response
+- [x] Test: file not found → error dict
 
 ---
 
@@ -767,16 +767,16 @@ def read_column_stats(
 
 **Development checklist**
 
-- [ ] `engine.read_column_stats` dispatches on dtype — numeric path vs categorical path
-- [ ] IQR and std outlier counts computed using notebook formulas (§03.04.01, §03.04.02)
-- [ ] `zero_count` always included for numeric columns
-- [ ] `top_values` limited to top 10 by frequency for categorical
-- [ ] Column not found → error dict listing available columns
-- [ ] Test: numeric column → all stat fields present and correct
-- [ ] Test: categorical column → top_values, unique_count correct
-- [ ] Test: datetime column → returns dtype + min/max date + null_count
-- [ ] Test: column not found → error with hint listing column names
-- [ ] Test: column with all nulls → graceful (no ZeroDivisionError)
+- [x] `engine.read_column_stats` dispatches on dtype — numeric path vs categorical path
+- [x] IQR and std outlier counts computed using notebook formulas (§03.04.01, §03.04.02)
+- [x] `zero_count` always included for numeric columns
+- [x] `top_values` limited to top 10 by frequency for categorical
+- [x] Column not found → error dict listing available columns
+- [x] Test: numeric column → all stat fields present and correct
+- [x] Test: categorical column → top_values, unique_count correct
+- [x] Test: datetime column → returns dtype + min/max date + null_count
+- [x] Test: column not found → error with hint listing column names
+- [x] Test: column with all nulls → graceful (no ZeroDivisionError)
 
 ---
 
@@ -821,17 +821,17 @@ def search_columns(
 
 **Development checklist**
 
-- [ ] All filter criteria composable (multiple can apply at once)
-- [ ] `dtype="numeric"` matches both `int64` and `float64` columns
-- [ ] `name_contains` is case-insensitive
-- [ ] Returns empty `columns: []` with `matched: 0` when nothing found — not an error
-- [ ] Truncated at `get_max_results()` — includes `truncated: true` flag when trimmed
-- [ ] Test: `has_nulls=True` returns only columns with nulls
-- [ ] Test: `has_zeros=True` returns only numeric columns with zeros
-- [ ] Test: `dtype="object"` returns only string columns
-- [ ] Test: `name_contains="date"` matches "Order Date", "Ship Date" case-insensitively
-- [ ] Test: no criteria → returns all columns (acts as column lister)
-- [ ] Test: constrained mode → max 10 results
+- [x] All filter criteria composable (multiple can apply at once)
+- [x] `dtype="numeric"` matches both `int64` and `float64` columns
+- [x] `name_contains` is case-insensitive
+- [x] Returns empty `columns: []` with `matched: 0` when nothing found — not an error
+- [x] Truncated at `get_max_results()` — includes `truncated: true` flag when trimmed
+- [x] Test: `has_nulls=True` returns only columns with nulls
+- [x] Test: `has_zeros=True` returns only numeric columns with zeros
+- [x] Test: `dtype="object"` returns only string columns
+- [x] Test: `name_contains="date"` matches "Order Date", "Ship Date" case-insensitively
+- [x] Test: no criteria → returns all columns (acts as column lister)
+- [x] Test: constrained mode → max 10 results
 
 ---
 
@@ -996,31 +996,31 @@ Returns: `{"op": "drop_duplicates", "dropped": 47, "remaining": 9601}`
 
 **`apply_patch` development checklist**
 
-- [ ] `validate_ops()` called before any file modification — uses `shared/patch_validator.py`
-- [ ] `snapshot()` called once before first op; backup path returned in response
-- [ ] Ops applied sequentially; halt + return error on first failure
-- [ ] On failure: backup path included so caller can `restore_version`
-- [ ] `dry_run=True`: run all validation, compute `would_change` summary, no file write
-- [ ] `add_column` expr parser — no `eval()`, supports `*`, `/`, `+`, `-` only
-- [ ] `clean_text` handles `None`/NaN values in object columns without crashing
-- [ ] `cast_column` to datetime uses `pd.to_datetime(..., errors='coerce')` — never raises
-- [ ] `fill_nulls` with `fill_zeros=True` replaces 0 → NaN before filling
-- [ ] `cap_outliers` uses notebook IQR formula: `Q1 - 1.5*IQR` / `Q3 + 1.5*IQR`
-- [ ] Receipt log appended via `append_receipt()` after each successful patch
-- [ ] Test: single op success — file modified, backup created, receipt written
-- [ ] Test: multi-op success — all ops applied in order
-- [ ] Test: `drop_column` on non-existent column → error, no file change
-- [ ] Test: `cast_column` to int on non-numeric string → partial fail tracked in `failed`
-- [ ] Test: `fill_nulls` strategy=median on column with all nulls → graceful fallback
-- [ ] Test: `fill_nulls` fill_zeros=True → zeros treated as null
-- [ ] Test: `cap_outliers` IQR → capped counts correct vs manual calculation
-- [ ] Test: `add_column` math expr → new column values correct
-- [ ] Test: `add_column` threshold mode → low-freq values → "Other"
-- [ ] Test: `clean_text` scope=headers → column names title-cased
-- [ ] Test: `drop_duplicates` subset → only subset-based duplicates removed
-- [ ] Test: dry_run=True → `would_change` populated, file unchanged, no backup
-- [ ] Test: op 2 of 3 fails → file unchanged, backup still provided in response
-- [ ] Test: unknown op name → error before any write with hint listing allowed ops
+- [x] `validate_ops()` called before any file modification — uses `shared/patch_validator.py`
+- [x] `snapshot()` called once before first op; backup path returned in response
+- [x] Ops applied sequentially; halt + return error on first failure
+- [x] On failure: backup path included so caller can `restore_version`
+- [x] `dry_run=True`: run all validation, compute `would_change` summary, no file write
+- [x] `add_column` expr parser — no `eval()`, supports `*`, `/`, `+`, `-` only
+- [x] `clean_text` handles `None`/NaN values in object columns without crashing
+- [x] `cast_column` to datetime uses `pd.to_datetime(..., errors='coerce')` — never raises
+- [x] `fill_nulls` with `fill_zeros=True` replaces 0 → NaN before filling
+- [x] `cap_outliers` uses notebook IQR formula: `Q1 - 1.5*IQR` / `Q3 + 1.5*IQR`
+- [x] Receipt log appended via `append_receipt()` after each successful patch
+- [x] Test: single op success — file modified, backup created, receipt written
+- [x] Test: multi-op success — all ops applied in order
+- [x] Test: `drop_column` on non-existent column → error, no file change
+- [x] Test: `cast_column` to int on non-numeric string → partial fail tracked in `failed`
+- [x] Test: `fill_nulls` strategy=median on column with all nulls → graceful fallback
+- [x] Test: `fill_nulls` fill_zeros=True → zeros treated as null
+- [x] Test: `cap_outliers` IQR → capped counts correct vs manual calculation
+- [x] Test: `add_column` math expr → new column values correct
+- [x] Test: `add_column` threshold mode → low-freq values → "Other"
+- [x] Test: `clean_text` scope=headers → column names title-cased
+- [x] Test: `drop_duplicates` subset → only subset-based duplicates removed
+- [x] Test: dry_run=True → `would_change` populated, file unchanged, no backup
+- [x] Test: op 2 of 3 fails → file unchanged, backup still provided in response
+- [x] Test: unknown op name → error before any write with hint listing allowed ops
 
 ---
 
@@ -1061,15 +1061,15 @@ def restore_version(
 
 **Development checklist**
 
-- [ ] `timestamp=""` → restore most recent backup automatically
-- [ ] `available_versions` always listed in response (for reference)
-- [ ] Creates a new snapshot of current state before overwriting (undo of the undo)
-- [ ] Error if `.mcp_versions/` directory does not exist
-- [ ] Error if requested timestamp not found — list available timestamps in hint
-- [ ] Test: restore most recent → file content matches backup
-- [ ] Test: restore specific timestamp → correct backup applied
-- [ ] Test: no backups exist → error with hint to use `apply_patch` first
-- [ ] Test: timestamp not found → error listing available timestamps
+- [x] `timestamp=""` → restore most recent backup automatically
+- [x] `available_versions` always listed in response (for reference)
+- [x] Creates a new snapshot of current state before overwriting (undo of the undo)
+- [x] Error if `.mcp_versions/` directory does not exist
+- [x] Error if requested timestamp not found — list available timestamps in hint
+- [x] Test: restore most recent → file content matches backup
+- [x] Test: restore specific timestamp → correct backup applied
+- [x] Test: no backups exist → error with hint to use `apply_patch` first
+- [x] Test: timestamp not found → error listing available timestamps
 
 ---
 
@@ -1117,12 +1117,12 @@ def read_receipt(
 
 **Development checklist**
 
-- [ ] Returns most recent entries first (descending timestamp)
-- [ ] `last_n=0` returns all entries — warn if > constrained mode limit
-- [ ] No receipt file yet → returns empty entries list, not an error
-- [ ] Test: receipt exists → entries returned in descending order
-- [ ] Test: `last_n=3` → exactly 3 most recent entries
-- [ ] Test: no receipt file → `{"entries": [], "total_entries": 0, "success": True}`
+- [x] Returns most recent entries first (descending timestamp)
+- [x] `last_n=0` returns all entries — warn if > constrained mode limit
+- [x] No receipt file yet → returns empty entries list, not an error
+- [x] Test: receipt exists → entries returned in descending order
+- [x] Test: `last_n=3` → exactly 3 most recent entries
+- [x] Test: no receipt file → `{"entries": [], "total_entries": 0, "success": True}`
 
 ---
 
