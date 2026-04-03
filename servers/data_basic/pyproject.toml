@@ -21,3 +21,8 @@ packages = ["."]
 
 [tool.uv]
 python = "3.12"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
