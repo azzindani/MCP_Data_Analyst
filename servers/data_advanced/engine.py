@@ -100,24 +100,21 @@ def generate_profile_report(
         df = _read_csv(str(path))
         report_title = title if title else path.stem
 
+        # Build config for ydata-profiling
+        config_kwargs = {"title": report_title, "minimal": minimal}
+        if correlations:
+            config_kwargs["correlations"] = {
+                "pearson": {"calculate": True},
+                "spearman": {"calculate": True},
+                "kendall": {"calculate": True},
+                "phi_k": {"calculate": True},
+                "cramers": {"calculate": True},
+            }
+
         # Redirect ydata stdout to stderr
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            report = ProfileReport(
-                df,
-                title=report_title,
-                description=description,
-                minimal=minimal,
-                correlations={
-                    "pearson": {"calculate": correlations},
-                    "spearman": {"calculate": correlations},
-                    "kendall": {"calculate": correlations},
-                    "phi_k": {"calculate": correlations},
-                    "cramers": {"calculate": correlations},
-                }
-                if correlations
-                else None,
-            )
+            report = ProfileReport(df, **config_kwargs)
 
             if output_path:
                 out = Path(output_path)
@@ -166,6 +163,11 @@ def generate_sweetviz_report(
     progress = []
     try:
         try:
+            import numpy as np
+
+            # Patch numpy 2.x compatibility for sweetviz
+            if not hasattr(np, "VisibleDeprecationWarning"):
+                np.VisibleDeprecationWarning = np.exceptions.VisibleDeprecationWarning
             import sweetviz as sv
         except ImportError:
             return {
