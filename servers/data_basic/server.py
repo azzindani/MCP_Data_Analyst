@@ -1,4 +1,5 @@
 """Tier 1 MCP server — thin wrapper only. Zero domain logic."""
+
 from __future__ import annotations
 
 import sys
@@ -7,7 +8,11 @@ import logging
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
 from fastmcp import FastMCP
-from servers.data_basic import engine
+
+try:
+    from . import engine
+except ImportError:
+    import engine
 
 mcp = FastMCP("data_basic")
 
