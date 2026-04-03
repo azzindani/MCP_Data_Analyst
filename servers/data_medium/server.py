@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import sys
 import logging
+from pathlib import Path
+from pathlib import Path
 
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
@@ -12,6 +14,9 @@ from fastmcp import FastMCP
 try:
     from . import engine
 except ImportError:
+    _root = str(Path(__file__).resolve().parents[2])
+    if _root not in sys.path:
+        sys.path.insert(0, _root)
     import engine
 
 mcp = FastMCP("data_medium")
