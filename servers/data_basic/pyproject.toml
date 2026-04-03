@@ -9,6 +9,9 @@ dependencies = [
     "geopandas>=1.0",
 ]
 
+[project.scripts]
+data-analyst-basic = "servers.data_basic.server:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

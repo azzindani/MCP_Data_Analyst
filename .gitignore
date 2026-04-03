@@ -40,3 +40,8 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+test_workspace/data.xlsx
+test_workspace/messy_sales.csv
+test_tier1.ipynb
+test_workspace/sales.csv
+test_workspace/states.geojson
