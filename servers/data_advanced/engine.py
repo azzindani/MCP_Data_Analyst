@@ -6,6 +6,7 @@ import contextlib
 import io
 import logging
 import sys
+import textwrap
 from pathlib import Path
 
 import pandas as pd
@@ -706,61 +707,71 @@ def generate_dashboard(
 
         chart_code_lines = []
         if "bar" in charts and numeric_cols and cat_cols:
-            chart_code_lines.append(f"""
-    st.subheader("Bar Chart")
-    chart_df = df.groupby('{cat_cols[0]}', as_index=False)['{numeric_cols[0]}'].sum()
-    chart_df = chart_df.sort_values(by='{numeric_cols[0]}', ascending=False)
-    fig = px.bar(chart_df, x='{cat_cols[0]}', y='{numeric_cols[0]}',
-                 title="Total {numeric_cols[0]} by {cat_cols[0]}", template='{theme}')
-    st.plotly_chart(fig, use_container_width=True)
-""")
+            chart_code_lines.append(
+                textwrap.dedent(f"""
+                st.subheader("Bar Chart")
+                chart_df = df.groupby('{cat_cols[0]}', as_index=False)['{numeric_cols[0]}'].sum()
+                chart_df = chart_df.sort_values(by='{numeric_cols[0]}', ascending=False)
+                fig = px.bar(chart_df, x='{cat_cols[0]}', y='{numeric_cols[0]}',
+                             title="Total {numeric_cols[0]} by {cat_cols[0]}", template='{theme}')
+                st.plotly_chart(fig, use_container_width=True)
+            """)
+            )
         if "time_series" in charts and datetime_cols and numeric_cols:
-            chart_code_lines.append(f"""
-    st.subheader("Time Series")
-    ts_df = df.copy()
-    ts_df['{datetime_cols[0]}'] = pd.to_datetime(ts_df['{datetime_cols[0]}'])
-    ts_df = ts_df.groupby(ts_df['{datetime_cols[0]}'].dt.to_period('M').astype(str), as_index=False)['{numeric_cols[0]}'].sum()
-    fig = px.line(ts_df, x='{datetime_cols[0]}', y='{numeric_cols[0]}',
-                  title="{numeric_cols[0]} Over Time", template='{theme}', markers=True)
-    st.plotly_chart(fig, use_container_width=True)
-""")
+            chart_code_lines.append(
+                textwrap.dedent(f"""
+                st.subheader("Time Series")
+                ts_df = df.copy()
+                ts_df['{datetime_cols[0]}'] = pd.to_datetime(ts_df['{datetime_cols[0]}'])
+                ts_df = ts_df.groupby(ts_df['{datetime_cols[0]}'].dt.to_period('M').astype(str), as_index=False)['{numeric_cols[0]}'].sum()
+                fig = px.line(ts_df, x='{datetime_cols[0]}', y='{numeric_cols[0]}',
+                              title="{numeric_cols[0]} Over Time", template='{theme}', markers=True)
+                st.plotly_chart(fig, use_container_width=True)
+            """)
+            )
         if "scatter" in charts and len(numeric_cols) >= 2:
-            chart_code_lines.append(f"""
-    st.subheader("Scatter Plot")
-    fig = px.scatter(df, x='{numeric_cols[0]}', y='{numeric_cols[1]}',
-                     title="{numeric_cols[0]} vs {numeric_cols[1]}", template='{theme}')
-    st.plotly_chart(fig, use_container_width=True)
-""")
+            chart_code_lines.append(
+                textwrap.dedent(f"""
+                st.subheader("Scatter Plot")
+                fig = px.scatter(df, x='{numeric_cols[0]}', y='{numeric_cols[1]}',
+                                 title="{numeric_cols[0]} vs {numeric_cols[1]}", template='{theme}')
+                st.plotly_chart(fig, use_container_width=True)
+            """)
+            )
         if "pie" in charts and cat_cols:
-            chart_code_lines.append(f"""
-    st.subheader("Pie Chart")
-    pie_df = df.groupby('{cat_cols[0]}', as_index=False).size()
-    fig = px.pie(pie_df, names='{cat_cols[0]}', values='size',
-                 title="{cat_cols[0]} Distribution", template='{theme}', hole=0.5)
-    st.plotly_chart(fig, use_container_width=True)
-""")
+            chart_code_lines.append(
+                textwrap.dedent(f"""
+                st.subheader("Pie Chart")
+                pie_df = df.groupby('{cat_cols[0]}', as_index=False).size()
+                fig = px.pie(pie_df, names='{cat_cols[0]}', values='size',
+                             title="{cat_cols[0]} Distribution", template='{theme}', hole=0.5)
+                st.plotly_chart(fig, use_container_width=True)
+            """)
+            )
         if "geo" in charts and geo_file_path:
-            chart_code_lines.append(f"""
-    st.subheader("Map")
-    gdf = gpd.read_file('{abs_geo}')
-    fig = px.choropleth_mapbox(gdf, geojson=gdf.geometry, locations=gdf.index,
-                               color='name', title="Geographic View",
-                               template='{theme}', mapbox_style="carto-positron",
-                               center={{"lat": 37.09, "lon": -73.94}}, zoom=3)
-    st.plotly_chart(fig, use_container_width=True)
-""")
+            chart_code_lines.append(
+                textwrap.dedent(f"""
+                st.subheader("Map")
+                gdf = gpd.read_file('{abs_geo}')
+                fig = px.choropleth_mapbox(gdf, geojson=gdf.geometry, locations=gdf.index,
+                                           color='name', title="Geographic View",
+                                           template='{theme}', mapbox_style="carto-positron",
+                                           center={{"lat": 37.09, "lon": -73.94}}, zoom=3)
+                st.plotly_chart(fig, use_container_width=True)
+            """)
+            )
 
         chart_sections = "\n".join(chart_code_lines)
 
         filter_code = ""
         for fc in filter_cols:
-            filter_code += f"""
-    {fc}_filter = st.sidebar.multiselect('{fc}', options=df['{fc}'].unique().tolist())
-    if {fc}_filter:
-        df = df[df['{fc}'].isin({fc}_filter)]
-"""
+            filter_code += textwrap.dedent(f"""
+                {fc}_filter = st.sidebar.multiselect('{fc}', options=df['{fc}'].unique().tolist())
+                if {fc}_filter:
+                    df = df[df['{fc}'].isin({fc}_filter)]
+            """)
 
-        # Build KPI code manually to avoid f-string escaping issues
+        # Build KPI code
         kpi_lines = []
         for kc in kpi_cols:
             kpi_lines.append(
@@ -768,16 +779,6 @@ def generate_dashboard(
             )
         kpi_code = "\n".join(kpi_lines)
 
-        # Build KPI section as plain text (no f-string eval of kpi_cols[i])
-        kpi_section = (
-            "# KPI metrics\ncols = st.columns("
-            + str(len(kpi_cols))
-            + ")\nfor i, col in enumerate(cols):\n    with col:\n"
-        )
-        for kc in kpi_cols:
-            kpi_section += f"        st.metric(label='{kc}', value=f\"{{df['{kc}'].sum():,.0f}}\")\n"
-
-        # Build KPI section as plain text (no f-string eval of kpi_cols[i])
         kpi_section = (
             "# KPI metrics\ncols = st.columns("
             + str(len(kpi_cols))
