@@ -859,10 +859,17 @@ tr:hover{background:rgba(88,166,255,0.04)}
             h.append(
                 f'<div class="chart-container" style="margin:16px 0"><div id="corr-heatmap" style="height:var(--heatmap-h)"></div></div>'
             )
+            # Use JSON.stringify for safe embedding
+            corr_z = corr_matrix.values.tolist()
+            corr_x = corr_matrix.columns.tolist()
             h.append(f"""<script>
-var z={corr_matrix.values.tolist()};var x={corr_matrix.columns.tolist()};
-Plotly.newPlot('corr-heatmap',[{{z:z,x:x,y:x,type:'heatmap',colorscale:'RdBu',zmid:0,text:z.map(v=>v.toFixed(2)),texttemplate:'%{{text}}',textfont:{{size:11}}}}],
-{{paper_bgcolor:'#161b22',plot_bgcolor:'#161b22',font:{{color:'#c9d1d9'}},margin:{{l:120,r:20,t:20,b:120}},height:500}},{{responsive:true,displayModeBar:false}});
+(function() {{
+    var z = {corr_z};
+    var x = {corr_x};
+    var data = [{{z: z, x: x, y: x, type: 'heatmap', colorscale: 'RdBu', zmid: 0, text: z.map(function(r) {{ return r.map(function(v) {{ return v.toFixed(2); }}); }}), texttemplate: '%{{text}}', textfont: {{size: 11}}}}];
+    var layout = {{paper_bgcolor: '#161b22', plot_bgcolor: '#161b22', font: {{color: '#c9d1d9'}}, margin: {{l: 120, r: 20, t: 20, b: 120}}, height: 500}};
+    Plotly.newPlot('corr-heatmap', data, layout, {{responsive: true, displayModeBar: false}});
+}})();
 </script>""")
             h.append(
                 "<h3>Strongest Correlations</h3><table><tr><th>Variable A</th><th>Variable B</th><th>r</th><th>Strength</th></tr>"
@@ -1012,23 +1019,76 @@ Plotly.newPlot('corr-heatmap',[{{z:z,x:x,y:x,type:'heatmap',colorscale:'RdBu',zm
                         + [p["col_b"] for p in strong_pairs]
                     )
                 )
-                node_map = {n: i for i, n in enumerate(nodes)}
+                # Create a simple force-directed-like layout using circular positioning
+                import math
+
+                n_nodes = len(nodes)
+                radius = 200
+                node_positions = []
+                for i in range(n_nodes):
+                    angle = 2 * math.pi * i / n_nodes - math.pi / 2
+                    node_positions.append(
+                        {
+                            "x": radius * math.cos(angle),
+                            "y": radius * math.sin(angle),
+                            "label": nodes[i],
+                        }
+                    )
                 edges = []
                 for p in strong_pairs:
                     edges.append(
                         {
-                            "source": node_map[p["col_a"]],
-                            "target": node_map[p["col_b"]],
-                            "weight": abs(p["correlation"]),
-                            "label": f"{p['col_a']} ↔ {p['col_b']}: {p['correlation']:+.3f}",
+                            "x": [
+                                node_positions[nodes.index(p["col_a"])]["x"],
+                                node_positions[nodes.index(p["col_b"])]["x"],
+                            ],
+                            "y": [
+                                node_positions[nodes.index(p["col_a"])]["y"],
+                                node_positions[nodes.index(p["col_b"])]["y"],
+                            ],
+                            "text": f"{p['col_a']} ↔ {p['col_b']}: {p['correlation']:+.3f}",
+                            "width": max(1, abs(p["correlation"]) * 4),
                         }
                     )
+
                 h.append(f"""<div class="chart-container" style="margin:16px 0"><div id="corr-network" style="height:500px"></div></div>
 <script>
-var nodes={{"id":{list(range(len(nodes)))},"label":{nodes},"size":{[15] * len(nodes)}}};
-var edges={{"source":[{",".join(str(e["source"]) for e in edges)}],"target":[{",".join(str(e["target"]) for e in edges)}],"width":[{",".join(str(e["weight"] * 5) for e in edges)}],"text":[{",".join(repr(e["label"]) for e in edges)}]}};
-Plotly.newPlot('corr-network',[{{type:'scatter',mode:'lines+markers',x:[],y:[],marker:{{size:15,color:'#58a6ff'}},line:{{width:2,color:'#8b949e'}},text:edges.text,hoverinfo:'text'}}],
-{{paper_bgcolor:'#161b22',plot_bgcolor:'#161b22',font:{{color:'#c9d1d9'}},height:500,margin:{{l:20,r:20,t:20,b:20}},xaxis:{{visible:false}},yaxis:{{visible:false}}}},{{responsive:true,displayModeBar:false}});
+(function() {{
+    var nodePos = {node_positions};
+    var edges = {edges};
+    var traces = [];
+    // Edge traces
+    for (var i = 0; i < edges.length; i++) {{
+        traces.push({{
+            type: 'scatter', mode: 'lines',
+            x: edges[i].x, y: edges[i].y,
+            line: {{width: edges[i].width, color: '#8b949e'}},
+            hoverinfo: 'text', text: edges[i].text,
+            showlegend: false
+        }});
+    }}
+    // Node trace
+    traces.push({{
+        type: 'scatter', mode: 'markers+text',
+        x: nodePos.map(function(n) {{ return n.x; }}),
+        y: nodePos.map(function(n) {{ return n.y; }}),
+        text: nodePos.map(function(n) {{ return n.label; }}),
+        textposition: 'middle center', textfont: {{size: 12, color: '#c9d1d9'}},
+        marker: {{size: 20, color: '#58a6ff', line: {{width: 2, color: '#0d1117'}}}},
+        hoverinfo: 'text',
+        text: nodePos.map(function(n) {{ return n.label; }}),
+        showlegend: false
+    }});
+    var layout = {{
+        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+        font: {{color: '#c9d1d9'}},
+        height: 500, margin: {{l: 20, r: 20, t: 20, b: 20}},
+        xaxis: {{visible: false, range: [-250, 250]}},
+        yaxis: {{visible: false, range: [-250, 250]}},
+        showlegend: false
+    }};
+    Plotly.newPlot('corr-network', traces, layout, {{responsive: true, displayModeBar: false}});
+}})();
 </script>""")
 
         # Actionable Recommendations
@@ -1152,25 +1212,63 @@ Plotly.newPlot('corr-network',[{{type:'scatter',mode:'lines+markers',x:[],y:[],m
             chart_id = f"chart-{anchor}"
             h.append(f'<div id="{chart_id}" style="height:var(--chart-h)"></div>')
             if c in numeric_cols:
+                # Use Plotly's built-in data reference for large datasets
                 clean_data = df[c].dropna().tolist()
                 h.append(f"""<script>
-var d={clean_data};
-Plotly.newPlot('{chart_id}',[
-{{x:d,type:'histogram',nbinsx:50,marker:{{color:'#58a6ff',opacity:0.7}},yaxis:'y'}},
-{{y:d,type:'box',marker:{{color:'#f0883e'}},xaxis:'x2',yaxis:'y2'}}
-],{{paper_bgcolor:'#161b22',plot_bgcolor:'#161b22',font:{{color:'#c9d1d9'}},grid:{{rows:2,columns:1,pattern:'independent'}},height:420,margin:{{l:50,r:20,t:10,b:30}},yaxis:{{title:'Count'}},yaxis2:{{title:''}}}},{{responsive:true,displayModeBar:true,modeBarButtonsToRemove:['lasso2d','select2d']}});
+(function() {{
+    var d = {clean_data};
+    var trace1 = {{x: d, type: 'histogram', nbinsx: 50, marker: {{color: '#58a6ff', opacity: 0.7}}, yaxis: 'y'}};
+    var trace2 = {{y: d, type: 'box', marker: {{color: '#f0883e'}}, xaxis: 'x2', yaxis: 'y2'}};
+    var layout = {{
+        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+        font: {{color: '#c9d1d9'}},
+        grid: {{rows: 2, columns: 1, pattern: 'independent'}},
+        height: 420, margin: {{l: 50, r: 20, t: 10, b: 30}},
+        yaxis: {{title: 'Count'}},
+        yaxis2: {{title: ''}}
+    }};
+    Plotly.newPlot('{chart_id}', [trace1, trace2], layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
+}})();
 </script>""")
             elif c in cat_cols:
                 tv = df[c].value_counts().head(15)
                 h.append(f"""<script>
-Plotly.newPlot('{chart_id}',[{{x:{tv.index.tolist()},y:{tv.values.tolist()},type:'bar',marker:{{color:'#58a6ff'}},text:{tv.values.tolist()},textposition:'outside'}}],
-{{paper_bgcolor:'#161b22',plot_bgcolor:'#161b22',font:{{color:'#c9d1d9'}},height:420,margin:{{l:50,r:20,t:10,b:80}},xaxis:{{tickangle:-45}}}},{{responsive:true,displayModeBar:true,modeBarButtonsToRemove:['lasso2d','select2d']}});
+(function() {{
+    var data = [{{
+        x: {tv.index.tolist()},
+        y: {tv.values.tolist()},
+        type: 'bar',
+        marker: {{color: '#58a6ff'}},
+        text: {tv.values.tolist()},
+        textposition: 'outside'
+    }}];
+    var layout = {{
+        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+        font: {{color: '#c9d1d9'}},
+        height: 420, margin: {{l: 50, r: 20, t: 10, b: 80}},
+        xaxis: {{tickangle: -45}}
+    }};
+    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
+}})();
 </script>""")
             elif c in datetime_cols:
                 ts = df[c].value_counts().sort_index()
                 h.append(f"""<script>
-Plotly.newPlot('{chart_id}',[{{x:{ts.index.tolist()},y:{ts.values.tolist()},type:'scatter',mode:'lines+markers',marker:{{color:'#3fb950'}},line:{{color:'#3fb950'}}}}],
-{{paper_bgcolor:'#161b22',plot_bgcolor:'#161b22',font:{{color:'#c9d1d9'}},height:420,margin:{{l:50,r:20,t:10,b:30}}}},{{responsive:true,displayModeBar:true,modeBarButtonsToRemove:['lasso2d','select2d']}});
+(function() {{
+    var data = [{{
+        x: {ts.index.tolist()},
+        y: {ts.values.tolist()},
+        type: 'scatter', mode: 'lines+markers',
+        marker: {{color: '#3fb950'}},
+        line: {{color: '#3fb950'}}
+    }}];
+    var layout = {{
+        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+        font: {{color: '#c9d1d9'}},
+        height: 420, margin: {{l: 50, r: 20, t: 10, b: 30}}
+    }};
+    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
+}})();
 </script>""")
             h.append("</div></div></div></div></div>")
 
@@ -2025,7 +2123,7 @@ def generate_chart(
 
 
 # ---------------------------------------------------------------------------
-# generate_dashboard (kept unchanged)
+# generate_dashboard - auto-generated interactive HTML dashboard
 # ---------------------------------------------------------------------------
 
 
@@ -2037,10 +2135,24 @@ def generate_dashboard(
     geo_file_path: str = "",
     theme: str = "plotly_dark",
     dry_run: bool = False,
+    open_after: bool = True,
 ) -> dict:
-    """Generate Streamlit dashboard app.py from dataset. Run separately."""
+    """Generate interactive HTML dashboard with auto-detected charts. Opens HTML."""
     progress = []
     try:
+        try:
+            import plotly.express as px
+            import plotly.graph_objects as go
+            from plotly.subplots import make_subplots
+        except ImportError:
+            return {
+                "success": False,
+                "error": "plotly not installed",
+                "hint": "Install: uv add plotly",
+                "progress": [fail("Missing dependency", "plotly")],
+                "token_estimate": 20,
+            }
+
         path = resolve_path(file_path)
         if not path.exists():
             return {
@@ -2050,6 +2162,808 @@ def generate_dashboard(
                 "progress": [fail("File not found", path.name)],
                 "token_estimate": 20,
             }
+
+        df = _read_csv(str(path))
+        dashboard_title = title if title else path.stem
+
+        # Classify columns
+        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+        cat_cols = [
+            c
+            for c in df.columns
+            if not pd.api.types.is_numeric_dtype(df[c])
+            and not pd.api.types.is_datetime64_any_dtype(df[c])
+        ]
+        datetime_cols = [
+            c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])
+        ]
+
+        # Auto-detect charts
+        detected = []
+        if numeric_cols and cat_cols:
+            detected.append("bar")
+        if datetime_cols and numeric_cols:
+            detected.append("time_series")
+        if len(numeric_cols) >= 2:
+            detected.append("scatter")
+        if cat_cols:
+            detected.append("pie")
+        if geo_file_path:
+            detected.append("geo")
+
+        charts = chart_types if chart_types else detected
+
+        if dry_run:
+            progress.append(info("Dry run — no file written", path.name))
+            result = {
+                "success": True,
+                "dry_run": True,
+                "op": "generate_dashboard",
+                "would_generate": {
+                    "title": dashboard_title,
+                    "charts": charts,
+                    "kpi_columns": numeric_cols[:5],
+                    "filter_columns": cat_cols[:3],
+                    "run_command": "Open in browser",
+                },
+                "progress": progress,
+            }
+            result["token_estimate"] = _token_estimate(result)
+            return result
+
+        # Build interactive HTML dashboard
+        h = []
+        h.append("""<!DOCTYPE html>
+<html><head><meta charset='utf-8'><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--border:#21262d;--text:#c9d1d9;--text-muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--orange:#f0883e;--red:#f85149}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:#30363d;border-radius:4px}
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:20px 30px;display:flex;justify-content:space-between;align-items:center}
+header h1{color:var(--accent);font-size:22px;font-weight:600}
+header .meta{color:var(--text-muted);font-size:13px}
+.filters{background:var(--surface);border-bottom:1px solid var(--border);padding:16px 30px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.filters label{color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:600}
+.filters select{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:13px;min-width:150px}
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;padding:20px 30px}
+.kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;text-align:center}
+.kpi-card .num{font-size:26px;font-weight:700;color:var(--accent)}
+.kpi-card .label{font-size:11px;color:var(--text-muted);margin-top:4px;text-transform:uppercase}
+.charts{padding:20px 30px;display:grid;grid-template-columns:repeat(auto-fit,minmax(500px,1fr));gap:20px}
+.chart-box{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px}
+.chart-box h3{color:var(--text);font-size:14px;margin-bottom:8px;padding-left:8px;font-weight:500}
+.full-width{grid-column:1/-1}
+@media(max-width:1100px){.charts{grid-template-columns:1fr}}
+</style></head><body>""")
+
+        # Header
+        h.append(f"""<header><h1>:bar_chart: {dashboard_title}</h1>
+<p class="meta">{len(df):,} rows x {len(df.columns)} columns | {len(numeric_cols)} numeric, {len(cat_cols)} categorical</p></header>""")
+
+        # Filters
+        if cat_cols:
+            h.append('<div class="filters"><label>Filters:</label>')
+            for fc in cat_cols[:5]:
+                unique_vals = df[fc].dropna().unique().tolist()
+                if len(unique_vals) <= 50:
+                    options = "".join(
+                        f'<option value="{v}">{v}</option>' for v in unique_vals[:50]
+                    )
+                    h.append(
+                        f'<div><label>{fc}</label><select id="filter-{fc}" multiple size="1" onchange="applyFilters()">{options}</select></div>'
+                    )
+            h.append("</div>")
+
+        # KPI cards
+        h.append('<div class="kpi-row">')
+        for nc in numeric_cols[:6]:
+            val = df[nc].sum()
+            h.append(
+                f'<div class="kpi-card"><div class="num">{val:,.0f}</div><div class="label">{nc}</div></div>'
+            )
+        h.append("</div>")
+
+        # Charts grid
+        h.append('<div class="charts">')
+
+        # Bar charts
+        if "bar" in charts and cat_cols and numeric_cols:
+            for cc in cat_cols[:3]:
+                for nc in numeric_cols[:2]:
+                    agg_df = (
+                        df.groupby(cc, as_index=False)[nc]
+                        .sum()
+                        .sort_values(nc, ascending=False)
+                        .head(20)
+                    )
+                    chart_id = f"bar-{cc}-{nc}"
+                    h.append(
+                        f'<div class="chart-box"><h3>Total {nc} by {cc}</h3><div id="{chart_id}" style="height:380px"></div></div>'
+                    )
+                    h.append(f"""<script>
+(function() {{
+    var data = [{{
+        x: {agg_df[cc].tolist()},
+        y: {agg_df[nc].tolist()},
+        type: 'bar',
+        marker: {{color: '#58a6ff'}},
+        text: {agg_df[nc].apply(lambda x: f"{{x:,.0f}}").tolist()},
+        textposition: 'outside'
+    }}];
+    var layout = {{
+        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+        font: {{color: '#c9d1d9'}},
+        height: 380, margin: {{l: 20, r: 20, t: 10, b: 60}},
+        xaxis: {{tickangle: -45}}
+    }};
+    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
+}})();
+</script>""")
+
+        # Pie charts
+        if "pie" in charts and cat_cols:
+            for cc in cat_cols[:4]:
+                val_counts = df[cc].value_counts().head(15)
+                chart_id = f"pie-{cc}"
+                h.append(
+                    f'<div class="chart-box"><h3>{cc} Distribution</h3><div id="{chart_id}" style="height:380px"></div></div>'
+                )
+                h.append(f"""<script>
+(function() {{
+    var data = [{{
+        values: {val_counts.values.tolist()},
+        labels: {val_counts.index.tolist()},
+        type: 'pie',
+        hole: 0.4,
+        marker: {{colors: ['#58a6ff', '#3fb950', '#f0883e', '#f85149', '#bc8cff', '#79c0ff', '#7ee787', '#ffa657', '#ff7b72', '#d2a8ff', '#a5d6ff', '#aff5b4', '#ffd6a5', '#ffabab', '#e0b0ff']}},
+        textinfo: 'label+percent',
+        textfont: {{size: 12}}
+    }}];
+    var layout = {{
+        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+        font: {{color: '#c9d1d9'}},
+        height: 380, margin: {{l: 20, r: 20, t: 10, b: 20}}
+    }};
+    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
+}})();
+</script>""")
+
+        # Scatter plots
+        if "scatter" in charts and len(numeric_cols) >= 2:
+            for i in range(min(3, len(numeric_cols))):
+                for j in range(i + 1, min(4, len(numeric_cols))):
+                    nc1, nc2 = numeric_cols[i], numeric_cols[j]
+                    chart_id = f"scatter-{nc1}-{nc2}"
+                    h.append(
+                        f'<div class="chart-box"><h3>{nc1} vs {nc2}</h3><div id="{chart_id}" style="height:380px"></div></div>'
+                    )
+                    h.append(f"""<script>
+(function() {{
+    var data = [{{
+        x: {df[nc1].dropna().tolist()},
+        y: {df[nc2].dropna().tolist()},
+        type: 'scatter', mode: 'markers',
+        marker: {{color: '#58a6ff', opacity: 0.6, size: 6}},
+        text: ['{nc1}: ' + {df[nc1].dropna().apply(lambda x: f"{{x:,.1f}}").tolist()} + '<br>{nc2}: ' + {df[nc2].dropna().apply(lambda x: f"{{x:,.1f}}").tolist()}],
+        hoverinfo: 'text'
+    }}];
+    var layout = {{
+        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+        font: {{color: '#c9d1d9'}},
+        height: 380, margin: {{l: 20, r: 20, t: 10, b: 40}},
+        xaxis: {{title: '{nc1}'}},
+        yaxis: {{title: '{nc2}'}}
+    }};
+    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
+}})();
+</script>""")
+
+        # Correlation heatmap
+        if len(numeric_cols) >= 2:
+            corr = df[numeric_cols].corr()
+            chart_id = "corr-heatmap"
+            h.append(
+                f'<div class="chart-box full-width"><h3>Correlation Matrix</h3><div id="{chart_id}" style="height:500px"></div></div>'
+            )
+            h.append(f"""<script>
+(function() {{
+    var z = {corr.values.tolist()};
+    var x = {corr.columns.tolist()};
+    var data = [{{z: z, x: x, y: x, type: 'heatmap', colorscale: 'RdBu_r', zmid: 0,
+        text: z.map(function(r) {{ return r.map(function(v) {{ return v.toFixed(2); }}); }}),
+        texttemplate: '%{{text}}', textfont: {{size: 11}}}}];
+    var layout = {{
+        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+        font: {{color: '#c9d1d9'}},
+        height: 500, margin: {{l: 120, r: 20, t: 10, b: 120}}
+    }};
+    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: false}});
+}})();
+</script>""")
+
+
+        # Multi-condition: Grouped bar chart
+        if len(cat_cols) >= 2 and numeric_cols:
+            cc1, cc2 = cat_cols[0], cat_cols[1]
+            nc = numeric_cols[0]
+            if all(c in df.columns for c in [cc1, cc2, nc]):
+                agg_df = df.groupby([cc1, cc2], as_index=False)[nc].sum()
+                chart_id = f"grouped-bar-{cc1}-{cc2}-{nc}"
+                h.append(f'<div class="chart-box full-width"><h3>{nc} by {cc1}, grouped by {cc2}</h3><div id="{chart_id}" style="height:400px"></div></div>')
+                traces = []
+                for val in agg_df[cc2].unique()[:10]:
+                    sub = agg_df[agg_df[cc2] == val]
+                    traces.append(f"""{{
+        x: {sub[cc1].tolist()},
+        y: {sub[nc].tolist()},
+        type: 'bar',
+        name: '{val}',
+        marker: {{opacity: 0.85}}
+    }}""")
+                h.append(f"""<script>
+(function() {{
+    var data = [{','.join(traces)}];
+    var layout = {{
+        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+        font: {{color: '#c9d1d9'}},
+        barmode: 'group',
+        height: 400, margin: {{l: 20, r: 20, t: 10, b: 80}},
+        xaxis: {{tickangle: -45}},
+        legend: {{orientation: 'h', y: -0.3}}
+    }};
+    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
+}})();
+</script>""")
+
+                # Stacked bar
+                chart_id2 = f"stacked-bar-{cc1}-{cc2}-{nc}"
+                h.append(f'<div class="chart-box full-width"><h3>{nc} by {cc1}, stacked by {cc2}</h3><div id="{chart_id2}" style="height:400px"></div></div>')
+                traces2 = []
+                for val in agg_df[cc2].unique()[:10]:
+                    sub = agg_df[agg_df[cc2] == val]
+                    traces2.append(f"""{{
+        x: {sub[cc1].tolist()},
+        y: {sub[nc].tolist()},
+        type: 'bar',
+        name: '{val}',
+        marker: {{opacity: 0.85}}
+    }}""")
+                h.append(f"""<script>
+(function() {{
+    var data = [{','.join(traces2)}];
+    var layout = {{
+        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+        font: {{color: '#c9d1d9'}},
+        barmode: 'stack',
+        height: 400, margin: {{l: 20, r: 20, t: 10, b: 80}},
+        xaxis: {{tickangle: -45}},
+        legend: {{orientation: 'h', y: -0.3}}
+    }};
+    Plotly.newPlot('{chart_id2}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
+}})();
+</script>""")
+
+        # Multi-condition: Colored scatter plot
+        if len(numeric_cols) >= 2 and cat_cols:
+            nc1, nc2 = numeric_cols[0], numeric_cols[1]
+            cc = cat_cols[0]
+            if all(c in df.columns for c in [nc1, nc2, cc]):
+                chart_id = f"colored-scatter-{nc1}-{nc2}-{cc}"
+                h.append(f'<div class="chart-box full-width"><h3>{nc1} vs {nc2}, colored by {cc}</h3><div id="{chart_id}" style="height:400px"></div></div>')
+                traces = []
+                for val in df[cc].dropna().unique()[:15]:
+                    sub = df[df[cc] == val]
+                    traces.append(f"""{{
+        x: {sub[nc1].dropna().tolist()},
+        y: {sub[nc2].dropna().tolist()},
+        type: 'scatter', mode: 'markers',
+        name: '{val}',
+        marker: {{opacity: 0.7, size: 5}}
+    }}""")
+                h.append(f"""<script>
+(function() {{
+    var data = [{','.join(traces)}];
+    var layout = {{
+        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+        font: {{color: '#c9d1d9'}},
+        height: 400, margin: {{l: 20, r: 20, t: 10, b: 40}},
+        xaxis: {{title: '{nc1}'}},
+        yaxis: {{title: '{nc2}'}},
+        legend: {{orientation: 'h', y: -0.25}}
+    }};
+    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
+}})();
+</script>""")
+
+        # Multi-condition: Grouped box plot
+        if numeric_cols and cat_cols:
+            nc = numeric_cols[0]
+            cc = cat_cols[0]
+            if nc in df.columns and cc in df.columns:
+                chart_id = f"box-{nc}-by-{cc}"
+                h.append(f'<div class="chart-box full-width"><h3>{nc} distribution by {cc}</h3><div id="{chart_id}" style="height:400px"></div></div>')
+                h.append(f"""<script>
+(function() {{
+    var data = [];
+    var categories = {df[cc].dropna().unique()[:20].tolist()};
+    var vals = {df[df[cc].isin(df[cc].dropna().unique()[:20].tolist())].groupby(cc)[nc].apply(list).to_dict()};
+    for (var i = 0; i < categories.length; i++) {{
+        if (vals[categories[i]]) {{
+            data.push({{
+                type: 'box', y: vals[categories[i]], name: categories[i],
+                boxpoints: 'outliers', marker: {{size: 3}}
+            }});
+        }}
+    }}
+    var layout = {{
+        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+        font: {{color: '#c9d1d9'}},
+        height: 400, margin: {{l: 20, r: 20, t: 10, b: 80}},
+        xaxis: {{tickangle: -45}},
+        showlegend: false
+    }};
+    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
+}})();
+</script>""")
+
+        # Multi-condition: Aggregation heatmap
+        if len(cat_cols) >= 2 and numeric_cols:
+            cc1, cc2 = cat_cols[0], cat_cols[1]
+            nc = numeric_cols[0]
+            if all(c in df.columns for c in [cc1, cc2, nc]):
+                pivot = df.pivot_table(index=cc1, columns=cc2, values=nc, aggfunc="sum", fill_value=0)
+                chart_id = f"agg-heatmap-{cc1}-{cc2}-{nc}"
+                h.append(f'<div class="chart-box full-width"><h3>Sum {nc}: {cc1} x {cc2}</h3><div id="{chart_id}" style="height:500px"></div></div>')
+                h.append(f"""<script>
+(function() {{
+    var z = {pivot.values.tolist()};
+    var x = {pivot.columns.tolist()};
+    var y = {pivot.index.tolist()};
+    var data = [{{z: z, x: x, y: y, type: 'heatmap', colorscale: 'YlOrRd',
+        text: z.map(function(r) {{ return r.map(function(v) {{ return v.toFixed(0); }}); }}),
+        texttemplate: '%{{text}}', textfont: {{size: 10}}}}];
+    var layout = {{
+        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+        font: {{color: '#c9d1d9'}},
+        height: 500, margin: {{l: 120, r: 20, t: 10, b: 120}}
+    }};
+    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: false}});
+}})();
+</script>""")
+
+        # Time series
+        if "time_series" in charts and datetime_cols and numeric_cols:
+            for dc in datetime_cols[:2]:
+                for nc in numeric_cols[:3]:
+                    try:
+                        ts_df = df.copy()
+                        ts_df[dc] = pd.to_datetime(ts_df[dc])
+                        ts_df = (
+                            ts_df.set_index(dc).resample("ME")[nc].sum().reset_index()
+                        )
+                        chart_id = f"ts-{dc}-{nc}"
+                        h.append(
+                            f'<div class="chart-box"><h3>{nc} Over Time (Monthly)</h3><div id="{chart_id}" style="height:380px"></div></div>'
+                        )
+                        h.append(f"""<script>
+(function() {{
+    var data = [{{
+        x: {ts_df[dc].astype(str).tolist()},
+        y: {ts_df[nc].tolist()},
+        type: 'scatter', mode: 'lines+markers',
+        line: {{color: '#3fb950', width: 2}},
+        marker: {{size: 4, color: '#3fb950'}}
+    }}];
+    var layout = {{
+        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+        font: {{color: '#c9d1d9'}},
+        height: 380, margin: {{l: 20, r: 20, t: 10, b: 60}}
+    }};
+    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
+}})();
+</script>""")
+                    except:
+                        pass
+
+        # Distribution charts
+        for nc in numeric_cols[:6]:
+            clean_data = df[nc].dropna().tolist()
+            chart_id = f"dist-{nc}"
+            h.append(
+                f'<div class="chart-box"><h3>{nc} Distribution</h3><div id="{chart_id}" style="height:350px"></div></div>'
+            )
+            h.append(f"""<script>
+(function() {{
+    var d = {clean_data};
+    var trace1 = {{x: d, type: 'histogram', nbinsx: 50, marker: {{color: '#58a6ff', opacity: 0.7}}, yaxis: 'y'}};
+    var trace2 = {{y: d, type: 'box', marker: {{color: '#f0883e'}}, xaxis: 'x2', yaxis: 'y2'}};
+    var layout = {{
+        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+        font: {{color: '#c9d1d9'}},
+        grid: {{rows: 1, columns: 2, pattern: 'independent'}},
+        height: 350, margin: {{l: 50, r: 20, t: 10, b: 30}},
+        yaxis: {{title: 'Count'}},
+        yaxis2: {{title: ''}}
+    }};
+    Plotly.newPlot('{chart_id}', [trace1, trace2], layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
+}})();
+</script>""")
+
+        h.append("</div></body></html>")
+
+        html_content = "\n".join(h)
+
+        if output_path:
+            out = Path(output_path)
+        else:
+            out = path.parent / f"{path.stem}_dashboard.html"
+
+        out.write_text(html_content, encoding="utf-8")
+        size_kb = round(out.stat().st_size / 1024)
+
+        if open_after:
+            _open_file(out)
+
+        progress.append(ok(f"Dashboard saved", f"{out.name} ({size_kb:,} KB)"))
+
+        result = {
+            "success": True,
+            "op": "generate_dashboard",
+            "output_path": str(out.resolve()),
+            "output_name": out.name,
+            "dashboard_title": dashboard_title,
+            "charts_included": charts,
+            "kpi_columns": numeric_cols[:6],
+            "filter_columns": cat_cols[:5],
+            "report_size_kb": size_kb,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("generate_dashboard error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+        dashboard_title = title if title else path.stem
+
+        # Classify columns
+        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+        cat_cols = [
+            c
+            for c in df.columns
+            if not pd.api.types.is_numeric_dtype(df[c])
+            and not pd.api.types.is_datetime64_any_dtype(df[c])
+        ]
+        datetime_cols = [
+            c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])
+        ]
+
+        # Auto-detect charts
+        detected = []
+        if numeric_cols and cat_cols:
+            detected.append("bar")
+        if datetime_cols and numeric_cols:
+            detected.append("time_series")
+        if len(numeric_cols) >= 2:
+            detected.append("scatter")
+        if cat_cols:
+            detected.append("pie")
+        if geo_file_path:
+            detected.append("geo")
+
+        charts = chart_types if chart_types else detected
+
+        if dry_run:
+            progress.append(info("Dry run — no file written", path.name))
+            result = {
+                "success": True,
+                "dry_run": True,
+                "op": "generate_dashboard",
+                "would_generate": {
+                    "title": dashboard_title,
+                    "charts": charts,
+                    "kpi_columns": numeric_cols[:5],
+                    "filter_columns": cat_cols[:3],
+                    "run_command": "Open in browser",
+                },
+                "progress": progress,
+            }
+            result["token_estimate"] = _token_estimate(result)
+            return result
+
+        # Build interactive HTML dashboard
+        h = []
+        h.append("""<!DOCTYPE html>
+<html><head><meta charset='utf-8'><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--border:#21262d;--text:#c9d1d9;--text-muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--orange:#f0883e;--red:#f85149}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:#30363d;border-radius:4px}
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:20px 30px;display:flex;justify-content:space-between;align-items:center}
+header h1{color:var(--accent);font-size:22px;font-weight:600}
+header .meta{color:var(--text-muted);font-size:13px}
+.filters{background:var(--surface);border-bottom:1px solid var(--border);padding:16px 30px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.filters label{color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:600}
+.filters select{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:13px;min-width:150px}
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;padding:20px 30px}
+.kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;text-align:center}
+.kpi-card .num{font-size:26px;font-weight:700;color:var(--accent)}
+.kpi-card .label{font-size:11px;color:var(--text-muted);margin-top:4px;text-transform:uppercase}
+.charts{padding:20px 30px;display:grid;grid-template-columns:repeat(auto-fit,minmax(500px,1fr));gap:20px}
+.chart-box{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px}
+.chart-box h3{color:var(--text);font-size:14px;margin-bottom:8px;padding-left:8px;font-weight:500}
+.full-width{grid-column:1/-1}
+@media(max-width:1100px){.charts{grid-template-columns:1fr}}
+</style></head><body>""")
+
+        # Header
+        h.append(f"""<header><h1>:bar_chart: {dashboard_title}</h1>
+<p class="meta">{len(df):,} rows x {len(df.columns)} columns | {len(numeric_cols)} numeric, {len(cat_cols)} categorical</p></header>""")
+
+        # Filters
+        if cat_cols:
+            h.append('<div class="filters"><label>Filters:</label>')
+            for fc in cat_cols[:5]:
+                unique_vals = df[fc].dropna().unique().tolist()
+                if len(unique_vals) <= 50:
+                    options = "".join(
+                        f'<option value="{v}">{v}</option>' for v in unique_vals[:50]
+                    )
+                    h.append(
+                        f'<div><label>{fc}</label><select id="filter-{fc}" multiple size="1" onchange="applyFilters()">{options}</select></div>'
+                    )
+            h.append("</div>")
+
+        # KPI cards
+        h.append('<div class="kpi-row">')
+        for nc in numeric_cols[:6]:
+            val = df[nc].sum()
+            h.append(
+                f'<div class="kpi-card"><div class="num">{val:,.0f}</div><div class="label">{nc}</div></div>'
+            )
+        h.append("</div>")
+
+        # Charts grid
+        h.append('<div class="charts">')
+
+        # Bar charts
+        if "bar" in charts and cat_cols and numeric_cols:
+            for cc in cat_cols[:3]:
+                for nc in numeric_cols[:2]:
+                    agg_df = (
+                        df.groupby(cc, as_index=False)[nc]
+                        .sum()
+                        .sort_values(nc, ascending=False)
+                        .head(20)
+                    )
+                    chart_id = f"bar-{cc}-{nc}"
+                    h.append(
+                        f'<div class="chart-box"><h3>Total {nc} by {cc}</h3><div id="{chart_id}" style="height:380px"></div></div>'
+                    )
+                    h.append(f"""<script>
+(function() {{
+    var data = [{{
+        x: {agg_df[cc].tolist()},
+        y: {agg_df[nc].tolist()},
+        type: 'bar',
+        marker: {{color: '#58a6ff'}},
+        text: {agg_df[nc].apply(lambda x: f"{{x:,.0f}}").tolist()},
+        textposition: 'outside'
+    }}];
+    var layout = {{
+        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+        font: {{color: '#c9d1d9'}},
+        height: 380, margin: {{l: 20, r: 20, t: 10, b: 60}},
+        xaxis: {{tickangle: -45}}
+    }};
+    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
+}})();
+</script>""")
+
+        # Pie charts
+        if "pie" in charts and cat_cols:
+            for cc in cat_cols[:4]:
+                val_counts = df[cc].value_counts().head(15)
+                chart_id = f"pie-{cc}"
+                h.append(
+                    f'<div class="chart-box"><h3>{cc} Distribution</h3><div id="{chart_id}" style="height:380px"></div></div>'
+                )
+                h.append(f"""<script>
+(function() {{
+    var data = [{{
+        values: {val_counts.values.tolist()},
+        labels: {val_counts.index.tolist()},
+        type: 'pie',
+        hole: 0.4,
+        marker: {{colors: ['#58a6ff', '#3fb950', '#f0883e', '#f85149', '#bc8cff', '#79c0ff', '#7ee787', '#ffa657', '#ff7b72', '#d2a8ff', '#a5d6ff', '#aff5b4', '#ffd6a5', '#ffabab', '#e0b0ff']}},
+        textinfo: 'label+percent',
+        textfont: {{size: 12}}
+    }}];
+    var layout = {{
+        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+        font: {{color: '#c9d1d9'}},
+        height: 380, margin: {{l: 20, r: 20, t: 10, b: 20}}
+    }};
+    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
+}})();
+</script>""")
+
+        # Scatter plots
+        if "scatter" in charts and len(numeric_cols) >= 2:
+            for i in range(min(3, len(numeric_cols))):
+                for j in range(i + 1, min(4, len(numeric_cols))):
+                    nc1, nc2 = numeric_cols[i], numeric_cols[j]
+                    chart_id = f"scatter-{nc1}-{nc2}"
+                    h.append(
+                        f'<div class="chart-box"><h3>{nc1} vs {nc2}</h3><div id="{chart_id}" style="height:380px"></div></div>'
+                    )
+                    h.append(f"""<script>
+(function() {{
+    var data = [{{
+        x: {df[nc1].dropna().tolist()},
+        y: {df[nc2].dropna().tolist()},
+        type: 'scatter', mode: 'markers',
+        marker: {{color: '#58a6ff', opacity: 0.6, size: 6}},
+        text: ['{nc1}: ' + {df[nc1].dropna().apply(lambda x: f"{{x:,.1f}}").tolist()} + '<br>{nc2}: ' + {df[nc2].dropna().apply(lambda x: f"{{x:,.1f}}").tolist()}],
+        hoverinfo: 'text'
+    }}];
+    var layout = {{
+        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+        font: {{color: '#c9d1d9'}},
+        height: 380, margin: {{l: 20, r: 20, t: 10, b: 40}},
+        xaxis: {{title: '{nc1}'}},
+        yaxis: {{title: '{nc2}'}}
+    }};
+    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
+}})();
+</script>""")
+
+        # Correlation heatmap
+        if len(numeric_cols) >= 2:
+            corr = df[numeric_cols].corr()
+            chart_id = "corr-heatmap"
+            h.append(
+                f'<div class="chart-box full-width"><h3>Correlation Matrix</h3><div id="{chart_id}" style="height:500px"></div></div>'
+            )
+            h.append(f"""<script>
+(function() {{
+    var z = {corr.values.tolist()};
+    var x = {corr.columns.tolist()};
+    var data = [{{z: z, x: x, y: x, type: 'heatmap', colorscale: 'RdBu_r', zmid: 0,
+        text: z.map(function(r) {{ return r.map(function(v) {{ return v.toFixed(2); }}); }}),
+        texttemplate: '%{{text}}', textfont: {{size: 11}}}}];
+    var layout = {{
+        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+        font: {{color: '#c9d1d9'}},
+        height: 500, margin: {{l: 120, r: 20, t: 10, b: 120}}
+    }};
+    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: false}});
+}})();
+</script>""")
+
+        # Time series
+        if "time_series" in charts and datetime_cols and numeric_cols:
+            for dc in datetime_cols[:2]:
+                for nc in numeric_cols[:3]:
+                    try:
+                        ts_df = df.copy()
+                        ts_df[dc] = pd.to_datetime(ts_df[dc])
+                        ts_df = (
+                            ts_df.set_index(dc).resample("ME")[nc].sum().reset_index()
+                        )
+                        chart_id = f"ts-{dc}-{nc}"
+                        h.append(
+                            f'<div class="chart-box"><h3>{nc} Over Time (Monthly)</h3><div id="{chart_id}" style="height:380px"></div></div>'
+                        )
+                        h.append(f"""<script>
+(function() {{
+    var data = [{{
+        x: {ts_df[dc].astype(str).tolist()},
+        y: {ts_df[nc].tolist()},
+        type: 'scatter', mode: 'lines+markers',
+        line: {{color: '#3fb950', width: 2}},
+        marker: {{size: 4, color: '#3fb950'}}
+    }}];
+    var layout = {{
+        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+        font: {{color: '#c9d1d9'}},
+        height: 380, margin: {{l: 20, r: 20, t: 10, b: 60}}
+    }};
+    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
+}})();
+</script>""")
+                    except:
+                        pass
+
+        # Distribution charts
+        for nc in numeric_cols[:6]:
+            clean_data = df[nc].dropna().tolist()
+            chart_id = f"dist-{nc}"
+            h.append(
+                f'<div class="chart-box"><h3>{nc} Distribution</h3><div id="{chart_id}" style="height:350px"></div></div>'
+            )
+            h.append(f"""<script>
+(function() {{
+    var d = {clean_data};
+    var trace1 = {{x: d, type: 'histogram', nbinsx: 50, marker: {{color: '#58a6ff', opacity: 0.7}}, yaxis: 'y'}};
+    var trace2 = {{y: d, type: 'box', marker: {{color: '#f0883e'}}, xaxis: 'x2', yaxis: 'y2'}};
+    var layout = {{
+        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
+        font: {{color: '#c9d1d9'}},
+        grid: {{rows: 1, columns: 2, pattern: 'independent'}},
+        height: 350, margin: {{l: 50, r: 20, t: 10, b: 30}},
+        yaxis: {{title: 'Count'}},
+        yaxis2: {{title: ''}}
+    }};
+    Plotly.newPlot('{chart_id}', [trace1, trace2], layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
+}})();
+</script>""")
+
+        h.append("</div></body></html>")
+
+        html_content = "\n".join(h)
+
+        if output_path:
+            out = Path(output_path)
+        else:
+            out = path.parent / f"{path.stem}_dashboard.html"
+
+        out.write_text(html_content, encoding="utf-8")
+        size_kb = round(out.stat().st_size / 1024)
+
+        if open_after:
+            _open_file(out)
+
+        progress.append(ok(f"Dashboard saved", f"{out.name} ({size_kb:,} KB)"))
+
+        result = {
+            "success": True,
+            "op": "generate_dashboard",
+            "output_path": str(out.resolve()),
+            "output_name": out.name,
+            "dashboard_title": dashboard_title,
+            "charts_included": charts,
+            "kpi_columns": numeric_cols[:6],
+            "filter_columns": cat_cols[:5],
+            "report_size_kb": size_kb,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("generate_dashboard error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
 
         df = _read_csv(str(path))
         dashboard_title = title if title else path.stem
