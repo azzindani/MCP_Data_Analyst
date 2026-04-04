@@ -25,20 +25,6 @@ mcp = FastMCP("data_medium")
 def check_outliers(
     file_path: str,
     columns: list[str] = None,
-    output_path: str = "",
-    output_path: str = "",
-    open_after: bool = True,
-    dry_run: bool = False,
-    output_path: str = "",
-    dry_run: bool = False,
-    open_after: bool = True,
-    output_path: str = "",
-    dry_run: bool = False,
-    open_after: bool = True,
-    output_path: str = "",
-    dry_run: bool = False,
-    open_after: bool = True,
-    open_after: bool = True,
     method: str = "both",
     th1: float = 0.25,
     th3: float = 0.75,
@@ -165,6 +151,7 @@ def filter_rows(
     conditions: list[dict],
     output_path: str = "",
     dry_run: bool = False,
+    open_after: bool = True,
 ) -> dict:
     """Filter rows by conditions. ops: equals contains gt lt gte lte not_null is_null."""
     return engine.filter_rows(file_path, conditions, output_path, dry_run, open_after)
@@ -177,9 +164,12 @@ def sample_data(
     n: int = 100,
     random_state: int = 42,
     output_path: str = "",
+    open_after: bool = True,
 ) -> dict:
     """Sample rows from dataset. methods: random head tail."""
-    return engine.sample_data(file_path, method, n, random_state, output_path, open_after)
+    return engine.sample_data(
+        file_path, method, n, random_state, output_path, open_after
+    )
 
 
 @mcp.tool()
@@ -197,6 +187,7 @@ def smart_impute(
     columns: list[str] = None,
     output_path: str = "",
     dry_run: bool = False,
+    open_after: bool = True,
 ) -> dict:
     """Smart impute missing values using column-type-appropriate strategies."""
     return engine.smart_impute(file_path, columns, output_path, dry_run, open_after)
@@ -211,10 +202,18 @@ def merge_datasets(
     how: str = "left",
     output_path: str = "",
     dry_run: bool = False,
+    open_after: bool = True,
 ) -> dict:
     """Merge two datasets with auto-detect join keys and mismatch detection."""
     return engine.merge_datasets(
-        file_path, right_file_path, left_on, right_on, how, output_path, dry_run, open_after
+        file_path,
+        right_file_path,
+        left_on,
+        right_on,
+        how,
+        output_path,
+        dry_run,
+        open_after,
     )
 
 
@@ -224,9 +223,12 @@ def feature_engineering(
     features: list[str] = None,
     output_path: str = "",
     dry_run: bool = False,
+    open_after: bool = True,
 ) -> dict:
     """Auto-create features: date parts, numeric bins, text length, one-hot encoding."""
-    return engine.feature_engineering(file_path, features, output_path, dry_run, open_after)
+    return engine.feature_engineering(
+        file_path, features, output_path, dry_run, open_after
+    )
 
 
 @mcp.tool()
@@ -249,9 +251,13 @@ def time_series_analysis(
     date_column: str = "",
     value_columns: list[str] = None,
     period: str = "M",
+    output_path: str = "",
+    open_after: bool = True,
 ) -> dict:
     """Auto-detect date column, compute trend, seasonality, rolling stats."""
-    return engine.time_series_analysis(file_path, date_column, value_columns, period)
+    return engine.time_series_analysis(
+        file_path, date_column, value_columns, period, output_path, open_after
+    )
 
 
 @mcp.tool()
@@ -260,9 +266,13 @@ def cohort_analysis(
     cohort_column: str = "",
     date_column: str = "",
     value_column: str = "",
+    output_path: str = "",
+    open_after: bool = True,
 ) -> dict:
     """Cohort retention analysis with auto-detection of cohort identifiers."""
-    return engine.cohort_analysis(file_path, cohort_column, date_column, value_column)
+    return engine.cohort_analysis(
+        file_path, cohort_column, date_column, value_column, output_path, open_after
+    )
 
 
 def main() -> None:
