@@ -1379,7 +1379,11 @@ def generate_pairwise_plot(
                 "token_estimate": 20,
             }
 
+        plot_df = df[cols_to_plot].dropna()
+        plot_df = df[cols_to_plot].dropna()
         fig = px.scatter_matrix(
+            plot_df,
+            plot_df,
             df[cols_to_plot],
             title=f"Pairwise Plot: {', '.join(cols_to_plot)}",
             template="plotly_dark",
@@ -1511,97 +1515,6 @@ def export_data(
 # ---------------------------------------------------------------------------
 # generate_pairwise_plot
 # ---------------------------------------------------------------------------
-
-
-def generate_pairwise_plot(
-    file_path: str,
-    columns: list[str] = None,
-    max_cols: int = 6,
-    output_path: str = "",
-    open_after: bool = True,
-) -> dict:
-    """Pairwise scatter + histogram matrix for numeric columns. Opens HTML."""
-    progress = []
-    try:
-        try:
-            import plotly.express as px
-        except ImportError:
-            return {
-                "success": False,
-                "error": "plotly not installed",
-                "hint": "Install: uv add plotly",
-                "progress": [fail("Missing dependency", "plotly")],
-                "token_estimate": 20,
-            }
-
-        path = resolve_path(file_path)
-        if not path.exists():
-            return {
-                "success": False,
-                "error": f"File not found: {path.name}",
-                "hint": "Check file_path is absolute and the file exists.",
-                "progress": [fail("File not found", path.name)],
-                "token_estimate": 20,
-            }
-
-        df = _read_csv(str(path))
-        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-
-        if columns:
-            cols_to_plot = [c for c in columns if c in numeric_cols]
-        else:
-            cols_to_plot = numeric_cols[:max_cols]
-
-        if len(cols_to_plot) < 2:
-            return {
-                "success": False,
-                "error": "Need at least 2 numeric columns",
-                "hint": f"Only found {len(cols_to_plot)} numeric columns to plot",
-                "progress": [fail("Insufficient columns", "")],
-                "token_estimate": 20,
-            }
-
-        fig = px.scatter_matrix(
-            df[cols_to_plot],
-            title=f"Pairwise Plot: {', '.join(cols_to_plot)}",
-            template="plotly_dark",
-        )
-        fig.update_layout(height=200 * len(cols_to_plot), width=200 * len(cols_to_plot))
-
-        if output_path:
-            out = Path(output_path)
-        else:
-            out = path.parent / f"{path.stem}_pairwise.html"
-
-        fig.write_html(str(out), include_plotlyjs=True, full_html=True)
-
-        if open_after:
-            _open_file(out)
-
-        progress.append(
-            ok(f"Pairwise plot saved", f"{out.name} — {len(cols_to_plot)} columns")
-        )
-
-        result = {
-            "success": True,
-            "op": "generate_pairwise_plot",
-            "output_path": str(out.resolve()),
-            "output_name": out.name,
-            "columns_plotted": cols_to_plot,
-            "progress": progress,
-        }
-        result["token_estimate"] = _token_estimate(result)
-        return result
-
-    except Exception as exc:
-        logger.exception("generate_pairwise_plot error")
-        return {
-            "success": False,
-            "error": str(exc),
-            "hint": "Check file_path and column names.",
-            "progress": [fail("Unexpected error", str(exc))],
-            "token_estimate": 20,
-        }
 
 
 # ---------------------------------------------------------------------------
