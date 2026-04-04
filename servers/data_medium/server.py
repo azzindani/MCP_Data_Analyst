@@ -168,6 +168,89 @@ def sample_data(
     return engine.sample_data(file_path, method, n, random_state, output_path)
 
 
+@mcp.tool()
+def auto_detect_schema(
+    file_path: str,
+    max_rows: int = 1000,
+) -> dict:
+    """Auto-detect column types, dates, IDs, categories with cleaning suggestions."""
+    return engine.auto_detect_schema(file_path, max_rows)
+
+
+@mcp.tool()
+def smart_impute(
+    file_path: str,
+    columns: list[str] = None,
+    output_path: str = "",
+    dry_run: bool = False,
+) -> dict:
+    """Smart impute missing values using column-type-appropriate strategies."""
+    return engine.smart_impute(file_path, columns, output_path, dry_run)
+
+
+@mcp.tool()
+def merge_datasets(
+    file_path: str,
+    right_file_path: str,
+    left_on: str = "",
+    right_on: str = "",
+    how: str = "left",
+    output_path: str = "",
+    dry_run: bool = False,
+) -> dict:
+    """Merge two datasets with auto-detect join keys and mismatch detection."""
+    return engine.merge_datasets(
+        file_path, right_file_path, left_on, right_on, how, output_path, dry_run
+    )
+
+
+@mcp.tool()
+def feature_engineering(
+    file_path: str,
+    features: list[str] = None,
+    output_path: str = "",
+    dry_run: bool = False,
+) -> dict:
+    """Auto-create features: date parts, numeric bins, text length, one-hot encoding."""
+    return engine.feature_engineering(file_path, features, output_path, dry_run)
+
+
+@mcp.tool()
+def statistical_tests(
+    file_path: str,
+    test_type: str = "",
+    column_a: str = "",
+    column_b: str = "",
+    group_column: str = "",
+) -> dict:
+    """Auto-select and run statistical tests: t-test, ANOVA, chi-square, correlation."""
+    return engine.statistical_tests(
+        file_path, test_type, column_a, column_b, group_column
+    )
+
+
+@mcp.tool()
+def time_series_analysis(
+    file_path: str,
+    date_column: str = "",
+    value_columns: list[str] = None,
+    period: str = "M",
+) -> dict:
+    """Auto-detect date column, compute trend, seasonality, rolling stats."""
+    return engine.time_series_analysis(file_path, date_column, value_columns, period)
+
+
+@mcp.tool()
+def cohort_analysis(
+    file_path: str,
+    cohort_column: str = "",
+    date_column: str = "",
+    value_column: str = "",
+) -> dict:
+    """Cohort retention analysis with auto-detection of cohort identifiers."""
+    return engine.cohort_analysis(file_path, cohort_column, date_column, value_column)
+
+
 def main() -> None:
     mcp.run()
 
