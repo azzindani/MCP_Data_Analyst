@@ -19,8 +19,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --all-packages --dev
-          uv pip install pytest pytest-cov
+          cd servers/data_basic && uv sync --all-packages --dev
 
       - name: Lint with ruff
         run: |
@@ -28,4 +27,4 @@ jobs:
 
       - name: Run tests
         run: |
-          uv run pytest tests/ -v --tb=short
+          cd servers/data_basic && uv run pytest ../../tests/ -v --tb=short
