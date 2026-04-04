@@ -538,99 +538,6 @@ def generate_correlation_heatmap(
 # ---------------------------------------------------------------------------
 
 
-def generate_correlation_heatmap(
-    file_path: str,
-    method: str = "pearson",
-    output_path: str = "",
-    open_after: bool = True,
-) -> dict:
-    """Interactive correlation heatmap for numeric columns. Opens HTML."""
-    progress = []
-    try:
-        try:
-            import plotly.express as px
-        except ImportError:
-            return {
-                "success": False,
-                "error": "plotly not installed",
-                "hint": "Install: uv add plotly",
-                "progress": [fail("Missing dependency", "plotly")],
-                "token_estimate": 20,
-            }
-
-        path = resolve_path(file_path)
-        if not path.exists():
-            return {
-                "success": False,
-                "error": f"File not found: {path.name}",
-                "hint": "Check file_path is absolute and the file exists.",
-                "progress": [fail("File not found", path.name)],
-                "token_estimate": 20,
-            }
-
-        df = _read_csv(str(path))
-        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-
-        if len(numeric_cols) < 2:
-            return {
-                "success": False,
-                "error": "Need at least 2 numeric columns",
-                "hint": f"Only found {len(numeric_cols)} numeric columns",
-                "progress": [fail("Insufficient numeric columns", "")],
-                "token_estimate": 20,
-            }
-
-        corr = df[numeric_cols].corr(method=method)
-
-        fig = px.imshow(
-            corr,
-            text_auto=".2f",
-            color_continuous_scale="RdBu_r",
-            title=f"Correlation Matrix ({method})",
-            aspect="auto",
-        )
-        fig.update_layout(template="plotly_dark", height=300 + 50 * len(numeric_cols))
-
-        if output_path:
-            out = Path(output_path)
-        else:
-            out = path.parent / f"{path.stem}_correlation_heatmap.html"
-
-        fig.write_html(str(out), include_plotlyjs=True, full_html=True)
-
-        if open_after:
-            _open_file(out)
-
-        progress.append(
-            ok(
-                f"Correlation heatmap saved",
-                f"{out.name} — {len(numeric_cols)} columns",
-            )
-        )
-
-        result = {
-            "success": True,
-            "op": "generate_correlation_heatmap",
-            "output_path": str(out.resolve()),
-            "output_name": out.name,
-            "columns": numeric_cols,
-            "method": method,
-            "progress": progress,
-        }
-        result["token_estimate"] = _token_estimate(result)
-        return result
-
-    except Exception as exc:
-        logger.exception("generate_correlation_heatmap error")
-        return {
-            "success": False,
-            "error": str(exc),
-            "hint": "Check file_path is absolute and the file is a valid CSV.",
-            "progress": [fail("Unexpected error", str(exc))],
-            "token_estimate": 20,
-        }
-
-
 # ---------------------------------------------------------------------------
 # generate_auto_profile - comprehensive EDA rivaling sweetviz/ydata-profiling
 # ---------------------------------------------------------------------------
@@ -1622,147 +1529,6 @@ def generate_multi_chart(
     category_column: str = "",
     date_column: str = "",
     agg_func: str = "sum",
-    output_path: str = "",
-    title: str = "",
-    open_after: bool = True,
-) -> dict:
-    """Multi-variable bar or line chart. Compares 2+ metrics on same axis."""
-    progress = []
-    try:
-        try:
-            import plotly.graph_objects as go
-        except ImportError:
-            return {
-                "success": False,
-                "error": "plotly not installed",
-                "hint": "Install: uv add plotly",
-                "progress": [fail("Missing dependency", "plotly")],
-                "token_estimate": 20,
-            }
-
-        path = resolve_path(file_path)
-        if not path.exists():
-            return {
-                "success": False,
-                "error": f"File not found: {path.name}",
-                "hint": "Check file_path is absolute and the file exists.",
-                "progress": [fail("File not found", path.name)],
-                "token_estimate": 20,
-            }
-
-        valid_types = {"multi_bar", "multi_line"}
-        if chart_type not in valid_types:
-            return {
-                "success": False,
-                "error": f"Invalid chart_type: {chart_type}",
-                "hint": f"Valid types: {', '.join(sorted(valid_types))}",
-                "progress": [fail("Invalid chart type", chart_type)],
-                "token_estimate": 30,
-            }
-
-        df = _read_csv(str(path))
-
-        if chart_type == "multi_line" and not date_column:
-            return {
-                "success": False,
-                "error": "multi_line requires date_column",
-                "hint": "Provide date_column for time-based multi-line chart.",
-                "progress": [fail("Missing param", "date_column")],
-                "token_estimate": 30,
-            }
-
-        chart_title = (
-            title if title else f"Multi-{chart_type.replace('_', ' ').title()}"
-        )
-
-        fig = go.Figure()
-
-        if chart_type == "multi_bar":
-            if category_column:
-                grouped = df.groupby(category_column, as_index=False)[
-                    value_columns
-                ].agg(agg_func)
-                x_vals = grouped[category_column]
-            else:
-                x_vals = range(len(df))
-                grouped = df
-
-            for vc in value_columns:
-                fig.add_trace(
-                    go.Bar(
-                        x=x_vals,
-                        y=grouped[vc],
-                        name=vc,
-                    )
-                )
-
-        elif chart_type == "multi_line":
-            df[date_column] = pd.to_datetime(df[date_column], errors="coerce")
-            df = df.dropna(subset=[date_column])
-            df["period"] = df[date_column].dt.to_period("M").astype(str)
-            grouped = df.groupby("period", as_index=False)[value_columns].agg(agg_func)
-            x_vals = grouped["period"]
-
-            for vc in value_columns:
-                fig.add_trace(
-                    go.Scatter(
-                        x=x_vals,
-                        y=grouped[vc],
-                        name=vc,
-                        mode="lines+markers",
-                    )
-                )
-
-        fig.update_layout(
-            title=chart_title,
-            template="plotly_dark",
-            xaxis_title=category_column or "Period",
-            yaxis_title=agg_func.title(),
-            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
-            margin=dict(l=20, r=20, t=40, b=20),
-        )
-
-        if output_path:
-            out = Path(output_path)
-        else:
-            out = path.parent / f"{path.stem}_multi_{chart_type}.html"
-
-        fig.write_html(str(out), include_plotlyjs=True, full_html=True)
-
-        if open_after:
-            _open_file(out)
-
-        progress.append(
-            ok(
-                f"Multi-chart saved",
-                f"{out.name} — {len(value_columns)} metrics",
-            )
-        )
-
-        result = {
-            "success": True,
-            "op": "generate_multi_chart",
-            "chart_type": chart_type,
-            "output_path": str(out.resolve()),
-            "output_name": out.name,
-            "title": chart_title,
-            "metrics_plotted": value_columns,
-            "progress": progress,
-        }
-        result["token_estimate"] = _token_estimate(result)
-        return result
-
-    except Exception as exc:
-        logger.exception("generate_multi_chart error")
-        return {
-            "success": False,
-            "error": str(exc),
-            "hint": "Check file_path, column names, and chart_type.",
-            "progress": [fail("Unexpected error", str(exc))],
-            "token_estimate": 20,
-        }
-
-
 # ---------------------------------------------------------------------------
 # generate_chart (kept, with open_after support)
 # ---------------------------------------------------------------------------
@@ -2140,7 +1906,7 @@ def generate_dashboard(
 <style>
 :root{--bg:#0d1117;--surface:#161b22;--border:#21262d;--text:#c9d1d9;--text-muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--orange:#f0883e;--red:#f85149}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;max-width:100vw}
 ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:#30363d;border-radius:4px}
 header{background:var(--surface);border-bottom:1px solid var(--border);padding:20px 30px;display:flex;justify-content:space-between;align-items:center}
 header h1{color:var(--accent);font-size:22px;font-weight:600}
@@ -2152,11 +1918,13 @@ header .meta{color:var(--text-muted);font-size:13px}
 .kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;text-align:center}
 .kpi-card .num{font-size:26px;font-weight:700;color:var(--accent)}
 .kpi-card .label{font-size:11px;color:var(--text-muted);margin-top:4px;text-transform:uppercase}
-.charts{padding:20px 30px;display:grid;grid-template-columns:repeat(auto-fit,minmax(500px,1fr));gap:20px}
-.chart-box{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px}
-.chart-box h3{color:var(--text);font-size:14px;margin-bottom:8px;padding-left:8px;font-weight:500}
+.charts{padding:20px 30px;display:grid;grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:16px}
+.chart-box{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;overflow:hidden;min-width:0}
+.chart-box h3{color:var(--text);font-size:13px;margin-bottom:8px;padding-left:4px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .full-width{grid-column:1/-1}
 @media(max-width:1100px){.charts{grid-template-columns:1fr}}
+@media(max-width:600px){header,.filters,.kpi-row,.charts{padding-left:16px;padding-right:16px}.kpi-row{grid-template-columns:repeat(2,1fr)}.charts{grid-template-columns:1fr}}
+@media(max-width:600px){header,.filters,.kpi-row,.charts{padding-left:16px;padding-right:16px}.kpi-row{grid-template-columns:repeat(2,1fr)}.charts{grid-template-columns:1fr}}
 </style></head><body>""")
 
         # Header
@@ -2605,24 +2373,6 @@ header .meta{color:var(--text-muted);font-size:13px}
 
         charts = chart_types if chart_types else detected
 
-        if dry_run:
-            progress.append(info("Dry run — no file written", path.name))
-            result = {
-                "success": True,
-                "dry_run": True,
-                "op": "generate_dashboard",
-                "would_generate": {
-                    "title": dashboard_title,
-                    "charts": charts,
-                    "kpi_columns": numeric_cols[:5],
-                    "filter_columns": cat_cols[:3],
-                    "run_command": "Open in browser",
-                },
-                "progress": progress,
-            }
-            result["token_estimate"] = _token_estimate(result)
-            return result
-
         # Build interactive HTML dashboard
         h = []
         h.append("""<!DOCTYPE html>
@@ -2632,7 +2382,7 @@ header .meta{color:var(--text-muted);font-size:13px}
 <style>
 :root{--bg:#0d1117;--surface:#161b22;--border:#21262d;--text:#c9d1d9;--text-muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--orange:#f0883e;--red:#f85149}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;max-width:100vw}
 ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:#30363d;border-radius:4px}
 header{background:var(--surface);border-bottom:1px solid var(--border);padding:20px 30px;display:flex;justify-content:space-between;align-items:center}
 header h1{color:var(--accent);font-size:22px;font-weight:600}
@@ -2644,11 +2394,13 @@ header .meta{color:var(--text-muted);font-size:13px}
 .kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;text-align:center}
 .kpi-card .num{font-size:26px;font-weight:700;color:var(--accent)}
 .kpi-card .label{font-size:11px;color:var(--text-muted);margin-top:4px;text-transform:uppercase}
-.charts{padding:20px 30px;display:grid;grid-template-columns:repeat(auto-fit,minmax(500px,1fr));gap:20px}
-.chart-box{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px}
-.chart-box h3{color:var(--text);font-size:14px;margin-bottom:8px;padding-left:8px;font-weight:500}
+.charts{padding:20px 30px;display:grid;grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:16px}
+.chart-box{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;overflow:hidden;min-width:0}
+.chart-box h3{color:var(--text);font-size:13px;margin-bottom:8px;padding-left:4px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .full-width{grid-column:1/-1}
 @media(max-width:1100px){.charts{grid-template-columns:1fr}}
+@media(max-width:600px){header,.filters,.kpi-row,.charts{padding-left:16px;padding-right:16px}.kpi-row{grid-template-columns:repeat(2,1fr)}.charts{grid-template-columns:1fr}}
+@media(max-width:600px){header,.filters,.kpi-row,.charts{padding-left:16px;padding-right:16px}.kpi-row{grid-template-columns:repeat(2,1fr)}.charts{grid-template-columns:1fr}}
 </style></head><body>""")
 
         # Header
