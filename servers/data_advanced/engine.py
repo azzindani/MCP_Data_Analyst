@@ -100,6 +100,17 @@ def generate_profile_report(
         df = _read_csv(str(path))
         report_title = title if title else path.stem
 
+        # Auto-sample large datasets to avoid timeout
+        DEFAULT_MAX_ROWS = 5000
+        if len(df) > DEFAULT_MAX_ROWS:
+            df = df.sample(n=DEFAULT_MAX_ROWS, random_state=42)
+            progress.append(
+                warn(
+                    "Large dataset sampled",
+                    f"Analyzing {DEFAULT_MAX_ROWS} of {len(_read_csv(str(path)))} rows",
+                )
+            )
+
         # Build config for ydata-profiling
         config_kwargs = {"title": report_title, "minimal": minimal}
         if correlations:
@@ -189,6 +200,17 @@ def generate_sweetviz_report(
             }
 
         df = _read_csv(str(path))
+
+        # Auto-sample large datasets to avoid timeout
+        DEFAULT_MAX_ROWS = 5000
+        if len(df) > DEFAULT_MAX_ROWS:
+            df = df.sample(n=DEFAULT_MAX_ROWS, random_state=42)
+            progress.append(
+                warn(
+                    "Large dataset sampled",
+                    f"Analyzing {DEFAULT_MAX_ROWS} of {len(_read_csv(str(path)))} rows",
+                )
+            )
 
         if target_column and target_column not in df.columns:
             return {
@@ -282,13 +304,16 @@ def generate_autoviz_report(
         df = _read_csv(str(path))
         rows_analyzed = len(df)
 
-        if max_rows_analyzed > 0 and len(df) > max_rows_analyzed:
-            df = df.sample(n=max_rows_analyzed, random_state=42)
-            rows_analyzed = max_rows_analyzed
+        # Auto-sample large datasets to avoid timeout
+        DEFAULT_MAX_ROWS = 5000
+        effective_max = max_rows_analyzed if max_rows_analyzed > 0 else DEFAULT_MAX_ROWS
+        if len(df) > effective_max:
+            df = df.sample(n=effective_max, random_state=42)
+            rows_analyzed = effective_max
             progress.append(
                 warn(
-                    "Row sampling active",
-                    f"Analyzing {max_rows_analyzed} of {len(_read_csv(str(path)))} rows",
+                    "Large dataset sampled",
+                    f"Analyzing {effective_max} of {len(_read_csv(str(path)))} rows",
                 )
             )
 
