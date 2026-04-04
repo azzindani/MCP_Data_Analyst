@@ -25,6 +25,20 @@ mcp = FastMCP("data_medium")
 def check_outliers(
     file_path: str,
     columns: list[str] = None,
+    output_path: str = "",
+    output_path: str = "",
+    open_after: bool = True,
+    dry_run: bool = False,
+    output_path: str = "",
+    dry_run: bool = False,
+    open_after: bool = True,
+    output_path: str = "",
+    dry_run: bool = False,
+    open_after: bool = True,
+    output_path: str = "",
+    dry_run: bool = False,
+    open_after: bool = True,
+    open_after: bool = True,
     method: str = "both",
     th1: float = 0.25,
     th3: float = 0.75,
@@ -153,7 +167,7 @@ def filter_rows(
     dry_run: bool = False,
 ) -> dict:
     """Filter rows by conditions. ops: equals contains gt lt gte lte not_null is_null."""
-    return engine.filter_rows(file_path, conditions, output_path, dry_run)
+    return engine.filter_rows(file_path, conditions, output_path, dry_run, open_after)
 
 
 @mcp.tool()
@@ -165,7 +179,7 @@ def sample_data(
     output_path: str = "",
 ) -> dict:
     """Sample rows from dataset. methods: random head tail."""
-    return engine.sample_data(file_path, method, n, random_state, output_path)
+    return engine.sample_data(file_path, method, n, random_state, output_path, open_after)
 
 
 @mcp.tool()
@@ -185,7 +199,7 @@ def smart_impute(
     dry_run: bool = False,
 ) -> dict:
     """Smart impute missing values using column-type-appropriate strategies."""
-    return engine.smart_impute(file_path, columns, output_path, dry_run)
+    return engine.smart_impute(file_path, columns, output_path, dry_run, open_after)
 
 
 @mcp.tool()
@@ -200,7 +214,7 @@ def merge_datasets(
 ) -> dict:
     """Merge two datasets with auto-detect join keys and mismatch detection."""
     return engine.merge_datasets(
-        file_path, right_file_path, left_on, right_on, how, output_path, dry_run
+        file_path, right_file_path, left_on, right_on, how, output_path, dry_run, open_after
     )
 
 
@@ -212,7 +226,7 @@ def feature_engineering(
     dry_run: bool = False,
 ) -> dict:
     """Auto-create features: date parts, numeric bins, text length, one-hot encoding."""
-    return engine.feature_engineering(file_path, features, output_path, dry_run)
+    return engine.feature_engineering(file_path, features, output_path, dry_run, open_after)
 
 
 @mcp.tool()

@@ -43,6 +43,25 @@ def _dtype_label(series: pd.Series) -> str:
     return "object"
 
 
+def _open_file(path: pathlib.Path) -> None:
+    """Open file in default browser/app."""
+    import subprocess
+    import webbrowser
+    try:
+        webbrowser.open(f'file://{path.resolve()}')
+    except Exception:
+        try:
+            if sys.platform == 'win32':
+                subprocess.Popen(['start', str(path.resolve())], shell=True)
+            elif sys.platform == 'darwin':
+                subprocess.Popen(['open', str(path.resolve())])
+            else:
+                subprocess.Popen(['xdg-open', str(path.resolve())])
+        except Exception:
+            pass
+
+
+
 # ---------------------------------------------------------------------------
 # check_outliers
 # ---------------------------------------------------------------------------
@@ -538,6 +557,7 @@ def smart_impute(
     columns: list[str] = None,
     output_path: str = "",
     dry_run: bool = False,
+    open_after: bool = True,
 ) -> dict:
     """Auto-impute missing values using column-type-appropriate strategies."""
     progress = []
@@ -664,6 +684,7 @@ def merge_datasets(
     how: str = "left",
     output_path: str = "",
     dry_run: bool = False,
+    open_after: bool = True,
 ) -> dict:
     """Merge two datasets with auto-detect join keys and mismatch detection."""
     progress = []
@@ -942,6 +963,7 @@ def smart_impute(
     columns: list[str] = None,
     output_path: str = "",
     dry_run: bool = False,
+    open_after: bool = True,
 ) -> dict:
     """Auto-impute missing values using column-type-appropriate strategies."""
     progress = []
@@ -1025,6 +1047,8 @@ def smart_impute(
         out = Path(output_path) if output_path else path
         df.to_csv(str(out), index=False)
 
+        if open_after:
+            _open_file(out)
         progress.append(
             ok(
                 f"Smart imputation complete",
@@ -1068,6 +1092,7 @@ def merge_datasets(
     how: str = "left",
     output_path: str = "",
     dry_run: bool = False,
+    open_after: bool = True,
 ) -> dict:
     """Merge two datasets with auto-detect join keys and mismatch detection."""
     progress = []
@@ -1228,6 +1253,7 @@ def feature_engineering(
     features: list[str] = None,
     output_path: str = "",
     dry_run: bool = False,
+    open_after: bool = True,
 ) -> dict:
     """Auto-create features: date parts, numeric bins, text length, one-hot encoding."""
     progress = []
@@ -1307,6 +1333,8 @@ def feature_engineering(
 
         out = Path(output_path) if output_path else path
         df.to_csv(str(out), index=False)
+        if open_after:
+            _open_file(out)
 
         progress.append(
             ok(
@@ -1487,6 +1515,8 @@ def time_series_analysis(
     date_column: str = "",
     value_columns: list[str] = None,
     period: str = "M",
+    output_path: str = "",
+    open_after: bool = True,
 ) -> dict:
     """Auto-detect date column, compute trend, seasonality, rolling stats."""
     progress = []
@@ -1605,6 +1635,8 @@ def cohort_analysis(
     cohort_column: str = "",
     date_column: str = "",
     value_column: str = "",
+    output_path: str = "",
+    open_after: bool = True,
 ) -> dict:
     """Cohort retention analysis with auto-detection of cohort identifiers."""
     progress = []
@@ -1706,6 +1738,7 @@ def feature_engineering(
     features: list[str] = None,
     output_path: str = "",
     dry_run: bool = False,
+    open_after: bool = True,
 ) -> dict:
     """Auto-create features: date parts, numeric bins, text length, one-hot encoding."""
     progress = []
@@ -1784,6 +1817,8 @@ def feature_engineering(
             return result
 
         out = Path(output_path) if output_path else path
+        if open_after:
+            _open_file(out)
         df.to_csv(str(out), index=False)
 
         progress.append(
@@ -1965,6 +2000,8 @@ def time_series_analysis(
     date_column: str = "",
     value_columns: list[str] = None,
     period: str = "M",
+    output_path: str = "",
+    open_after: bool = True,
 ) -> dict:
     """Auto-detect date column, compute trend, seasonality, rolling stats."""
     progress = []
@@ -2083,6 +2120,8 @@ def cohort_analysis(
     cohort_column: str = "",
     date_column: str = "",
     value_column: str = "",
+    output_path: str = "",
+    open_after: bool = True,
 ) -> dict:
     """Cohort retention analysis with auto-detection of cohort identifiers."""
     progress = []
@@ -2969,6 +3008,7 @@ def filter_rows(
     conditions: list[dict],
     output_path: str = "",
     dry_run: bool = False,
+    open_after: bool = True,
 ) -> dict:
     """Filter rows by conditions. Supports: equals, contains, gt, lt, gte, lte, not_null, is_null."""
     progress = []
@@ -3052,6 +3092,8 @@ def filter_rows(
             result["token_estimate"] = _token_estimate(result)
             return result
 
+        if open_after:
+            _open_file(out)
         # Write filtered data
         out = Path(output_path) if output_path else path
         filtered_df.to_csv(str(out), index=False)
@@ -3094,6 +3136,7 @@ def sample_data(
     n: int = 100,
     random_state: int = 42,
     output_path: str = "",
+    open_after: bool = True,
 ) -> dict:
     """Sample rows from dataset. Methods: random, head, tail, stratified."""
     progress = []
@@ -3576,6 +3619,7 @@ def filter_rows(
     conditions: list[dict],
     output_path: str = "",
     dry_run: bool = False,
+    open_after: bool = True,
 ) -> dict:
     """Filter rows by conditions. Supports: equals, contains, gt, lt, gte, lte, not_null, is_null."""
     progress = []
@@ -3658,6 +3702,8 @@ def filter_rows(
             }
             result["token_estimate"] = _token_estimate(result)
             return result
+        if open_after:
+            _open_file(out)
 
         # Write filtered data
         out = Path(output_path) if output_path else path
@@ -3701,6 +3747,7 @@ def sample_data(
     n: int = 100,
     random_state: int = 42,
     output_path: str = "",
+    open_after: bool = True,
 ) -> dict:
     """Sample rows from dataset. Methods: random, head, tail, stratified."""
     progress = []

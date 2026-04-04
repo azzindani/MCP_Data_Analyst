@@ -738,6 +738,7 @@ def export_data(
     format: str = "csv",
     encoding: str = "utf-8",
     separator: str = ",",
+    open_after: bool = True,
 ) -> dict:
     """Export dataset to CSV, Excel, or JSON format."""
     progress = []
@@ -772,8 +773,12 @@ def export_data(
 
         if format == "csv":
             df.to_csv(str(out), index=False, encoding=encoding, sep=separator)
+        if open_after:
+            _open_file(out)
         elif format == "json":
             df.to_json(str(out), orient="records", indent=2)
+        if open_after:
+            _open_file(out)
         elif format == "excel":
             df.to_excel(str(out), index=False)
 
@@ -915,6 +920,7 @@ def export_data(
     format: str = "csv",
     encoding: str = "utf-8",
     separator: str = ",",
+    open_after: bool = True,
 ) -> dict:
     """Export dataset to CSV, Excel, or JSON format."""
     progress = []
@@ -949,8 +955,12 @@ def export_data(
 
         if format == "csv":
             df.to_csv(str(out), index=False, encoding=encoding, sep=separator)
+        if open_after:
+            _open_file(out)
         elif format == "json":
             df.to_json(str(out), orient="records", indent=2)
+        if open_after:
+            _open_file(out)
         elif format == "excel":
             df.to_excel(str(out), index=False)
 
@@ -1641,6 +1651,576 @@ df = pd.read_csv(r"{abs_path}")
 
     except Exception as exc:
         logger.exception("generate_dashboard error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# generate_auto_profile — fast comprehensive EDA using pandas + plotly only
+# ---------------------------------------------------------------------------
+
+
+def generate_auto_profile(
+    file_path: str,
+    output_path: str = "",
+    open_after: bool = True,
+) -> dict:
+    """Fast auto-profile: overview, distributions, correlations, outliers, insights. Opens HTML."""
+    progress = []
+    try:
+        try:
+            import plotly.express as px
+            import plotly.graph_objects as go
+            from plotly.subplots import make_subplots
+        except ImportError:
+            return {
+                "success": False,
+                "error": "plotly not installed",
+                "hint": "Install: uv add plotly",
+                "progress": [fail("Missing dependency", "plotly")],
+                "token_estimate": 20,
+            }
+
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+        rows, cols = df.shape
+
+        # Classify columns
+        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+        cat_cols = [c for c in df.columns if df[c].dtype == "object"]
+        datetime_cols = [
+            c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])
+        ]
+
+        # --- Build HTML report ---
+        html_parts = []
+        html_parts.append("""<!DOCTYPE html>
+<html><head><meta charset='utf-8'>
+<title>Auto Profile Report</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+body{font-family:system-ui,sans-serif;background:#0d1117;color:#c9d1d9;padding:20px;margin:0}
+h1{color:#58a6ff;border-bottom:2px solid #21262d;padding-bottom:10px}
+h2{color:#58a6ff;border-bottom:1px solid #21262d;padding-bottom:5px;margin-top:30px}
+h3{color:#8b949e;margin-top:20px}
+table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px}
+th,td{padding:8px 12px;text-align:left;border:1px solid #21262d}
+th{background:#161b22;color:#58a6ff}
+tr:nth-child(even){background:#0d1117}
+tr:nth-child(odd){background:#161b22}
+.card{background:#161b22;padding:15px;border-radius:8px;margin:10px 5px;display:inline-block;min-width:150px;text-align:center}
+.card .num{font-size:28px;font-weight:bold;color:#58a6ff}
+.card .label{font-size:12px;color:#8b949e}
+.grid{display:flex;flex-wrap:wrap}
+.warn{color:#f0883e}.good{color:#3fb950}.bad{color:#f85149}
+.chart{margin:20px 0}
+</style></head><body>""")
+
+        # Title
+        html_parts.append(f"<h1>Auto Profile: {path.name}</h1>")
+
+        # Overview cards
+        html_parts.append('<div class="grid">')
+        html_parts.append(
+            f'<div class="card"><div class="num">{rows:,}</div><div class="label">Rows</div></div>'
+        )
+        html_parts.append(
+            f'<div class="card"><div class="num">{cols}</div><div class="label">Columns</div></div>'
+        )
+        html_parts.append(
+            f'<div class="card"><div class="num">{len(numeric_cols)}</div><div class="label">Numeric</div></div>'
+        )
+        html_parts.append(
+            f'<div class="card"><div class="num">{len(cat_cols)}</div><div class="label">Categorical</div></div>'
+        )
+        html_parts.append(
+            f'<div class="card"><div class="num">{len(datetime_cols)}</div><div class="label">Datetime</div></div>'
+        )
+        total_nulls = int(df.isna().sum().sum())
+        null_pct = round(total_nulls / (rows * cols) * 100, 1) if rows * cols > 0 else 0
+        cls = "good" if null_pct < 5 else "warn" if null_pct < 20 else "bad"
+        html_parts.append(
+            f'<div class="card"><div class="num {cls}">{total_nulls:,}</div><div class="label">Nulls ({null_pct}%)</div></div>'
+        )
+        html_parts.append("</div>")
+
+        # Column summary table
+        html_parts.append("<h2>Column Summary</h2>")
+        html_parts.append(
+            "<table><tr><th>Column</th><th>Type</th><th>Non-Null</th><th>Null %</th><th>Unique</th><th>Mean</th><th>Std</th><th>Min</th><th>Max</th></tr>"
+        )
+        for c in df.columns:
+            nn = int(df[c].notna().sum())
+            nc = int(df[c].isna().sum())
+            npct = round(nc / rows * 100, 1) if rows > 0 else 0
+            uniq = int(df[c].nunique())
+            dtype = _dtype_label(df[c])
+            mean_v = std_v = min_v = max_v = ""
+            if c in numeric_cols:
+                mean_v = round(float(df[c].mean()), 2)
+                std_v = round(float(df[c].std()), 2)
+                min_v = round(float(df[c].min()), 2)
+                max_v = round(float(df[c].max()), 2)
+            html_parts.append(
+                f"<tr><td>{c}</td><td>{dtype}</td><td>{nn:,}</td><td>{npct}%</td><td>{uniq}</td><td>{mean_v}</td><td>{std_v}</td><td>{min_v}</td><td>{max_v}</td></tr>"
+            )
+        html_parts.append("</table>")
+
+        # Correlation heatmap
+        if len(numeric_cols) >= 2:
+            html_parts.append("<h2>Correlation Heatmap</h2>")
+            html_parts.append('<div id="corr-heatmap" class="chart"></div>')
+            corr = df[numeric_cols].corr()
+            corr_html = f"""<script>
+var z = {corr.values.tolist()};
+var x = {corr.columns.tolist()};
+var data = [{{z: z, x: x, y: x, type: 'heatmap', colorscale: 'RdBu', zmid: 0}}];
+var layout = {{paper_bgcolor: '#0d1117', plot_bgcolor: '#0d1117', font: {{color: '#c9d1d9'}}, margin: {{l: 80, r: 20, t: 20, b: 80}}}};
+Plotly.newPlot('corr-heatmap', data, layout, {{responsive: true}});
+</script>"""
+            html_parts.append(corr_html)
+
+        # Distribution plots for numeric columns (max 8)
+        plot_cols = numeric_cols[:8]
+        if plot_cols:
+            html_parts.append("<h2>Distributions</h2>")
+            n = len(plot_cols)
+            rows_grid = (n + 1) // 2
+            html_parts.append(f'<div id="dist-plots" class="chart"></div>')
+            fig = make_subplots(
+                rows=rows_grid,
+                cols=2,
+                subplot_titles=plot_cols + [""] * (rows_grid * 2 - n),
+            )
+            for i, c in enumerate(plot_cols):
+                r, col = divmod(i, 2)
+                fig.add_trace(
+                    go.Histogram(x=df[c].dropna(), nbinsx=30, name=c, showlegend=False),
+                    row=r + 1,
+                    col=col + 1,
+                )
+            fig.update_layout(
+                height=250 * rows_grid,
+                width=900,
+                paper_bgcolor="#0d1117",
+                plot_bgcolor="#0d1117",
+                font=dict(color="#c9d1d9"),
+                showlegend=False,
+            )
+            dist_html = fig.to_html(
+                full_html=False, include_plotlyjs=False, div_id="dist-plots-inner"
+            )
+            # Replace the div_id
+            dist_html = dist_html.replace("dist-plots-inner", "dist-plots")
+            html_parts.append(dist_html)
+
+        # Outlier analysis
+        outlier_info = []
+        for c in numeric_cols:
+            q1, q3 = df[c].quantile(0.25), df[c].quantile(0.75)
+            iqr = q3 - q1
+            lower = q1 - 1.5 * iqr
+            upper = q3 + 1.5 * iqr
+            count = int(((df[c] < lower) | (df[c] > upper)).sum())
+            if count > 0:
+                outlier_info.append(
+                    {"column": c, "count": count, "pct": round(count / rows * 100, 1)}
+                )
+
+        if outlier_info:
+            html_parts.append("<h2>Outlier Analysis (IQR)</h2>")
+            html_parts.append(
+                "<table><tr><th>Column</th><th>Outliers</th><th>%</th></tr>"
+            )
+            for o in sorted(outlier_info, key=lambda x: -x["count"]):
+                cls = "warn" if o["pct"] < 10 else "bad"
+                html_parts.append(
+                    f"<tr><td>{o['column']}</td><td class='{cls}'>{o['count']:,}</td><td>{o['pct']}%</td></tr>"
+                )
+            html_parts.append("</table>")
+
+        # Key insights
+        html_parts.append("<h2>Key Insights</h2><ul>")
+        # High null columns
+        for c in df.columns:
+            nc = int(df[c].isna().sum())
+            if nc > 0:
+                pct = round(nc / rows * 100, 1)
+                if pct > 50:
+                    html_parts.append(
+                        f'<li class="bad"><b>{c}</b>: {pct}% null values — consider dropping</li>'
+                    )
+                elif pct > 5:
+                    html_parts.append(
+                        f'<li class="warn"><b>{c}</b>: {pct}% null values — consider imputation</li>'
+                    )
+        # High cardinality categoricals
+        for c in cat_cols:
+            uniq = df[c].nunique()
+            if uniq > rows * 0.5 and uniq > 10:
+                html_parts.append(
+                    f'<li class="warn"><b>{c}</b>: high cardinality ({uniq} unique) — may be an ID column</li>'
+                )
+        # Strong correlations
+        if len(numeric_cols) >= 2:
+            corr = df[numeric_cols].corr()
+            for i in range(len(numeric_cols)):
+                for j in range(i + 1, len(numeric_cols)):
+                    val = corr.iloc[i, j]
+                    if abs(val) > 0.8:
+                        html_parts.append(
+                            f"<li><b>{numeric_cols[i]}</b> ↔ <b>{numeric_cols[j]}</b>: r={val:.3f} (strong {'positive' if val > 0 else 'negative'} correlation)</li>"
+                        )
+        # Skewed numeric columns
+        for c in numeric_cols:
+            skew = df[c].skew()
+            if abs(skew) > 2:
+                html_parts.append(
+                    f'<li class="warn"><b>{c}</b>: highly skewed (skewness={skew:.2f})</li>'
+                )
+        html_parts.append("</ul>")
+
+        html_parts.append("</body></html>")
+
+        html_content = "\n".join(html_parts)
+
+        if output_path:
+            out = Path(output_path)
+        else:
+            out = path.parent / f"{path.stem}_auto_profile.html"
+
+        out.write_text(html_content, encoding="utf-8")
+        size_kb = round(out.stat().st_size / 1024)
+
+        if open_after:
+            _open_file(out)
+
+        progress.append(
+            ok(
+                f"Auto profile saved",
+                f"{out.name} ({size_kb:,} KB) — {rows:,} rows × {cols} columns",
+            )
+        )
+
+        result = {
+            "success": True,
+            "op": "generate_auto_profile",
+            "output_path": str(out.resolve()),
+            "output_name": out.name,
+            "report_size_kb": size_kb,
+            "rows": rows,
+            "columns": cols,
+            "numeric_columns": len(numeric_cols),
+            "categorical_columns": len(cat_cols),
+            "datetime_columns": len(datetime_cols),
+            "total_nulls": total_nulls,
+            "outlier_columns": len(outlier_info),
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("generate_auto_profile error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# generate_auto_profile — fast comprehensive EDA using pandas + plotly only
+# ---------------------------------------------------------------------------
+
+
+def generate_auto_profile(
+    file_path: str,
+    output_path: str = "",
+    open_after: bool = True,
+) -> dict:
+    """Fast auto-profile: overview, distributions, correlations, outliers, insights. Opens HTML."""
+    progress = []
+    try:
+        try:
+            import plotly.express as px
+            import plotly.graph_objects as go
+            from plotly.subplots import make_subplots
+        except ImportError:
+            return {
+                "success": False,
+                "error": "plotly not installed",
+                "hint": "Install: uv add plotly",
+                "progress": [fail("Missing dependency", "plotly")],
+                "token_estimate": 20,
+            }
+
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+        rows, cols = df.shape
+
+        # Classify columns
+        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+        cat_cols = [c for c in df.columns if df[c].dtype == "object"]
+        datetime_cols = [
+            c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])
+        ]
+
+        # --- Build HTML report ---
+        html_parts = []
+        html_parts.append("""<!DOCTYPE html>
+<html><head><meta charset='utf-8'>
+<title>Auto Profile Report</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+body{font-family:system-ui,sans-serif;background:#0d1117;color:#c9d1d9;padding:20px;margin:0}
+h1{color:#58a6ff;border-bottom:2px solid #21262d;padding-bottom:10px}
+h2{color:#58a6ff;border-bottom:1px solid #21262d;padding-bottom:5px;margin-top:30px}
+h3{color:#8b949e;margin-top:20px}
+table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px}
+th,td{padding:8px 12px;text-align:left;border:1px solid #21262d}
+th{background:#161b22;color:#58a6ff}
+tr:nth-child(even){background:#0d1117}
+tr:nth-child(odd){background:#161b22}
+.card{background:#161b22;padding:15px;border-radius:8px;margin:10px 5px;display:inline-block;min-width:150px;text-align:center}
+.card .num{font-size:28px;font-weight:bold;color:#58a6ff}
+.card .label{font-size:12px;color:#8b949e}
+.grid{display:flex;flex-wrap:wrap}
+.warn{color:#f0883e}.good{color:#3fb950}.bad{color:#f85149}
+.chart{margin:20px 0}
+</style></head><body>""")
+
+        # Title
+        html_parts.append(f"<h1>Auto Profile: {path.name}</h1>")
+
+        # Overview cards
+        html_parts.append('<div class="grid">')
+        html_parts.append(
+            f'<div class="card"><div class="num">{rows:,}</div><div class="label">Rows</div></div>'
+        )
+        html_parts.append(
+            f'<div class="card"><div class="num">{cols}</div><div class="label">Columns</div></div>'
+        )
+        html_parts.append(
+            f'<div class="card"><div class="num">{len(numeric_cols)}</div><div class="label">Numeric</div></div>'
+        )
+        html_parts.append(
+            f'<div class="card"><div class="num">{len(cat_cols)}</div><div class="label">Categorical</div></div>'
+        )
+        html_parts.append(
+            f'<div class="card"><div class="num">{len(datetime_cols)}</div><div class="label">Datetime</div></div>'
+        )
+        total_nulls = int(df.isna().sum().sum())
+        null_pct = round(total_nulls / (rows * cols) * 100, 1) if rows * cols > 0 else 0
+        cls = "good" if null_pct < 5 else "warn" if null_pct < 20 else "bad"
+        html_parts.append(
+            f'<div class="card"><div class="num {cls}">{total_nulls:,}</div><div class="label">Nulls ({null_pct}%)</div></div>'
+        )
+        html_parts.append("</div>")
+
+        # Column summary table
+        html_parts.append("<h2>Column Summary</h2>")
+        html_parts.append(
+            "<table><tr><th>Column</th><th>Type</th><th>Non-Null</th><th>Null %</th><th>Unique</th><th>Mean</th><th>Std</th><th>Min</th><th>Max</th></tr>"
+        )
+        for c in df.columns:
+            nn = int(df[c].notna().sum())
+            nc = int(df[c].isna().sum())
+            npct = round(nc / rows * 100, 1) if rows > 0 else 0
+            uniq = int(df[c].nunique())
+            dtype = _dtype_label(df[c])
+            mean_v = std_v = min_v = max_v = ""
+            if c in numeric_cols:
+                mean_v = round(float(df[c].mean()), 2)
+                std_v = round(float(df[c].std()), 2)
+                min_v = round(float(df[c].min()), 2)
+                max_v = round(float(df[c].max()), 2)
+            html_parts.append(
+                f"<tr><td>{c}</td><td>{dtype}</td><td>{nn:,}</td><td>{npct}%</td><td>{uniq}</td><td>{mean_v}</td><td>{std_v}</td><td>{min_v}</td><td>{max_v}</td></tr>"
+            )
+        html_parts.append("</table>")
+
+        # Correlation heatmap
+        if len(numeric_cols) >= 2:
+            html_parts.append("<h2>Correlation Heatmap</h2>")
+            html_parts.append('<div id="corr-heatmap" class="chart"></div>')
+            corr = df[numeric_cols].corr()
+            corr_html = f"""<script>
+var z = {corr.values.tolist()};
+var x = {corr.columns.tolist()};
+var data = [{{z: z, x: x, y: x, type: 'heatmap', colorscale: 'RdBu', zmid: 0}}];
+var layout = {{paper_bgcolor: '#0d1117', plot_bgcolor: '#0d1117', font: {{color: '#c9d1d9'}}, margin: {{l: 80, r: 20, t: 20, b: 80}}}};
+Plotly.newPlot('corr-heatmap', data, layout, {{responsive: true}});
+</script>"""
+            html_parts.append(corr_html)
+
+        # Distribution plots for numeric columns (max 8)
+        plot_cols = numeric_cols[:8]
+        if plot_cols:
+            html_parts.append("<h2>Distributions</h2>")
+            n = len(plot_cols)
+            rows_grid = (n + 1) // 2
+            html_parts.append(f'<div id="dist-plots" class="chart"></div>')
+            fig = make_subplots(
+                rows=rows_grid,
+                cols=2,
+                subplot_titles=plot_cols + [""] * (rows_grid * 2 - n),
+            )
+            for i, c in enumerate(plot_cols):
+                r, col = divmod(i, 2)
+                fig.add_trace(
+                    go.Histogram(x=df[c].dropna(), nbinsx=30, name=c, showlegend=False),
+                    row=r + 1,
+                    col=col + 1,
+                )
+            fig.update_layout(
+                height=250 * rows_grid,
+                width=900,
+                paper_bgcolor="#0d1117",
+                plot_bgcolor="#0d1117",
+                font=dict(color="#c9d1d9"),
+                showlegend=False,
+            )
+            dist_html = fig.to_html(
+                full_html=False, include_plotlyjs=False, div_id="dist-plots-inner"
+            )
+            # Replace the div_id
+            dist_html = dist_html.replace("dist-plots-inner", "dist-plots")
+            html_parts.append(dist_html)
+
+        # Outlier analysis
+        outlier_info = []
+        for c in numeric_cols:
+            q1, q3 = df[c].quantile(0.25), df[c].quantile(0.75)
+            iqr = q3 - q1
+            lower = q1 - 1.5 * iqr
+            upper = q3 + 1.5 * iqr
+            count = int(((df[c] < lower) | (df[c] > upper)).sum())
+            if count > 0:
+                outlier_info.append(
+                    {"column": c, "count": count, "pct": round(count / rows * 100, 1)}
+                )
+
+        if outlier_info:
+            html_parts.append("<h2>Outlier Analysis (IQR)</h2>")
+            html_parts.append(
+                "<table><tr><th>Column</th><th>Outliers</th><th>%</th></tr>"
+            )
+            for o in sorted(outlier_info, key=lambda x: -x["count"]):
+                cls = "warn" if o["pct"] < 10 else "bad"
+                html_parts.append(
+                    f"<tr><td>{o['column']}</td><td class='{cls}'>{o['count']:,}</td><td>{o['pct']}%</td></tr>"
+                )
+            html_parts.append("</table>")
+
+        # Key insights
+        html_parts.append("<h2>Key Insights</h2><ul>")
+        # High null columns
+        for c in df.columns:
+            nc = int(df[c].isna().sum())
+            if nc > 0:
+                pct = round(nc / rows * 100, 1)
+                if pct > 50:
+                    html_parts.append(
+                        f'<li class="bad"><b>{c}</b>: {pct}% null values — consider dropping</li>'
+                    )
+                elif pct > 5:
+                    html_parts.append(
+                        f'<li class="warn"><b>{c}</b>: {pct}% null values — consider imputation</li>'
+                    )
+        # High cardinality categoricals
+        for c in cat_cols:
+            uniq = df[c].nunique()
+            if uniq > rows * 0.5 and uniq > 10:
+                html_parts.append(
+                    f'<li class="warn"><b>{c}</b>: high cardinality ({uniq} unique) — may be an ID column</li>'
+                )
+        # Strong correlations
+        if len(numeric_cols) >= 2:
+            corr = df[numeric_cols].corr()
+            for i in range(len(numeric_cols)):
+                for j in range(i + 1, len(numeric_cols)):
+                    val = corr.iloc[i, j]
+                    if abs(val) > 0.8:
+                        html_parts.append(
+                            f"<li><b>{numeric_cols[i]}</b> ↔ <b>{numeric_cols[j]}</b>: r={val:.3f} (strong {'positive' if val > 0 else 'negative'} correlation)</li>"
+                        )
+        # Skewed numeric columns
+        for c in numeric_cols:
+            skew = df[c].skew()
+            if abs(skew) > 2:
+                html_parts.append(
+                    f'<li class="warn"><b>{c}</b>: highly skewed (skewness={skew:.2f})</li>'
+                )
+        html_parts.append("</ul>")
+
+        html_parts.append("</body></html>")
+
+        html_content = "\n".join(html_parts)
+
+        if output_path:
+            out = Path(output_path)
+        else:
+            out = path.parent / f"{path.stem}_auto_profile.html"
+
+        out.write_text(html_content, encoding="utf-8")
+        size_kb = round(out.stat().st_size / 1024)
+
+        if open_after:
+            _open_file(out)
+
+        progress.append(
+            ok(
+                f"Auto profile saved",
+                f"{out.name} ({size_kb:,} KB) — {rows:,} rows × {cols} columns",
+            )
+        )
+
+        result = {
+            "success": True,
+            "op": "generate_auto_profile",
+            "output_path": str(out.resolve()),
+            "output_name": out.name,
+            "report_size_kb": size_kb,
+            "rows": rows,
+            "columns": cols,
+            "numeric_columns": len(numeric_cols),
+            "categorical_columns": len(cat_cols),
+            "datetime_columns": len(datetime_cols),
+            "total_nulls": total_nulls,
+            "outlier_columns": len(outlier_info),
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("generate_auto_profile error")
         return {
             "success": False,
             "error": str(exc),

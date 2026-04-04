@@ -158,9 +158,12 @@ def export_data(
     format: str = "csv",
     encoding: str = "utf-8",
     separator: str = ",",
+    open_after: bool = True,
 ) -> dict:
     """Export dataset to CSV, Excel, or JSON format."""
-    return engine.export_data(file_path, output_path, format, encoding, separator)
+    return engine.export_data(
+        file_path, output_path, format, encoding, separator, open_after
+    )
 
 
 @mcp.tool()
@@ -222,9 +225,22 @@ def segmentation_analysis(
     features: list[str] = None,
     n_clusters: int = 4,
     output_path: str = "",
+    open_after: bool = True,
 ) -> dict:
     """K-means clustering for customer/data segmentation."""
-    return engine.segmentation_analysis(file_path, features, n_clusters, output_path)
+    return engine.segmentation_analysis(
+        file_path, features, n_clusters, output_path, open_after
+    )
+
+
+@mcp.tool()
+def generate_auto_profile(
+    file_path: str,
+    output_path: str = "",
+    open_after: bool = True,
+) -> dict:
+    """Fast auto-profile: overview, distributions, correlations, outliers. Opens HTML."""
+    return engine.generate_auto_profile(file_path, output_path, open_after)
 
 
 def main() -> None:
