@@ -26,11 +26,34 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
         "-ExecutionPolicy",
         "Bypass",
         "-Command",
-        "$d = Join-Path $env:USERPROFILE '.mcp_servers\\MCP_Data_Analyst'; if (!(Test-Path $d)) { git clone https://github.com/azzindani/MCP_Data_Analyst.git $d }; Set-Location (Join-Path $d 'servers\\data_basic'); uv run python server.py"
+        "$d = Join-Path $env:USERPROFILE '.mcp_servers\\MCP_Data_Analyst'; if (!(Test-Path $d)) { git clone https://github.com/azzindani/MCP_Data_Analyst.git $d } else { Set-Location $d; git pull --quiet }; Set-Location (Join-Path $d 'servers\\data_basic'); uv run python server.py"
       ],
-      "env": {
-        "MCP_CONSTRAINED_MODE": "0"
-      }
+      "env": { "MCP_CONSTRAINED_MODE": "0" },
+      "timeout": 600000
+    },
+    "data_analyst_medium": {
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$d = Join-Path $env:USERPROFILE '.mcp_servers\\MCP_Data_Analyst'; if (!(Test-Path $d)) { git clone https://github.com/azzindani/MCP_Data_Analyst.git $d } else { Set-Location $d; git pull --quiet }; Set-Location (Join-Path $d 'servers\\data_medium'); uv run python server.py"
+      ],
+      "env": { "MCP_CONSTRAINED_MODE": "0" },
+      "timeout": 600000
+    },
+    "data_analyst_advanced": {
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$d = Join-Path $env:USERPROFILE '.mcp_servers\\MCP_Data_Analyst'; if (!(Test-Path $d)) { git clone https://github.com/azzindani/MCP_Data_Analyst.git $d } else { Set-Location $d; git pull --quiet }; Set-Location (Join-Path $d 'servers\\data_advanced'); uv run python server.py"
+      ],
+      "env": { "MCP_CONSTRAINED_MODE": "0" },
+      "timeout": 600000
     }
   }
 }
