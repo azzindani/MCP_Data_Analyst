@@ -2099,118 +2099,244 @@ def generate_dashboard(
             result["token_estimate"] = _token_estimate(result)
             return result
 
-        # Generate app.py
+        # Generate app.py - comprehensive auto-dashboard
         abs_path = str(path.resolve())
         abs_geo = str(Path(geo_file_path).resolve()) if geo_file_path else ""
 
-        filter_cols = cat_cols[:3]
-        kpi_cols = numeric_cols[:5]
+        filter_cols = cat_cols[:5]
+        kpi_cols = numeric_cols[:6]
 
-        chart_code_lines = []
-        if "bar" in charts and numeric_cols and cat_cols:
-            chart_code_lines.append(
-                textwrap.dedent(f"""
-                st.subheader("Bar Chart")
-                chart_df = df.groupby('{cat_cols[0]}', as_index=False)['{numeric_cols[0]}'].sum()
-                chart_df = chart_df.sort_values(by='{numeric_cols[0]}', ascending=False)
-                fig = px.bar(chart_df, x='{cat_cols[0]}', y='{numeric_cols[0]}',
-                             title="Total {numeric_cols[0]} by {cat_cols[0]}", template='{theme}')
-                st.plotly_chart(fig, use_container_width=True)
-            """)
-            )
-        if "time_series" in charts and datetime_cols and numeric_cols:
-            chart_code_lines.append(
-                textwrap.dedent(f"""
-                st.subheader("Time Series")
-                ts_df = df.copy()
-                ts_df['{datetime_cols[0]}'] = pd.to_datetime(ts_df['{datetime_cols[0]}'])
-                ts_df = ts_df.groupby(ts_df['{datetime_cols[0]}'].dt.to_period('M').astype(str), as_index=False)['{numeric_cols[0]}'].sum()
-                fig = px.line(ts_df, x='{datetime_cols[0]}', y='{numeric_cols[0]}',
-                              title="{numeric_cols[0]} Over Time", template='{theme}', markers=True)
-                st.plotly_chart(fig, use_container_width=True)
-            """)
-            )
-        if "scatter" in charts and len(numeric_cols) >= 2:
-            chart_code_lines.append(
-                textwrap.dedent(f"""
-                st.subheader("Scatter Plot")
-                fig = px.scatter(df, x='{numeric_cols[0]}', y='{numeric_cols[1]}',
-                                 title="{numeric_cols[0]} vs {numeric_cols[1]}", template='{theme}')
-                st.plotly_chart(fig, use_container_width=True)
-            """)
-            )
-        if "pie" in charts and cat_cols:
-            chart_code_lines.append(
-                textwrap.dedent(f"""
-                st.subheader("Pie Chart")
-                pie_df = df.groupby('{cat_cols[0]}', as_index=False).size()
-                fig = px.pie(pie_df, names='{cat_cols[0]}', values='size',
-                             title="{cat_cols[0]} Distribution", template='{theme}', hole=0.5)
-                st.plotly_chart(fig, use_container_width=True)
-            """)
-            )
-        if "geo" in charts and geo_file_path:
-            chart_code_lines.append(
-                textwrap.dedent(f"""
-                st.subheader("Map")
-                gdf = gpd.read_file('{abs_geo}')
-                fig = px.choropleth_mapbox(gdf, geojson=gdf.geometry, locations=gdf.index,
-                                           color='name', title="Geographic View",
-                                           template='{theme}', mapbox_style="carto-positron",
-                                           center={{"lat": 37.09, "lon": -73.94}}, zoom=3)
-                st.plotly_chart(fig, use_container_width=True)
-            """)
-            )
-
-        chart_sections = "\n".join(chart_code_lines)
-
-        filter_code = ""
-        for fc in filter_cols:
-            filter_code += textwrap.dedent(f"""
-                {fc}_filter = st.sidebar.multiselect('{fc}', options=df['{fc}'].unique().tolist())
-                if {fc}_filter:
-                    df = df[df['{fc}'].isin({fc}_filter)]
-            """)
-
-        # Build KPI code
-        kpi_lines = []
-        for kc in kpi_cols:
-            kpi_lines.append(
-                f"    st.metric(label='{kc}', value=f\"{{df['{kc}'].sum():,.0f}}\")"
-            )
-        kpi_code = "\n".join(kpi_lines)
-
-        kpi_section = (
-            "# KPI metrics\ncols = st.columns("
-            + str(len(kpi_cols))
-            + ")\nfor i, col in enumerate(cols):\n    with col:\n"
-        )
-        for kc in kpi_cols:
-            kpi_section += f"        st.metric(label='{kc}', value=f\"{{df['{kc}'].sum():,.0f}}\")\n"
-
-        app_code = f'''"""Auto-generated Streamlit dashboard for {dashboard_title}."""
+        # Build comprehensive dashboard
+        app_code = f'''"""Auto-generated comprehensive dashboard for {dashboard_title}."""
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 from pathlib import Path
 
-try:
-    import geopandas as gpd
-except ImportError:
-    gpd = None
+st.set_page_config(page_title="{dashboard_title}", layout="wide", page_icon=":bar_chart:")
 
-st.set_page_config(page_title="{dashboard_title}", layout="wide")
-st.title("{dashboard_title}")
+# Custom CSS
+st.markdown("""
+<style>
+    .metric-card {{background-color: #0d1117; border: 1px solid #21262d; border-radius: 10px; padding: 18px; text-align: center;}}
+    .metric-card .num {{font-size: 28px; font-weight: 700; color: #58a6ff;}}
+    .metric-card .label {{font-size: 11px; color: #8b949e; text-transform: uppercase; margin-top: 4px;}}
+    [data-testid="stSidebar"] {{background-color: #161b22;}}
+    [data-testid="stSidebar"] * {{color: #c9d1d9;}}
+</style>
+""", unsafe_allow_html=True)
 
+# Load data
 df = pd.read_csv(r"{abs_path}")
 
-# Sidebar filters
-{filter_code}
-{kpi_section}
+# Auto-detect column types
+numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+cat_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
+datetime_cols = df.select_dtypes(include=["datetime"]).columns.tolist()
 
-# Charts
-{chart_sections}
+# Title
+st.title(":bar_chart: {dashboard_title}")
+st.caption(f"{len(df):,} rows x {len(df.columns)} columns | {len(numeric_cols)} numeric, {len(cat_cols)} categorical")
+
+# Sidebar
+with st.sidebar:
+    st.header(":gear: Filters")
+    for fc in {filter_cols}:
+        if fc in df.columns:
+            unique_vals = df[fc].dropna().unique().tolist()
+            if len(unique_vals) <= 50:
+                selected = st.multiselect(fc, options=unique_vals, default=unique_vals)
+                df = df[df[fc].isin(selected)]
+            else:
+                selected = st.selectbox(fc, options=unique_vals)
+                df = df[df[fc] == selected]
+
+    st.divider()
+    st.caption(f"Showing {{len(df):,}} of {{len(pd.read_csv(r'{abs_path}')):,}} rows")
+
+# KPI Cards
+st.subheader(":rocket: Key Metrics")
+kpi_cols_list = numeric_cols[:6]
+cols = st.columns(min(len(kpi_cols_list), 6))
+for i, kc in enumerate(kpi_cols_list):
+    if kc in df.columns:
+        with cols[i % 6]:
+            val = df[kc].sum()
+            st.metric(label=kc, value=f"{{val:,.0f}}")
+
+# Tabs
+tab_overview, tab_multi, tab_analysis, tab_trends, tab_distribution, tab_data = st.tabs([
+    ":chart_with_upwards_trend: Overview",
+    ":chart_with_upwards_trend: Multi-Condition",
+    ":mag: Analysis",
+    ":calendar: Trends",
+    ":bar_chart: Distribution",
+    ":table: Data"
+])
+
+with tab_overview:
+    # Bar charts for categorical vs numeric
+    if cat_cols and numeric_cols:
+        for cc in cat_cols[:3]:
+            for nc in numeric_cols[:2]:
+                if cc in df.columns and nc in df.columns:
+                    agg_df = df.groupby(cc, as_index=False)[nc].sum().sort_values(nc, ascending=False)
+                    fig = px.bar(agg_df.head(20), x=cc, y=nc, title=f"Total {{nc}} by {{cc}}",
+                                 color=nc, color_continuous_scale="Blues", template="plotly_dark")
+                    fig.update_layout(height=400, margin=dict(l=20, r=20, t=40, b=60))
+                    st.plotly_chart(fig, use_container_width=True)
+
+    # Pie charts for categorical distribution
+    if cat_cols:
+        for cc in cat_cols[:4]:
+            if cc in df.columns:
+                val_counts = df[cc].value_counts().head(15)
+                fig = px.pie(values=val_counts.values, names=val_counts.index,
+                             title=f"{{cc}} Distribution", template="plotly_dark", hole=0.4)
+                fig.update_layout(height=400, margin=dict(l=20, r=20, t=40, b=20))
+                st.plotly_chart(fig, use_container_width=True)
+
+with tab_multi:
+    st.subheader("Multi-Condition Charts")
+
+    # Stacked bar chart: category x value, colored by another category
+    if len(cat_cols) >= 2 and numeric_cols:
+        cc1, cc2 = cat_cols[0], cat_cols[1]
+        nc = numeric_cols[0]
+        if all(c in df.columns for c in [cc1, cc2, nc]):
+            agg_df = df.groupby([cc1, cc2], as_index=False)[nc].sum()
+            fig = px.bar(agg_df, x=cc1, y=nc, color=cc2, barmode="group",
+                         title=f"{{nc}} by {{cc1}}, grouped by {{cc2}}", template="plotly_dark")
+            fig.update_layout(height=450, margin=dict(l=20, r=20, t=40, b=80))
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Stacked version
+            fig2 = px.bar(agg_df, x=cc1, y=nc, color=cc2, barmode="stack",
+                          title=f"{{nc}} by {{cc1}}, stacked by {{cc2}}", template="plotly_dark")
+            fig2.update_layout(height=450, margin=dict(l=20, r=20, t=40, b=80))
+            st.plotly_chart(fig2, use_container_width=True)
+
+    # 100% stacked bar chart
+    if len(cat_cols) >= 2 and numeric_cols:
+        cc1, cc2 = cat_cols[0], cat_cols[1]
+        nc = numeric_cols[0]
+        if all(c in df.columns for c in [cc1, cc2, nc]):
+            agg_df = df.groupby([cc1, cc2], as_index=False)[nc].sum()
+            agg_df["pct"] = agg_df.groupby(cc1)[nc].transform(lambda x: x / x.sum() * 100)
+            fig = px.bar(agg_df, x=cc1, y="pct", color=cc2, barmode="stack",
+                         title=f"% {{nc}} by {{cc1}}, stacked by {{cc2}}", template="plotly_dark",
+                         labels={{"pct": "Percentage (%)"}})
+            fig.update_layout(height=450, margin=dict(l=20, r=20, t=40, b=80), yaxis_ticksuffix="%")
+            st.plotly_chart(fig, use_container_width=True)
+
+    # Multi-line time series: multiple metrics over time
+    if datetime_cols and len(numeric_cols) >= 2:
+        dc = datetime_cols[0]
+        if dc in df.columns:
+            ts_df = df.copy()
+            ts_df[dc] = pd.to_datetime(ts_df[dc])
+            ts_df = ts_df.set_index(dc).resample("ME").agg({{nc: "sum" for nc in numeric_cols[:4]}}).reset_index()
+            fig = go.Figure()
+            for nc in numeric_cols[:4]:
+                if nc in ts_df.columns:
+                    fig.add_trace(go.Scatter(x=ts_df[dc], y=ts_df[nc], mode="lines+markers",
+                                             name=nc, line=dict(width=2)))
+            fig.update_layout(title="Multiple Metrics Over Time (Monthly)", template="plotly_dark",
+                              height=450, margin=dict(l=20, r=20, t=40, b=60),
+                              xaxis_title="Date", yaxis_title="Value")
+            st.plotly_chart(fig, use_container_width=True)
+
+    # Colored scatter plot: two numeric columns, colored by category, sized by another
+    if len(numeric_cols) >= 2 and cat_cols:
+        nc1, nc2 = numeric_cols[0], numeric_cols[1]
+        cc = cat_cols[0]
+        if all(c in df.columns for c in [nc1, nc2, cc]):
+            size_col = numeric_cols[2] if len(numeric_cols) > 2 else None
+            fig = px.scatter(df, x=nc1, y=nc2, color=cc,
+                             size=size_col if size_col else None,
+                             title=f"{{nc1}} vs {{nc2}}, colored by {{cc}}",
+                             template="plotly_dark", hover_data=df.columns[:6].tolist())
+            fig.update_layout(height=450, margin=dict(l=20, r=20, t=40, b=20))
+            st.plotly_chart(fig, use_container_width=True)
+
+    # Grouped box plot: numeric distribution by category
+    if numeric_cols and cat_cols:
+        nc = numeric_cols[0]
+        cc = cat_cols[0]
+        if nc in df.columns and cc in df.columns:
+            fig = px.box(df, x=cc, y=nc, color=cc, title=f"{{nc}} distribution by {{cc}}",
+                         template="plotly_dark", points="outliers")
+            fig.update_layout(height=450, margin=dict(l=20, r=20, t=40, b=80), showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
+
+    # Aggregation heatmap: category x category with numeric aggregation
+    if len(cat_cols) >= 2 and numeric_cols:
+        cc1, cc2 = cat_cols[0], cat_cols[1]
+        nc = numeric_cols[0]
+        if all(c in df.columns for c in [cc1, cc2, nc]):
+            pivot = df.pivot_table(index=cc1, columns=cc2, values=nc, aggfunc="sum", fill_value=0)
+            fig = px.imshow(pivot, text_auto=".0f", color_continuous_scale="YlOrRd",
+                            title=f"Sum {{nc}}: {{cc1}} x {{cc2}}", template="plotly_dark")
+            fig.update_layout(height=500, margin=dict(l=120, r=20, t=40, b=120))
+            st.plotly_chart(fig, use_container_width=True)
+
+with tab_analysis:
+    # Scatter plots for numeric pairs
+    if len(numeric_cols) >= 2:
+        for i in range(min(3, len(numeric_cols))):
+            for j in range(i+1, min(4, len(numeric_cols))):
+                nc1, nc2 = numeric_cols[i], numeric_cols[j]
+                fig = px.scatter(df, x=nc1, y=nc2, title=f"{{nc1}} vs {{nc2}}",
+                                 template="plotly_dark", trendline="ols")
+                fig.update_layout(height=400, margin=dict(l=20, r=20, t=40, b=20))
+                st.plotly_chart(fig, use_container_width=True)
+
+    # Correlation heatmap
+    if len(numeric_cols) >= 2:
+        corr = df[numeric_cols].corr()
+        fig = px.imshow(corr, text_auto=".2f", color_continuous_scale="RdBu_r", zmid=0,
+                        title="Correlation Matrix", template="plotly_dark")
+        fig.update_layout(height=500, margin=dict(l=20, r=20, t=40, b=20))
+        st.plotly_chart(fig, use_container_width=True)
+
+with tab_trends:
+    if datetime_cols and numeric_cols:
+        for dc in datetime_cols[:2]:
+            for nc in numeric_cols[:3]:
+                if dc in df.columns and nc in df.columns:
+                    try:
+                        ts_df = df.copy()
+                        ts_df[dc] = pd.to_datetime(ts_df[dc])
+                        ts_df = ts_df.set_index(dc).resample("ME")[nc].sum().reset_index()
+                        fig = px.line(ts_df, x=dc, y=nc, title=f"{{nc}} Over Time (Monthly)",
+                                      template="plotly_dark", markers=True)
+                        fig.update_layout(height=400, margin=dict(l=20, r=20, t=40, b=60))
+                        st.plotly_chart(fig, use_container_width=True)
+                    except:
+                        pass
+    else:
+        st.info("No datetime columns detected for trend analysis.")
+
+with tab_distribution:
+    for nc in numeric_cols[:6]:
+        if nc in df.columns:
+            fig = make_subplots(rows=1, cols=2, subplot_titles=[f"{{nc}} Distribution", f"{{nc}} Box Plot"])
+            fig.add_trace(go.Histogram(x=df[nc].dropna(), nbinsx=50, marker_color="#58a6ff"), row=1, col=1)
+            fig.add_trace(go.Box(y=df[nc].dropna(), marker_color="#f0883e"), row=1, col=2)
+            fig.update_layout(height=350, template="plotly_dark", margin=dict(l=20, r=20, t=40, b=20),
+                              showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
+
+with tab_data:
+    st.subheader("Raw Data")
+    st.dataframe(df, use_container_width=True, height=600)
+
+    # Data summary
+    st.subheader("Data Summary")
+    st.dataframe(df.describe(), use_container_width=True)
 '''
 
         if output_path:
