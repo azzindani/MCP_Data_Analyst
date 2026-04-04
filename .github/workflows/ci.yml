@@ -19,7 +19,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --all-packages --dev
+          uv sync --group dev
           uv tool install ruff
 
       - name: Lint with ruff
@@ -28,4 +28,4 @@ jobs:
 
       - name: Run tests
         run: |
-          uv run --package mcp-data-analyst pytest tests/ -v --tb=short
+          uv run pytest tests/ -v --tb=short
