@@ -19,14 +19,13 @@ jobs:
 
       - name: Install dependencies
         run: |
-          cd servers/data_basic && uv sync --all-packages --dev
-          cd ../data_advanced && uv sync --all-packages --dev
-          uv pip install pytest pytest-cov
+          uv sync --all-packages --dev
+          uv tool install ruff
 
       - name: Lint with ruff
         run: |
-          uvx ruff check servers/ shared/ tests/ --exclude "**/.venv/**"
+          ruff check servers/ shared/ tests/ --exclude "**/.venv/**"
 
       - name: Run tests
         run: |
-          PYTHONPATH=. uv run pytest tests/ -v --tb=short
+          uv run --group dev pytest tests/ -v --tb=short
