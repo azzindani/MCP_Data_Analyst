@@ -21,6 +21,7 @@ jobs:
         run: |
           cd servers/data_basic && uv sync --all-packages --dev
           cd ../data_advanced && uv sync --all-packages --dev
+          uv pip install pytest pytest-cov
 
       - name: Lint with ruff
         run: |
@@ -28,4 +29,4 @@ jobs:
 
       - name: Run tests
         run: |
-          PYTHONPATH=. servers/data_advanced/.venv/bin/python -m pytest tests/ -v --tb=short
+          PYTHONPATH=. uv run pytest tests/ -v --tb=short
