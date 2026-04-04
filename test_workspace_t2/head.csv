@@ -1,0 +1,4 @@
+Region,Product,Revenue,Units,Discount,Order_Date
+West,Widget A,5000,10,0.1,2024-01-15
+West,Widget B,3200,8,0.12,2024-02-20
+East,Widget A,7500,15,0.05,2024-03-10

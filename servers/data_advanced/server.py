@@ -124,6 +124,45 @@ def generate_dashboard(
     )
 
 
+@mcp.tool()
+def generate_correlation_heatmap(
+    file_path: str,
+    method: str = "pearson",
+    output_path: str = "",
+    open_after: bool = True,
+) -> dict:
+    """Interactive correlation heatmap for numeric columns. Opens HTML."""
+    return engine.generate_correlation_heatmap(
+        file_path, method, output_path, open_after
+    )
+
+
+@mcp.tool()
+def generate_pairwise_plot(
+    file_path: str,
+    columns: list[str] = None,
+    max_cols: int = 6,
+    output_path: str = "",
+    open_after: bool = True,
+) -> dict:
+    """Pairwise scatter + histogram matrix for numeric columns. Opens HTML."""
+    return engine.generate_pairwise_plot(
+        file_path, columns, max_cols, output_path, open_after
+    )
+
+
+@mcp.tool()
+def export_data(
+    file_path: str,
+    output_path: str = "",
+    format: str = "csv",
+    encoding: str = "utf-8",
+    separator: str = ",",
+) -> dict:
+    """Export dataset to CSV, Excel, or JSON format."""
+    return engine.export_data(file_path, output_path, format, encoding, separator)
+
+
 def main() -> None:
     mcp.run()
 

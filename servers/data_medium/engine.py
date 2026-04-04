@@ -791,3 +791,1217 @@ def run_cleaning_pipeline(
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
+
+
+# ---------------------------------------------------------------------------
+# correlation_analysis
+# ---------------------------------------------------------------------------
+
+
+def correlation_analysis(
+    file_path: str,
+    method: str = "pearson",
+    top_n: int = 10,
+) -> dict:
+    """Correlation matrix + top N strongest pairs for numeric columns."""
+    progress = []
+    try:
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+
+        if len(numeric_cols) < 2:
+            return {
+                "success": False,
+                "error": "Need at least 2 numeric columns for correlation",
+                "hint": f"Only found {len(numeric_cols)} numeric columns: {', '.join(numeric_cols)}",
+                "progress": [fail("Insufficient numeric columns", str(numeric_cols))],
+                "token_estimate": 20,
+            }
+
+        valid_methods = {"pearson", "spearman", "kendall"}
+        if method not in valid_methods:
+            return {
+                "success": False,
+                "error": f"Invalid method: {method}",
+                "hint": f"Valid methods: {', '.join(sorted(valid_methods))}",
+                "progress": [fail("Invalid method", method)],
+                "token_estimate": 20,
+            }
+
+        corr = df[numeric_cols].corr(method=method)
+
+        # Extract pairs (upper triangle)
+        pairs = []
+        for i in range(len(numeric_cols)):
+            for j in range(i + 1, len(numeric_cols)):
+                val = corr.iloc[i, j]
+                if not pd.isna(val):
+                    pairs.append(
+                        {
+                            "col_a": numeric_cols[i],
+                            "col_b": numeric_cols[j],
+                            "correlation": round(float(val), 4),
+                        }
+                    )
+
+        pairs.sort(key=lambda x: abs(x["correlation"]), reverse=True)
+        top_pairs = pairs[:top_n]
+
+        # Build matrix as dict of dicts
+        corr_matrix = {}
+        for c in numeric_cols:
+            corr_matrix[c] = {
+                c2: round(float(corr.loc[c, c2]), 4) for c2 in numeric_cols
+            }
+
+        progress.append(
+            ok(
+                f"Correlation analysis complete",
+                f"{len(numeric_cols)} columns, {len(pairs)} pairs, method={method}",
+            )
+        )
+
+        result = {
+            "success": True,
+            "op": "correlation_analysis",
+            "method": method,
+            "numeric_columns": numeric_cols,
+            "total_pairs": len(pairs),
+            "top_correlations": top_pairs,
+            "correlation_matrix": corr_matrix,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("correlation_analysis error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# cross_tabulate
+# ---------------------------------------------------------------------------
+
+
+def cross_tabulate(
+    file_path: str,
+    row_column: str,
+    col_column: str,
+    values_column: str = "",
+    agg_func: str = "count",
+    normalize: str = "",
+) -> dict:
+    """Contingency table between two categorical columns."""
+    progress = []
+    try:
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+
+        if row_column not in df.columns:
+            return {
+                "success": False,
+                "error": f"Row column not found: {row_column}",
+                "hint": f"Available: {', '.join(df.columns)}",
+                "progress": [fail("Column not found", row_column)],
+                "token_estimate": 30,
+            }
+        if col_column not in df.columns:
+            return {
+                "success": False,
+                "error": f"Column column not found: {col_column}",
+                "hint": f"Available: {', '.join(df.columns)}",
+                "progress": [fail("Column not found", col_column)],
+                "token_estimate": 30,
+            }
+
+        if values_column:
+            if values_column not in df.columns:
+                return {
+                    "success": False,
+                    "error": f"Values column not found: {values_column}",
+                    "hint": f"Available: {', '.join(df.columns)}",
+                    "progress": [fail("Column not found", values_column)],
+                    "token_estimate": 30,
+                }
+            table = pd.crosstab(
+                df[row_column],
+                df[col_column],
+                values=df[values_column],
+                aggfunc=agg_func,
+            )
+        else:
+            table = pd.crosstab(df[row_column], df[col_column])
+
+        if normalize:
+            norm_options = {"all": True, "index": 0, "columns": 1}
+            if normalize in norm_options:
+                table = table / table.sum(axis=norm_options[normalize])
+                table = table.round(4)
+
+        # Convert to list of dicts for JSON serialization
+        result_rows = []
+        for idx, row in table.iterrows():
+            rd = {row_column: idx}
+            for c in table.columns:
+                rd[str(c)] = round(float(row[c]), 4) if pd.notna(row[c]) else 0
+            result_rows.append(rd)
+
+        progress.append(
+            ok(
+                f"Cross-tabulation complete",
+                f"{table.shape[0]} × {table.shape[1]} table",
+            )
+        )
+
+        result = {
+            "success": True,
+            "op": "cross_tabulate",
+            "row_column": row_column,
+            "col_column": col_column,
+            "values_column": values_column or None,
+            "agg_func": agg_func,
+            "normalize": normalize or None,
+            "table_shape": [table.shape[0], table.shape[1]],
+            "result": result_rows,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("cross_tabulate error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path and column names.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# pivot_table
+# ---------------------------------------------------------------------------
+
+
+def pivot_table(
+    file_path: str,
+    index: list[str],
+    columns: list[str] = None,
+    values: list[str] = None,
+    agg_func: str = "sum",
+    fill_value: float = 0,
+) -> dict:
+    """Multi-dimensional pivot/aggregation table."""
+    progress = []
+    try:
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+
+        # Validate columns
+        for c in index:
+            if c not in df.columns:
+                return {
+                    "success": False,
+                    "error": f"Index column not found: {c}",
+                    "hint": f"Available: {', '.join(df.columns)}",
+                    "progress": [fail("Column not found", c)],
+                    "token_estimate": 30,
+                }
+
+        if columns:
+            for c in columns:
+                if c not in df.columns:
+                    return {
+                        "success": False,
+                        "error": f"Column not found: {c}",
+                        "hint": f"Available: {', '.join(df.columns)}",
+                        "progress": [fail("Column not found", c)],
+                        "token_estimate": 30,
+                    }
+
+        if values:
+            for c in values:
+                if c not in df.columns:
+                    return {
+                        "success": False,
+                        "error": f"Values column not found: {c}",
+                        "hint": f"Available: {', '.join(df.columns)}",
+                        "progress": [fail("Column not found", c)],
+                        "token_estimate": 30,
+                    }
+
+        table = pd.pivot_table(
+            df,
+            index=index,
+            columns=columns,
+            values=values,
+            aggfunc=agg_func,
+            fill_value=fill_value,
+        )
+
+        # Flatten multi-index columns
+        if isinstance(table.columns, pd.MultiIndex):
+            table.columns = [
+                "_".join(str(c) for c in col).strip("_") for col in table.columns
+            ]
+        table = table.reset_index()
+
+        result_rows = table.fillna(fill_value).to_dict(orient="records")
+
+        progress.append(
+            ok(
+                f"Pivot table created",
+                f"{len(result_rows)} rows, {len(table.columns)} columns",
+            )
+        )
+
+        result = {
+            "success": True,
+            "op": "pivot_table",
+            "index": index,
+            "columns": columns,
+            "values": values,
+            "agg_func": agg_func,
+            "rows": len(result_rows),
+            "result_columns": list(table.columns),
+            "result": result_rows,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("pivot_table error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path and column names.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# value_counts
+# ---------------------------------------------------------------------------
+
+
+def value_counts(
+    file_path: str,
+    columns: list[str],
+    top_n: int = 20,
+    include_pct: bool = True,
+) -> dict:
+    """Frequency tables with percentages for categorical columns."""
+    progress = []
+    try:
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+        total_rows = len(df)
+
+        missing_cols = [c for c in columns if c not in df.columns]
+        if missing_cols:
+            return {
+                "success": False,
+                "error": f"Columns not found: {missing_cols}",
+                "hint": f"Available: {', '.join(df.columns)}",
+                "progress": [fail("Column not found", str(missing_cols))],
+                "token_estimate": 30,
+            }
+
+        results = {}
+        for c in columns:
+            vc = df[c].value_counts().head(top_n)
+            entries = []
+            for val, count in vc.items():
+                entry = {"value": str(val), "count": int(count)}
+                if include_pct:
+                    entry["pct"] = round(count / total_rows * 100, 2)
+                entries.append(entry)
+            results[c] = {
+                "total_unique": int(df[c].nunique()),
+                "total_rows": total_rows,
+                "top_values": entries,
+            }
+
+        progress.append(
+            ok(f"Value counts computed", f"{len(columns)} columns, top {top_n} each")
+        )
+
+        result = {
+            "success": True,
+            "op": "value_counts",
+            "columns": columns,
+            "top_n": top_n,
+            "results": results,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("value_counts error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path and column names.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# filter_rows
+# ---------------------------------------------------------------------------
+
+
+def filter_rows(
+    file_path: str,
+    conditions: list[dict],
+    output_path: str = "",
+    dry_run: bool = False,
+) -> dict:
+    """Filter rows by conditions. Supports: equals, contains, gt, lt, gte, lte, not_null, is_null."""
+    progress = []
+    try:
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+        original_rows = len(df)
+
+        mask = pd.Series(True, index=df.index)
+        for cond in conditions:
+            col = cond.get("column", "")
+            op = cond.get("op", "")
+            value = cond.get("value")
+
+            if col not in df.columns:
+                return {
+                    "success": False,
+                    "error": f"Column not found: {col}",
+                    "hint": f"Available: {', '.join(df.columns)}",
+                    "progress": [fail("Column not found", col)],
+                    "token_estimate": 30,
+                }
+
+            if op == "equals":
+                mask &= df[col] == value
+            elif op == "not_equals":
+                mask &= df[col] != value
+            elif op == "contains":
+                mask &= (
+                    df[col].astype(str).str.contains(str(value), case=False, na=False)
+                )
+            elif op == "gt":
+                mask &= pd.to_numeric(df[col], errors="coerce") > value
+            elif op == "lt":
+                mask &= pd.to_numeric(df[col], errors="coerce") < value
+            elif op == "gte":
+                mask &= pd.to_numeric(df[col], errors="coerce") >= value
+            elif op == "lte":
+                mask &= pd.to_numeric(df[col], errors="coerce") <= value
+            elif op == "not_null":
+                mask &= df[col].notna()
+            elif op == "is_null":
+                mask &= df[col].isna()
+            else:
+                return {
+                    "success": False,
+                    "error": f"Unknown filter op: {op}",
+                    "hint": "Valid ops: equals, not_equals, contains, gt, lt, gte, lte, not_null, is_null",
+                    "progress": [fail("Unknown op", op)],
+                    "token_estimate": 30,
+                }
+
+        filtered_df = df[mask]
+        remaining = len(filtered_df)
+
+        if dry_run:
+            progress.append(
+                info(
+                    "Dry run — no changes written",
+                    f"Would keep {remaining} of {original_rows} rows",
+                )
+            )
+            result = {
+                "success": True,
+                "dry_run": True,
+                "op": "filter_rows",
+                "original_rows": original_rows,
+                "filtered_rows": remaining,
+                "removed_rows": original_rows - remaining,
+                "progress": progress,
+            }
+            result["token_estimate"] = _token_estimate(result)
+            return result
+
+        # Write filtered data
+        out = Path(output_path) if output_path else path
+        filtered_df.to_csv(str(out), index=False)
+
+        progress.append(
+            ok(f"Filtered {path.name}", f"{remaining} of {original_rows} rows kept")
+        )
+
+        result = {
+            "success": True,
+            "op": "filter_rows",
+            "original_rows": original_rows,
+            "filtered_rows": remaining,
+            "removed_rows": original_rows - remaining,
+            "output_file": out.name,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("filter_rows error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path, column names, and condition values.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# sample_data
+# ---------------------------------------------------------------------------
+
+
+def sample_data(
+    file_path: str,
+    method: str = "random",
+    n: int = 100,
+    random_state: int = 42,
+    output_path: str = "",
+) -> dict:
+    """Sample rows from dataset. Methods: random, head, tail, stratified."""
+    progress = []
+    try:
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+        total_rows = len(df)
+
+        valid_methods = {"random", "head", "tail"}
+        if method not in valid_methods:
+            return {
+                "success": False,
+                "error": f"Invalid method: {method}",
+                "hint": f"Valid methods: {', '.join(sorted(valid_methods))}",
+                "progress": [fail("Invalid method", method)],
+                "token_estimate": 20,
+            }
+
+        actual_n = min(n, total_rows)
+
+        if method == "random":
+            sampled = df.sample(n=actual_n, random_state=random_state)
+        elif method == "head":
+            sampled = df.head(actual_n)
+        elif method == "tail":
+            sampled = df.tail(actual_n)
+
+        if output_path:
+            out = Path(output_path)
+        else:
+            out = path.parent / f"{path.stem}_sample_{method}_{actual_n}.csv"
+
+        sampled.to_csv(str(out), index=False)
+
+        progress.append(
+            ok(f"Sampled {method}", f"{actual_n} of {total_rows} rows → {out.name}")
+        )
+
+        result = {
+            "success": True,
+            "op": "sample_data",
+            "method": method,
+            "original_rows": total_rows,
+            "sampled_rows": actual_n,
+            "output_file": out.name,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("sample_data error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path and parameters.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# correlation_analysis
+# ---------------------------------------------------------------------------
+
+
+def correlation_analysis(
+    file_path: str,
+    method: str = "pearson",
+    top_n: int = 10,
+) -> dict:
+    """Correlation matrix + top N strongest pairs for numeric columns."""
+    progress = []
+    try:
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+
+        if len(numeric_cols) < 2:
+            return {
+                "success": False,
+                "error": "Need at least 2 numeric columns for correlation",
+                "hint": f"Only found {len(numeric_cols)} numeric columns: {', '.join(numeric_cols)}",
+                "progress": [fail("Insufficient numeric columns", str(numeric_cols))],
+                "token_estimate": 20,
+            }
+
+        valid_methods = {"pearson", "spearman", "kendall"}
+        if method not in valid_methods:
+            return {
+                "success": False,
+                "error": f"Invalid method: {method}",
+                "hint": f"Valid methods: {', '.join(sorted(valid_methods))}",
+                "progress": [fail("Invalid method", method)],
+                "token_estimate": 20,
+            }
+
+        corr = df[numeric_cols].corr(method=method)
+
+        # Extract pairs (upper triangle)
+        pairs = []
+        for i in range(len(numeric_cols)):
+            for j in range(i + 1, len(numeric_cols)):
+                val = corr.iloc[i, j]
+                if not pd.isna(val):
+                    pairs.append(
+                        {
+                            "col_a": numeric_cols[i],
+                            "col_b": numeric_cols[j],
+                            "correlation": round(float(val), 4),
+                        }
+                    )
+
+        pairs.sort(key=lambda x: abs(x["correlation"]), reverse=True)
+        top_pairs = pairs[:top_n]
+
+        # Build matrix as dict of dicts
+        corr_matrix = {}
+        for c in numeric_cols:
+            corr_matrix[c] = {
+                c2: round(float(corr.loc[c, c2]), 4) for c2 in numeric_cols
+            }
+
+        progress.append(
+            ok(
+                f"Correlation analysis complete",
+                f"{len(numeric_cols)} columns, {len(pairs)} pairs, method={method}",
+            )
+        )
+
+        result = {
+            "success": True,
+            "op": "correlation_analysis",
+            "method": method,
+            "numeric_columns": numeric_cols,
+            "total_pairs": len(pairs),
+            "top_correlations": top_pairs,
+            "correlation_matrix": corr_matrix,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("correlation_analysis error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# cross_tabulate
+# ---------------------------------------------------------------------------
+
+
+def cross_tabulate(
+    file_path: str,
+    row_column: str,
+    col_column: str,
+    values_column: str = "",
+    agg_func: str = "count",
+    normalize: str = "",
+) -> dict:
+    """Contingency table between two categorical columns."""
+    progress = []
+    try:
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+
+        if row_column not in df.columns:
+            return {
+                "success": False,
+                "error": f"Row column not found: {row_column}",
+                "hint": f"Available: {', '.join(df.columns)}",
+                "progress": [fail("Column not found", row_column)],
+                "token_estimate": 30,
+            }
+        if col_column not in df.columns:
+            return {
+                "success": False,
+                "error": f"Column column not found: {col_column}",
+                "hint": f"Available: {', '.join(df.columns)}",
+                "progress": [fail("Column not found", col_column)],
+                "token_estimate": 30,
+            }
+
+        if values_column:
+            if values_column not in df.columns:
+                return {
+                    "success": False,
+                    "error": f"Values column not found: {values_column}",
+                    "hint": f"Available: {', '.join(df.columns)}",
+                    "progress": [fail("Column not found", values_column)],
+                    "token_estimate": 30,
+                }
+            table = pd.crosstab(
+                df[row_column],
+                df[col_column],
+                values=df[values_column],
+                aggfunc=agg_func,
+            )
+        else:
+            table = pd.crosstab(df[row_column], df[col_column])
+
+        if normalize:
+            norm_options = {"all": True, "index": 0, "columns": 1}
+            if normalize in norm_options:
+                table = table / table.sum(axis=norm_options[normalize])
+                table = table.round(4)
+
+        # Convert to list of dicts for JSON serialization
+        result_rows = []
+        for idx, row in table.iterrows():
+            rd = {row_column: idx}
+            for c in table.columns:
+                rd[str(c)] = round(float(row[c]), 4) if pd.notna(row[c]) else 0
+            result_rows.append(rd)
+
+        progress.append(
+            ok(
+                f"Cross-tabulation complete",
+                f"{table.shape[0]} × {table.shape[1]} table",
+            )
+        )
+
+        result = {
+            "success": True,
+            "op": "cross_tabulate",
+            "row_column": row_column,
+            "col_column": col_column,
+            "values_column": values_column or None,
+            "agg_func": agg_func,
+            "normalize": normalize or None,
+            "table_shape": [table.shape[0], table.shape[1]],
+            "result": result_rows,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("cross_tabulate error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path and column names.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# pivot_table
+# ---------------------------------------------------------------------------
+
+
+def pivot_table(
+    file_path: str,
+    index: list[str],
+    columns: list[str] = None,
+    values: list[str] = None,
+    agg_func: str = "sum",
+    fill_value: float = 0,
+) -> dict:
+    """Multi-dimensional pivot/aggregation table."""
+    progress = []
+    try:
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+
+        # Validate columns
+        for c in index:
+            if c not in df.columns:
+                return {
+                    "success": False,
+                    "error": f"Index column not found: {c}",
+                    "hint": f"Available: {', '.join(df.columns)}",
+                    "progress": [fail("Column not found", c)],
+                    "token_estimate": 30,
+                }
+
+        if columns:
+            for c in columns:
+                if c not in df.columns:
+                    return {
+                        "success": False,
+                        "error": f"Column not found: {c}",
+                        "hint": f"Available: {', '.join(df.columns)}",
+                        "progress": [fail("Column not found", c)],
+                        "token_estimate": 30,
+                    }
+
+        if values:
+            for c in values:
+                if c not in df.columns:
+                    return {
+                        "success": False,
+                        "error": f"Values column not found: {c}",
+                        "hint": f"Available: {', '.join(df.columns)}",
+                        "progress": [fail("Column not found", c)],
+                        "token_estimate": 30,
+                    }
+
+        table = pd.pivot_table(
+            df,
+            index=index,
+            columns=columns,
+            values=values,
+            aggfunc=agg_func,
+            fill_value=fill_value,
+        )
+
+        # Flatten multi-index columns
+        if isinstance(table.columns, pd.MultiIndex):
+            table.columns = [
+                "_".join(str(c) for c in col).strip("_") for col in table.columns
+            ]
+        table = table.reset_index()
+
+        result_rows = table.fillna(fill_value).to_dict(orient="records")
+
+        progress.append(
+            ok(
+                f"Pivot table created",
+                f"{len(result_rows)} rows, {len(table.columns)} columns",
+            )
+        )
+
+        result = {
+            "success": True,
+            "op": "pivot_table",
+            "index": index,
+            "columns": columns,
+            "values": values,
+            "agg_func": agg_func,
+            "rows": len(result_rows),
+            "result_columns": list(table.columns),
+            "result": result_rows,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("pivot_table error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path and column names.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# value_counts
+# ---------------------------------------------------------------------------
+
+
+def value_counts(
+    file_path: str,
+    columns: list[str],
+    top_n: int = 20,
+    include_pct: bool = True,
+) -> dict:
+    """Frequency tables with percentages for categorical columns."""
+    progress = []
+    try:
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+        total_rows = len(df)
+
+        missing_cols = [c for c in columns if c not in df.columns]
+        if missing_cols:
+            return {
+                "success": False,
+                "error": f"Columns not found: {missing_cols}",
+                "hint": f"Available: {', '.join(df.columns)}",
+                "progress": [fail("Column not found", str(missing_cols))],
+                "token_estimate": 30,
+            }
+
+        results = {}
+        for c in columns:
+            vc = df[c].value_counts().head(top_n)
+            entries = []
+            for val, count in vc.items():
+                entry = {"value": str(val), "count": int(count)}
+                if include_pct:
+                    entry["pct"] = round(count / total_rows * 100, 2)
+                entries.append(entry)
+            results[c] = {
+                "total_unique": int(df[c].nunique()),
+                "total_rows": total_rows,
+                "top_values": entries,
+            }
+
+        progress.append(
+            ok(f"Value counts computed", f"{len(columns)} columns, top {top_n} each")
+        )
+
+        result = {
+            "success": True,
+            "op": "value_counts",
+            "columns": columns,
+            "top_n": top_n,
+            "results": results,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("value_counts error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path and column names.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# filter_rows
+# ---------------------------------------------------------------------------
+
+
+def filter_rows(
+    file_path: str,
+    conditions: list[dict],
+    output_path: str = "",
+    dry_run: bool = False,
+) -> dict:
+    """Filter rows by conditions. Supports: equals, contains, gt, lt, gte, lte, not_null, is_null."""
+    progress = []
+    try:
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+        original_rows = len(df)
+
+        mask = pd.Series(True, index=df.index)
+        for cond in conditions:
+            col = cond.get("column", "")
+            op = cond.get("op", "")
+            value = cond.get("value")
+
+            if col not in df.columns:
+                return {
+                    "success": False,
+                    "error": f"Column not found: {col}",
+                    "hint": f"Available: {', '.join(df.columns)}",
+                    "progress": [fail("Column not found", col)],
+                    "token_estimate": 30,
+                }
+
+            if op == "equals":
+                mask &= df[col] == value
+            elif op == "not_equals":
+                mask &= df[col] != value
+            elif op == "contains":
+                mask &= (
+                    df[col].astype(str).str.contains(str(value), case=False, na=False)
+                )
+            elif op == "gt":
+                mask &= pd.to_numeric(df[col], errors="coerce") > value
+            elif op == "lt":
+                mask &= pd.to_numeric(df[col], errors="coerce") < value
+            elif op == "gte":
+                mask &= pd.to_numeric(df[col], errors="coerce") >= value
+            elif op == "lte":
+                mask &= pd.to_numeric(df[col], errors="coerce") <= value
+            elif op == "not_null":
+                mask &= df[col].notna()
+            elif op == "is_null":
+                mask &= df[col].isna()
+            else:
+                return {
+                    "success": False,
+                    "error": f"Unknown filter op: {op}",
+                    "hint": "Valid ops: equals, not_equals, contains, gt, lt, gte, lte, not_null, is_null",
+                    "progress": [fail("Unknown op", op)],
+                    "token_estimate": 30,
+                }
+
+        filtered_df = df[mask]
+        remaining = len(filtered_df)
+
+        if dry_run:
+            progress.append(
+                info(
+                    "Dry run — no changes written",
+                    f"Would keep {remaining} of {original_rows} rows",
+                )
+            )
+            result = {
+                "success": True,
+                "dry_run": True,
+                "op": "filter_rows",
+                "original_rows": original_rows,
+                "filtered_rows": remaining,
+                "removed_rows": original_rows - remaining,
+                "progress": progress,
+            }
+            result["token_estimate"] = _token_estimate(result)
+            return result
+
+        # Write filtered data
+        out = Path(output_path) if output_path else path
+        filtered_df.to_csv(str(out), index=False)
+
+        progress.append(
+            ok(f"Filtered {path.name}", f"{remaining} of {original_rows} rows kept")
+        )
+
+        result = {
+            "success": True,
+            "op": "filter_rows",
+            "original_rows": original_rows,
+            "filtered_rows": remaining,
+            "removed_rows": original_rows - remaining,
+            "output_file": out.name,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("filter_rows error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path, column names, and condition values.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# sample_data
+# ---------------------------------------------------------------------------
+
+
+def sample_data(
+    file_path: str,
+    method: str = "random",
+    n: int = 100,
+    random_state: int = 42,
+    output_path: str = "",
+) -> dict:
+    """Sample rows from dataset. Methods: random, head, tail, stratified."""
+    progress = []
+    try:
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+        total_rows = len(df)
+
+        valid_methods = {"random", "head", "tail"}
+        if method not in valid_methods:
+            return {
+                "success": False,
+                "error": f"Invalid method: {method}",
+                "hint": f"Valid methods: {', '.join(sorted(valid_methods))}",
+                "progress": [fail("Invalid method", method)],
+                "token_estimate": 20,
+            }
+
+        actual_n = min(n, total_rows)
+
+        if method == "random":
+            sampled = df.sample(n=actual_n, random_state=random_state)
+        elif method == "head":
+            sampled = df.head(actual_n)
+        elif method == "tail":
+            sampled = df.tail(actual_n)
+
+        if output_path:
+            out = Path(output_path)
+        else:
+            out = path.parent / f"{path.stem}_sample_{method}_{actual_n}.csv"
+
+        sampled.to_csv(str(out), index=False)
+
+        progress.append(
+            ok(f"Sampled {method}", f"{actual_n} of {total_rows} rows → {out.name}")
+        )
+
+        result = {
+            "success": True,
+            "op": "sample_data",
+            "method": method,
+            "original_rows": total_rows,
+            "sampled_rows": actual_n,
+            "output_file": out.name,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("sample_data error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path and parameters.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }

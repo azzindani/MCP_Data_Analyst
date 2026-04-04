@@ -5,7 +5,6 @@ from __future__ import annotations
 import sys
 import logging
 from pathlib import Path
-from pathlib import Path
 
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
@@ -95,6 +94,78 @@ def run_cleaning_pipeline(
 ) -> dict:
     """Run ordered cleaning ops in one call. Single snapshot taken."""
     return engine.run_cleaning_pipeline(file_path, ops, dry_run)
+
+
+@mcp.tool()
+def correlation_analysis(
+    file_path: str,
+    method: str = "pearson",
+    top_n: int = 10,
+) -> dict:
+    """Correlation matrix + top N strongest pairs for numeric columns."""
+    return engine.correlation_analysis(file_path, method, top_n)
+
+
+@mcp.tool()
+def cross_tabulate(
+    file_path: str,
+    row_column: str,
+    col_column: str,
+    values_column: str = "",
+    agg_func: str = "count",
+    normalize: str = "",
+) -> dict:
+    """Contingency table between two categorical columns."""
+    return engine.cross_tabulate(
+        file_path, row_column, col_column, values_column, agg_func, normalize
+    )
+
+
+@mcp.tool()
+def pivot_table(
+    file_path: str,
+    index: list[str],
+    columns: list[str] = None,
+    values: list[str] = None,
+    agg_func: str = "sum",
+    fill_value: float = 0,
+) -> dict:
+    """Multi-dimensional pivot/aggregation table."""
+    return engine.pivot_table(file_path, index, columns, values, agg_func, fill_value)
+
+
+@mcp.tool()
+def value_counts(
+    file_path: str,
+    columns: list[str],
+    top_n: int = 20,
+    include_pct: bool = True,
+) -> dict:
+    """Frequency tables with percentages for categorical columns."""
+    return engine.value_counts(file_path, columns, top_n, include_pct)
+
+
+@mcp.tool()
+def filter_rows(
+    file_path: str,
+    conditions: list[dict],
+    output_path: str = "",
+    dry_run: bool = False,
+) -> dict:
+    """Filter rows by conditions. ops: equals contains gt lt gte lte not_null is_null."""
+    return engine.filter_rows(file_path, conditions, output_path, dry_run)
+
+
+@mcp.tool()
+def sample_data(
+    file_path: str,
+    method: str = "random",
+    n: int = 100,
+    random_state: int = 42,
+    output_path: str = "",
+) -> dict:
+    """Sample rows from dataset. methods: random head tail."""
+    return engine.sample_data(file_path, method, n, random_state, output_path)
 
 
 def main() -> None:

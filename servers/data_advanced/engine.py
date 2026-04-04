@@ -429,7 +429,557 @@ def generate_distribution_plot(
         return {
             "success": False,
             "error": str(exc),
+            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# generate_correlation_heatmap
+# ---------------------------------------------------------------------------
+
+
+def generate_correlation_heatmap(
+    file_path: str,
+    method: str = "pearson",
+    output_path: str = "",
+    open_after: bool = True,
+) -> dict:
+    """Interactive correlation heatmap for numeric columns. Opens HTML."""
+    progress = []
+    try:
+        try:
+            import plotly.express as px
+        except ImportError:
+            return {
+                "success": False,
+                "error": "plotly not installed",
+                "hint": "Install: uv add plotly",
+                "progress": [fail("Missing dependency", "plotly")],
+                "token_estimate": 20,
+            }
+
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+
+        if len(numeric_cols) < 2:
+            return {
+                "success": False,
+                "error": "Need at least 2 numeric columns",
+                "hint": f"Only found {len(numeric_cols)} numeric columns",
+                "progress": [fail("Insufficient numeric columns", "")],
+                "token_estimate": 20,
+            }
+
+        corr = df[numeric_cols].corr(method=method)
+
+        fig = px.imshow(
+            corr,
+            text_auto=".2f",
+            color_continuous_scale="RdBu_r",
+            title=f"Correlation Matrix ({method})",
+            aspect="auto",
+        )
+        fig.update_layout(template="plotly_dark", height=300 + 50 * len(numeric_cols))
+
+        if output_path:
+            out = Path(output_path)
+        else:
+            out = path.parent / f"{path.stem}_correlation_heatmap.html"
+
+        fig.write_html(str(out), include_plotlyjs=True, full_html=True)
+
+        if open_after:
+            _open_file(out)
+
+        progress.append(
+            ok(
+                f"Correlation heatmap saved",
+                f"{out.name} — {len(numeric_cols)} columns",
+            )
+        )
+
+        result = {
+            "success": True,
+            "op": "generate_correlation_heatmap",
+            "output_path": str(out.resolve()),
+            "output_name": out.name,
+            "columns": numeric_cols,
+            "method": method,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("generate_correlation_heatmap error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# generate_correlation_heatmap
+# ---------------------------------------------------------------------------
+
+
+def generate_correlation_heatmap(
+    file_path: str,
+    method: str = "pearson",
+    output_path: str = "",
+    open_after: bool = True,
+) -> dict:
+    """Interactive correlation heatmap for numeric columns. Opens HTML."""
+    progress = []
+    try:
+        try:
+            import plotly.express as px
+        except ImportError:
+            return {
+                "success": False,
+                "error": "plotly not installed",
+                "hint": "Install: uv add plotly",
+                "progress": [fail("Missing dependency", "plotly")],
+                "token_estimate": 20,
+            }
+
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+
+        if len(numeric_cols) < 2:
+            return {
+                "success": False,
+                "error": "Need at least 2 numeric columns",
+                "hint": f"Only found {len(numeric_cols)} numeric columns",
+                "progress": [fail("Insufficient numeric columns", "")],
+                "token_estimate": 20,
+            }
+
+        corr = df[numeric_cols].corr(method=method)
+
+        fig = px.imshow(
+            corr,
+            text_auto=".2f",
+            color_continuous_scale="RdBu_r",
+            title=f"Correlation Matrix ({method})",
+            aspect="auto",
+        )
+        fig.update_layout(template="plotly_dark", height=300 + 50 * len(numeric_cols))
+
+        if output_path:
+            out = Path(output_path)
+        else:
+            out = path.parent / f"{path.stem}_correlation_heatmap.html"
+
+        fig.write_html(str(out), include_plotlyjs=True, full_html=True)
+
+        if open_after:
+            _open_file(out)
+
+        progress.append(
+            ok(
+                f"Correlation heatmap saved",
+                f"{out.name} — {len(numeric_cols)} columns",
+            )
+        )
+
+        result = {
+            "success": True,
+            "op": "generate_correlation_heatmap",
+            "output_path": str(out.resolve()),
+            "output_name": out.name,
+            "columns": numeric_cols,
+            "method": method,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("generate_correlation_heatmap error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path and column types.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# generate_pairwise_plot
+# ---------------------------------------------------------------------------
+
+
+def generate_pairwise_plot(
+    file_path: str,
+    columns: list[str] = None,
+    max_cols: int = 6,
+    output_path: str = "",
+    open_after: bool = True,
+) -> dict:
+    """Pairwise scatter + histogram matrix for numeric columns. Opens HTML."""
+    progress = []
+    try:
+        try:
+            import plotly.express as px
+        except ImportError:
+            return {
+                "success": False,
+                "error": "plotly not installed",
+                "hint": "Install: uv add plotly",
+                "progress": [fail("Missing dependency", "plotly")],
+                "token_estimate": 20,
+            }
+
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+
+        if columns:
+            cols_to_plot = [c for c in columns if c in numeric_cols]
+        else:
+            cols_to_plot = numeric_cols[:max_cols]
+
+        if len(cols_to_plot) < 2:
+            return {
+                "success": False,
+                "error": "Need at least 2 numeric columns",
+                "hint": f"Only found {len(cols_to_plot)} numeric columns to plot",
+                "progress": [fail("Insufficient columns", "")],
+                "token_estimate": 20,
+            }
+
+        fig = px.scatter_matrix(
+            df[cols_to_plot],
+            title=f"Pairwise Plot: {', '.join(cols_to_plot)}",
+            template="plotly_dark",
+        )
+        fig.update_layout(height=200 * len(cols_to_plot), width=200 * len(cols_to_plot))
+
+        if output_path:
+            out = Path(output_path)
+        else:
+            out = path.parent / f"{path.stem}_pairwise.html"
+
+        fig.write_html(str(out), include_plotlyjs=True, full_html=True)
+
+        if open_after:
+            _open_file(out)
+
+        progress.append(
+            ok(f"Pairwise plot saved", f"{out.name} — {len(cols_to_plot)} columns")
+        )
+
+        result = {
+            "success": True,
+            "op": "generate_pairwise_plot",
+            "output_path": str(out.resolve()),
+            "output_name": out.name,
+            "columns_plotted": cols_to_plot,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("generate_pairwise_plot error")
+        return {
+            "success": False,
+            "error": str(exc),
             "hint": "Check file_path and column names.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# export_data
+# ---------------------------------------------------------------------------
+
+
+def export_data(
+    file_path: str,
+    output_path: str = "",
+    format: str = "csv",
+    encoding: str = "utf-8",
+    separator: str = ",",
+) -> dict:
+    """Export dataset to CSV, Excel, or JSON format."""
+    progress = []
+    try:
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+
+        valid_formats = {"csv", "json", "excel"}
+        if format not in valid_formats:
+            return {
+                "success": False,
+                "error": f"Invalid format: {format}",
+                "hint": f"Valid formats: {', '.join(sorted(valid_formats))}",
+                "progress": [fail("Invalid format", format)],
+                "token_estimate": 20,
+            }
+
+        if output_path:
+            out = Path(output_path)
+        else:
+            ext_map = {"csv": ".csv", "json": ".json", "excel": ".xlsx"}
+            out = path.parent / f"{path.stem}_export{ext_map[format]}"
+
+        if format == "csv":
+            df.to_csv(str(out), index=False, encoding=encoding, sep=separator)
+        elif format == "json":
+            df.to_json(str(out), orient="records", indent=2)
+        elif format == "excel":
+            df.to_excel(str(out), index=False)
+
+        size_kb = round(out.stat().st_size / 1024)
+
+        progress.append(
+            ok(f"Data exported", f"{out.name} ({size_kb:,} KB, {len(df)} rows)")
+        )
+
+        result = {
+            "success": True,
+            "op": "export_data",
+            "output_path": str(out.resolve()),
+            "output_name": out.name,
+            "format": format,
+            "rows": len(df),
+            "columns": len(df.columns),
+            "file_size_kb": size_kb,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("export_data error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path and format.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# generate_pairwise_plot
+# ---------------------------------------------------------------------------
+
+
+def generate_pairwise_plot(
+    file_path: str,
+    columns: list[str] = None,
+    max_cols: int = 6,
+    output_path: str = "",
+    open_after: bool = True,
+) -> dict:
+    """Pairwise scatter + histogram matrix for numeric columns. Opens HTML."""
+    progress = []
+    try:
+        try:
+            import plotly.express as px
+        except ImportError:
+            return {
+                "success": False,
+                "error": "plotly not installed",
+                "hint": "Install: uv add plotly",
+                "progress": [fail("Missing dependency", "plotly")],
+                "token_estimate": 20,
+            }
+
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+
+        if columns:
+            cols_to_plot = [c for c in columns if c in numeric_cols]
+        else:
+            cols_to_plot = numeric_cols[:max_cols]
+
+        if len(cols_to_plot) < 2:
+            return {
+                "success": False,
+                "error": "Need at least 2 numeric columns",
+                "hint": f"Only found {len(cols_to_plot)} numeric columns to plot",
+                "progress": [fail("Insufficient columns", "")],
+                "token_estimate": 20,
+            }
+
+        fig = px.scatter_matrix(
+            df[cols_to_plot],
+            title=f"Pairwise Plot: {', '.join(cols_to_plot)}",
+            template="plotly_dark",
+        )
+        fig.update_layout(height=200 * len(cols_to_plot), width=200 * len(cols_to_plot))
+
+        if output_path:
+            out = Path(output_path)
+        else:
+            out = path.parent / f"{path.stem}_pairwise.html"
+
+        fig.write_html(str(out), include_plotlyjs=True, full_html=True)
+
+        if open_after:
+            _open_file(out)
+
+        progress.append(
+            ok(f"Pairwise plot saved", f"{out.name} — {len(cols_to_plot)} columns")
+        )
+
+        result = {
+            "success": True,
+            "op": "generate_pairwise_plot",
+            "output_path": str(out.resolve()),
+            "output_name": out.name,
+            "columns_plotted": cols_to_plot,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("generate_pairwise_plot error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path and column names.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# export_data
+# ---------------------------------------------------------------------------
+
+
+def export_data(
+    file_path: str,
+    output_path: str = "",
+    format: str = "csv",
+    encoding: str = "utf-8",
+    separator: str = ",",
+) -> dict:
+    """Export dataset to CSV, Excel, or JSON format."""
+    progress = []
+    try:
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+
+        valid_formats = {"csv", "json", "excel"}
+        if format not in valid_formats:
+            return {
+                "success": False,
+                "error": f"Invalid format: {format}",
+                "hint": f"Valid formats: {', '.join(sorted(valid_formats))}",
+                "progress": [fail("Invalid format", format)],
+                "token_estimate": 20,
+            }
+
+        if output_path:
+            out = Path(output_path)
+        else:
+            ext_map = {"csv": ".csv", "json": ".json", "excel": ".xlsx"}
+            out = path.parent / f"{path.stem}_export{ext_map[format]}"
+
+        if format == "csv":
+            df.to_csv(str(out), index=False, encoding=encoding, sep=separator)
+        elif format == "json":
+            df.to_json(str(out), orient="records", indent=2)
+        elif format == "excel":
+            df.to_excel(str(out), index=False)
+
+        size_kb = round(out.stat().st_size / 1024)
+
+        progress.append(
+            ok(f"Data exported", f"{out.name} ({size_kb:,} KB, {len(df)} rows)")
+        )
+
+        result = {
+            "success": True,
+            "op": "export_data",
+            "output_path": str(out.resolve()),
+            "output_name": out.name,
+            "format": format,
+            "rows": len(df),
+            "columns": len(df.columns),
+            "file_size_kb": size_kb,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("export_data error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path and format.",
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
