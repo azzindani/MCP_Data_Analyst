@@ -2008,7 +2008,7 @@ def time_series_analysis(
             if (
                 value_cols := (
                     value_columns
-                    or [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+                    or [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c]) and c != date_column]
                 )
             )
             else []
@@ -2137,7 +2137,7 @@ def cohort_analysis(
 
         # Build cohort matrix
         cohort_data = (
-            df.groupby(["cohort", cohort_column])
+            df.groupby(["cohort", "period"])
             .agg(count=(value_column if value_column else cohort_column, "count"))
             .reset_index()
         )
