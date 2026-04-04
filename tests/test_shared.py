@@ -151,8 +151,8 @@ def test_list_versions_after_snapshot(tmp_path):
 def test_list_versions_newest_first(tmp_path):
     f = tmp_path / "data.csv"
     f.write_text("x")
-    v1 = snapshot(str(f))
-    v2 = snapshot(str(f))
+    _ = snapshot(str(f))
+    _ = snapshot(str(f))
     versions = list_versions(str(f))
     assert len(versions) == 2
     # Sorted newest first (lexicographic ISO timestamps with microseconds)

@@ -38,7 +38,7 @@ omit = ["tests/*"]
 exclude = [".venv", "**/.venv/**"]
 
 [tool.ruff.lint]
-ignore = ["E402", "F401"]
+ignore = ["E402", "F401", "F841"]
 
 [tool.uv]
 required-version = ">=0.5"

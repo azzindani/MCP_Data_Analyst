@@ -1,4 +1,5 @@
 """Tests for servers/data_basic/engine.py — ≥90% coverage required."""
+
 from __future__ import annotations
 
 import os
@@ -22,6 +23,7 @@ from servers.data_basic.engine import (
 # ---------------------------------------------------------------------------
 # load_dataset
 # ---------------------------------------------------------------------------
+
 
 class TestLoadDataset:
     def test_success_simple(self, simple_csv):
@@ -71,6 +73,7 @@ class TestLoadDataset:
         monkeypatch.setenv("MCP_CONSTRAINED_MODE", "1")
         import importlib
         import shared.platform_utils as pu
+
         importlib.reload(pu)
         r = load_dataset(str(large_csv))
         assert r["success"] is True
@@ -92,6 +95,7 @@ class TestLoadDataset:
 # ---------------------------------------------------------------------------
 # inspect_dataset
 # ---------------------------------------------------------------------------
+
 
 class TestInspectDataset:
     def test_success(self, simple_csv):
@@ -135,6 +139,7 @@ class TestInspectDataset:
 # ---------------------------------------------------------------------------
 # read_column_stats
 # ---------------------------------------------------------------------------
+
 
 class TestReadColumnStats:
     def test_numeric_column(self, simple_csv):
@@ -182,6 +187,7 @@ class TestReadColumnStats:
 # search_columns
 # ---------------------------------------------------------------------------
 
+
 class TestSearchColumns:
     def test_has_nulls(self, messy_csv):
         r = search_columns(str(messy_csv), has_nulls=True)
@@ -227,6 +233,7 @@ class TestSearchColumns:
         monkeypatch.setenv("MCP_CONSTRAINED_MODE", "1")
         import importlib
         import shared.platform_utils as pu
+
         importlib.reload(pu)
         r = search_columns(str(large_csv))
         # large csv has 5 columns so constrained mode (10) won't truncate, but verify field exists
@@ -237,11 +244,13 @@ class TestSearchColumns:
 # apply_patch
 # ---------------------------------------------------------------------------
 
+
 class TestApplyPatch:
     def test_fill_nulls_success(self, messy_csv):
-        r = apply_patch(str(messy_csv), [
-            {"op": "fill_nulls", "column": "revenue", "strategy": "median"}
-        ])
+        r = apply_patch(
+            str(messy_csv),
+            [{"op": "fill_nulls", "column": "revenue", "strategy": "median"}],
+        )
         assert r["success"] is True
         assert r["applied"] == 1
         assert "backup" in r
@@ -251,9 +260,10 @@ class TestApplyPatch:
         assert df["revenue"].isna().sum() == 0
 
     def test_backup_created(self, messy_csv):
-        apply_patch(str(messy_csv), [
-            {"op": "fill_nulls", "column": "revenue", "strategy": "mean"}
-        ])
+        apply_patch(
+            str(messy_csv),
+            [{"op": "fill_nulls", "column": "revenue", "strategy": "mean"}],
+        )
         versions_dir = messy_csv.parent / ".mcp_versions"
         assert versions_dir.exists()
         assert len(list(versions_dir.glob("*.bak"))) >= 1
@@ -265,57 +275,74 @@ class TestApplyPatch:
         assert len(df_after) < 7  # messy has 2 duplicate rows
 
     def test_drop_column(self, simple_csv):
-        r = apply_patch(str(simple_csv), [
-            {"op": "drop_column", "columns": ["Discount"]}
-        ])
+        r = apply_patch(
+            str(simple_csv), [{"op": "drop_column", "columns": ["Discount"]}]
+        )
         assert r["success"] is True
         df = pd.read_csv(str(simple_csv))
         assert "Discount" not in df.columns
 
     def test_drop_column_nonexistent(self, simple_csv):
-        r = apply_patch(str(simple_csv), [
-            {"op": "drop_column", "columns": ["NoSuchCol"]}
-        ])
+        r = apply_patch(
+            str(simple_csv), [{"op": "drop_column", "columns": ["NoSuchCol"]}]
+        )
         assert r["success"] is False
         assert "backup" in r  # snapshot still returned
 
     def test_cast_column_to_datetime(self, simple_csv):
-        r = apply_patch(str(simple_csv), [
-            {"op": "cast_column", "column": "Order Date", "dtype": "datetime"}
-        ])
+        r = apply_patch(
+            str(simple_csv),
+            [{"op": "cast_column", "column": "Order Date", "dtype": "datetime"}],
+        )
         assert r["success"] is True
         result = r["results"][0]
         assert "datetime" in result["to"].lower()
 
     def test_cast_column_bad_values_tracked(self, messy_csv):
-        r = apply_patch(str(messy_csv), [
-            {"op": "cast_column", "column": "Order Date", "dtype": "datetime"}
-        ])
+        r = apply_patch(
+            str(messy_csv),
+            [{"op": "cast_column", "column": "Order Date", "dtype": "datetime"}],
+        )
         assert r["success"] is True
         # "not-a-date" row should increment failed count
         assert r["results"][0]["failed"] >= 1
 
     def test_fill_nulls_fill_zeros(self, messy_csv):
-        r = apply_patch(str(messy_csv), [
-            {"op": "fill_nulls", "column": "Units Sold",
-             "strategy": "mean", "fill_zeros": True}
-        ])
+        r = apply_patch(
+            str(messy_csv),
+            [
+                {
+                    "op": "fill_nulls",
+                    "column": "Units Sold",
+                    "strategy": "mean",
+                    "fill_zeros": True,
+                }
+            ],
+        )
         assert r["success"] is True
 
     def test_cap_outliers_iqr(self, large_csv):
-        r = apply_patch(str(large_csv), [
-            {"op": "cap_outliers", "column": "Revenue", "method": "iqr"}
-        ])
+        r = apply_patch(
+            str(large_csv),
+            [{"op": "cap_outliers", "column": "Revenue", "method": "iqr"}],
+        )
         assert r["success"] is True
         res = r["results"][0]
         assert "lower_limit" in res
         assert "upper_limit" in res
 
     def test_add_column_math(self, simple_csv):
-        r = apply_patch(str(simple_csv), [
-            {"op": "add_column", "name": "Rev_Per_Unit",
-             "expr": "Revenue / Units Sold", "mode": "math"}
-        ])
+        r = apply_patch(
+            str(simple_csv),
+            [
+                {
+                    "op": "add_column",
+                    "name": "Rev_Per_Unit",
+                    "expr": "Revenue / Units Sold",
+                    "mode": "math",
+                }
+            ],
+        )
         assert r["success"] is True
         df = pd.read_csv(str(simple_csv))
         assert "Rev_Per_Unit" in df.columns
@@ -323,18 +350,24 @@ class TestApplyPatch:
         assert df["Rev_Per_Unit"].iloc[0] == pytest.approx(500.0)
 
     def test_add_column_threshold(self, simple_csv):
-        r = apply_patch(str(simple_csv), [
-            {"op": "add_column", "name": "Top_Region",
-             "source": "Region", "mode": "threshold", "threshold": 2}
-        ])
+        r = apply_patch(
+            str(simple_csv),
+            [
+                {
+                    "op": "add_column",
+                    "name": "Top_Region",
+                    "source": "Region",
+                    "mode": "threshold",
+                    "threshold": 2,
+                }
+            ],
+        )
         assert r["success"] is True
         df = pd.read_csv(str(simple_csv))
         assert "Top_Region" in df.columns
 
     def test_clean_text_headers(self, messy_csv):
-        r = apply_patch(str(messy_csv), [
-            {"op": "clean_text", "scope": "headers"}
-        ])
+        r = apply_patch(str(messy_csv), [{"op": "clean_text", "scope": "headers"}])
         assert r["success"] is True
         df = pd.read_csv(str(messy_csv))
         # Columns should be title-cased
@@ -342,19 +375,27 @@ class TestApplyPatch:
             assert col == col.strip()
 
     def test_replace_values(self, simple_csv):
-        r = apply_patch(str(simple_csv), [
-            {"op": "replace_values", "column": "Region",
-             "mapping": {"West": "Pacific"}}
-        ])
+        r = apply_patch(
+            str(simple_csv),
+            [
+                {
+                    "op": "replace_values",
+                    "column": "Region",
+                    "mapping": {"West": "Pacific"},
+                }
+            ],
+        )
         assert r["success"] is True
         df = pd.read_csv(str(simple_csv))
         assert "Pacific" in df["Region"].values
 
     def test_dry_run_no_changes(self, simple_csv):
-        original = simple_csv.read_text()
-        r = apply_patch(str(simple_csv), [
-            {"op": "fill_nulls", "column": "Revenue", "strategy": "mean"}
-        ], dry_run=True)
+        _ = simple_csv.read_text()
+        r = apply_patch(
+            str(simple_csv),
+            [{"op": "fill_nulls", "column": "Revenue", "strategy": "mean"}],
+            dry_run=True,
+        )
         assert r["success"] is True
         assert r["dry_run"] is True
         assert "would_change" in r
@@ -366,10 +407,13 @@ class TestApplyPatch:
         assert "hint" in r
 
     def test_multi_op_success(self, messy_csv):
-        r = apply_patch(str(messy_csv), [
-            {"op": "fill_nulls", "column": "revenue", "strategy": "median"},
-            {"op": "drop_duplicates"},
-        ])
+        r = apply_patch(
+            str(messy_csv),
+            [
+                {"op": "fill_nulls", "column": "revenue", "strategy": "median"},
+                {"op": "drop_duplicates"},
+            ],
+        )
         assert r["success"] is True
         assert r["applied"] == 2
 
@@ -379,9 +423,9 @@ class TestApplyPatch:
         assert r["total_entries"] >= 1
 
     def test_drop_duplicates_subset(self, messy_csv):
-        r = apply_patch(str(messy_csv), [
-            {"op": "drop_duplicates", "subset": ["State", "City"]}
-        ])
+        r = apply_patch(
+            str(messy_csv), [{"op": "drop_duplicates", "subset": ["State", "City"]}]
+        )
         assert r["success"] is True
 
     def test_file_not_found(self, tmp_path):
@@ -393,19 +437,18 @@ class TestApplyPatch:
 # restore_version
 # ---------------------------------------------------------------------------
 
+
 class TestRestoreVersion:
     def test_restore_most_recent(self, simple_csv):
-        original = simple_csv.read_text()
-        apply_patch(str(simple_csv), [
-            {"op": "drop_column", "columns": ["Discount"]}
-        ])
+        _ = simple_csv.read_text()
+        apply_patch(str(simple_csv), [{"op": "drop_column", "columns": ["Discount"]}])
         assert "Discount" not in simple_csv.read_text()
         r = restore_version(str(simple_csv))
         assert r["success"] is True
         assert "Discount" in simple_csv.read_text()
 
     def test_restore_content_matches_backup(self, simple_csv):
-        original = simple_csv.read_text()
+        _ = simple_csv.read_text()
         apply_patch(str(simple_csv), [{"op": "drop_duplicates"}])
         restore_version(str(simple_csv))
         assert simple_csv.read_text() == original
@@ -441,6 +484,7 @@ class TestRestoreVersion:
 # read_receipt
 # ---------------------------------------------------------------------------
 
+
 class TestReadReceipt:
     def test_no_receipt_returns_empty(self, simple_csv):
         r = read_receipt(str(simple_csv))
@@ -462,9 +506,7 @@ class TestReadReceipt:
 
     def test_entries_descending(self, simple_csv):
         apply_patch(str(simple_csv), [{"op": "drop_duplicates"}])
-        apply_patch(str(simple_csv), [
-            {"op": "drop_column", "columns": ["Discount"]}
-        ])
+        apply_patch(str(simple_csv), [{"op": "drop_column", "columns": ["Discount"]}])
         r = read_receipt(str(simple_csv))
         ts_list = [e["ts"] for e in r["entries"]]
         assert ts_list == sorted(ts_list, reverse=True)
@@ -478,9 +520,11 @@ class TestReadReceipt:
 # Docstring length CI check
 # ---------------------------------------------------------------------------
 
+
 def test_server_docstrings_lte_80_chars():
     """All @mcp.tool() docstrings must be ≤ 80 characters."""
     from servers.data_basic import server
+
     tool_funcs = [
         server.load_dataset,
         server.load_geo_dataset,
