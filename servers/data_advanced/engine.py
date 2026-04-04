@@ -1379,12 +1379,19 @@ def generate_pairwise_plot(
                 "token_estimate": 20,
             }
 
+        # Drop NaN rows for clean pairwise plot
         plot_df = df[cols_to_plot].dropna()
-        plot_df = df[cols_to_plot].dropna()
+        if len(plot_df) == 0:
+            return {
+                "success": False,
+                "error": "No complete rows after dropping NaN values",
+                "hint": "Check data quality or reduce columns",
+                "progress": [fail("No complete data", "")],
+                "token_estimate": 20,
+            }
+
         fig = px.scatter_matrix(
             plot_df,
-            plot_df,
-            df[cols_to_plot],
             title=f"Pairwise Plot: {', '.join(cols_to_plot)}",
             template="plotly_dark",
         )
@@ -2297,7 +2304,6 @@ header .meta{color:var(--text-muted);font-size:13px}
 }})();
 </script>""")
 
-
         # Multi-condition: Grouped bar chart
         if len(cat_cols) >= 2 and numeric_cols:
             cc1, cc2 = cat_cols[0], cat_cols[1]
@@ -2305,7 +2311,9 @@ header .meta{color:var(--text-muted);font-size:13px}
             if all(c in df.columns for c in [cc1, cc2, nc]):
                 agg_df = df.groupby([cc1, cc2], as_index=False)[nc].sum()
                 chart_id = f"grouped-bar-{cc1}-{cc2}-{nc}"
-                h.append(f'<div class="chart-box full-width"><h3>{nc} by {cc1}, grouped by {cc2}</h3><div id="{chart_id}" style="height:400px"></div></div>')
+                h.append(
+                    f'<div class="chart-box full-width"><h3>{nc} by {cc1}, grouped by {cc2}</h3><div id="{chart_id}" style="height:400px"></div></div>'
+                )
                 traces = []
                 for val in agg_df[cc2].unique()[:10]:
                     sub = agg_df[agg_df[cc2] == val]
@@ -2318,7 +2326,7 @@ header .meta{color:var(--text-muted);font-size:13px}
     }}""")
                 h.append(f"""<script>
 (function() {{
-    var data = [{','.join(traces)}];
+    var data = [{",".join(traces)}];
     var layout = {{
         paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
         font: {{color: '#c9d1d9'}},
@@ -2333,7 +2341,9 @@ header .meta{color:var(--text-muted);font-size:13px}
 
                 # Stacked bar
                 chart_id2 = f"stacked-bar-{cc1}-{cc2}-{nc}"
-                h.append(f'<div class="chart-box full-width"><h3>{nc} by {cc1}, stacked by {cc2}</h3><div id="{chart_id2}" style="height:400px"></div></div>')
+                h.append(
+                    f'<div class="chart-box full-width"><h3>{nc} by {cc1}, stacked by {cc2}</h3><div id="{chart_id2}" style="height:400px"></div></div>'
+                )
                 traces2 = []
                 for val in agg_df[cc2].unique()[:10]:
                     sub = agg_df[agg_df[cc2] == val]
@@ -2346,7 +2356,7 @@ header .meta{color:var(--text-muted);font-size:13px}
     }}""")
                 h.append(f"""<script>
 (function() {{
-    var data = [{','.join(traces2)}];
+    var data = [{",".join(traces2)}];
     var layout = {{
         paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
         font: {{color: '#c9d1d9'}},
@@ -2365,7 +2375,9 @@ header .meta{color:var(--text-muted);font-size:13px}
             cc = cat_cols[0]
             if all(c in df.columns for c in [nc1, nc2, cc]):
                 chart_id = f"colored-scatter-{nc1}-{nc2}-{cc}"
-                h.append(f'<div class="chart-box full-width"><h3>{nc1} vs {nc2}, colored by {cc}</h3><div id="{chart_id}" style="height:400px"></div></div>')
+                h.append(
+                    f'<div class="chart-box full-width"><h3>{nc1} vs {nc2}, colored by {cc}</h3><div id="{chart_id}" style="height:400px"></div></div>'
+                )
                 traces = []
                 for val in df[cc].dropna().unique()[:15]:
                     sub = df[df[cc] == val]
@@ -2378,7 +2390,7 @@ header .meta{color:var(--text-muted);font-size:13px}
     }}""")
                 h.append(f"""<script>
 (function() {{
-    var data = [{','.join(traces)}];
+    var data = [{",".join(traces)}];
     var layout = {{
         paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
         font: {{color: '#c9d1d9'}},
@@ -2397,7 +2409,9 @@ header .meta{color:var(--text-muted);font-size:13px}
             cc = cat_cols[0]
             if nc in df.columns and cc in df.columns:
                 chart_id = f"box-{nc}-by-{cc}"
-                h.append(f'<div class="chart-box full-width"><h3>{nc} distribution by {cc}</h3><div id="{chart_id}" style="height:400px"></div></div>')
+                h.append(
+                    f'<div class="chart-box full-width"><h3>{nc} distribution by {cc}</h3><div id="{chart_id}" style="height:400px"></div></div>'
+                )
                 h.append(f"""<script>
 (function() {{
     var data = [];
@@ -2427,9 +2441,13 @@ header .meta{color:var(--text-muted);font-size:13px}
             cc1, cc2 = cat_cols[0], cat_cols[1]
             nc = numeric_cols[0]
             if all(c in df.columns for c in [cc1, cc2, nc]):
-                pivot = df.pivot_table(index=cc1, columns=cc2, values=nc, aggfunc="sum", fill_value=0)
+                pivot = df.pivot_table(
+                    index=cc1, columns=cc2, values=nc, aggfunc="sum", fill_value=0
+                )
                 chart_id = f"agg-heatmap-{cc1}-{cc2}-{nc}"
-                h.append(f'<div class="chart-box full-width"><h3>Sum {nc}: {cc1} x {cc2}</h3><div id="{chart_id}" style="height:500px"></div></div>')
+                h.append(
+                    f'<div class="chart-box full-width"><h3>Sum {nc}: {cc1} x {cc2}</h3><div id="{chart_id}" style="height:500px"></div></div>'
+                )
                 h.append(f"""<script>
 (function() {{
     var z = {pivot.values.tolist()};
