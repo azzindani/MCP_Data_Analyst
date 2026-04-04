@@ -746,50 +746,59 @@ def generate_auto_profile(
         null_pct = round(total_nulls / (rows * cols) * 100, 1) if rows * cols > 0 else 0
 
         h = []
-        h.append("""<!DOCTYPE html><html><head><meta charset='utf-8'><title>Data Profile</title>
+        h.append("""<!DOCTYPE html><html><head><meta charset='utf-8'><meta name="viewport" content="width=device-width,initial-scale=1"><title>Data Profile</title>
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <style>
+:root{--bg:#0d1117;--surface:#161b22;--border:#21262d;--text:#c9d1d9;--text-muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--orange:#f0883e;--red:#f85149;--sidebar-w:300px;--chart-h:420px;--heatmap-h:500px}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',system-ui,sans-serif;background:#0d1117;color:#c9d1d9;display:flex;min-height:100vh}
-.sidebar{width:280px;background:#161b22;border-right:1px solid #21262d;position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:100}
-.sidebar-header{padding:20px;border-bottom:1px solid #21262d}
-.sidebar-header h2{color:#58a6ff;font-size:16px;margin-bottom:5px}
-.sidebar-header p{color:#8b949e;font-size:12px}
-.sidebar-nav{padding:10px 0}
-.sidebar-nav a{display:block;padding:8px 20px;color:#8b949e;text-decoration:none;font-size:13px;border-left:3px solid transparent}
-.sidebar-nav a:hover{color:#58a6ff;background:#0d1117;border-left-color:#58a6ff}
-.sidebar-nav .st{padding:12px 20px 4px;color:#484f58;font-size:11px;text-transform:uppercase;letter-spacing:1px;font-weight:600}
-.main{margin-left:280px;padding:30px;flex:1;max-width:1200px}
-.section{margin-bottom:40px}
-.section h1{color:#58a6ff;font-size:24px;margin-bottom:20px;padding-bottom:10px;border-bottom:2px solid #21262d}
-.section h2{color:#58a6ff;font-size:18px;margin:25px 0 15px;padding-bottom:5px;border-bottom:1px solid #21262d}
-.cards{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:20px}
-.card{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:16px 20px;min-width:140px;text-align:center}
-.card .num{font-size:28px;font-weight:700;color:#58a6ff}
-.card .label{font-size:11px;color:#8b949e;margin-top:4px;text-transform:uppercase}
-.card.good .num{color:#3fb950}.card.warn .num{color:#f0883e}.card.bad .num{color:#f85149}
-table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13px}
-th,td{padding:10px 14px;text-align:left;border-bottom:1px solid #21262d}
-th{background:#161b22;color:#58a6ff;font-weight:600}
-tr:hover{background:#161b22}
-.split{display:flex;gap:20px;margin:15px 0}
-.split-left{flex:1}.split-right{flex:1}
-.split-right .cc{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:10px}
-.cc-card{background:#161b22;border:1px solid #21262d;border-radius:8px;margin:15px 0;overflow:hidden}
-.cc-hdr{padding:12px 16px;background:#0d1117;border-bottom:1px solid #21262d;display:flex;justify-content:space-between;align-items:center}
-.cc-hdr h3{color:#c9d1d9;font-size:15px;margin:0}
-.badge{font-size:11px;padding:2px 8px;border-radius:12px;background:#21262d;color:#8b949e}
-.cc-body{padding:16px}
+html{scroll-behavior:smooth}
+body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh}
+::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:#30363d;border-radius:4px}::-webkit-scrollbar-thumb:hover{background:#484f58}
+.sidebar{width:var(--sidebar-w);background:var(--surface);border-right:1px solid var(--border);position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:100;display:flex;flex-direction:column}
+.sidebar-header{padding:24px 20px 16px;border-bottom:1px solid var(--border)}
+.sidebar-header h2{color:var(--accent);font-size:18px;margin-bottom:4px;font-weight:600}
+.sidebar-header .file-name{color:var(--text-muted);font-size:13px;margin-bottom:2px;word-break:break-all}
+.sidebar-header .meta{color:var(--text-muted);font-size:12px}
+.sidebar-nav{padding:12px 0;flex:1}
+.sidebar-nav a{display:block;padding:8px 20px;color:var(--text-muted);text-decoration:none;font-size:13px;border-left:3px solid transparent;transition:all 0.15s}
+.sidebar-nav a:hover{color:var(--accent);background:rgba(88,166,255,0.06);border-left-color:var(--accent)}
+.sidebar-nav .st{padding:16px 20px 6px;color:#484f58;font-size:10px;text-transform:uppercase;letter-spacing:1.2px;font-weight:600}
+.main{margin-left:var(--sidebar-w);padding:32px;flex:1;max-width:1400px;width:100%}
+.section{margin-bottom:48px}
+.section h1{color:var(--accent);font-size:26px;margin-bottom:24px;padding-bottom:12px;border-bottom:2px solid var(--border);font-weight:600}
+.section h2{color:var(--accent);font-size:20px;margin:32px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border);font-weight:600}
+.section h3{color:var(--text);font-size:15px;margin:12px 0 8px;font-weight:500}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:24px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px 20px;text-align:center;transition:transform 0.15s,border-color 0.15s}
+.card:hover{transform:translateY(-2px);border-color:var(--accent)}
+.card .num{font-size:30px;font-weight:700;color:var(--accent);line-height:1.2}
+.card .label{font-size:11px;color:var(--text-muted);margin-top:6px;text-transform:uppercase;letter-spacing:0.8px}
+.card.good .num{color:var(--green)}.card.warn .num{color:var(--orange)}.card.bad .num{color:var(--red)}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px;background:var(--surface);border-radius:8px;overflow:hidden}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border)}
+th{background:rgba(88,166,255,0.08);color:var(--accent);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.5px}
+tr:hover{background:rgba(88,166,255,0.04)}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:16px 0}
+.split-left table{margin:0}
+.split-right .cc{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px}
+.cc-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;margin:16px 0;overflow:hidden;transition:border-color 0.15s}
+.cc-card:hover{border-color:var(--accent)}
+.cc-hdr{padding:14px 18px;background:rgba(88,166,255,0.04);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.cc-hdr h3{color:var(--text);font-size:15px;margin:0;font-weight:600}
+.badge{font-size:11px;padding:3px 10px;border-radius:12px;background:var(--border);color:var(--text-muted);font-weight:500}
+.cc-body{padding:18px}
 .insights{list-style:none;padding:0}
-.insights li{padding:10px 14px;margin:5px 0;background:#161b22;border-radius:6px;border-left:3px solid #58a6ff;font-size:13px}
-.insights li.warn{border-left-color:#f0883e}.insights li.bad{border-left-color:#f85149}.insights li.good{border-left-color:#3fb950}
-.mbar{height:24px;background:#21262d;border-radius:4px;overflow:hidden;margin:5px 0}
-.mbar-fill{height:100%;background:linear-gradient(90deg,#f0883e,#f85149);border-radius:4px}
-@media(max-width:900px){.sidebar{display:none}.main{margin-left:0}}
+.insights li{padding:12px 16px;margin:6px 0;background:var(--surface);border-radius:8px;border-left:4px solid var(--accent);font-size:13px;line-height:1.5}
+.insights li.warn{border-left-color:var(--orange)}.insights li.bad{border-left-color:var(--red)}.insights li.good{border-left-color:var(--green)}
+.mbar{height:28px;background:var(--border);border-radius:6px;overflow:hidden;margin:4px 0}
+.mbar-fill{height:100%;background:linear-gradient(90deg,var(--orange),var(--red));border-radius:6px;transition:width 0.3s}
+.chart-container{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin:16px 0}
+@media(max-width:1100px){.split{grid-template-columns:1fr}.sidebar{width:260px}.main{margin-left:260px}}
+@media(max-width:768px){.sidebar{display:none}.main{margin-left:0;padding:20px}.cards{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}}
 </style></head><body>""")
 
         # Sidebar
-        h.append(f"""<div class="sidebar"><div class="sidebar-header"><h2>Data Profile</h2><p>{path.name}</p><p>{rows:,} rows x {cols} columns</p></div>
+        h.append(f"""<div class="sidebar"><div class="sidebar-header"><h2>Data Profile</h2><p class="file-name">{path.name}</p><p class="meta">{rows:,} rows x {cols} columns</p></div>
 <div class="sidebar-nav"><div class="st">Overview</div>
 <a href="#overview">Dashboard</a><a href="#missing">Missing Data</a><a href="#correlations">Correlations</a><a href="#insights">Key Insights</a>
 <div class="st">Variables ({cols})</div>""")
@@ -848,12 +857,12 @@ tr:hover{background:#161b22}
                 '<div id="correlations" class="section"><h2>Correlation Analysis</h2>'
             )
             h.append(
-                '<div class="cc" style="margin:15px 0"><div id="corr-heatmap"></div></div>'
+                f'<div class="chart-container" style="margin:16px 0"><div id="corr-heatmap" style="height:var(--heatmap-h)"></div></div>'
             )
             h.append(f"""<script>
 var z={corr_matrix.values.tolist()};var x={corr_matrix.columns.tolist()};
-Plotly.newPlot('corr-heatmap',[{{z:z,x:x,y:x,type:'heatmap',colorscale:'RdBu',zmid:0,text:z.map(v=>v.toFixed(2)),texttemplate:'%{{text}}',textfont:{{size:10}}}}],
-{{paper_bgcolor:'#161b22',plot_bgcolor:'#161b22',font:{{color:'#c9d1d9'}},margin:{{l:100,r:20,t:20,b:100}},height:400}},{{responsive:true,displayModeBar:false}});
+Plotly.newPlot('corr-heatmap',[{{z:z,x:x,y:x,type:'heatmap',colorscale:'RdBu',zmid:0,text:z.map(v=>v.toFixed(2)),texttemplate:'%{{text}}',textfont:{{size:11}}}}],
+{{paper_bgcolor:'#161b22',plot_bgcolor:'#161b22',font:{{color:'#c9d1d9'}},margin:{{l:120,r:20,t:20,b:120}},height:500}},{{responsive:true,displayModeBar:false}});
 </script>""")
             h.append(
                 "<h3>Strongest Correlations</h3><table><tr><th>Variable A</th><th>Variable B</th><th>r</th><th>Strength</th></tr>"
@@ -969,9 +978,9 @@ Plotly.newPlot('corr-heatmap',[{{z:z,x:x,y:x,type:'heatmap',colorscale:'RdBu',zm
                     f"<tr><td>Min Date</td><td>{df[c].min()}</td></tr><tr><td>Max Date</td><td>{df[c].max()}</td></tr><tr><td>Time Span</td><td>{df[c].max() - df[c].min()}</td></tr>"
                 )
             h.append("</table></div>")
-            h.append('<div class="split-right"><div class="cc">')
+            h.append('<div class="split-right"><div class="chart-container">')
             chart_id = f"chart-{anchor}"
-            h.append(f'<div id="{chart_id}" style="height:350px"></div>')
+            h.append(f'<div id="{chart_id}" style="height:var(--chart-h)"></div>')
             if c in numeric_cols:
                 clean_data = df[c].dropna().tolist()
                 h.append(f"""<script>
@@ -979,19 +988,19 @@ var d={clean_data};
 Plotly.newPlot('{chart_id}',[
 {{x:d,type:'histogram',nbinsx:50,marker:{{color:'#58a6ff',opacity:0.7}},yaxis:'y'}},
 {{y:d,type:'box',marker:{{color:'#f0883e'}},xaxis:'x2',yaxis:'y2'}}
-],{{paper_bgcolor:'#161b22',plot_bgcolor:'#161b22',font:{{color:'#c9d1d9'}},grid:{{rows:2,columns:1,pattern:'independent'}},height:350,margin:{{l:50,r:20,t:10,b:30}},yaxis:{{title:'Count'}},yaxis2:{{title:''}}}},{{responsive:true,displayModeBar:true,modeBarButtonsToRemove:['lasso2d','select2d']}});
+],{{paper_bgcolor:'#161b22',plot_bgcolor:'#161b22',font:{{color:'#c9d1d9'}},grid:{{rows:2,columns:1,pattern:'independent'}},height:420,margin:{{l:50,r:20,t:10,b:30}},yaxis:{{title:'Count'}},yaxis2:{{title:''}}}},{{responsive:true,displayModeBar:true,modeBarButtonsToRemove:['lasso2d','select2d']}});
 </script>""")
             elif c in cat_cols:
                 tv = df[c].value_counts().head(15)
                 h.append(f"""<script>
 Plotly.newPlot('{chart_id}',[{{x:{tv.index.tolist()},y:{tv.values.tolist()},type:'bar',marker:{{color:'#58a6ff'}},text:{tv.values.tolist()},textposition:'outside'}}],
-{{paper_bgcolor:'#161b22',plot_bgcolor:'#161b22',font:{{color:'#c9d1d9'}},height:350,margin:{{l:50,r:20,t:10,b:80}},xaxis:{{tickangle:-45}}}},{{responsive:true,displayModeBar:true,modeBarButtonsToRemove:['lasso2d','select2d']}});
+{{paper_bgcolor:'#161b22',plot_bgcolor:'#161b22',font:{{color:'#c9d1d9'}},height:420,margin:{{l:50,r:20,t:10,b:80}},xaxis:{{tickangle:-45}}}},{{responsive:true,displayModeBar:true,modeBarButtonsToRemove:['lasso2d','select2d']}});
 </script>""")
             elif c in datetime_cols:
                 ts = df[c].value_counts().sort_index()
                 h.append(f"""<script>
 Plotly.newPlot('{chart_id}',[{{x:{ts.index.tolist()},y:{ts.values.tolist()},type:'scatter',mode:'lines+markers',marker:{{color:'#3fb950'}},line:{{color:'#3fb950'}}}}],
-{{paper_bgcolor:'#161b22',plot_bgcolor:'#161b22',font:{{color:'#c9d1d9'}},height:350,margin:{{l:50,r:20,t:10,b:30}}}},{{responsive:true,displayModeBar:true,modeBarButtonsToRemove:['lasso2d','select2d']}});
+{{paper_bgcolor:'#161b22',plot_bgcolor:'#161b22',font:{{color:'#c9d1d9'}},height:420,margin:{{l:50,r:20,t:10,b:30}}}},{{responsive:true,displayModeBar:true,modeBarButtonsToRemove:['lasso2d','select2d']}});
 </script>""")
             h.append("</div></div></div></div></div>")
 
