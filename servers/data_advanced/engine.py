@@ -800,7 +800,7 @@ tr:hover{background:rgba(88,166,255,0.04)}
         # Sidebar
         h.append(f"""<div class="sidebar"><div class="sidebar-header"><h2>Data Profile</h2><p class="file-name">{path.name}</p><p class="meta">{rows:,} rows x {cols} columns</p></div>
 <div class="sidebar-nav"><div class="st">Overview</div>
-<a href="#overview">Dashboard</a><a href="#missing">Missing Data</a><a href="#correlations">Correlations</a><a href="#insights">Key Insights</a>
+<a href="#overview">Dashboard</a><a href="#quality">Data Quality</a><a href="#stats">Statistics</a><a href="#categorical">Categorical</a><a href="#correlations">Correlations</a><a href="#network">Network</a><a href="#recommendations">Recommendations</a><a href="#insights">Insights</a>
 <div class="st">Variables ({cols})</div>""")
         for c in df.columns:
             info = col_analysis[c]
@@ -931,6 +931,176 @@ Plotly.newPlot('corr-heatmap',[{{z:z,x:x,y:x,type:'heatmap',colorscale:'RdBu',zm
             h.append(
                 f'<li class="warn"><b>{dup_count:,} duplicate rows</b> ({dup_pct}%) - consider removing</li>'
             )
+        h.append("</ul></div>")
+
+        # Data Quality Dashboard
+        h.append('<div id="quality" class="section"><h2>Data Quality Dashboard</h2>')
+        h.append(
+            "<table><tr><th>Column</th><th>Type</th><th>Completeness</th><th>Unique %</th><th>Quality</th></tr>"
+        )
+        for c in df.columns:
+            info = col_analysis[c]
+            completeness = 100 - info["null_pct"]
+            unique_pct = info["unique_pct"]
+            # Quality score based on completeness and reasonable uniqueness
+            quality_score = completeness * 0.7 + min(unique_pct, 100) * 0.3
+            quality_cls = (
+                "good"
+                if quality_score > 80
+                else "warn"
+                if quality_score > 50
+                else "bad"
+            )
+            h.append(f"""<tr>
+<td><b>{c}</b></td><td>{info["dtype"]}</td>
+<td><div class="mbar"><div class="mbar-fill" style="width:{completeness}%;background:var(--green)"></div></div>{completeness:.1f}%</td>
+<td>{unique_pct:.1f}%</td>
+<td><span class="badge" style="background:{"var(--green)" if quality_score > 80 else "var(--orange)" if quality_score > 50 else "var(--red)"}">{quality_score:.0f}/100</span></td>
+</tr>""")
+        h.append("</table></div>")
+
+        # Summary Statistics Table (Numeric)
+        if numeric_cols:
+            h.append(
+                '<div id="stats" class="section"><h2>Summary Statistics (Numeric)</h2>'
+            )
+            h.append(
+                "<table><tr><th>Column</th><th>Mean</th><th>Median</th><th>Std</th><th>Min</th><th>Q1</th><th>Q3</th><th>Max</th><th>Skew</th><th>Outliers</th></tr>"
+            )
+            for c in numeric_cols:
+                info = col_analysis[c]
+                h.append(f"""<tr>
+<td><b>{c}</b></td>
+<td>{info["mean"]:,.2f}</td><td>{info["median"]:,.2f}</td><td>{info["std"]:,.2f}</td>
+<td>{info["min"]:,.2f}</td><td>{info["q1"]:,.2f}</td><td>{info["q3"]:,.2f}</td><td>{info["max"]:,.2f}</td>
+<td>{info["skew"]:+.2f}</td>
+<td class="{"warn" if info["outlier_count"] > 0 else ""}">{info["outlier_count"]:,}</td>
+</tr>""")
+            h.append("</table></div>")
+
+        # Categorical Distribution Overview
+        if cat_cols:
+            h.append(
+                '<div id="categorical" class="section"><h2>Categorical Distribution</h2>'
+            )
+            h.append('<div class="cards">')
+            for c in cat_cols[:8]:  # Limit to 8 for readability
+                info = col_analysis[c]
+                top_val = (
+                    list(info["top_values"].keys())[0] if info["top_values"] else "N/A"
+                )
+                top_cnt = (
+                    list(info["top_values"].values())[0] if info["top_values"] else 0
+                )
+                h.append(f"""<div class="card">
+<div class="num" style="font-size:16px">{c}</div>
+<div class="label">{info["unique"]} unique values</div>
+<div style="margin-top:8px;font-size:12px;color:var(--text-muted)">Mode: <b>{top_val}</b> ({top_cnt:,})</div>
+</div>""")
+            h.append("</div></div>")
+
+        # Correlation Network (strong pairs only)
+        if corr_pairs:
+            strong_pairs = [p for p in corr_pairs if abs(p["correlation"]) > 0.5]
+            if strong_pairs:
+                h.append(
+                    '<div id="network" class="section"><h2>Correlation Network (|r| > 0.5)</h2>'
+                )
+                nodes = list(
+                    set(
+                        [p["col_a"] for p in strong_pairs]
+                        + [p["col_b"] for p in strong_pairs]
+                    )
+                )
+                node_map = {n: i for i, n in enumerate(nodes)}
+                edges = []
+                for p in strong_pairs:
+                    edges.append(
+                        {
+                            "source": node_map[p["col_a"]],
+                            "target": node_map[p["col_b"]],
+                            "weight": abs(p["correlation"]),
+                            "label": f"{p['col_a']} ↔ {p['col_b']}: {p['correlation']:+.3f}",
+                        }
+                    )
+                h.append(f"""<div class="chart-container" style="margin:16px 0"><div id="corr-network" style="height:500px"></div></div>
+<script>
+var nodes={{"id":{list(range(len(nodes)))},"label":{nodes},"size":{[15] * len(nodes)}}};
+var edges={{"source":[{",".join(str(e["source"]) for e in edges)}],"target":[{",".join(str(e["target"]) for e in edges)}],"width":[{",".join(str(e["weight"] * 5) for e in edges)}],"text":[{",".join(repr(e["label"]) for e in edges)}]}};
+Plotly.newPlot('corr-network',[{{type:'scatter',mode:'lines+markers',x:[],y:[],marker:{{size:15,color:'#58a6ff'}},line:{{width:2,color:'#8b949e'}},text:edges.text,hoverinfo:'text'}}],
+{{paper_bgcolor:'#161b22',plot_bgcolor:'#161b22',font:{{color:'#c9d1d9'}},height:500,margin:{{l:20,r:20,t:20,b:20}},xaxis:{{visible:false}},yaxis:{{visible:false}}}},{{responsive:true,displayModeBar:false}});
+</script>""")
+
+        # Actionable Recommendations
+        h.append(
+            '<div id="recommendations" class="section"><h2>EDA Recommendations</h2>'
+        )
+        h.append('<ul class="insights">')
+        # Missing data recommendations
+        for c in df.columns:
+            nc = col_analysis[c]["null_count"]
+            if nc > 0:
+                pct = col_analysis[c]["null_pct"]
+                if c in numeric_cols:
+                    if pct < 5:
+                        h.append(
+                            f'<li class="good"><b>{c}</b>: {pct}% missing - fill with median/mean</li>'
+                        )
+                    elif pct < 20:
+                        h.append(
+                            f'<li class="warn"><b>{c}</b>: {pct}% missing - consider KNN imputation or model-based imputation</li>'
+                        )
+                    else:
+                        h.append(
+                            f'<li class="bad"><b>{c}</b>: {pct}% missing - consider dropping or creating a separate "missing" category</li>'
+                        )
+                elif c in cat_cols:
+                    if pct < 10:
+                        h.append(
+                            f'<li class="good"><b>{c}</b>: {pct}% missing - fill with mode or "Unknown"</li>'
+                        )
+                    else:
+                        h.append(
+                            f'<li class="warn"><b>{c}</b>: {pct}% missing - consider dropping if not predictive</li>'
+                        )
+        # Skewness recommendations
+        for c in numeric_cols:
+            skew = col_analysis[c].get("skew", 0)
+            if abs(skew) > 1:
+                transform = "log" if skew > 0 else "log(-x + max + 1)"
+                h.append(
+                    f'<li class="warn"><b>{c}</b>: skewed ({skew:+.2f}) - apply {transform} transform for normality</li>'
+                )
+        # Outlier recommendations
+        for c in numeric_cols:
+            oc = col_analysis[c].get("outlier_count", 0)
+            if oc > 0:
+                pct = col_analysis[c]["outlier_pct"]
+                if pct < 5:
+                    h.append(
+                        f'<li class="good"><b>{c}</b>: {oc:,} outliers ({pct}%) - consider capping at 1.5*IQR</li>'
+                    )
+                else:
+                    h.append(
+                        f'<li class="warn"><b>{c}</b>: {oc:,} outliers ({pct}%) - investigate data quality or use robust scaling</li>'
+                    )
+        # High cardinality recommendations
+        for c in cat_cols:
+            uniq = col_analysis[c]["unique"]
+            if uniq > rows * 0.5 and uniq > 10:
+                h.append(
+                    f'<li class="warn"><b>{c}</b>: high cardinality ({uniq:,} unique) - likely an ID column, drop or use target encoding</li>'
+                )
+            elif uniq > 20:
+                h.append(
+                    f'<li class="good"><b>{c}</b>: moderate cardinality ({uniq} unique) - consider target encoding or embedding</li>'
+                )
+        # Correlation recommendations
+        for p in corr_pairs[:3]:
+            if abs(p["correlation"]) > 0.8:
+                h.append(
+                    f'<li class="warn"><b>{p["col_a"]}</b> ↔ <b>{p["col_b"]}</b>: r={p["correlation"]:+.3f} - multicollinearity detected, consider dropping one</li>'
+                )
         h.append("</ul></div>")
 
         # Per-column detailed analysis with side-by-side charts
