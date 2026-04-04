@@ -4,11 +4,13 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 
 ## Features
 
-- **8 built-in tools** for data loading, inspection, cleaning, and transformation
+- **43 tools** across 3 tiers: basic, medium, and advanced
+- **11 auto-detection tools** with nested logic for smart column inference
 - **LOCATE → INSPECT → PATCH → VERIFY** workflow for surgical data edits
 - **Automatic version control** — every change is snapshotted and restorable
 - **Operation receipt logging** — full audit trail of all modifications
 - **Constrained mode** — safe for machines with ≤8 GB VRAM
+- **Fast EDA** — lightweight reports that run in seconds, not minutes
 
 ## Quick Install (LM Studio)
 
@@ -60,8 +62,8 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 ```
 
 4. Restart LM Studio
-5. Wait for the green dot next to `data_analyst_basic`
-6. Start chatting — the model will see 8 new tools
+5. Wait for the green dot next to each server
+6. Start chatting — the model will see all 43 tools
 
 ### First Run
 
@@ -76,16 +78,57 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
 
 ## Available Tools
 
+### Tier 1 — Basic (8 tools)
 | Tool | Purpose |
 |---|---|
-| `load_dataset` | Load a CSV file, return schema and row count |
+| `load_dataset` | Load CSV with auto-encoding detection |
 | `load_geo_dataset` | Load GeoJSON/shapefile, return geometry info |
 | `inspect_dataset` | Full schema inspection: dtypes, nulls, column classification |
 | `read_column_stats` | Stats for one column: mean, median, outliers, top values |
 | `search_columns` | Find columns by criteria: has_nulls, dtype, name_contains |
-| `apply_patch` | Apply data transformations: fill_nulls, drop_duplicates, clean_text, cast_column, add_column, cap_outliers, replace_values, drop_column |
+| `apply_patch` | 8 transformation ops: fill_nulls, drop_duplicates, clean_text, cast_column, add_column, cap_outliers, replace_values, drop_column |
 | `restore_version` | Restore a file to a previous snapshot |
 | `read_receipt` | Read the operation history log for a file |
+
+### Tier 2 — Medium (19 tools)
+| Tool | Auto-Detect | Purpose |
+|---|---|---|
+| `check_outliers` | Numeric | IQR/std outlier scan |
+| `scan_nulls_zeros` | Type-aware | Null/zero detection + suggested fixes |
+| `enrich_with_geo` | — | Merge dataset with geo data |
+| `validate_dataset` | Dtype | Quality scoring (0-100) |
+| `compute_aggregations` | — | Group-by aggregation (sum/mean/count) |
+| `run_cleaning_pipeline` | — | Multi-op cleaning with rollback |
+| `correlation_analysis` | Numeric | Correlation matrix + top N pairs |
+| `cross_tabulate` | — | Contingency tables between categories |
+| `pivot_table` | — | Multi-dimensional pivot tables |
+| `value_counts` | — | Frequency tables with percentages |
+| `filter_rows` | — | Filter by 8 condition types (equals, contains, gt, lt, etc.) |
+| `sample_data` | — | Random/head/tail sampling |
+| **`auto_detect_schema`** | ✅ Full | Smart column type inference with cleaning suggestions |
+| **`smart_impute`** | ✅ Type→strategy | Auto-impute: numeric→median, datetime→ffill, categorical→mode |
+| **`merge_datasets`** | ✅ Join keys | Merge two datasets with auto-detect join keys |
+| **`feature_engineering`** | ✅ Date/numeric/text | Auto-create features: date parts, bins, log transforms, one-hot |
+| **`statistical_tests`** | ✅ Test selection | Auto-select: t-test, ANOVA, chi-square, correlation |
+| **`time_series_analysis`** | ✅ Date column | Auto-detect date, compute trend, seasonality, rolling stats |
+| **`cohort_analysis`** | ✅ Cohort/date | Auto-detect cohort identifiers, build retention matrix |
+
+### Tier 3 — Advanced (16 tools)
+| Tool | Auto-Detect | Purpose |
+|---|---|---|
+| `run_eda` | Column analysis | Fast EDA HTML report (stats, nulls, correlations, outliers) |
+| `generate_distribution_plot` | Numeric | Histogram + box plot for numeric columns |
+| `generate_multi_chart` | — | Multi-variable bar/line charts (2+ metrics) |
+| `generate_chart` | — | 8 chart types: bar, pie, line, scatter, geo, treemap, time_series, radius |
+| `generate_dashboard` | Dtype scanning | Auto-generate Streamlit dashboard |
+| `generate_correlation_heatmap` | Numeric | Interactive correlation heatmap |
+| `generate_pairwise_plot` | Numeric | Scatter matrix for numeric columns |
+| `export_data` | — | Export to CSV, JSON, or Excel |
+| **`rfm_analysis`** | ✅ Customer/date/monetary | RFM segmentation for customer data |
+| **`auto_chart_recommendation`** | ✅ Column types | Recommend best chart type for any column pair |
+| **`generate_insights_report`** | ✅ Full analysis | Auto-generate text insights from data patterns |
+| **`anomaly_detection`** | ✅ Numeric columns | Z-score or IQR anomaly detection |
+| **`segmentation_analysis`** | ✅ Clustering features | K-means customer/data segmentation |
 
 ## Usage Examples
 
@@ -119,6 +162,42 @@ Fill null values in the Revenue column of sales.csv using the median strategy
 Analyze C:\data\messy.csv for issues, then clean it up — fill nulls, remove duplicates, and standardize text
 ```
 
+### Auto-detect schema
+
+```
+Auto-detect the schema of sales.csv and suggest cleaning actions
+```
+
+### Smart imputation
+
+```
+Smart impute missing values in sales.csv using appropriate strategies for each column type
+```
+
+### Statistical analysis
+
+```
+Run statistical tests on sales.csv to compare Revenue across Regions
+```
+
+### Time series analysis
+
+```
+Analyze the time series trends in sales.csv
+```
+
+### RFM segmentation
+
+```
+Run RFM analysis on customers.csv to segment customers
+```
+
+### Anomaly detection
+
+```
+Detect anomalies in sales.csv using the IQR method
+```
+
 ### Undo a change
 
 ```
@@ -142,21 +221,38 @@ For machines with ≤8 GB VRAM, set `MCP_CONSTRAINED_MODE=1` in the `env` sectio
 
 ## Uninstall
 
-Delete the installed repo:
+**Step 1:** Remove from LM Studio
+1. Open LM Studio → Developer tab (`</>`)
+2. Delete `data_analyst_basic`, `data_analyst_medium`, `data_analyst_advanced` from MCP Servers
+3. Restart LM Studio
+
+**Step 2:** Delete installed files
 ```cmd
 rmdir /s /q %USERPROFILE%\.mcp_servers\MCP_Data_Analyst
 ```
 
-Then remove the `data_analyst_basic` entry from your `mcp.json`.
+Or run the uninstall script:
+```cmd
+%USERPROFILE%\.mcp_servers\MCP_Data_Analyst\install\uninstall.bat
+```
 
 ## Architecture
 
 ```
 MCP_Data_Analyst/
-├── servers/data_basic/
-│   ├── server.py      ← thin MCP wrapper (zero domain logic)
-│   ├── engine.py      ← all pandas logic (zero MCP imports)
-│   └── pyproject.toml
+├── servers/
+│   ├── data_basic/
+│   │   ├── server.py      ← thin MCP wrapper (zero domain logic)
+│   │   ├── engine.py      ← all pandas logic (zero MCP imports)
+│   │   └── pyproject.toml
+│   ├── data_medium/
+│   │   ├── server.py
+│   │   ├── engine.py
+│   │   └── pyproject.toml
+│   └── data_advanced/
+│       ├── server.py
+│       ├── engine.py
+│       └── pyproject.toml
 ├── shared/
 │   ├── version_control.py   ← snapshot() and restore()
 │   ├── patch_validator.py   ← validate op arrays
@@ -170,6 +266,7 @@ MCP_Data_Analyst/
 └── tests/
     ├── conftest.py
     ├── test_engine_basic.py
+    ├── test_engine_medium.py
     └── test_shared.py
 ```
 
@@ -188,12 +285,6 @@ uv run python server.py
 ```bash
 cd servers/data_basic
 uv run pytest tests/ -v
-```
-
-### Interactive Notebook Test
-
-```bash
-jupyter notebook test_tier1.ipynb
 ```
 
 ## License
