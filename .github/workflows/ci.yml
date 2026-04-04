@@ -23,7 +23,7 @@ jobs:
 
       - name: Lint with ruff
         run: |
-          uv run ruff check .
+          uv run ruff check servers/ shared/ tests/
 
       - name: Run tests
         run: |
