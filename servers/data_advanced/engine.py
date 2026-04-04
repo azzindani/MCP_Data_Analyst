@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import subprocess
 import sys
-import textwrap
 import webbrowser
 from pathlib import Path
 
@@ -14,9 +13,7 @@ import pandas as pd
 # Shared utilities
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from shared.file_utils import resolve_path
-from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
-from shared.receipt import append_receipt
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
@@ -268,7 +265,7 @@ def run_eda(
 
         progress.append(
             ok(
-                f"EDA report saved",
+                "EDA report saved",
                 f"{out.name} ({size_kb:,} KB) — {quality_score}/100 quality score",
             )
         )
@@ -407,7 +404,7 @@ def generate_distribution_plot(
 
         progress.append(
             ok(
-                f"Distribution plots saved",
+                "Distribution plots saved",
                 f"{out.name} — {n} columns",
             )
         )
@@ -505,7 +502,7 @@ def generate_correlation_heatmap(
 
         progress.append(
             ok(
-                f"Correlation heatmap saved",
+                "Correlation heatmap saved",
                 f"{out.name} — {len(numeric_cols)} columns",
             )
         )
@@ -764,7 +761,7 @@ tr:hover{background:rgba(88,166,255,0.04)}
                 '<div id="correlations" class="section"><h2>Correlation Analysis</h2>'
             )
             h.append(
-                f'<div class="chart-container" style="margin:16px 0"><div id="corr-heatmap" style="height:var(--heatmap-h)"></div></div>'
+                '<div class="chart-container" style="margin:16px 0"><div id="corr-heatmap" style="height:var(--heatmap-h)"></div></div>'
             )
             # Use JSON.stringify for safe embedding
             corr_z = corr_matrix.values.tolist()
@@ -858,13 +855,6 @@ tr:hover{background:rgba(88,166,255,0.04)}
             unique_pct = info["unique_pct"]
             # Quality score based on completeness and reasonable uniqueness
             quality_score = completeness * 0.7 + min(unique_pct, 100) * 0.3
-            quality_cls = (
-                "good"
-                if quality_score > 80
-                else "warn"
-                if quality_score > 50
-                else "bad"
-            )
             h.append(f"""<tr>
 <td><b>{c}</b></td><td>{info["dtype"]}</td>
 <td><div class="mbar"><div class="mbar-fill" style="width:{completeness}%;background:var(--green)"></div></div>{completeness:.1f}%</td>
@@ -1196,7 +1186,7 @@ tr:hover{background:rgba(88,166,255,0.04)}
 
         progress.append(
             ok(
-                f"Auto profile saved",
+                "Auto profile saved",
                 f"{out.name} ({size_kb:,} KB) - {rows:,} rows x {cols} columns",
             )
         )
@@ -1315,7 +1305,7 @@ def generate_pairwise_plot(
             _open_file(out)
 
         progress.append(
-            ok(f"Pairwise plot saved", f"{out.name} — {len(cols_to_plot)} columns")
+            ok("Pairwise plot saved", f"{out.name} — {len(cols_to_plot)} columns")
         )
 
         result = {
@@ -1398,98 +1388,7 @@ def export_data(
         size_kb = round(out.stat().st_size / 1024)
 
         progress.append(
-            ok(f"Data exported", f"{out.name} ({size_kb:,} KB, {len(df)} rows)")
-        )
-
-        result = {
-            "success": True,
-            "op": "export_data",
-            "output_path": str(out.resolve()),
-            "output_name": out.name,
-            "format": format,
-            "rows": len(df),
-            "columns": len(df.columns),
-            "file_size_kb": size_kb,
-            "progress": progress,
-        }
-        result["token_estimate"] = _token_estimate(result)
-        return result
-
-    except Exception as exc:
-        logger.exception("export_data error")
-        return {
-            "success": False,
-            "error": str(exc),
-            "hint": "Check file_path and format.",
-            "progress": [fail("Unexpected error", str(exc))],
-            "token_estimate": 20,
-        }
-
-
-# ---------------------------------------------------------------------------
-# generate_pairwise_plot
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# export_data
-# ---------------------------------------------------------------------------
-
-
-def export_data(
-    file_path: str,
-    output_path: str = "",
-    format: str = "csv",
-    encoding: str = "utf-8",
-    separator: str = ",",
-    open_after: bool = True,
-) -> dict:
-    """Export dataset to CSV, Excel, or JSON format."""
-    progress = []
-    try:
-        path = resolve_path(file_path)
-        if not path.exists():
-            return {
-                "success": False,
-                "error": f"File not found: {path.name}",
-                "hint": "Check file_path is absolute and the file exists.",
-                "progress": [fail("File not found", path.name)],
-                "token_estimate": 20,
-            }
-
-        df = _read_csv(str(path))
-
-        valid_formats = {"csv", "json", "excel"}
-        if format not in valid_formats:
-            return {
-                "success": False,
-                "error": f"Invalid format: {format}",
-                "hint": f"Valid formats: {', '.join(sorted(valid_formats))}",
-                "progress": [fail("Invalid format", format)],
-                "token_estimate": 20,
-            }
-
-        if output_path:
-            out = Path(output_path)
-        else:
-            ext_map = {"csv": ".csv", "json": ".json", "excel": ".xlsx"}
-            out = path.parent / f"{path.stem}_export{ext_map[format]}"
-
-        if format == "csv":
-            df.to_csv(str(out), index=False, encoding=encoding, sep=separator)
-        if open_after:
-            _open_file(out)
-        elif format == "json":
-            df.to_json(str(out), orient="records", indent=2)
-        if open_after:
-            _open_file(out)
-        elif format == "excel":
-            df.to_excel(str(out), index=False)
-
-        size_kb = round(out.stat().st_size / 1024)
-
-        progress.append(
-            ok(f"Data exported", f"{out.name} ({size_kb:,} KB, {len(df)} rows)")
+            ok("Data exported", f"{out.name} ({size_kb:,} KB, {len(df)} rows)")
         )
 
         result = {
@@ -1624,7 +1523,7 @@ def generate_multi_chart(
             _open_file(out)
 
         progress.append(
-            ok(f"Multi-chart saved", f"{out.name} - {len(value_columns)} metrics")
+            ok("Multi-chart saved", f"{out.name} - {len(value_columns)} metrics")
         )
 
         result = {
@@ -1906,7 +1805,7 @@ def generate_chart(
         if open_after:
             _open_file(out)
 
-        progress.append(ok(f"Chart saved", f"{out.name} ({rows_plotted} rows)"))
+        progress.append(ok("Chart saved", f"{out.name} ({rows_plotted} rows)"))
 
         result = {
             "success": True,
@@ -2102,7 +2001,7 @@ header .meta{color:var(--text-muted);font-size:13px}
         y: {agg_df[nc].tolist()},
         type: 'bar',
         marker: {{color: '#58a6ff'}},
-        text: {agg_df[nc].apply(lambda x: f"{{x:,.0f}}").tolist()},
+        text: {agg_df[nc].apply(lambda x: "{x:,.0f}").tolist()},
         textposition: 'outside'
     }}];
     var layout = {{
@@ -2159,7 +2058,7 @@ header .meta{color:var(--text-muted);font-size:13px}
         y: {df[nc2].dropna().tolist()},
         type: 'scatter', mode: 'markers',
         marker: {{color: '#58a6ff', opacity: 0.6, size: 6}},
-        text: ['{nc1}: ' + {df[nc1].dropna().apply(lambda x: f"{{x:,.1f}}").tolist()} + '<br>{nc2}: ' + {df[nc2].dropna().apply(lambda x: f"{{x:,.1f}}").tolist()}],
+        text: ['{nc1}: ' + {df[nc1].dropna().apply(lambda x: "{x:,.1f}").tolist()} + '<br>{nc2}: ' + {df[nc2].dropna().apply(lambda x: "{x:,.1f}").tolist()}],
         hoverinfo: 'text'
     }}];
     var layout = {{
@@ -2388,7 +2287,7 @@ header .meta{color:var(--text-muted);font-size:13px}
     Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
 }})();
 </script>""")
-                    except:
+                    except Exception:
                         pass
 
         # Distribution charts
@@ -2430,7 +2329,7 @@ header .meta{color:var(--text-muted);font-size:13px}
         if open_after:
             _open_file(out)
 
-        progress.append(ok(f"Dashboard saved", f"{out.name} ({size_kb:,} KB)"))
+        progress.append(ok("Dashboard saved", f"{out.name} ({size_kb:,} KB)"))
 
         result = {
             "success": True,
@@ -2578,7 +2477,7 @@ header .meta{color:var(--text-muted);font-size:13px}
         y: {agg_df[nc].tolist()},
         type: 'bar',
         marker: {{color: '#58a6ff'}},
-        text: {agg_df[nc].apply(lambda x: f"{{x:,.0f}}").tolist()},
+        text: {agg_df[nc].apply(lambda x: "{x:,.0f}").tolist()},
         textposition: 'outside'
     }}];
     var layout = {{
@@ -2635,7 +2534,7 @@ header .meta{color:var(--text-muted);font-size:13px}
         y: {df[nc2].dropna().tolist()},
         type: 'scatter', mode: 'markers',
         marker: {{color: '#58a6ff', opacity: 0.6, size: 6}},
-        text: ['{nc1}: ' + {df[nc1].dropna().apply(lambda x: f"{{x:,.1f}}").tolist()} + '<br>{nc2}: ' + {df[nc2].dropna().apply(lambda x: f"{{x:,.1f}}").tolist()}],
+        text: ['{nc1}: ' + {df[nc1].dropna().apply(lambda x: "{x:,.1f}").tolist()} + '<br>{nc2}: ' + {df[nc2].dropna().apply(lambda x: "{x:,.1f}").tolist()}],
         hoverinfo: 'text'
     }}];
     var layout = {{
@@ -2703,7 +2602,7 @@ header .meta{color:var(--text-muted);font-size:13px}
     Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
 }})();
 </script>""")
-                    except:
+                    except Exception:
                         pass
 
         # Distribution charts
@@ -2745,7 +2644,7 @@ header .meta{color:var(--text-muted);font-size:13px}
         if open_after:
             _open_file(out)
 
-        progress.append(ok(f"Dashboard saved", f"{out.name} ({size_kb:,} KB)"))
+        progress.append(ok("Dashboard saved", f"{out.name} ({size_kb:,} KB)"))
 
         result = {
             "success": True,
@@ -2822,7 +2721,7 @@ header .meta{color:var(--text-muted);font-size:13px}
 
         # Generate app.py - comprehensive auto-dashboard
         abs_path = str(path.resolve())
-        abs_geo = str(Path(geo_file_path).resolve()) if geo_file_path else ""
+        str(Path(geo_file_path).resolve()) if geo_file_path else ""
 
         filter_cols = cat_cols[:5]
         kpi_cols = numeric_cols[:6]
@@ -3036,7 +2935,7 @@ with tab_trends:
                                       template="plotly_dark", markers=True)
                         fig.update_layout(height=400, margin=dict(l=20, r=20, t=40, b=60))
                         st.plotly_chart(fig, use_container_width=True)
-                    except:
+                    except Exception:
                         pass
     else:
         st.info("No datetime columns detected for trend analysis.")
@@ -3076,7 +2975,7 @@ with tab_data:
             progress.append(warn("Generated code has syntax issues", str(e)))
 
         progress.append(
-            ok(f"Dashboard generated", f"{out.name} — run: streamlit run {out.name}")
+            ok("Dashboard generated", f"{out.name} — run: streamlit run {out.name}")
         )
 
         result = {
