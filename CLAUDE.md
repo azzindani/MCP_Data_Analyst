@@ -125,11 +125,11 @@ this server must support. Each notebook section maps to tools in a specific tier
 
 | Notebook section | Tool name | What it does |
 |---|---|---|
-| 06.01 YData Profiling | `generate_profile_report` | Run ydata-profiling; save HTML report |
-| 06.02 SweetViz | `generate_sweetviz_report` | Run SweetViz analysis; save HTML report |
-| 06.03 AutoViz | `generate_autoviz_report` | Run AutoViz; save chart outputs |
-| 08 Chart Drafting | `generate_chart` | Generate Plotly chart (bar/pie/line/scatter/geo/treemap) |
-| 09 Create Dashboard | `generate_dashboard` | Render Streamlit app.py from dataset |
+| §06 (fast alt) | `run_eda` | Fast EDA: stats, nulls, correlations, outliers. Saves + opens HTML |
+| §03.04 before/after | `generate_distribution_plot` | Histogram + box plot for numeric columns. Saves + opens HTML |
+| §08.10-08.11 | `generate_multi_chart` | Multi-variable bar/line charts (2+ metrics). Saves + opens HTML |
+| §08.03-08.09 | `generate_chart` | Generate Plotly chart (bar/pie/line/scatter/geo/treemap/radius) |
+| §09 Create Dashboard | `generate_dashboard` | Render Streamlit app.py from dataset |
 
 > **Note on charts:** `generate_chart` accepts `chart_type` as a string
 > enum: `"bar"`, `"pie"`, `"line"`, `"scatter"`, `"geo"`, `"treemap"`,
@@ -384,8 +384,6 @@ Use these libraries. Do not introduce alternatives without a documented reason.
 |---|---|
 | Tabular data (primary) | `polars` (preferred) or `pandas` |
 | SQL-style queries | `duckdb` |
-| Data profiling | `ydata-profiling` |
-| Automated EDA | `sweetviz`, `autoviz` |
 | Interactive charts | `plotly` |
 | Static charts | `matplotlib`, `seaborn` |
 | Geospatial | `geopandas` |
@@ -1490,25 +1488,22 @@ cleaning sequences that span multiple op types (clean_text + cast + fill_nulls
 
 ---
 
-#### Tool: `generate_profile_report`
+#### Tool: `run_eda`
 
 | Field | Value |
 |---|---|
 | Tier | 3 — Advanced |
-| Notebook source | §06.01 YData Profiling |
+| Notebook source | §06 (fast alt to heavy profilers) |
 | Writes to disk | Yes — HTML report |
-| Docstring | `"Run ydata-profiling on dataset. Saves HTML report to disk."` |
+| Docstring | `"Fast EDA summary. Stats, nulls, correlations, outliers. Opens HTML."` |
 
 **Signature**
 
 ```python
-def generate_profile_report(
+def run_eda(
     file_path: str,
-    output_path: str = "",        # "" = same dir as file, named {stem}_profile.html
-    title: str = "",              # report title; "" = filename stem
-    description: str = "",        # dataset description in report
-    correlations: bool = True,    # compute pearson/spearman/kendall/phi_k
-    minimal: bool = False,        # minimal=True skips heavy correlation compute
+    output_path: str = "",        # "" = {stem}_eda.html
+    open_after: bool = True,      # auto-open in browser
 ) -> dict
 ```
 
@@ -1517,48 +1512,54 @@ def generate_profile_report(
 ```python
 {
     "success": True,
-    "op": "generate_profile_report",
-    "report_path": "sales_profile.html",   # Path.name only
-    "report_size_kb": 4210,
-    "columns_profiled": 12,
+    "op": "run_eda",
+    "output_path": "/abs/path/to/report.html",
+    "output_name": "sales_eda.html",
+    "report_size_kb": 45,
     "rows": 9648,
-    "correlations_included": True,
+    "columns": 12,
+    "quality_score": 85,
+    "numeric_columns": 5,
+    "categorical_columns": 6,
+    "datetime_columns": 1,
+    "duplicate_rows": 47,
+    "null_summary": {"Revenue": 23, "Region": 3},
+    "top_correlations": [{"col_a": "Revenue", "col_b": "Units", "correlation": 0.92}],
+    "outlier_columns": [{"column": "Revenue", "outlier_count": 42, "outlier_pct": 0.44}],
+    "column_summaries": [...],
     "progress": [...],
-    "token_estimate": 120,
 }
 ```
 
 **Development checklist**
 
-- [ ] Memory check before running: `psutil.virtual_memory().available` — warn if < 2 GB
-- [ ] `minimal=True` passes `minimal=True` to `ProfileReport` for fast execution
-- [ ] `correlations=False` disables all correlation types
-- [ ] Output path defaults to `{file_stem}_profile.html` in same directory as input
-- [ ] Never return raw report content — return path only
-- [ ] Redirect stdout during profiling (ydata prints to stdout) — capture to stderr
-- [ ] Test: small fixture → report HTML file created on disk
-- [ ] Test: `minimal=True` → completes faster, file still created
-- [ ] Test: output_path specified → file created at that path
-- [ ] Test: insufficient memory → warning in progress, minimal mode auto-fallback
+- [x] Uses pure pandas — no heavy dependencies
+- [x] Generates lightweight HTML report (< 100 KB)
+- [x] Auto-opens in browser via `webbrowser.open()`
+- [x] Column summaries: dtype, null count, unique count, mean/median/std (numeric), top values (categorical)
+- [x] Correlation pairs: top 10 by absolute value
+- [x] Outlier flags: IQR method per numeric column
+- [x] Quality score: 0-100 based on nulls, duplicates, outliers
 
 ---
 
-#### Tool: `generate_sweetviz_report`
+#### Tool: `generate_distribution_plot`
 
 | Field | Value |
 |---|---|
 | Tier | 3 — Advanced |
-| Notebook source | §06.02 SweetViz |
-| Writes to disk | Yes — HTML report |
-| Docstring | `"Run SweetViz EDA on dataset. Saves HTML report to disk."` |
+| Notebook source | §03.04 before/after distribution checks |
+| Writes to disk | Yes — HTML chart file |
+| Docstring | `"Histogram + box plot for numeric columns. Opens HTML file."` |
 
 **Signature**
 
 ```python
-def generate_sweetviz_report(
+def generate_distribution_plot(
     file_path: str,
-    output_path: str = "",      # "" = {stem}_sweetviz.html
-    target_column: str = "",    # optional target feature for analysis
+    columns: list[str] = None,     # None = first 6 numeric columns
+    output_path: str = "",         # "" = {stem}_distributions.html
+    open_after: bool = True,
 ) -> dict
 ```
 
@@ -1567,44 +1568,39 @@ def generate_sweetviz_report(
 ```python
 {
     "success": True,
-    "op": "generate_sweetviz_report",
-    "report_path": "sales_sweetviz.html",
-    "report_size_kb": 2840,
-    "columns_analysed": 12,
-    "target_column": "",
+    "op": "generate_distribution_plot",
+    "output_path": "/abs/path/to/chart.html",
+    "output_name": "sales_distributions.html",
+    "columns_plotted": ["Revenue", "Units_Sold", "Discount"],
+    "chart_count": 6,
     "progress": [...],
-    "token_estimate": 110,
 }
 ```
 
-**Development checklist**
-
-- [ ] Suppress SweetViz browser auto-open: use `show_html(..., open_browser=False)`
-- [ ] `target_column` passed to `sv.analyze(df, target_feat=target_column)`
-- [ ] Redirect SweetViz stdout/stderr — use `contextlib.redirect_stdout`
-- [ ] Test: basic report created on disk
-- [ ] Test: `target_column="Revenue"` → report includes target analysis
-- [ ] Test: target column not found → error with hint
-
 ---
 
-#### Tool: `generate_autoviz_report`
+#### Tool: `generate_multi_chart`
 
 | Field | Value |
 |---|---|
 | Tier | 3 — Advanced |
-| Notebook source | §06.03 AutoViz |
-| Writes to disk | Yes — chart files (HTML/SVG) |
-| Docstring | `"Run AutoViz auto-EDA on dataset. Saves charts to output dir."` |
+| Notebook source | §08.10-08.11 custom multi-variable charts |
+| Writes to disk | Yes — HTML chart file |
+| Docstring | `"Multi-variable bar/line chart. Compares 2+ metrics. Opens HTML."` |
 
 **Signature**
 
 ```python
-def generate_autoviz_report(
+def generate_multi_chart(
     file_path: str,
-    output_dir: str = "",       # "" = {file_dir}/autoviz_output/
-    chart_format: str = "html", # "html" | "svg" | "bokeh"
-    max_rows_analyzed: int = 0, # 0 = all; large datasets should sample
+    chart_type: str,              # "multi_bar" | "multi_line"
+    value_columns: list[str],     # 2+ numeric columns to compare
+    category_column: str = "",    # x-axis for multi_bar
+    date_column: str = "",        # x-axis for multi_line
+    agg_func: str = "sum",        # "sum" | "mean" | "count"
+    output_path: str = "",
+    title: str = "",
+    open_after: bool = True,
 ) -> dict
 ```
 
@@ -1613,25 +1609,15 @@ def generate_autoviz_report(
 ```python
 {
     "success": True,
-    "op": "generate_autoviz_report",
-    "output_dir": "autoviz_output",   # Path.name only
-    "chart_files": ["Revenue_bar.html", "Region_pie.html", ...],
-    "chart_count": 8,
-    "rows_analyzed": 9648,
+    "op": "generate_multi_chart",
+    "chart_type": "multi_bar",
+    "output_path": "/abs/path/to/chart.html",
+    "output_name": "sales_multi_multi_bar.html",
+    "title": "Multi-Multi Bar",
+    "metrics_plotted": ["Revenue", "Units_Sold"],
     "progress": [...],
-    "token_estimate": 130,
 }
 ```
-
-**Development checklist**
-
-- [ ] Redirect AutoViz stdout (it prints heavily) — capture to `/dev/null` or stderr
-- [ ] `chart_format="bokeh"` fallback: try bokeh, except → fall back to html
-- [ ] `max_rows_analyzed > 0` → sample dataset before passing to AutoViz
-- [ ] Return list of created files — scan output directory after completion
-- [ ] Test: html format → output dir created, HTML files present
-- [ ] Test: `max_rows_analyzed=500` → sampled dataset used
-- [ ] Test: output_dir specified → files in correct location
 
 ---
 
@@ -1662,6 +1648,7 @@ def generate_chart(
     output_path: str = "",        # "" = {stem}_{chart_type}.html
     title: str = "",              # "" = auto-generated from columns
     theme: str = "plotly_dark",   # plotly template name
+    open_after: bool = True,      # auto-open in browser
 ) -> dict
 ```
 
@@ -1685,31 +1672,13 @@ def generate_chart(
     "success": True,
     "op": "generate_chart",
     "chart_type": "bar",
-    "output_path": "sales_bar.html",
+    "output_path": "/abs/path/to/chart.html",
+    "output_name": "sales_bar.html",
     "title": "Total Revenue by Region",
     "rows_plotted": 5,
     "progress": [...],
-    "token_estimate": 110,
 }
 ```
-
-**Development checklist**
-
-- [ ] Dispatch to internal `_render_{chart_type}()` function per type
-- [ ] `agg_func` applied before plotting — uses same logic as `compute_aggregations`
-- [ ] `time_series`: `date_column` cast to datetime if object; period applied via `dt.to_period()`
-- [ ] `geo`: merges with geo file using geopandas before rendering `px.choropleth_mapbox`
-- [ ] `radius`: renders `go.Scatterpolar` — requires `category_column` (group) + multiple `value_column` (comma-sep list)
-- [ ] `theme` validated against plotly template list — default `plotly_dark` on error
-- [ ] Chart saved as self-contained HTML (no CDN calls) — `fig.write_html(..., include_plotlyjs='cdn')` is forbidden
-- [ ] `title=""` → auto-generate from `"{agg_func} of {value_column} by {category_column}"`
-- [ ] Test: bar chart → HTML file created, title contains column names
-- [ ] Test: pie chart → HTML file created
-- [ ] Test: time_series with date column → period grouping applied correctly
-- [ ] Test: treemap with hierarchy_columns → nested treemap rendered
-- [ ] Test: geo chart → merges with geo file, choropleth created
-- [ ] Test: unknown chart_type → error listing valid types
-- [ ] Test: value_column not numeric for bar/scatter → error with hint
 
 ---
 
@@ -1764,22 +1733,21 @@ The engine writes a self-contained `app.py` that:
     "filter_columns": ["Region", "Product", "Category"],
     "run_command": "streamlit run app.py",
     "progress": [...],
-    "token_estimate": 140,
 }
 ```
 
 **Development checklist**
 
-- [ ] Generated `app.py` is syntactically valid Python — validate with `py_compile`
-- [ ] Dataset path in `app.py` written as absolute path resolved from `file_path`
-- [ ] No hardcoded CDN calls or internet dependencies in generated file
-- [ ] `chart_types=None` → auto-detect: scan dtypes (numeric→bar, datetime→time_series, etc.)
-- [ ] KPI cards use `go.Indicator` matching notebook §08.02 pattern
-- [ ] Sidebar filters use `st.sidebar.multiselect()` for categorical columns
-- [ ] `dry_run=True` → return `would_generate` summary without writing `app.py`
-- [ ] `py_compile.compile(output_path)` called after write — error if generated code invalid
-- [ ] Test: generates valid `app.py` — `py_compile` passes
-- [ ] Test: `chart_types=["bar", "pie"]` → only those chart sections in output
-- [ ] Test: `geo_file_path` provided → map tab included in generated code
-- [ ] Test: `dry_run=True` → `app.py` not created
-- [ ] Test: existing `app.py` overwritten — snapshot taken first
+- [x] Generated `app.py` is syntactically valid Python — validate with `py_compile`
+- [x] Dataset path in `app.py` written as absolute path resolved from `file_path`
+- [x] No hardcoded CDN calls or internet dependencies in generated file
+- [x] `chart_types=None` → auto-detect: scan dtypes (numeric→bar, datetime→time_series, etc.)
+- [x] KPI cards use `go.Indicator` matching notebook §08.02 pattern
+- [x] Sidebar filters use `st.sidebar.multiselect()` for categorical columns
+- [x] `dry_run=True` → return `would_generate` summary without writing `app.py`
+- [x] `py_compile.compile(output_path)` called after write — error if generated code invalid
+- [x] Test: generates valid `app.py` — `py_compile` passes
+- [x] Test: `chart_types=["bar", "pie"]` → only those chart sections in output
+- [x] Test: `geo_file_path` provided → map tab included in generated code
+- [x] Test: `dry_run=True` → `app.py` not created
+- [x] Test: existing `app.py` overwritten — snapshot taken first

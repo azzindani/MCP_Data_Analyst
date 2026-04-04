@@ -5,7 +5,6 @@ from __future__ import annotations
 import sys
 import logging
 from pathlib import Path
-from pathlib import Path
 
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
@@ -23,40 +22,51 @@ mcp = FastMCP("data_advanced")
 
 
 @mcp.tool()
-def generate_profile_report(
+def run_eda(
     file_path: str,
     output_path: str = "",
-    title: str = "",
-    description: str = "",
-    correlations: bool = True,
-    minimal: bool = False,
+    open_after: bool = True,
 ) -> dict:
-    """Run ydata-profiling on dataset. Saves HTML report to disk."""
-    return engine.generate_profile_report(
-        file_path, output_path, title, description, correlations, minimal
+    """Fast EDA summary. Stats, nulls, correlations, outliers. Opens HTML."""
+    return engine.run_eda(file_path, output_path, open_after)
+
+
+@mcp.tool()
+def generate_distribution_plot(
+    file_path: str,
+    columns: list[str] = None,
+    output_path: str = "",
+    open_after: bool = True,
+) -> dict:
+    """Histogram + box plot for numeric columns. Opens HTML file."""
+    return engine.generate_distribution_plot(
+        file_path, columns, output_path, open_after
     )
 
 
 @mcp.tool()
-def generate_sweetviz_report(
+def generate_multi_chart(
     file_path: str,
+    chart_type: str,
+    value_columns: list[str],
+    category_column: str = "",
+    date_column: str = "",
+    agg_func: str = "sum",
     output_path: str = "",
-    target_column: str = "",
+    title: str = "",
+    open_after: bool = True,
 ) -> dict:
-    """Run SweetViz EDA on dataset. Saves HTML report to disk."""
-    return engine.generate_sweetviz_report(file_path, output_path, target_column)
-
-
-@mcp.tool()
-def generate_autoviz_report(
-    file_path: str,
-    output_dir: str = "",
-    chart_format: str = "html",
-    max_rows_analyzed: int = 0,
-) -> dict:
-    """Run AutoViz auto-EDA on dataset. Saves charts to output dir."""
-    return engine.generate_autoviz_report(
-        file_path, output_dir, chart_format, max_rows_analyzed
+    """Multi-variable bar/line chart. Compares 2+ metrics. Opens HTML."""
+    return engine.generate_multi_chart(
+        file_path,
+        chart_type,
+        value_columns,
+        category_column,
+        date_column,
+        agg_func,
+        output_path,
+        title,
+        open_after,
     )
 
 
@@ -76,6 +86,7 @@ def generate_chart(
     output_path: str = "",
     title: str = "",
     theme: str = "plotly_dark",
+    open_after: bool = True,
 ) -> dict:
     """Generate Plotly chart. type: bar pie line scatter geo treemap radius."""
     return engine.generate_chart(
@@ -93,6 +104,7 @@ def generate_chart(
         output_path,
         title,
         theme,
+        open_after,
     )
 
 
