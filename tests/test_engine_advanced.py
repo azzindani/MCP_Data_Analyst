@@ -1,20 +1,21 @@
-"""Tests for servers/data_advanced/engine.py — ≥90% coverage required."""
+"""Tests for servers/data_advanced/engine.py."""
 
 from __future__ import annotations
 
-import os
 import py_compile
 from pathlib import Path
 
 import pytest
-import pandas as pd
 
 from servers.data_advanced.engine import (
-    generate_profile_report,
-    generate_sweetviz_report,
-    generate_autoviz_report,
+    generate_auto_profile,
+    generate_distribution_plot,
+    generate_correlation_heatmap,
+    generate_pairwise_plot,
+    generate_multi_chart,
     generate_chart,
     generate_dashboard,
+    export_data,
 )
 
 
@@ -46,104 +47,103 @@ East,Widget C,3500,8,2024-03-28,0.13,75
     return f
 
 
-@pytest.fixture()
-def geo_json(tmp_path) -> Path:
-    f = tmp_path / "states.geojson"
-    f.write_text("""{
-  "type": "FeatureCollection",
-  "features": [
-    {"type":"Feature","properties":{"name":"California","code":"CA"},"geometry":{"type":"Polygon","coordinates":[[[-120,35],[-120,40],[-115,40],[-115,35],[-120,35]]]}},
-    {"type":"Feature","properties":{"name":"Texas","code":"TX"},"geometry":{"type":"Polygon","coordinates":[[[-105,26],[-105,36],[-95,36],[-95,26],[-105,26]]]}},
-    {"type":"Feature","properties":{"name":"New York","code":"NY"},"geometry":{"type":"Polygon","coordinates":[[[-80,40],[-80,45],[-72,45],[-72,40],[-80,40]]]}}
-  ]
-}""")
-    return f
-
-
 # ---------------------------------------------------------------------------
-# generate_profile_report
+# generate_auto_profile
 # ---------------------------------------------------------------------------
 
 
-class TestGenerateProfileReport:
+class TestGenerateAutoProfile:
     def test_minimal(self, rich_csv):
-        r = generate_profile_report(str(rich_csv), minimal=True, correlations=False)
-        if not r["success"]:
-            pytest.skip(f"ydata-profiling not installed: {r['error']}")
+        r = generate_auto_profile(str(rich_csv), open_after=False)
         assert r["success"] is True
-        assert r["report_path"].endswith(".html")
-        assert r["columns_profiled"] == 7
         assert r["rows"] == 15
-        assert Path(rich_csv.parent / r["report_path"]).exists()
+        assert r["columns"] == 7
+        assert r["numeric_columns"] >= 4
+        assert r["categorical_columns"] >= 2
+        assert r["correlation_pairs"] > 0
+        assert Path(rich_csv.parent / r["output_path"]).exists()
 
-    def test_full_with_correlations(self, rich_csv):
-        r = generate_profile_report(
+    def test_file_not_found(self, tmp_path):
+        r = generate_auto_profile(str(tmp_path / "missing.csv"))
+        assert r["success"] is False
+        assert "hint" in r
+
+
+# ---------------------------------------------------------------------------
+# generate_distribution_plot
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateDistributionPlot:
+    def test_basic(self, rich_csv):
+        r = generate_distribution_plot(str(rich_csv), open_after=False)
+        assert r["success"] is True
+        assert len(r["columns_plotted"]) >= 2
+        assert Path(rich_csv.parent / r["output_path"]).exists()
+
+    def test_file_not_found(self, tmp_path):
+        r = generate_distribution_plot(str(tmp_path / "missing.csv"))
+        assert r["success"] is False
+
+
+# ---------------------------------------------------------------------------
+# generate_correlation_heatmap
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateCorrelationHeatmap:
+    def test_basic(self, rich_csv):
+        r = generate_correlation_heatmap(str(rich_csv), open_after=False)
+        assert r["success"] is True
+        assert r["columns"] >= 4
+        assert Path(rich_csv.parent / r["output_path"]).exists()
+
+    def test_file_not_found(self, tmp_path):
+        r = generate_correlation_heatmap(str(tmp_path / "missing.csv"))
+        assert r["success"] is False
+
+
+# ---------------------------------------------------------------------------
+# generate_pairwise_plot
+# ---------------------------------------------------------------------------
+
+
+class TestGeneratePairwisePlot:
+    def test_basic(self, rich_csv):
+        r = generate_pairwise_plot(str(rich_csv), open_after=False)
+        assert r["success"] is True
+        assert len(r["columns_plotted"]) >= 2
+        assert Path(rich_csv.parent / r["output_path"]).exists()
+
+    def test_file_not_found(self, tmp_path):
+        r = generate_pairwise_plot(str(tmp_path / "missing.csv"))
+        assert r["success"] is False
+
+
+# ---------------------------------------------------------------------------
+# generate_multi_chart
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateMultiChart:
+    def test_multi_bar(self, rich_csv):
+        r = generate_multi_chart(
             str(rich_csv),
-            minimal=False,
-            correlations=True,
-            title="Full Profile",
-            description="Test report",
+            chart_type="multi_bar",
+            value_columns=["Revenue", "Units_Sold"],
+            category_column="Region",
+            open_after=False,
         )
-        if not r["success"]:
-            pytest.skip(f"ydata-profiling not installed: {r['error']}")
         assert r["success"] is True
-        assert r["correlations_included"] is True
+        assert r["chart_type"] == "multi_bar"
+        assert Path(rich_csv.parent / r["output_path"]).exists()
 
     def test_file_not_found(self, tmp_path):
-        r = generate_profile_report(str(tmp_path / "missing.csv"))
-        assert r["success"] is False
-        assert "hint" in r
-
-
-# ---------------------------------------------------------------------------
-# generate_sweetviz_report
-# ---------------------------------------------------------------------------
-
-
-class TestGenerateSweetvizReport:
-    def test_basic(self, rich_csv):
-        r = generate_sweetviz_report(str(rich_csv))
-        if not r["success"]:
-            pytest.skip(f"sweetviz not installed: {r['error']}")
-        assert r["success"] is True
-        assert r["report_path"].endswith(".html")
-        assert r["columns_analysed"] == 7
-        assert Path(rich_csv.parent / r["report_path"]).exists()
-
-    def test_with_target(self, rich_csv):
-        r = generate_sweetviz_report(str(rich_csv), target_column="Revenue")
-        if not r["success"]:
-            pytest.skip(f"sweetviz not installed: {r['error']}")
-        assert r["target_column"] == "Revenue"
-
-    def test_bad_target(self, rich_csv):
-        r = generate_sweetviz_report(str(rich_csv), target_column="NonExistent")
-        assert r["success"] is False
-        assert "hint" in r
-
-    def test_file_not_found(self, tmp_path):
-        r = generate_sweetviz_report(str(tmp_path / "missing.csv"))
-        assert r["success"] is False
-
-
-# ---------------------------------------------------------------------------
-# generate_autoviz_report
-# ---------------------------------------------------------------------------
-
-
-class TestGenerateAutovizReport:
-    def test_basic(self, rich_csv):
-        r = generate_autoviz_report(
-            str(rich_csv), chart_format="html", max_rows_analyzed=100
+        r = generate_multi_chart(
+            str(tmp_path / "missing.csv"),
+            chart_type="multi_bar",
+            value_columns=["Revenue"],
         )
-        if not r["success"]:
-            pytest.skip(f"autoviz not installed: {r['error']}")
-        assert r["success"] is True
-        assert r["chart_count"] >= 0
-        assert r["rows_analyzed"] == 15
-
-    def test_file_not_found(self, tmp_path):
-        r = generate_autoviz_report(str(tmp_path / "missing.csv"))
         assert r["success"] is False
 
 
@@ -159,12 +159,10 @@ class TestGenerateChart:
             chart_type="bar",
             value_column="Revenue",
             category_column="Region",
-            agg_func="sum",
+            open_after=False,
         )
         assert r["success"] is True
-        assert r["output_path"].endswith(".html")
-        assert "Revenue" in r["title"]
-        assert r["rows_plotted"] == 4
+        assert r["chart_type"] == "bar"
         assert Path(rich_csv.parent / r["output_path"]).exists()
 
     def test_pie(self, rich_csv):
@@ -172,10 +170,11 @@ class TestGenerateChart:
             str(rich_csv),
             chart_type="pie",
             value_column="Revenue",
-            category_column="Product",
-            agg_func="sum",
+            category_column="Region",
+            open_after=False,
         )
         assert r["success"] is True
+        assert r["chart_type"] == "pie"
 
     def test_time_series(self, rich_csv):
         r = generate_chart(
@@ -183,9 +182,10 @@ class TestGenerateChart:
             chart_type="time_series",
             value_column="Revenue",
             date_column="Order_Date",
-            period="M",
+            open_after=False,
         )
         assert r["success"] is True
+        assert r["chart_type"] == "time_series"
 
     def test_treemap(self, rich_csv):
         r = generate_chart(
@@ -193,8 +193,10 @@ class TestGenerateChart:
             chart_type="treemap",
             value_column="Revenue",
             hierarchy_columns=["Region", "Product"],
+            open_after=False,
         )
         assert r["success"] is True
+        assert r["chart_type"] == "treemap"
 
     def test_scatter(self, rich_csv):
         r = generate_chart(
@@ -202,11 +204,17 @@ class TestGenerateChart:
             chart_type="scatter",
             value_column="Revenue",
             category_column="Units_Sold",
+            open_after=False,
         )
         assert r["success"] is True
+        assert r["chart_type"] == "scatter"
 
     def test_invalid_type(self, rich_csv):
-        r = generate_chart(str(rich_csv), chart_type="heatmap", value_column="Revenue")
+        r = generate_chart(
+            str(rich_csv),
+            chart_type="heatmap",
+            value_column="Revenue",
+        )
         assert r["success"] is False
         assert "hint" in r
 
@@ -233,28 +241,13 @@ class TestGenerateDashboard:
         assert "would_generate" in r
 
     def test_full_generation(self, rich_csv):
-        r = generate_dashboard(
-            str(rich_csv), title="Test Dashboard", chart_types=["bar", "pie", "scatter"]
-        )
+        r = generate_dashboard(str(rich_csv), title="Test Dashboard", open_after=False)
         assert r["success"] is True
-        assert r["output_path"] == "app.py"
-        assert r["dashboard_title"] == "Test Dashboard"
-        assert "bar" in r["charts_included"]
-        assert "pie" in r["charts_included"]
-        assert "scatter" in r["charts_included"]
-        assert len(r["kpi_columns"]) > 0
-        assert len(r["filter_columns"]) > 0
-        assert "streamlit run" in r["run_command"]
-        out = rich_csv.parent / r["output_path"]
-        assert out.exists()
-
-    def test_generated_code_valid_python(self, rich_csv):
-        r = generate_dashboard(str(rich_csv), title="Test", chart_types=["bar", "pie"])
-        if not r["success"]:
-            pytest.skip(f"dashboard generation failed: {r['error']}")
-        app_path = rich_csv.parent / "app.py"
-        assert app_path.exists()
-        py_compile.compile(str(app_path), doraise=True)
+        assert r["output_name"].endswith(".html")
+        assert Path(rich_csv.parent / r["output_path"]).exists()
+        html = Path(rich_csv.parent / r["output_path"]).read_text(encoding="utf-8")
+        assert "<!DOCTYPE html>" in html
+        assert "Plotly.newPlot" in html
 
     def test_file_not_found(self, tmp_path):
         r = generate_dashboard(str(tmp_path / "missing.csv"))
@@ -262,37 +255,23 @@ class TestGenerateDashboard:
 
 
 # ---------------------------------------------------------------------------
-# All tools handle missing files
+# export_data
 # ---------------------------------------------------------------------------
 
 
-class TestMissingFileHandling:
-    def test_profile_report(self, tmp_path):
-        r = generate_profile_report(str(tmp_path / "missing.csv"))
-        assert r["success"] is False
-        assert "hint" in r
+class TestExportData:
+    def test_csv(self, rich_csv):
+        r = export_data(str(rich_csv), format="csv", open_after=False)
+        assert r["success"] is True
+        assert r["format"] == "csv"
+        assert Path(rich_csv.parent / r["output_path"]).exists()
 
-    def test_sweetviz_report(self, tmp_path):
-        r = generate_sweetviz_report(str(tmp_path / "missing.csv"))
-        assert r["success"] is False
-        assert "hint" in r
+    def test_json(self, rich_csv):
+        r = export_data(str(rich_csv), format="json", open_after=False)
+        assert r["success"] is True
+        assert r["format"] == "json"
+        assert Path(rich_csv.parent / r["output_path"]).exists()
 
-    def test_autoviz_report(self, tmp_path):
-        r = generate_autoviz_report(str(tmp_path / "missing.csv"))
+    def test_file_not_found(self, tmp_path):
+        r = export_data(str(tmp_path / "missing.csv"))
         assert r["success"] is False
-        assert "hint" in r
-
-    def test_chart(self, tmp_path):
-        r = generate_chart(
-            str(tmp_path / "missing.csv"),
-            chart_type="bar",
-            value_column="Revenue",
-            category_column="Region",
-        )
-        assert r["success"] is False
-        assert "hint" in r
-
-    def test_dashboard(self, tmp_path):
-        r = generate_dashboard(str(tmp_path / "missing.csv"))
-        assert r["success"] is False
-        assert "hint" in r
