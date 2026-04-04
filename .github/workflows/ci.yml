@@ -23,7 +23,7 @@ jobs:
 
       - name: Lint with ruff
         run: |
-          uv run ruff check servers/ shared/ tests/
+          uv run ruff check servers/ shared/ tests/ --exclude "**/.venv/**" --exclude "**/.venv/**"
 
       - name: Run tests
         run: |
