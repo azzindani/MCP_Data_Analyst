@@ -16,13 +16,6 @@ dev = [
     "ruff>=0.8",
 ]
 
-[dependency-groups]
-dev = [
-    "pytest>=8.0",
-    "pytest-cov>=5.0",
-    "ruff>=0.8",
-]
-
 [project.scripts]
 data-analyst-basic = "servers.data_basic.server:main"
 
