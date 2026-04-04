@@ -103,7 +103,7 @@ class TestGenerateCorrelationHeatmap:
     def test_basic(self, rich_csv):
         r = generate_correlation_heatmap(str(rich_csv), open_after=False)
         assert r["success"] is True
-        assert r["columns"] >= 4
+        assert len(r["columns"]) >= 4
         assert Path(rich_csv.parent / r["output_path"]).exists()
 
     def test_file_not_found(self, tmp_path):

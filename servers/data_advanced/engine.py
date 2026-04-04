@@ -575,7 +575,12 @@ def generate_auto_profile(
         rows, cols = df.shape
 
         numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-        cat_cols = [c for c in df.columns if df[c].dtype == "object"]
+        cat_cols = [
+            c
+            for c in df.columns
+            if not pd.api.types.is_numeric_dtype(df[c])
+            and not pd.api.types.is_datetime64_any_dtype(df[c])
+        ]
         datetime_cols = [
             c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])
         ]
