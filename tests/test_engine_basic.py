@@ -390,7 +390,7 @@ class TestApplyPatch:
         assert "Pacific" in df["Region"].values
 
     def test_dry_run_no_changes(self, simple_csv):
-        _ = simple_csv.read_text()
+        original_content = simple_csv.read_text()
         r = apply_patch(
             str(simple_csv),
             [{"op": "fill_nulls", "column": "Revenue", "strategy": "mean"}],
@@ -399,7 +399,7 @@ class TestApplyPatch:
         assert r["success"] is True
         assert r["dry_run"] is True
         assert "would_change" in r
-        assert simple_csv.read_text() == original  # file unchanged
+        assert simple_csv.read_text() == original_content  # file unchanged
 
     def test_unknown_op_rejected(self, simple_csv):
         r = apply_patch(str(simple_csv), [{"op": "explode_table"}])
@@ -448,10 +448,10 @@ class TestRestoreVersion:
         assert "Discount" in simple_csv.read_text()
 
     def test_restore_content_matches_backup(self, simple_csv):
-        _ = simple_csv.read_text()
+        original_content = simple_csv.read_text()
         apply_patch(str(simple_csv), [{"op": "drop_duplicates"}])
         restore_version(str(simple_csv))
-        assert simple_csv.read_text() == original
+        assert simple_csv.read_text() == original_content
 
     def test_restore_no_backups(self, tmp_path):
         f = tmp_path / "fresh.csv"
