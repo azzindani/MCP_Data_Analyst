@@ -124,11 +124,6 @@ class TestGenerateSweetvizReport:
     def test_file_not_found(self, tmp_path):
         r = generate_sweetviz_report(str(tmp_path / "missing.csv"))
         assert r["success"] is False
-        assert "hint" in r
-
-    def test_file_not_found(self, tmp_path):
-        r = generate_sweetviz_report(str(tmp_path / "missing.csv"))
-        assert r["success"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -137,17 +132,19 @@ class TestGenerateSweetvizReport:
 
 
 class TestGenerateAutovizReport:
-    r = generate_autoviz_report(
-        str(rich_csv), chart_format="html", max_rows_analyzed=100
-    )
-    if not r["success"]:
-        pytest.skip(f"autoviz not installed: {r['error']}")
-    assert r["success"] is True
-    assert r["chart_count"] >= 0
-    assert r["rows_analyzed"] == 15
+    def test_basic(self, rich_csv):
+        r = generate_autoviz_report(
+            str(rich_csv), chart_format="html", max_rows_analyzed=100
+        )
+        if not r["success"]:
+            pytest.skip(f"autoviz not installed: {r['error']}")
+        assert r["success"] is True
+        assert r["chart_count"] >= 0
+        assert r["rows_analyzed"] == 15
 
-    r = generate_autoviz_report(str(tmp_path / "missing.csv"))
-    assert r["success"] is False
+    def test_file_not_found(self, tmp_path):
+        r = generate_autoviz_report(str(tmp_path / "missing.csv"))
+        assert r["success"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -164,8 +161,6 @@ class TestGenerateChart:
             category_column="Region",
             agg_func="sum",
         )
-        if not r["success"]:
-            pytest.skip(f"plotly not installed: {r['error']}")
         assert r["success"] is True
         assert r["output_path"].endswith(".html")
         assert "Revenue" in r["title"]
@@ -180,8 +175,6 @@ class TestGenerateChart:
             category_column="Product",
             agg_func="sum",
         )
-        if not r["success"]:
-            pytest.skip(f"plotly not installed: {r['error']}")
         assert r["success"] is True
 
     def test_time_series(self, rich_csv):
@@ -192,8 +185,6 @@ class TestGenerateChart:
             date_column="Order_Date",
             period="M",
         )
-        if not r["success"]:
-            pytest.skip(f"plotly not installed: {r['error']}")
         assert r["success"] is True
 
     def test_treemap(self, rich_csv):
@@ -203,8 +194,6 @@ class TestGenerateChart:
             value_column="Revenue",
             hierarchy_columns=["Region", "Product"],
         )
-        if not r["success"]:
-            pytest.skip(f"plotly not installed: {r['error']}")
         assert r["success"] is True
 
     def test_scatter(self, rich_csv):
@@ -214,54 +203,6 @@ class TestGenerateChart:
             value_column="Revenue",
             category_column="Units_Sold",
         )
-        if not r["success"]:
-            pytest.skip(f"plotly not installed: {r['error']}")
-        assert r["success"] is True
-        assert r["output_path"].endswith(".html")
-        assert "Revenue" in r["title"]
-        assert r["rows_plotted"] == 4
-        assert Path(rich_csv.parent / r["output_path"]).exists()
-
-        r = generate_chart(
-            str(rich_csv),
-            chart_type="pie",
-            value_column="Revenue",
-            category_column="Product",
-            agg_func="sum",
-        )
-        if not r["success"]:
-            pytest.skip(f"plotly not installed: {r['error']}")
-        assert r["success"] is True
-
-        r = generate_chart(
-            str(rich_csv),
-            chart_type="time_series",
-            value_column="Revenue",
-            date_column="Order_Date",
-            period="M",
-        )
-        if not r["success"]:
-            pytest.skip(f"plotly not installed: {r['error']}")
-        assert r["success"] is True
-
-        r = generate_chart(
-            str(rich_csv),
-            chart_type="treemap",
-            value_column="Revenue",
-            hierarchy_columns=["Region", "Product"],
-        )
-        if not r["success"]:
-            pytest.skip(f"plotly not installed: {r['error']}")
-        assert r["success"] is True
-
-        r = generate_chart(
-            str(rich_csv),
-            chart_type="scatter",
-            value_column="Revenue",
-            category_column="Units_Sold",
-        )
-        if not r["success"]:
-            pytest.skip(f"plotly not installed: {r['error']}")
         assert r["success"] is True
 
     def test_invalid_type(self, rich_csv):
@@ -269,6 +210,7 @@ class TestGenerateChart:
         assert r["success"] is False
         assert "hint" in r
 
+    def test_file_not_found(self, tmp_path):
         r = generate_chart(
             str(tmp_path / "missing.csv"),
             chart_type="bar",
@@ -314,6 +256,7 @@ class TestGenerateDashboard:
         assert app_path.exists()
         py_compile.compile(str(app_path), doraise=True)
 
+    def test_file_not_found(self, tmp_path):
         r = generate_dashboard(str(tmp_path / "missing.csv"))
         assert r["success"] is False
 
