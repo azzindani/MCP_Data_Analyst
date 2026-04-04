@@ -28,4 +28,4 @@ jobs:
 
       - name: Run tests
         run: |
-          uv run --group dev pytest tests/ -v --tb=short
+          uv run --package mcp-data-analyst pytest tests/ -v --tb=short
