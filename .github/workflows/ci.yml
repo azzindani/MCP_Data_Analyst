@@ -20,6 +20,8 @@ jobs:
       - name: Install dependencies
         run: |
           uv sync --group dev
+          cd servers/data_advanced && uv sync --dev
+          cd ../..
           uv tool install ruff
 
       - name: Lint with ruff
@@ -28,4 +30,4 @@ jobs:
 
       - name: Run tests
         run: |
-          uv run pytest tests/ -v --tb=short
+          PYTHONPATH=. servers/data_advanced/.venv/bin/python -m pytest tests/ -v --tb=short
