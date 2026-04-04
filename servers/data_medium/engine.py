@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 # Shared utilities
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from shared.file_utils import resolve_path
 from shared.platform_utils import get_max_results, get_max_rows
 from shared.progress import fail, info, ok, warn

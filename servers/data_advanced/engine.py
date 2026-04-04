@@ -1,18 +1,18 @@
-"""Tier 3 engine — profiling reports, charts, dashboards. Zero MCP imports."""
+"""Tier 3 engine — fast EDA, visualizations, dashboards. Zero MCP imports."""
 
 from __future__ import annotations
 
-import contextlib
-import io
 import logging
+import subprocess
 import sys
 import textwrap
+import webbrowser
 from pathlib import Path
 
 import pandas as pd
 
 # Shared utilities
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from shared.file_utils import resolve_path
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
@@ -35,6 +35,23 @@ def _read_csv(
     return pd.read_csv(file_path, **kwargs)
 
 
+def _open_file(path: Path) -> None:
+    """Open file in default browser/app."""
+    try:
+        webbrowser.open(f"file://{path.resolve()}")
+    except Exception:
+        # Fallback: use OS-specific open command
+        try:
+            if sys.platform == "win32":
+                subprocess.Popen(["start", str(path.resolve())], shell=True)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(path.resolve())])
+            else:
+                subprocess.Popen(["xdg-open", str(path.resolve())])
+        except Exception:
+            pass
+
+
 def _dtype_label(series: pd.Series) -> str:
     if pd.api.types.is_integer_dtype(series):
         return "int64"
@@ -46,135 +63,28 @@ def _dtype_label(series: pd.Series) -> str:
 
 
 # ---------------------------------------------------------------------------
-# generate_profile_report
+# run_eda — fast structured EDA (replaces heavy profilers)
 # ---------------------------------------------------------------------------
 
 
-def generate_profile_report(
+def run_eda(
     file_path: str,
     output_path: str = "",
-    title: str = "",
-    description: str = "",
-    correlations: bool = True,
-    minimal: bool = False,
+    open_after: bool = True,
 ) -> dict:
+    """Fast EDA summary. Returns stats, nulls, correlations, outliers as HTML."""
     progress = []
     try:
         try:
-            from ydata_profiling import ProfileReport
+            import plotly.graph_objects as go
+            import plotly.express as px
+            from plotly.subplots import make_subplots
         except ImportError:
             return {
                 "success": False,
-                "error": "ydata-profiling not installed",
-                "hint": "Install: uv add ydata-profiling",
-                "progress": [fail("Missing dependency", "ydata-profiling")],
-                "token_estimate": 20,
-            }
-
-        path = resolve_path(file_path)
-        if not path.exists():
-            return {
-                "success": False,
-                "error": f"File not found: {path.name}",
-                "hint": "Check file_path is absolute and the file exists.",
-                "progress": [fail("File not found", path.name)],
-                "token_estimate": 20,
-            }
-
-        # Memory check
-        try:
-            import psutil
-
-            avail = psutil.virtual_memory().available / (1024**3)  # GB
-            if avail < 2:
-                progress.append(
-                    warn(
-                        "Low memory",
-                        f"Only {avail:.1f} GB available; consider minimal=True",
-                    )
-                )
-                minimal = True
-        except ImportError:
-            pass
-
-        df = _read_csv(str(path))
-        report_title = title if title else path.stem
-
-        # Build config for ydata-profiling
-        config_kwargs = {"title": report_title, "minimal": minimal}
-        if correlations:
-            config_kwargs["correlations"] = {
-                "pearson": {"calculate": True},
-                "spearman": {"calculate": True},
-                "kendall": {"calculate": True},
-                "phi_k": {"calculate": True},
-                "cramers": {"calculate": True},
-            }
-
-        # Redirect ydata stdout to stderr
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            report = ProfileReport(df, **config_kwargs)
-
-            if output_path:
-                out = Path(output_path)
-            else:
-                out = path.parent / f"{path.stem}_profile.html"
-
-            report.to_file(str(out))
-
-        size_kb = round(out.stat().st_size / 1024)
-        progress.append(ok(f"Profile report saved", f"{out.name} ({size_kb:,} KB)"))
-
-        result = {
-            "success": True,
-            "op": "generate_profile_report",
-            "report_path": out.name,
-            "report_size_kb": size_kb,
-            "columns_profiled": len(df.columns),
-            "rows": len(df),
-            "correlations_included": correlations,
-            "progress": progress,
-        }
-        result["token_estimate"] = _token_estimate(result)
-        return result
-
-    except Exception as exc:
-        logger.exception("generate_profile_report error")
-        return {
-            "success": False,
-            "error": str(exc),
-            "hint": "Check file_path is absolute and the file is a valid CSV.",
-            "progress": [fail("Unexpected error", str(exc))],
-            "token_estimate": 20,
-        }
-
-
-# ---------------------------------------------------------------------------
-# generate_sweetviz_report
-# ---------------------------------------------------------------------------
-
-
-def generate_sweetviz_report(
-    file_path: str,
-    output_path: str = "",
-    target_column: str = "",
-) -> dict:
-    progress = []
-    try:
-        try:
-            import numpy as np
-
-            # Patch numpy 2.x compatibility for sweetviz
-            if not hasattr(np, "VisibleDeprecationWarning"):
-                np.VisibleDeprecationWarning = np.exceptions.VisibleDeprecationWarning
-            import sweetviz as sv
-        except ImportError:
-            return {
-                "success": False,
-                "error": "sweetviz not installed",
-                "hint": "Install: uv add sweetviz",
-                "progress": [fail("Missing dependency", "sweetviz")],
+                "error": "plotly not installed",
+                "hint": "Install: uv add plotly",
+                "progress": [fail("Missing dependency", "plotly")],
                 "token_estimate": 20,
             }
 
@@ -189,161 +99,208 @@ def generate_sweetviz_report(
             }
 
         df = _read_csv(str(path))
+        rows, cols = df.shape
 
-        if target_column and target_column not in df.columns:
-            return {
-                "success": False,
-                "error": f"Target column not found: {target_column}",
-                "hint": f"Available: {', '.join(df.columns)}",
-                "progress": [fail("Column not found", target_column)],
-                "token_estimate": 30,
-            }
+        # Classify columns
+        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+        cat_cols = [
+            c
+            for c in df.columns
+            if not pd.api.types.is_numeric_dtype(df[c])
+            and not pd.api.types.is_datetime64_any_dtype(df[c])
+        ]
+        datetime_cols = [
+            c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])
+        ]
 
-        kwargs = {}
-        if target_column:
-            kwargs["target_feat"] = target_column
+        # Column summaries
+        column_summaries = []
+        for c in df.columns:
+            s = {"column": c, "dtype": _dtype_label(df[c])}
+            s["null_count"] = int(df[c].isna().sum())
+            s["null_pct"] = round(s["null_count"] / rows * 100, 2) if rows > 0 else 0
+            s["unique_count"] = int(df[c].nunique())
+            if c in numeric_cols:
+                s["mean"] = round(float(df[c].mean()), 4)
+                s["median"] = round(float(df[c].median()), 4)
+                s["std"] = round(float(df[c].std()), 4)
+                s["min"] = round(float(df[c].min()), 4)
+                s["max"] = round(float(df[c].max()), 4)
+            elif c in cat_cols:
+                top = df[c].value_counts().head(5)
+                s["top_values"] = {str(k): int(v) for k, v in top.items()}
+            column_summaries.append(s)
 
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            with contextlib.redirect_stderr(buf):
-                report = sv.analyze(df, **kwargs)
+        # Correlation matrix (numeric only)
+        corr_pairs = []
+        if len(numeric_cols) >= 2:
+            corr = df[numeric_cols].corr(method="pearson")
+            pairs = []
+            for i in range(len(numeric_cols)):
+                for j in range(i + 1, len(numeric_cols)):
+                    val = corr.iloc[i, j]
+                    if not pd.isna(val):
+                        pairs.append(
+                            {
+                                "col_a": numeric_cols[i],
+                                "col_b": numeric_cols[j],
+                                "correlation": round(float(val), 4),
+                            }
+                        )
+            pairs.sort(key=lambda x: abs(x["correlation"]), reverse=True)
+            corr_pairs = pairs[:10]
 
-                if output_path:
-                    out = Path(output_path)
-                else:
-                    out = path.parent / f"{path.stem}_sweetviz.html"
-
-                report.show_html(
-                    str(out),
-                    open_browser=False,
-                    layout="widescreen",
+        # Outlier flags (IQR method)
+        outlier_cols = []
+        for c in numeric_cols:
+            q1 = df[c].quantile(0.25)
+            q3 = df[c].quantile(0.75)
+            iqr = q3 - q1
+            lower = q1 - 1.5 * iqr
+            upper = q3 + 1.5 * iqr
+            count = int(((df[c] < lower) | (df[c] > upper)).sum())
+            if count > 0:
+                outlier_cols.append(
+                    {
+                        "column": c,
+                        "outlier_count": count,
+                        "outlier_pct": round(count / rows * 100, 2),
+                        "lower_limit": round(float(lower), 4),
+                        "upper_limit": round(float(upper), 4),
+                    }
                 )
 
-        size_kb = round(out.stat().st_size / 1024)
-        progress.append(ok(f"SweetViz report saved", f"{out.name} ({size_kb:,} KB)"))
+        # Data quality score
+        null_penalty = sum(s["null_pct"] for s in column_summaries) / max(cols, 1)
+        dup_count = int(df.duplicated().sum())
+        dup_penalty = dup_count / rows * 100 if rows > 0 else 0
+        outlier_penalty = sum(o["outlier_pct"] for o in outlier_cols) / max(cols, 1)
+        quality_score = max(
+            0, round(100 - null_penalty - dup_penalty * 0.5 - outlier_penalty * 0.3)
+        )
 
-        result = {
-            "success": True,
-            "op": "generate_sweetviz_report",
-            "report_path": out.name,
-            "report_size_kb": size_kb,
-            "columns_analysed": len(df.columns),
-            "target_column": target_column,
-            "progress": progress,
-        }
-        result["token_estimate"] = _token_estimate(result)
-        return result
+        # Build HTML report
+        html_parts = [
+            "<!DOCTYPE html><html><head><meta charset='utf-8'>",
+            "<title>EDA Report</title>",
+            "<style>",
+            "body{font-family:system-ui,sans-serif;background:#1a1a2e;color:#eee;padding:20px}",
+            "h1{color:#e94560}h2{color:#0f3460;border-bottom:1px solid #333;padding-bottom:5px}",
+            "table{border-collapse:collapse;width:100%;margin:10px 0}",
+            "th,td{padding:8px 12px;text-align:left;border:1px solid #333}",
+            "th{background:#16213e}.good{color:#4ecca3}.warn{color:#f9a825}.bad{color:#e94560}",
+            ".card{background:#16213e;padding:15px;border-radius:8px;margin:10px 0;display:inline-block;min-width:150px}",
+            ".score{font-size:48px;font-weight:bold}",
+            "</style></head><body>",
+            f"<h1>EDA Report: {path.name}</h1>",
+            f"<p>{rows:,} rows × {cols} columns</p>",
+            f"<div class='card'><div class='score {'good' if quality_score >= 80 else 'warn' if quality_score >= 60 else 'bad'}'>{quality_score}</div>Data Quality Score</div>",
+            f"<div class='card'><div>{len(numeric_cols)}</div>Numeric Columns</div>",
+            f"<div class='card'><div>{len(cat_cols)}</div>Categorical Columns</div>",
+            f"<div class='card'><div>{len(datetime_cols)}</div>Datetime Columns</div>",
+            f"<div class='card'><div>{dup_count:,}</div>Duplicate Rows</div>",
+            "<h2>Column Summary</h2>",
+            "<table><tr><th>Column</th><th>Type</th><th>Nulls</th><th>Null %</th><th>Unique</th><th>Stats</th></tr>",
+        ]
 
-    except Exception as exc:
-        logger.exception("generate_sweetviz_report error")
-        return {
-            "success": False,
-            "error": str(exc),
-            "hint": "Check file_path is absolute and the file is a valid CSV.",
-            "progress": [fail("Unexpected error", str(exc))],
-            "token_estimate": 20,
-        }
-
-
-# ---------------------------------------------------------------------------
-# generate_autoviz_report
-# ---------------------------------------------------------------------------
-
-
-def generate_autoviz_report(
-    file_path: str,
-    output_dir: str = "",
-    chart_format: str = "html",
-    max_rows_analyzed: int = 0,
-) -> dict:
-    progress = []
-    try:
-        try:
-            from autoviz import AutoViz_Class
-        except ImportError:
-            return {
-                "success": False,
-                "error": "autoviz not installed",
-                "hint": "Install: uv add autoviz",
-                "progress": [fail("Missing dependency", "autoviz")],
-                "token_estimate": 20,
-            }
-
-        path = resolve_path(file_path)
-        if not path.exists():
-            return {
-                "success": False,
-                "error": f"File not found: {path.name}",
-                "hint": "Check file_path is absolute and the file exists.",
-                "progress": [fail("File not found", path.name)],
-                "token_estimate": 20,
-            }
-
-        df = _read_csv(str(path))
-        rows_analyzed = len(df)
-
-        if max_rows_analyzed > 0 and len(df) > max_rows_analyzed:
-            df = df.sample(n=max_rows_analyzed, random_state=42)
-            rows_analyzed = max_rows_analyzed
-            progress.append(
-                warn(
-                    "Row sampling active",
-                    f"Analyzing {max_rows_analyzed} of {len(_read_csv(str(path)))} rows",
+        for s in column_summaries:
+            cls = (
+                "good"
+                if s["null_pct"] == 0
+                else "warn"
+                if s["null_pct"] < 10
+                else "bad"
+            )
+            stats = ""
+            if "mean" in s:
+                stats = f"μ={s['mean']}, σ={s['std']}, [{s['min']}–{s['max']}]"
+            elif "top_values" in s:
+                top_str = ", ".join(
+                    f"{k}: {v}" for k, v in list(s["top_values"].items())[:3]
                 )
+                stats = f"Top: {top_str}"
+            html_parts.append(
+                f"<tr><td>{s['column']}</td><td>{s['dtype']}</td>"
+                f"<td class='{cls}'>{s['null_count']}</td><td>{s['null_pct']}%</td>"
+                f"<td>{s['unique_count']}</td><td>{stats}</td></tr>"
             )
 
-        if output_dir:
-            out = Path(output_dir)
+        html_parts.append("</table>")
+
+        if corr_pairs:
+            html_parts.append("<h2>Top Correlations</h2>")
+            html_parts.append(
+                "<table><tr><th>Column A</th><th>Column B</th><th>Correlation</th></tr>"
+            )
+            for p in corr_pairs:
+                html_parts.append(
+                    f"<tr><td>{p['col_a']}</td><td>{p['col_b']}</td>"
+                    f"<td class={'good' if abs(p['correlation']) > 0.7 else 'warn'}>{p['correlation']}</td></tr>"
+                )
+            html_parts.append("</table>")
+
+        if outlier_cols:
+            html_parts.append("<h2>Outliers (IQR Method)</h2>")
+            html_parts.append(
+                "<table><tr><th>Column</th><th>Count</th><th>%</th><th>Range</th></tr>"
+            )
+            for o in outlier_cols:
+                html_parts.append(
+                    f"<tr><td>{o['column']}</td><td>{o['outlier_count']}</td>"
+                    f"<td>{o['outlier_pct']}%</td><td>[{o['lower_limit']} – {o['upper_limit']}]</td></tr>"
+                )
+            html_parts.append("</table>")
+
+        html_parts.append("</body></html>")
+
+        html_content = "\n".join(html_parts)
+
+        if output_path:
+            out = Path(output_path)
         else:
-            out = path.parent / "autoviz_output"
-        out.mkdir(parents=True, exist_ok=True)
+            out = path.parent / f"{path.stem}_eda.html"
 
-        # AutoViz needs a file path, not a DataFrame
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            with contextlib.redirect_stderr(buf):
-                try:
-                    av = AutoViz_Class().AutoViz(
-                        str(path),
-                        chart_format=chart_format,
-                        depVar="",
-                        verbose=0,
-                    )
-                except Exception:
-                    if chart_format != "html":
-                        progress.append(
-                            warn(
-                                f"{chart_format} failed", "Falling back to html format"
-                            )
-                        )
-                        av = AutoViz_Class().AutoViz(
-                            str(path),
-                            chart_format="html",
-                            depVar="",
-                            verbose=0,
-                        )
-                    else:
-                        raise
+        out.write_text(html_content, encoding="utf-8")
+        size_kb = round(out.stat().st_size / 1024)
 
-        chart_files = [f.name for f in out.iterdir() if f.is_file()]
+        if open_after:
+            _open_file(out)
+
         progress.append(
-            ok(f"AutoViz charts saved", f"{len(chart_files)} files in {out.name}/")
+            ok(
+                f"EDA report saved",
+                f"{out.name} ({size_kb:,} KB) — {quality_score}/100 quality score",
+            )
         )
 
         result = {
             "success": True,
-            "op": "generate_autoviz_report",
-            "output_dir": out.name,
-            "chart_files": chart_files,
-            "chart_count": len(chart_files),
-            "rows_analyzed": rows_analyzed,
+            "op": "run_eda",
+            "output_path": str(out.resolve()),
+            "output_name": out.name,
+            "report_size_kb": size_kb,
+            "rows": rows,
+            "columns": cols,
+            "quality_score": quality_score,
+            "numeric_columns": len(numeric_cols),
+            "categorical_columns": len(cat_cols),
+            "datetime_columns": len(datetime_cols),
+            "duplicate_rows": dup_count,
+            "null_summary": {
+                s["column"]: s["null_count"]
+                for s in column_summaries
+                if s["null_count"] > 0
+            },
+            "top_correlations": corr_pairs[:5],
+            "outlier_columns": outlier_cols,
+            "column_summaries": column_summaries,
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
         return result
 
     except Exception as exc:
-        logger.exception("generate_autoviz_report error")
+        logger.exception("run_eda error")
         return {
             "success": False,
             "error": str(exc),
@@ -354,7 +311,285 @@ def generate_autoviz_report(
 
 
 # ---------------------------------------------------------------------------
-# generate_chart
+# generate_distribution_plot
+# ---------------------------------------------------------------------------
+
+
+def generate_distribution_plot(
+    file_path: str,
+    columns: list[str] = None,
+    output_path: str = "",
+    open_after: bool = True,
+) -> dict:
+    """Histogram + box plot for numeric columns. Saves and optionally opens HTML."""
+    progress = []
+    try:
+        try:
+            import plotly.express as px
+            import plotly.graph_objects as go
+            from plotly.subplots import make_subplots
+        except ImportError:
+            return {
+                "success": False,
+                "error": "plotly not installed",
+                "hint": "Install: uv add plotly",
+                "progress": [fail("Missing dependency", "plotly")],
+                "token_estimate": 20,
+            }
+
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+
+        if columns:
+            cols_to_plot = [c for c in columns if c in numeric_cols]
+        else:
+            cols_to_plot = numeric_cols[:6]  # max 6 to avoid clutter
+
+        if not cols_to_plot:
+            return {
+                "success": False,
+                "error": "No numeric columns found to plot",
+                "hint": f"Available numeric columns: {', '.join(numeric_cols)}",
+                "progress": [fail("No numeric columns", "")],
+                "token_estimate": 20,
+            }
+
+        n = len(cols_to_plot)
+        fig = make_subplots(
+            rows=n,
+            cols=2,
+            subplot_titles=[f"{c} — Histogram" for c in cols_to_plot]
+            + [f"{c} — Box Plot" for c in cols_to_plot],
+            vertical_spacing=0.3 / n,
+        )
+
+        for i, c in enumerate(cols_to_plot):
+            # Histogram
+            fig.add_trace(
+                go.Histogram(x=df[c], nbinsx=30, name=c, showlegend=False),
+                row=i + 1,
+                col=1,
+            )
+            # Box plot
+            fig.add_trace(
+                go.Box(y=df[c], name=c, showlegend=False),
+                row=i + 1,
+                col=2,
+            )
+
+        fig.update_layout(
+            height=300 * n,
+            width=1000,
+            title_text=f"Distribution Analysis: {', '.join(cols_to_plot)}",
+            template="plotly_dark",
+            showlegend=False,
+        )
+
+        if output_path:
+            out = Path(output_path)
+        else:
+            out = path.parent / f"{path.stem}_distributions.html"
+
+        fig.write_html(str(out), include_plotlyjs=True, full_html=True)
+
+        if open_after:
+            _open_file(out)
+
+        progress.append(
+            ok(
+                f"Distribution plots saved",
+                f"{out.name} — {n} columns",
+            )
+        )
+
+        result = {
+            "success": True,
+            "op": "generate_distribution_plot",
+            "output_path": str(out.resolve()),
+            "output_name": out.name,
+            "columns_plotted": cols_to_plot,
+            "chart_count": n * 2,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("generate_distribution_plot error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path and column names.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# generate_multi_chart — multi-variable comparison
+# ---------------------------------------------------------------------------
+
+
+def generate_multi_chart(
+    file_path: str,
+    chart_type: str,
+    value_columns: list[str],
+    category_column: str = "",
+    date_column: str = "",
+    agg_func: str = "sum",
+    output_path: str = "",
+    title: str = "",
+    open_after: bool = True,
+) -> dict:
+    """Multi-variable bar or line chart. Compares 2+ metrics on same axis."""
+    progress = []
+    try:
+        try:
+            import plotly.graph_objects as go
+        except ImportError:
+            return {
+                "success": False,
+                "error": "plotly not installed",
+                "hint": "Install: uv add plotly",
+                "progress": [fail("Missing dependency", "plotly")],
+                "token_estimate": 20,
+            }
+
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        valid_types = {"multi_bar", "multi_line"}
+        if chart_type not in valid_types:
+            return {
+                "success": False,
+                "error": f"Invalid chart_type: {chart_type}",
+                "hint": f"Valid types: {', '.join(sorted(valid_types))}",
+                "progress": [fail("Invalid chart type", chart_type)],
+                "token_estimate": 30,
+            }
+
+        df = _read_csv(str(path))
+
+        if chart_type == "multi_line" and not date_column:
+            return {
+                "success": False,
+                "error": "multi_line requires date_column",
+                "hint": "Provide date_column for time-based multi-line chart.",
+                "progress": [fail("Missing param", "date_column")],
+                "token_estimate": 30,
+            }
+
+        chart_title = (
+            title if title else f"Multi-{chart_type.replace('_', ' ').title()}"
+        )
+
+        fig = go.Figure()
+
+        if chart_type == "multi_bar":
+            if category_column:
+                grouped = df.groupby(category_column, as_index=False)[
+                    value_columns
+                ].agg(agg_func)
+                x_vals = grouped[category_column]
+            else:
+                x_vals = range(len(df))
+                grouped = df
+
+            for vc in value_columns:
+                fig.add_trace(
+                    go.Bar(
+                        x=x_vals,
+                        y=grouped[vc],
+                        name=vc,
+                    )
+                )
+
+        elif chart_type == "multi_line":
+            df[date_column] = pd.to_datetime(df[date_column], errors="coerce")
+            df = df.dropna(subset=[date_column])
+            df["period"] = df[date_column].dt.to_period("M").astype(str)
+            grouped = df.groupby("period", as_index=False)[value_columns].agg(agg_func)
+            x_vals = grouped["period"]
+
+            for vc in value_columns:
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_vals,
+                        y=grouped[vc],
+                        name=vc,
+                        mode="lines+markers",
+                    )
+                )
+
+        fig.update_layout(
+            title=chart_title,
+            template="plotly_dark",
+            xaxis_title=category_column or "Period",
+            yaxis_title=agg_func.title(),
+            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+            margin=dict(l=20, r=20, t=40, b=20),
+        )
+
+        if output_path:
+            out = Path(output_path)
+        else:
+            out = path.parent / f"{path.stem}_multi_{chart_type}.html"
+
+        fig.write_html(str(out), include_plotlyjs=True, full_html=True)
+
+        if open_after:
+            _open_file(out)
+
+        progress.append(
+            ok(
+                f"Multi-chart saved",
+                f"{out.name} — {len(value_columns)} metrics",
+            )
+        )
+
+        result = {
+            "success": True,
+            "op": "generate_multi_chart",
+            "chart_type": chart_type,
+            "output_path": str(out.resolve()),
+            "output_name": out.name,
+            "title": chart_title,
+            "metrics_plotted": value_columns,
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("generate_multi_chart error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path, column names, and chart_type.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# generate_chart (kept, with open_after support)
 # ---------------------------------------------------------------------------
 
 
@@ -373,7 +608,9 @@ def generate_chart(
     output_path: str = "",
     title: str = "",
     theme: str = "plotly_dark",
+    open_after: bool = True,
 ) -> dict:
+    """Generate Plotly chart. type: bar pie line scatter geo treemap radius."""
     progress = []
     try:
         try:
@@ -601,13 +838,17 @@ def generate_chart(
         fig.write_html(str(out), include_plotlyjs=True, full_html=True)
         rows_plotted = len(chart_df)
 
+        if open_after:
+            _open_file(out)
+
         progress.append(ok(f"Chart saved", f"{out.name} ({rows_plotted} rows)"))
 
         result = {
             "success": True,
             "op": "generate_chart",
             "chart_type": chart_type,
-            "output_path": out.name,
+            "output_path": str(out.resolve()),
+            "output_name": out.name,
             "title": chart_title,
             "rows_plotted": rows_plotted,
             "progress": progress,
@@ -627,7 +868,7 @@ def generate_chart(
 
 
 # ---------------------------------------------------------------------------
-# generate_dashboard
+# generate_dashboard (kept unchanged)
 # ---------------------------------------------------------------------------
 
 
@@ -640,6 +881,7 @@ def generate_dashboard(
     theme: str = "plotly_dark",
     dry_run: bool = False,
 ) -> dict:
+    """Generate Streamlit dashboard app.py from dataset. Run separately."""
     progress = []
     try:
         path = resolve_path(file_path)
