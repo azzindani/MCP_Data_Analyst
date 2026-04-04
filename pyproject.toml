@@ -33,5 +33,11 @@ addopts = "--tb=short"
 source = ["shared", "servers/data_basic"]
 omit = ["tests/*"]
 
+[tool.ruff]
+exclude = [".venv", "**/.venv/**"]
+
+[tool.ruff.lint]
+ignore = ["E402", "F401"]
+
 [tool.uv]
-python = "3.12"
+required-version = ">=0.5"

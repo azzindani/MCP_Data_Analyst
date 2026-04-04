@@ -123,7 +123,7 @@ def load_dataset(
 
         if max_rows > 0:
             progress.append(warn(
-                f"Row sampling active",
+                "Row sampling active",
                 f"max_rows={max_rows}; constrained mode may apply"
             ))
 
