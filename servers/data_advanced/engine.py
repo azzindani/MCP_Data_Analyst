@@ -275,7 +275,7 @@ def run_eda(
             corr_x = list(corr.columns)
 
             corr_json = f"""
-<div class="chart-container" id="corr-chart"></div>
+<div class="chart-container" id="corr-chart" style="min-height:480px"></div>
 <script>
 (function(){{
   var z={corr_z};var x={corr_x};
@@ -285,8 +285,8 @@ def run_eda(
     text:z.map(function(r){{return r.map(function(v){{return v.toFixed(2);}});}}),
     texttemplate:'%{{text}}',textfont:{{size:11}}}}];
   var layout={{paper_bgcolor:bg,plot_bgcolor:bg,font:{{color:fc}},
-    margin:{{l:120,r:20,t:20,b:120}},autosize:true}};
-  Plotly.newPlot('corr-chart',data,layout,{{responsive:true,displayModeBar:false}});
+    margin:{{l:120,r:20,t:20,b:120}},height:480,autosize:false}};
+  Plotly.newPlot('corr-chart',data,layout,{{responsive:true,displayModeBar:true,scrollZoom:true}});
 }})();
 </script>"""
 
@@ -296,7 +296,7 @@ def run_eda(
             sp_x = spearman_matrix.columns.tolist()
             spearman_json = f"""
 <h3 style="color:var(--accent);font-size:15px;margin:20px 0 8px">Spearman Rank Correlation</h3>
-<div class="chart-container" id="sp-corr-chart"></div>
+<div class="chart-container" id="sp-corr-chart" style="min-height:480px"></div>
 <script>
 (function(){{
   var z={sp_z};var x={sp_x};
@@ -306,8 +306,8 @@ def run_eda(
     text:z.map(function(r){{return r.map(function(v){{return v.toFixed(2);}});}}),
     texttemplate:'%{{text}}',textfont:{{size:11}}}}];
   var layout={{paper_bgcolor:bg,plot_bgcolor:bg,font:{{color:fc}},
-    margin:{{l:120,r:20,t:20,b:120}},autosize:true}};
-  Plotly.newPlot('sp-corr-chart',data,layout,{{responsive:true,displayModeBar:false}});
+    margin:{{l:120,r:20,t:20,b:120}},height:480,autosize:false}};
+  Plotly.newPlot('sp-corr-chart',data,layout,{{responsive:true,displayModeBar:true,scrollZoom:true}});
 }})();
 </script>"""
 
@@ -403,7 +403,7 @@ def run_eda(
     xaxis:{{tickangle:-45,tickfont:{{size:11}}}},
     yaxis:{{title:'Row index',tickfont:{{size:10}}}}
   }};
-  Plotly.newPlot('miss-matrix',data,layout,{{responsive:true,displayModeBar:false}});
+  Plotly.newPlot('miss-matrix',data,layout,{{responsive:true,displayModeBar:true,scrollZoom:true}});
 }})();
 </script>"""
             missing_section = f'<div id="nulls" class="section"><h2>Missing Data</h2><table><tr><th>Column</th><th>Missing</th><th>%</th><th>Visual</th></tr>{missing_rows}</table>{miss_matrix_html}</div>'
@@ -452,7 +452,7 @@ def run_eda(
 {vars_css}
 *{{box-sizing:border-box;margin:0;padding:0}}
 html{{scroll-behavior:smooth}}
-body{{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;transition:background 0.2s,color 0.2s}}
+body{{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;transition:background 0.2s,color 0.2s}}
 ::-webkit-scrollbar{{width:6px}}::-webkit-scrollbar-track{{background:var(--bg)}}::-webkit-scrollbar-thumb{{background:var(--border);border-radius:3px}}
 .sidebar{{width:260px;background:var(--surface);border-right:1px solid var(--border);position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:100}}
 .sidebar-hdr{{padding:20px;border-bottom:1px solid var(--border)}}
@@ -462,7 +462,7 @@ body{{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var
 .nav a{{display:block;padding:7px 20px;color:var(--text-muted);text-decoration:none;font-size:13px;border-left:3px solid transparent;transition:all 0.15s}}
 .nav a:hover,.nav a.active{{color:var(--accent);background:rgba(88,166,255,0.06);border-left-color:var(--accent)}}
 .nav .st{{padding:14px 20px 4px;color:var(--border);font-size:10px;text-transform:uppercase;letter-spacing:1px;font-weight:600}}
-.main{{margin-left:260px;padding:32px;flex:1;max-width:1400px}}
+.main{{margin-left:260px;padding:32px;min-height:100vh;overflow-x:auto}}
 .section{{margin-bottom:48px}}
 .section>h2{{color:var(--accent);font-size:20px;margin-bottom:20px;padding-bottom:10px;border-bottom:2px solid var(--border);font-weight:600}}
 .cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:24px}}
@@ -483,7 +483,7 @@ tr:hover{{background:rgba(88,166,255,0.03)}}
 .insights li.warn{{border-left-color:var(--orange)}}.insights li.bad{{border-left-color:var(--red)}}.insights li.good{{border-left-color:var(--green)}}
 .mbar{{height:24px;background:var(--border);border-radius:6px;overflow:hidden;margin:4px 0}}
 .mbar-fill{{height:100%;background:linear-gradient(90deg,var(--orange),var(--red));border-radius:6px}}
-.chart-container{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin:16px 0;min-height:300px}}
+.chart-container{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin:16px 0;min-height:420px}}
 .alert-panel{{border-radius:10px;overflow:hidden;margin-bottom:20px}}
 .alert-item{{padding:10px 14px;margin:3px 0;font-size:13px;border-radius:8px;display:flex;align-items:flex-start;gap:10px;background:var(--surface);border:1px solid var(--border)}}
 .alert-item.error{{border-left:4px solid var(--red)}}.alert-item.warning{{border-left:4px solid var(--orange)}}.alert-item.info{{border-left:4px solid var(--green)}}
@@ -1180,7 +1180,7 @@ tr:hover{{background:rgba(88,166,255,0.04)}}
     xaxis:{{tickangle:-45,tickfont:{{size:11}}}},
     yaxis:{{title:'Row index',tickfont:{{size:10}}}}
   }};
-  Plotly.newPlot('ap-miss-matrix',data,layout,{{responsive:true,displayModeBar:false}});
+  Plotly.newPlot('ap-miss-matrix',data,layout,{{responsive:true,displayModeBar:true,scrollZoom:true}});
 }})();
 </script>""")
             h.append("</div>")
@@ -1202,7 +1202,7 @@ tr:hover{{background:rgba(88,166,255,0.04)}}
     var x = {corr_x};
     var data = [{{z: z, x: x, y: x, type: 'heatmap', colorscale: 'RdBu', zmid: 0, text: z.map(function(r) {{ return r.map(function(v) {{ return v.toFixed(2); }}); }}), texttemplate: '%{{text}}', textfont: {{size: 11}}}}];
     var layout = {{paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}', font: {{color: '{_font_color}'}}, margin: {{l: 120, r: 20, t: 20, b: 120}}, height: 500}};
-    Plotly.newPlot('corr-heatmap', data, layout, {{responsive: true, displayModeBar: false}});
+    Plotly.newPlot('corr-heatmap', data, layout, {{responsive: true, displayModeBar: true, scrollZoom: true}});
 }})();
 </script>""")
             h.append(
@@ -1241,7 +1241,7 @@ tr:hover{{background:rgba(88,166,255,0.04)}}
     var x = {sp_ap_x};
     var data = [{{z: z, x: x, y: x, type: 'heatmap', colorscale: 'RdBu', zmid: 0, text: z.map(function(r) {{ return r.map(function(v) {{ return v.toFixed(2); }}); }}), texttemplate: '%{{text}}', textfont: {{size: 11}}}}];
     var layout = {{paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}', font: {{color: '{_font_color}'}}, margin: {{l: 120, r: 20, t: 20, b: 120}}, height: 500}};
-    Plotly.newPlot('sp-corr-ap', data, layout, {{responsive: true, displayModeBar: false}});
+    Plotly.newPlot('sp-corr-ap', data, layout, {{responsive: true, displayModeBar: true, scrollZoom: true}});
 }})();
 </script>""")
             h.append("</div>")
@@ -1430,7 +1430,7 @@ tr:hover{{background:rgba(88,166,255,0.04)}}
         yaxis: {{visible: false, range: [-250, 250]}},
         showlegend: false
     }};
-    Plotly.newPlot('corr-network', traces, layout, {{responsive: true, displayModeBar: false}});
+    Plotly.newPlot('corr-network', traces, layout, {{responsive: true, displayModeBar: true, scrollZoom: true}});
 }})();
 </script>""")
 
@@ -1574,7 +1574,7 @@ tr:hover{{background:rgba(88,166,255,0.04)}}
         yaxis: {{title: 'Count'}},
         yaxis2: {{title: ''}}
     }};
-    Plotly.newPlot('{chart_id}', [trace1, trace2], layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
+    Plotly.newPlot('{chart_id}', [trace1, trace2], layout, {{responsive: true, displayModeBar: true, scrollZoom: true}});
 }})();
 </script>""")
             elif c in cat_cols:
@@ -1595,7 +1595,7 @@ tr:hover{{background:rgba(88,166,255,0.04)}}
         height: 420, margin: {{l: 50, r: 20, t: 10, b: 80}},
         xaxis: {{tickangle: -45}}
     }};
-    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
+    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, scrollZoom: true}});
 }})();
 </script>""")
             elif c in datetime_cols:
@@ -1614,7 +1614,7 @@ tr:hover{{background:rgba(88,166,255,0.04)}}
         font: {{color: '{_font_color}'}},
         height: 420, margin: {{l: 50, r: 20, t: 10, b: 30}}
     }};
-    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
+    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, scrollZoom: true}});
 }})();
 </script>""")
             h.append("</div></div></div></div></div>")
@@ -2697,7 +2697,7 @@ header h1{{color:var(--accent);font-size:20px;font-weight:700;flex:1 1 auto}}
 
         # ── JS: render function factory ────────────────────────────────────────
         COLORS = "['#58a6ff','#3fb950','#f0883e','#f85149','#bc8cff','#79c0ff','#7ee787','#ffa657','#ff7b72','#d2a8ff','#a5d6ff','#aff5b4','#ffd6a5','#ffabab','#e0b0ff']"
-        PCFG = "{responsive:true,displayModeBar:true,modeBarButtonsToRemove:['lasso2d','select2d']}"
+        PCFG = "{responsive:true,displayModeBar:true,scrollZoom:true}"
 
         def _lyt(h_px: int, extra: str = "") -> str:
             return (
@@ -2736,7 +2736,7 @@ header h1{{color:var(--accent);font-size:20px;font-weight:700;flex:1 1 auto}}
                     f"height:340,margin:{{l:20,r:20,t:10,b:20}},showlegend:true,legend:{{orientation:'h',y:-0.14}}}};\n"
                     f"  Plotly.react('{cid}',[{{values:e.map(i=>i[1]),labels:e.map(i=>i[0]),type:'pie',"
                     f"hole:0.38,marker:{{colors:{COLORS}}},textinfo:'label+percent',textfont:{{size:11}},"
-                    f"pull:e.map((_,i)=>i===0?0.04:0)}}],layout,{{responsive:true,displayModeBar:false}});\n"
+                    f"pull:e.map((_,i)=>i===0?0.04:0)}}],layout,{{responsive:true,displayModeBar:true,scrollZoom:true}});\n"
                     f"}}"
                 )
             elif t == "scatter":
@@ -2827,7 +2827,7 @@ header h1{{color:var(--accent);font-size:20px;font-weight:700;flex:1 1 auto}}
                     f"  Plotly.react('{cid}',[{{z:z,x:cols,y:cols,type:'heatmap',"
                     f"colorscale:'RdBu_r',zmid:0,zmin:-1,zmax:1,"
                     f"text:z.map(r=>r.map(v=>v.toFixed(2))),texttemplate:'%{{text}}',"
-                    f"textfont:{{size:10}}}}],layout,{{responsive:true,displayModeBar:false}});\n"
+                    f"textfont:{{size:10}}}}],layout,{{responsive:true,displayModeBar:true,scrollZoom:true}});\n"
                     f"}}"
                 )
             elif t == "agg_hm":
@@ -2845,7 +2845,7 @@ header h1{{color:var(--accent);font-size:20px;font-weight:700;flex:1 1 auto}}
                     f"  Plotly.react('{cid}',[{{z:z,x:cl,y:rl,type:'heatmap',"
                     f"colorscale:'YlOrRd',text:z.map(r=>r.map(fmt)),"
                     f"texttemplate:'%{{text}}',textfont:{{size:9}}}}],layout,"
-                    f"{{responsive:true,displayModeBar:false}});\n"
+                    f"{{responsive:true,displayModeBar:true,scrollZoom:true}});\n"
                     f"}}"
                 )
             elif t == "ts":
@@ -2886,7 +2886,7 @@ header h1{{color:var(--accent);font-size:20px;font-weight:700;flex:1 1 auto}}
                     f"marker:{{color:'#58a6ff',opacity:0.75}},xaxis:'x',yaxis:'y',name:'hist'}},"
                     f"{{y:vals,type:'box',marker:{{color:'#f0883e',size:3}},"
                     f"xaxis:'x2',yaxis:'y2',boxpoints:'outliers',name:'box'}}],"
-                    f"layout,{{responsive:true,displayModeBar:false}});\n"
+                    f"layout,{{responsive:true,displayModeBar:true,scrollZoom:true}});\n"
                     f"}}"
                 )
 

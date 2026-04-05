@@ -107,7 +107,7 @@ def save_chart(
     html = fig.to_html(
         include_plotlyjs=True,
         full_html=True,
-        config={"responsive": True, "displayModeBar": "hover"},
+        config={"responsive": True, "displayModeBar": True, "scrollZoom": True},
     )
 
     # Inject viewport meta
