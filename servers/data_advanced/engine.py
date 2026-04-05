@@ -2263,8 +2263,9 @@ def generate_chart(
 
 
 # ---------------------------------------------------------------------------
-# generate_dashboard - auto-generated interactive HTML dashboard
+# generate_dashboard — interactive HTML dashboard (fully client-side)
 # ---------------------------------------------------------------------------
+
 
 
 def generate_dashboard(
@@ -2278,12 +2279,16 @@ def generate_dashboard(
     open_after: bool = True,
 ) -> dict:
     """Generate interactive HTML dashboard with auto-detected charts. Opens HTML."""
+    import json as _json
+    import re as _re
+
+    def _safe(s: str) -> str:
+        return _re.sub(r"[^a-zA-Z0-9]", "_", str(s))
+
     progress = []
     try:
         try:
-            import plotly.express as px
-            import plotly.graph_objects as go
-            from plotly.subplots import make_subplots
+            import plotly.graph_objects as _go  # noqa: F401
         except ImportError:
             return {
                 "success": False,
@@ -2306,20 +2311,17 @@ def generate_dashboard(
         df = _read_csv(str(path))
         dashboard_title = title if title else path.stem
 
-        # Classify columns
+        # ── Column classification ──────────────────────────────────────────────
         numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+        datetime_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])]
         cat_cols = [
-            c
-            for c in df.columns
-            if not pd.api.types.is_numeric_dtype(df[c])
-            and not pd.api.types.is_datetime64_any_dtype(df[c])
-        ]
-        datetime_cols = [
-            c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])
+            c for c in df.columns
+            if c not in numeric_cols and c not in datetime_cols
+            and df[c].nunique() <= 100
         ]
 
-        # Auto-detect charts
-        detected = []
+        # ── Chart auto-detection ───────────────────────────────────────────────
+        detected: list[str] = []
         if numeric_cols and cat_cols:
             detected.append("bar")
         if datetime_cols and numeric_cols:
@@ -2328,495 +2330,690 @@ def generate_dashboard(
             detected.append("scatter")
         if cat_cols:
             detected.append("pie")
-        if geo_file_path:
-            detected.append("geo")
-
         charts = chart_types if chart_types else detected
 
         if dry_run:
             progress.append(info("Dry run — no file written", path.name))
-            result = {
+            result: dict = {
                 "success": True,
                 "dry_run": True,
                 "op": "generate_dashboard",
                 "would_generate": {
                     "title": dashboard_title,
                     "charts": charts,
-                    "kpi_columns": numeric_cols[:5],
-                    "filter_columns": cat_cols[:3],
-                    "run_command": "Open in browser",
+                    "kpi_columns": numeric_cols[:8],
+                    "filter_columns": cat_cols[:8],
                 },
                 "progress": progress,
             }
             result["token_estimate"] = _token_estimate(result)
             return result
 
-        # Build interactive HTML dashboard
-        _dash_vars = css_vars(theme)
-        if theme == "dark":
-            _dash_plot_bg = "#161b22"
-            _dash_font_color = "#c9d1d9"
-        elif theme == "light":
-            _dash_plot_bg = "#f6f8fa"
-            _dash_font_color = "#1f2328"
-        else:  # device
-            _dash_plot_bg = "#f6f8fa"
-            _dash_font_color = "#1f2328"
+        # ── Embed data (cap at 20 K rows) ──────────────────────────────────────
+        EMBED_LIMIT = 20_000
+        was_sampled = len(df) > EMBED_LIMIT
+        embed_df = (
+            df.sample(EMBED_LIMIT, random_state=42) if was_sampled else df.copy()
+        )
+        embed_clean = embed_df.copy()
+        for c in datetime_cols:
+            if c in embed_clean.columns:
+                embed_clean[c] = (
+                    pd.to_datetime(embed_clean[c], errors="coerce")
+                    .dt.strftime("%Y-%m-%d")
+                    .fillna("")
+                )
+        raw_json = embed_clean.to_json(orient="records", date_format="iso")
 
-        h = []
-        h.append(f"""<!DOCTYPE html>
-<html><head><meta charset='utf-8'><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Dashboard</title>
+        # ── Pre-computed static elements ───────────────────────────────────────
+        sparklines: dict = {}
+        for nc in numeric_cols[:8]:
+            n_pts = min(30, len(df))
+            step = max(1, len(df) // n_pts)
+            sv = df[nc].iloc[::step].head(n_pts).fillna(0).tolist()
+            sparklines[nc] = [0 if (isinstance(v, float) and v != v) else v for v in sv]
+
+        def _trend(col: str) -> tuple[str, str]:
+            mid = len(df) // 2
+            if mid == 0:
+                return "→", "trend-flat"
+            a = df[col].iloc[:mid].mean()
+            b = df[col].iloc[mid:].mean()
+            if pd.isna(a) or pd.isna(b):
+                return "→", "trend-flat"
+            if b > a * 1.02:
+                return "↑", "trend-up"
+            if b < a * 0.98:
+                return "↓", "trend-down"
+            return "→", "trend-flat"
+
+        # Filter controls (pills ≤10, searchable dropdown 11-50)
+        filter_controls: list[dict] = []
+        for cc in cat_cols[:8]:
+            uniq = sorted(df[cc].dropna().astype(str).unique().tolist())
+            if 1 < len(uniq) <= 50:
+                filter_controls.append(
+                    {
+                        "col": cc,
+                        "values": uniq[:50],
+                        "style": "pills" if len(uniq) <= 10 else "dropdown",
+                    }
+                )
+
+        # Numeric range filters (top 3)
+        num_ranges: list[dict] = []
+        for nc in numeric_cols[:3]:
+            mn, mx = float(df[nc].min()), float(df[nc].max())
+            if mn < mx:
+                num_ranges.append({"col": nc, "min": mn, "max": mx})
+
+        # Quality score
+        null_pct = float(df.isnull().mean().mean() * 100)
+        dup_pct = float(df.duplicated().sum() / max(len(df), 1) * 100)
+        quality = max(0, round(100 - null_pct * 2 - dup_pct * 0.5))
+        qual_clr = (
+            "var(--green)" if quality >= 80
+            else "var(--orange)" if quality >= 60
+            else "var(--red)"
+        )
+
+        # ── Theme ──────────────────────────────────────────────────────────────
+        _css = css_vars(theme)
+        if theme == "dark":
+            bg, font_c, grid_c = "#161b22", "#c9d1d9", "rgba(255,255,255,0.07)"
+        elif theme == "light":
+            bg, font_c, grid_c = "#ffffff", "#1f2328", "rgba(0,0,0,0.07)"
+        else:
+            bg, font_c, grid_c = "#f6f8fa", "#1f2328", "rgba(0,0,0,0.07)"
+
+        # ── HTML HEAD ──────────────────────────────────────────────────────────
+        h: list[str] = []
+        h.append(
+            f"""<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+{VIEWPORT_META}
+<title>{dashboard_title} — Dashboard</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <style>
-{_dash_vars}
+{_css}
 *{{box-sizing:border-box;margin:0;padding:0}}
-body{{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;max-width:100vw}}
-::-webkit-scrollbar{{width:8px}}::-webkit-scrollbar-track{{background:var(--bg)}}::-webkit-scrollbar-thumb{{background:var(--border);border-radius:4px}}
-header{{background:var(--surface);border-bottom:1px solid var(--border);padding:20px 30px;display:flex;justify-content:space-between;align-items:center}}
-header h1{{color:var(--accent);font-size:22px;font-weight:600}}
-header .meta{{color:var(--text-muted);font-size:13px}}
-.filters{{background:var(--surface);border-bottom:1px solid var(--border);padding:16px 30px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}}
-.filters label{{color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:600}}
-.filters select{{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:13px;min-width:150px}}
-.kpi-row{{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;padding:20px 30px}}
-.kpi-card{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;text-align:center}}
-.kpi-card .num{{font-size:26px;font-weight:700;color:var(--accent)}}
-.kpi-card .label{{font-size:11px;color:var(--text-muted);margin-top:4px;text-transform:uppercase}}
-.kpi-trend{{font-size:14px;margin-top:4px;font-weight:600}}
+body{{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden}}
+::-webkit-scrollbar{{width:6px}}::-webkit-scrollbar-thumb{{background:var(--border);border-radius:3px}}
+header{{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 28px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}}
+header h1{{color:var(--accent);font-size:20px;font-weight:700;flex:1 1 auto}}
+.row-ctr{{color:var(--text-muted);font-size:12px}}
+.btn{{background:var(--bg);border:1px solid var(--border);color:var(--text-muted);border-radius:6px;padding:5px 12px;font-size:12px;cursor:pointer}}
+.btn:hover{{border-color:var(--accent);color:var(--accent)}}
+.btn-p{{background:var(--accent);color:#fff;border-color:var(--accent)}}
+.btn-p:hover{{opacity:0.88;color:#fff}}
+.filter-bar{{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 28px;display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end}}
+.fgrp{{display:flex;flex-direction:column;gap:5px}}
+.flbl{{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600}}
+.pills{{display:flex;flex-wrap:wrap;gap:4px}}
+.pill{{background:var(--bg);border:1px solid var(--border);color:var(--text-muted);border-radius:100px;padding:3px 11px;font-size:12px;cursor:pointer;transition:.12s}}
+.pill.active{{background:var(--accent);border-color:var(--accent);color:#fff}}
+.pill:hover:not(.active){{border-color:var(--accent);color:var(--text)}}
+.ddw{{position:relative}}
+.ddbtn{{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;min-width:140px;text-align:left;white-space:nowrap}}
+.ddmenu{{position:absolute;top:calc(100% + 4px);left:0;z-index:200;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;min-width:200px;max-height:280px;overflow-y:auto;box-shadow:0 8px 28px rgba(0,0,0,.35)}}
+.ddmenu.hid{{display:none}}
+.ddsrch{{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 8px;font-size:12px;margin-bottom:6px;outline:none}}
+.ddacts{{display:flex;gap:6px;margin-bottom:8px}}
+.ddacts .btn{{padding:2px 8px;font-size:11px}}
+.optlbl{{display:flex;align-items:center;gap:7px;padding:3px 4px;border-radius:4px;font-size:12px;cursor:pointer;user-select:none}}
+.optlbl:hover{{background:var(--bg)}}
+.optlbl input{{accent-color:var(--accent)}}
+.nrng{{display:flex;gap:6px;align-items:center}}
+.ninp{{width:88px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:12px;outline:none}}
+.ninp:focus{{border-color:var(--accent)}}
+.nsep{{color:var(--text-muted);font-size:13px}}
+.kpi-row{{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;padding:18px 28px}}
+.kpi-card{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px}}
+.kpi-val{{font-size:22px;font-weight:700;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.kpi-lbl{{font-size:10px;color:var(--text-muted);margin-top:2px;text-transform:uppercase;letter-spacing:.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.kpi-trend{{font-size:12px;margin-top:3px;font-weight:600}}
+.kpi-spark{{height:34px;margin-top:6px;pointer-events:none}}
 .trend-up{{color:var(--green)}}.trend-down{{color:var(--red)}}.trend-flat{{color:var(--text-muted)}}
-.charts{{padding:20px 30px;display:grid;grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:16px}}
-.chart-box{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;overflow:hidden;min-width:0}}
-.chart-box h3{{color:var(--text);font-size:13px;margin-bottom:8px;padding-left:4px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-.full-width{{grid-column:1/-1}}
-.filter-clear{{background:none;border:1px solid var(--border);color:var(--text-muted);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer}}
-.filter-clear:hover{{border-color:var(--accent);color:var(--accent)}}
-@media(max-width:1100px){{.charts{{grid-template-columns:1fr}}}}
-@media(max-width:600px){{header,.filters,.kpi-row,.charts{{padding-left:16px;padding-right:16px}}.kpi-row{{grid-template-columns:repeat(2,1fr)}}.charts{{grid-template-columns:1fr}}}}
-</style></head><body>""")
+.sec-hdr{{padding:16px 28px 4px;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600}}
+.cgrid{{padding:0 28px 28px;display:grid;grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:14px}}
+.cc{{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}}
+.cc-hdr{{display:flex;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)}}
+.cc-hdr h3{{font-size:12px;font-weight:500;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.exp{{background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:15px;line-height:1;padding:0 2px;flex-shrink:0}}
+.exp:hover{{color:var(--accent)}}
+.cc-body{{padding:4px}}
+.full{{grid-column:1/-1}}
+.modal{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:1000;align-items:center;justify-content:center}}
+.modal.open{{display:flex}}
+.mbox{{background:var(--surface);border:1px solid var(--border);border-radius:12px;width:92vw;max-width:1200px;height:88vh;display:flex;flex-direction:column}}
+.mhdr{{display:flex;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border)}}
+.mhdr h3{{flex:1;font-size:14px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.mclose{{background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;line-height:1;flex-shrink:0}}
+.mclose:hover{{color:var(--red)}}
+#mdiv{{flex:1;min-height:0}}
+@media(max-width:1100px){{.cgrid{{grid-template-columns:1fr}}}}
+@media(max-width:600px){{header,.filter-bar,.kpi-row,.cgrid,.sec-hdr{{padding-left:14px;padding-right:14px}}.kpi-row{{grid-template-columns:repeat(2,1fr)}}}}
+</style></head><body>"""
+        )
 
-        # Header
-        h.append(f"""<header><h1>{dashboard_title}</h1>
-<p class="meta">{len(df):,} rows x {len(df.columns)} columns | {len(numeric_cols)} numeric, {len(cat_cols)} categorical</p></header>""")
+        # ── HEADER ─────────────────────────────────────────────────────────────
+        sampled_note = " (sampled)" if was_sampled else ""
+        h.append(
+            f"""<header>
+  <h1>{dashboard_title}</h1>
+  <span class="row-ctr" id="row-ctr">{len(embed_df):,} of {len(embed_df):,} rows{sampled_note}</span>
+  <button class="btn" onclick="clearAll()">Clear Filters</button>
+  <button class="btn btn-p" onclick="exportCSV()">&#x2193; Export CSV</button>
+</header>"""
+        )
 
-        # Filters
-        if cat_cols:
-            h.append('<div class="filters"><label>Filters:</label>')
-            for fc in cat_cols[:5]:
-                unique_vals = df[fc].dropna().unique().tolist()
-                if len(unique_vals) <= 50:
-                    options = "".join(
-                        f'<option value="{v}">{v}</option>' for v in unique_vals[:50]
+        # ── FILTER BAR ─────────────────────────────────────────────────────────
+        if filter_controls or num_ranges:
+            h.append('<div class="filter-bar">')
+            for fc in filter_controls:
+                col, vals, style = fc["col"], fc["values"], fc["style"]
+                lbl = col.replace('"', "&quot;")
+                col_js = col.replace("\\", "\\\\").replace("'", "\\'")
+                h.append(f'<div class="fgrp"><div class="flbl">{lbl}</div>')
+                if style == "pills":
+                    h.append(f'<div class="pills" data-col="{lbl}">')
+                    for v in vals:
+                        ve = str(v).replace('"', "&quot;").replace("'", "&#39;")
+                        h.append(
+                            f'<button class="pill active" data-val="{ve}"'
+                            f' onclick="pilClick(this)">{ve}</button>'
+                        )
+                    h.append("</div>")
+                else:
+                    opts = "".join(
+                        f'<label class="optlbl"><input type="checkbox" data-val='
+                        f'"{str(v).replace(chr(34), "&quot;")}" checked'
+                        f' onchange="ddChange(\'{col_js}\')">'
+                        f"{str(v).replace('<', '&lt;')}</label>"
+                        for v in vals
                     )
                     h.append(
-                        f'<div><label>{fc}</label><select id="filter-{fc}" multiple size="3" onchange="applyFilters()">{options}</select></div>'
+                        f'<div class="ddw" data-col="{lbl}">'
+                        f'<button class="ddbtn" onclick="ddToggle(this)">All &#x25BE;</button>'
+                        f'<div class="ddmenu hid">'
+                        f'<input class="ddsrch" placeholder="Search..."'
+                        f' oninput="ddSrch(this,\'{col_js}\')">'
+                        f'<div class="ddacts">'
+                        f'<button class="btn" onclick="ddAll(\'{col_js}\',true)">All</button>'
+                        f'<button class="btn" onclick="ddAll(\'{col_js}\',false)">None</button>'
+                        f"</div>{opts}</div></div>"
                     )
-            h.append('<button class="filter-clear" onclick="clearFilters()">Clear All</button>')
+                h.append("</div>")
+            for nr in num_ranges:
+                nc = nr["col"]
+                nc_js = nc.replace("\\", "\\\\").replace("'", "\\'")
+                mn_s = f'{nr["min"]:,.0f}' if abs(nr["min"]) >= 1 else f'{nr["min"]:.3f}'
+                mx_s = f'{nr["max"]:,.0f}' if abs(nr["max"]) >= 1 else f'{nr["max"]:.3f}'
+                h.append(
+                    f'<div class="fgrp"><div class="flbl">{nc}</div>'
+                    f'<div class="nrng">'
+                    f'<input type="number" class="ninp" placeholder="Min ({mn_s})"'
+                    f' onchange="numCh(\'{nc_js}\',\'min\',this.value)">'
+                    f'<span class="nsep">–</span>'
+                    f'<input type="number" class="ninp" placeholder="Max ({mx_s})"'
+                    f' onchange="numCh(\'{nc_js}\',\'max\',this.value)">'
+                    f"</div></div>"
+                )
             h.append("</div>")
-            h.append("""<script>
-function applyFilters() {}
-function clearFilters() {
-  document.querySelectorAll('.filters select').forEach(function(s) {
-    Array.from(s.options).forEach(function(o) { o.selected = false; });
-  });
-}
-</script>""")
 
-        # Data quality + KPI cards with sparklines and trend indicators
-        dash_null_pct = round(df.isnull().mean().mean() * 100, 1)
-        dash_dup_count = int(df.duplicated().sum())
-        dash_quality = max(0, round(100 - dash_null_pct * 2 - (dash_dup_count / max(len(df), 1) * 100) * 0.5))
-
+        # ── KPI ROW ────────────────────────────────────────────────────────────
         h.append('<div class="kpi-row">')
-        h.append(f'<div class="kpi-card"><div class="num" style="color:var(--{"green" if dash_quality >= 80 else "orange" if dash_quality >= 60 else "red"})">{dash_quality}</div><div class="label">Quality Score</div></div>')
-        for nc in numeric_cols[:6]:
-            val = df[nc].sum()
-            n_points = min(30, len(df))
-            step = max(1, len(df) // n_points)
-            spark_vals = df[nc].iloc[::step].head(n_points).fillna(0).tolist()
-            midpoint = len(df) // 2
-            first_half_mean = float(df[nc].iloc[:midpoint].mean()) if midpoint > 0 else 0
-            second_half_mean = float(df[nc].iloc[midpoint:].mean()) if midpoint < len(df) else 0
-            if second_half_mean > first_half_mean * 1.02:
-                trend_arrow, trend_cls = "\u2191", "trend-up"
-            elif second_half_mean < first_half_mean * 0.98:
-                trend_arrow, trend_cls = "\u2193", "trend-down"
+        h.append(
+            f'<div class="kpi-card">'
+            f'<div class="kpi-val" style="color:{qual_clr}">{quality}</div>'
+            f'<div class="kpi-lbl">Quality Score</div>'
+            f"</div>"
+        )
+        for nc in numeric_cols[:7]:
+            arrow, acls = _trend(nc)
+            sc = _safe(nc)
+            sv = sparklines.get(nc, [])
+            init_sum = df[nc].sum()
+            if abs(init_sum) >= 1_000_000:
+                iv = f"{init_sum / 1_000_000:.1f}M"
+            elif abs(init_sum) >= 1_000:
+                iv = f"{init_sum / 1_000:.1f}K"
             else:
-                trend_arrow, trend_cls = "\u2192", "trend-flat"
-            spark_id = f"spark-{nc.replace(' ', '-').replace('_', '-')}"
-            h.append(f'<div class="kpi-card"><div class="num">{val:,.0f}</div><div class="kpi-trend {trend_cls}">{trend_arrow} <span style="font-size:10px">{nc}</span></div><div id="{spark_id}" style="height:40px;margin-top:4px"></div></div>')
-            h.append(f"""<script>(function(){{
-  var sv={spark_vals};
-  Plotly.newPlot('{spark_id}',[{{y:sv,type:'scatter',mode:'lines',
-    line:{{color:'var(--accent)',width:1.5}},fill:'tozeroy',fillcolor:'rgba(88,166,255,0.1)'}}],
-    {{paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',
-      margin:{{l:0,r:0,t:0,b:0}},xaxis:{{visible:false}},yaxis:{{visible:false}},
-      showlegend:false}},
-    {{responsive:true,displayModeBar:false,staticPlot:true}});
-}})();</script>""")
+                iv = f"{init_sum:,.0f}"
+            h.append(
+                f'<div class="kpi-card">'
+                f'<div class="kpi-val" id="kv-{sc}">{iv}</div>'
+                f'<div class="kpi-lbl">{nc}</div>'
+                f'<div class="kpi-trend {acls}">{arrow}</div>'
+                f'<div class="kpi-spark" id="ks-{sc}"></div>'
+                f"</div>"
+            )
+            h.append(
+                f"<script>(function(){{"
+                f"Plotly.newPlot('ks-{sc}',"
+                f"[{{y:{_json.dumps(sv)},type:'scatter',mode:'lines',"
+                f"line:{{color:'var(--accent)',width:1.5}},"
+                f"fill:'tozeroy',fillcolor:'rgba(88,166,255,0.08)'}}],"
+                f"{{paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',"
+                f"margin:{{l:0,r:0,t:0,b:0}},xaxis:{{visible:false}},"
+                f"yaxis:{{visible:false}},showlegend:false}},"
+                f"{{responsive:true,displayModeBar:false,staticPlot:true}});"
+                f"}})();</script>"
+            )
         h.append("</div>")
 
-        # Charts grid
-        h.append('<div class="charts">')
+        # ── CHART CONTAINERS ───────────────────────────────────────────────────
+        spec: list[dict] = []
+        h.append('<div class="sec-hdr">Charts</div><div class="cgrid">')
 
-        # Bar charts
+        def _card(cid: str, ttl: str, full: bool, height: int) -> None:
+            cls = "cc full" if full else "cc"
+            te = ttl.replace("'", "&#39;").replace('"', "&quot;")
+            h.append(
+                f'<div class="{cls}">'
+                f'<div class="cc-hdr"><h3>{ttl}</h3>'
+                f'<button class="exp" onclick="expand(\'{cid}\',\'{te}\')">&#x2922;</button>'
+                f'</div><div class="cc-body">'
+                f'<div id="{cid}" style="height:{height}px"></div>'
+                f"</div></div>"
+            )
+
         if "bar" in charts and cat_cols and numeric_cols:
             for cc in cat_cols[:3]:
                 for nc in numeric_cols[:2]:
-                    agg_df = (
-                        df.groupby(cc, as_index=False)[nc]
-                        .sum()
-                        .sort_values(nc, ascending=False)
-                        .head(20)
-                    )
-                    chart_id = f"bar-{cc}-{nc}"
-                    h.append(
-                        f'<div class="chart-box"><h3>Total {nc} by {cc}</h3><div id="{chart_id}" style="height:380px"></div></div>'
-                    )
-                    h.append(f"""<script>
-(function() {{
-    var data = [{{
-        x: {agg_df[cc].tolist()},
-        y: {agg_df[nc].tolist()},
-        type: 'bar',
-        marker: {{color: '#58a6ff'}},
-        text: {agg_df[nc].apply(lambda x: "{x:,.0f}").tolist()},
-        textposition: 'outside'
-    }}];
-    var layout = {{
-        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
-        font: {{color: '{_dash_font_color}'}},
-        height: 380, margin: {{l: 20, r: 20, t: 10, b: 60}},
-        xaxis: {{tickangle: -45}}
-    }};
-    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
-}})();
-</script>""")
+                    cid = f"bar_{_safe(cc)}_{_safe(nc)}"
+                    _card(cid, f"Total {nc} by {cc}", False, 340)
+                    spec.append({"id": cid, "type": "bar", "cc": cc, "nc": nc})
 
-        # Pie charts
         if "pie" in charts and cat_cols:
-            for cc in cat_cols[:4]:
-                val_counts = df[cc].value_counts().head(15)
-                chart_id = f"pie-{cc}"
-                h.append(
-                    f'<div class="chart-box"><h3>{cc} Distribution</h3><div id="{chart_id}" style="height:380px"></div></div>'
-                )
-                h.append(f"""<script>
-(function() {{
-    var data = [{{
-        values: {val_counts.values.tolist()},
-        labels: {val_counts.index.tolist()},
-        type: 'pie',
-        hole: 0.4,
-        marker: {{colors: ['#58a6ff', '#3fb950', '#f0883e', '#f85149', '#bc8cff', '#79c0ff', '#7ee787', '#ffa657', '#ff7b72', '#d2a8ff', '#a5d6ff', '#aff5b4', '#ffd6a5', '#ffabab', '#e0b0ff']}},
-        textinfo: 'label+percent',
-        textfont: {{size: 12}}
-    }}];
-    var layout = {{
-        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
-        font: {{color: '{_dash_font_color}'}},
-        height: 380, margin: {{l: 20, r: 20, t: 10, b: 20}}
-    }};
-    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
-}})();
-</script>""")
+            for cc in cat_cols[:3]:
+                cid = f"pie_{_safe(cc)}"
+                _card(cid, f"{cc} Distribution", False, 340)
+                spec.append({"id": cid, "type": "pie", "cc": cc})
 
-        # Scatter plots
         if "scatter" in charts and len(numeric_cols) >= 2:
-            for i in range(min(3, len(numeric_cols))):
-                for j in range(i + 1, min(4, len(numeric_cols))):
-                    nc1, nc2 = numeric_cols[i], numeric_cols[j]
-                    chart_id = f"scatter-{nc1}-{nc2}"
-                    h.append(
-                        f'<div class="chart-box"><h3>{nc1} vs {nc2}</h3><div id="{chart_id}" style="height:380px"></div></div>'
-                    )
-                    h.append(f"""<script>
-(function() {{
-    var data = [{{
-        x: {df[nc1].dropna().tolist()},
-        y: {df[nc2].dropna().tolist()},
-        type: 'scatter', mode: 'markers',
-        marker: {{color: '#58a6ff', opacity: 0.6, size: 6}},
-        text: ['{nc1}: ' + {df[nc1].dropna().apply(lambda x: "{x:,.1f}").tolist()} + '<br>{nc2}: ' + {df[nc2].dropna().apply(lambda x: "{x:,.1f}").tolist()}],
-        hoverinfo: 'text'
-    }}];
-    var layout = {{
-        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
-        font: {{color: '{_dash_font_color}'}},
-        height: 380, margin: {{l: 20, r: 20, t: 10, b: 40}},
-        xaxis: {{title: '{nc1}'}},
-        yaxis: {{title: '{nc2}'}}
-    }};
-    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
-}})();
-</script>""")
+            pairs = [
+                (numeric_cols[i], numeric_cols[j])
+                for i in range(min(2, len(numeric_cols)))
+                for j in range(i + 1, min(i + 3, len(numeric_cols)))
+            ]
+            for nc1, nc2 in pairs:
+                cid = f"scat_{_safe(nc1)}_{_safe(nc2)}"
+                _card(cid, f"{nc1} vs {nc2}", False, 340)
+                spec.append({"id": cid, "type": "scatter", "nc1": nc1, "nc2": nc2})
 
-        # Correlation heatmap
-        if len(numeric_cols) >= 2:
-            corr = df[numeric_cols].corr()
-            chart_id = "corr-heatmap"
-            h.append(
-                f'<div class="chart-box full-width"><h3>Correlation Matrix</h3><div id="{chart_id}" style="height:500px"></div></div>'
-            )
-            h.append(f"""<script>
-(function() {{
-    var z = {corr.values.tolist()};
-    var x = {corr.columns.tolist()};
-    var data = [{{z: z, x: x, y: x, type: 'heatmap', colorscale: 'RdBu_r', zmid: 0,
-        text: z.map(function(r) {{ return r.map(function(v) {{ return v.toFixed(2); }}); }}),
-        texttemplate: '%{{text}}', textfont: {{size: 11}}}}];
-    var layout = {{
-        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
-        font: {{color: '{_dash_font_color}'}},
-        height: 500, margin: {{l: 120, r: 20, t: 10, b: 120}}
-    }};
-    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: false}});
-}})();
-</script>""")
-
-        # Multi-condition: Grouped bar chart
         if len(cat_cols) >= 2 and numeric_cols:
-            cc1, cc2 = cat_cols[0], cat_cols[1]
-            nc = numeric_cols[0]
-            if all(c in df.columns for c in [cc1, cc2, nc]):
-                agg_df = df.groupby([cc1, cc2], as_index=False)[nc].sum()
-                chart_id = f"grouped-bar-{cc1}-{cc2}-{nc}"
-                h.append(
-                    f'<div class="chart-box full-width"><h3>{nc} by {cc1}, grouped by {cc2}</h3><div id="{chart_id}" style="height:400px"></div></div>'
-                )
-                traces = []
-                for val in agg_df[cc2].unique()[:10]:
-                    sub = agg_df[agg_df[cc2] == val]
-                    traces.append(f"""{{
-        x: {sub[cc1].tolist()},
-        y: {sub[nc].tolist()},
-        type: 'bar',
-        name: '{val}',
-        marker: {{opacity: 0.85}}
-    }}""")
-                h.append(f"""<script>
-(function() {{
-    var data = [{",".join(traces)}];
-    var layout = {{
-        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
-        font: {{color: '{_dash_font_color}'}},
-        barmode: 'group',
-        height: 400, margin: {{l: 20, r: 20, t: 10, b: 80}},
-        xaxis: {{tickangle: -45}},
-        legend: {{orientation: 'h', y: -0.3}}
-    }};
-    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
-}})();
-</script>""")
+            cc1, cc2, nc = cat_cols[0], cat_cols[1], numeric_cols[0]
+            cid = f"grp_{_safe(cc1)}_{_safe(cc2)}"
+            _card(cid, f"{nc} by {cc1}, grouped by {cc2}", True, 380)
+            spec.append({"id": cid, "type": "grouped_bar", "cc1": cc1, "cc2": cc2, "nc": nc})
 
-                # Stacked bar
-                chart_id2 = f"stacked-bar-{cc1}-{cc2}-{nc}"
-                h.append(
-                    f'<div class="chart-box full-width"><h3>{nc} by {cc1}, stacked by {cc2}</h3><div id="{chart_id2}" style="height:400px"></div></div>'
-                )
-                traces2 = []
-                for val in agg_df[cc2].unique()[:10]:
-                    sub = agg_df[agg_df[cc2] == val]
-                    traces2.append(f"""{{
-        x: {sub[cc1].tolist()},
-        y: {sub[nc].tolist()},
-        type: 'bar',
-        name: '{val}',
-        marker: {{opacity: 0.85}}
-    }}""")
-                h.append(f"""<script>
-(function() {{
-    var data = [{",".join(traces2)}];
-    var layout = {{
-        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
-        font: {{color: '{_dash_font_color}'}},
-        barmode: 'stack',
-        height: 400, margin: {{l: 20, r: 20, t: 10, b: 80}},
-        xaxis: {{tickangle: -45}},
-        legend: {{orientation: 'h', y: -0.3}}
-    }};
-    Plotly.newPlot('{chart_id2}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
-}})();
-</script>""")
-
-        # Multi-condition: Colored scatter plot
         if len(numeric_cols) >= 2 and cat_cols:
-            nc1, nc2 = numeric_cols[0], numeric_cols[1]
-            cc = cat_cols[0]
-            if all(c in df.columns for c in [nc1, nc2, cc]):
-                chart_id = f"colored-scatter-{nc1}-{nc2}-{cc}"
-                h.append(
-                    f'<div class="chart-box full-width"><h3>{nc1} vs {nc2}, colored by {cc}</h3><div id="{chart_id}" style="height:400px"></div></div>'
-                )
-                traces = []
-                for val in df[cc].dropna().unique()[:15]:
-                    sub = df[df[cc] == val]
-                    traces.append(f"""{{
-        x: {sub[nc1].dropna().tolist()},
-        y: {sub[nc2].dropna().tolist()},
-        type: 'scatter', mode: 'markers',
-        name: '{val}',
-        marker: {{opacity: 0.7, size: 5}}
-    }}""")
-                h.append(f"""<script>
-(function() {{
-    var data = [{",".join(traces)}];
-    var layout = {{
-        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
-        font: {{color: '{_dash_font_color}'}},
-        height: 400, margin: {{l: 20, r: 20, t: 10, b: 40}},
-        xaxis: {{title: '{nc1}'}},
-        yaxis: {{title: '{nc2}'}},
-        legend: {{orientation: 'h', y: -0.25}}
-    }};
-    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
-}})();
-</script>""")
+            nc1, nc2, cc = numeric_cols[0], numeric_cols[1], cat_cols[0]
+            cid = f"cscat_{_safe(nc1)}_{_safe(nc2)}"
+            _card(cid, f"{nc1} vs {nc2} by {cc}", True, 380)
+            spec.append({"id": cid, "type": "cscat", "nc1": nc1, "nc2": nc2, "cc": cc})
 
-        # Multi-condition: Grouped box plot
         if numeric_cols and cat_cols:
-            nc = numeric_cols[0]
-            cc = cat_cols[0]
-            if nc in df.columns and cc in df.columns:
-                chart_id = f"box-{nc}-by-{cc}"
-                h.append(
-                    f'<div class="chart-box full-width"><h3>{nc} distribution by {cc}</h3><div id="{chart_id}" style="height:400px"></div></div>'
-                )
-                h.append(f"""<script>
-(function() {{
-    var data = [];
-    var categories = {df[cc].dropna().unique()[:20].tolist()};
-    var vals = {df[df[cc].isin(df[cc].dropna().unique()[:20].tolist())].groupby(cc)[nc].apply(list).to_dict()};
-    for (var i = 0; i < categories.length; i++) {{
-        if (vals[categories[i]]) {{
-            data.push({{
-                type: 'box', y: vals[categories[i]], name: categories[i],
-                boxpoints: 'outliers', marker: {{size: 3}}
-            }});
-        }}
-    }}
-    var layout = {{
-        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
-        font: {{color: '{_dash_font_color}'}},
-        height: 400, margin: {{l: 20, r: 20, t: 10, b: 80}},
-        xaxis: {{tickangle: -45}},
-        showlegend: false
-    }};
-    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
-}})();
-</script>""")
+            nc, cc = numeric_cols[0], cat_cols[0]
+            cid = f"box_{_safe(nc)}_{_safe(cc)}"
+            _card(cid, f"{nc} distribution by {cc}", True, 380)
+            spec.append({"id": cid, "type": "box", "nc": nc, "cc": cc})
 
-        # Multi-condition: Aggregation heatmap
+        if len(numeric_cols) >= 2:
+            _card("corr_hm", "Correlation Matrix", True, 480)
+            spec.append({"id": "corr_hm", "type": "corr"})
+
         if len(cat_cols) >= 2 and numeric_cols:
-            cc1, cc2 = cat_cols[0], cat_cols[1]
-            nc = numeric_cols[0]
-            if all(c in df.columns for c in [cc1, cc2, nc]):
-                pivot = df.pivot_table(
-                    index=cc1, columns=cc2, values=nc, aggfunc="sum", fill_value=0
-                )
-                chart_id = f"agg-heatmap-{cc1}-{cc2}-{nc}"
-                h.append(
-                    f'<div class="chart-box full-width"><h3>Sum {nc}: {cc1} x {cc2}</h3><div id="{chart_id}" style="height:500px"></div></div>'
-                )
-                h.append(f"""<script>
-(function() {{
-    var z = {pivot.values.tolist()};
-    var x = {pivot.columns.tolist()};
-    var y = {pivot.index.tolist()};
-    var data = [{{z: z, x: x, y: y, type: 'heatmap', colorscale: 'YlOrRd',
-        text: z.map(function(r) {{ return r.map(function(v) {{ return v.toFixed(0); }}); }}),
-        texttemplate: '%{{text}}', textfont: {{size: 10}}}}];
-    var layout = {{
-        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
-        font: {{color: '{_dash_font_color}'}},
-        height: 500, margin: {{l: 120, r: 20, t: 10, b: 120}}
-    }};
-    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: false}});
-}})();
-</script>""")
+            cc1, cc2, nc = cat_cols[0], cat_cols[1], numeric_cols[0]
+            cid = f"aghm_{_safe(cc1)}_{_safe(cc2)}"
+            _card(cid, f"Sum {nc}: {cc1} \u00d7 {cc2}", True, 460)
+            spec.append({"id": cid, "type": "agg_hm", "cc1": cc1, "cc2": cc2, "nc": nc})
 
-        # Time series
         if "time_series" in charts and datetime_cols and numeric_cols:
             for dc in datetime_cols[:2]:
-                for nc in numeric_cols[:3]:
-                    try:
-                        ts_df = df.copy()
-                        ts_df[dc] = pd.to_datetime(ts_df[dc])
-                        ts_df = (
-                            ts_df.set_index(dc).resample("ME")[nc].sum().reset_index()
-                        )
-                        chart_id = f"ts-{dc}-{nc}"
-                        h.append(
-                            f'<div class="chart-box"><h3>{nc} Over Time (Monthly)</h3><div id="{chart_id}" style="height:380px"></div></div>'
-                        )
-                        h.append(f"""<script>
-(function() {{
-    var data = [{{
-        x: {ts_df[dc].astype(str).tolist()},
-        y: {ts_df[nc].tolist()},
-        type: 'scatter', mode: 'lines+markers',
-        line: {{color: '#3fb950', width: 2}},
-        marker: {{size: 4, color: '#3fb950'}}
-    }}];
-    var layout = {{
-        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
-        font: {{color: '{_dash_font_color}'}},
-        height: 380, margin: {{l: 20, r: 20, t: 10, b: 60}}
-    }};
-    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
-}})();
-</script>""")
-                    except Exception:
-                        pass
+                for nc in numeric_cols[:2]:
+                    cid = f"ts_{_safe(dc)}_{_safe(nc)}"
+                    _card(cid, f"{nc} Over Time", True, 380)
+                    spec.append({"id": cid, "type": "ts", "dc": dc, "nc": nc})
 
-        # Distribution charts (histogram + box)
         for nc in numeric_cols[:6]:
-            clean_data = df[nc].dropna().tolist()
-            chart_id = f"dist-{nc}"
-            h.append(
-                f'<div class="chart-box"><h3>{nc} Distribution</h3><div id="{chart_id}" style="height:350px"></div></div>'
+            cid = f"dist_{_safe(nc)}"
+            _card(cid, f"{nc} Distribution", False, 320)
+            spec.append({"id": cid, "type": "dist", "nc": nc})
+
+        h.append("</div>")
+
+        # ── MODAL ──────────────────────────────────────────────────────────────
+        h.append(
+            '<div id="modal" class="modal">'
+            '<div class="mbox">'
+            '<div class="mhdr"><h3 id="mttl"></h3>'
+            '<button class="mclose" onclick="closeM()">&#x2715;</button></div>'
+            '<div id="mdiv"></div>'
+            "</div></div>"
+        )
+
+        # ── JS: render function factory ────────────────────────────────────────
+        COLORS = "['#58a6ff','#3fb950','#f0883e','#f85149','#bc8cff','#79c0ff','#7ee787','#ffa657','#ff7b72','#d2a8ff','#a5d6ff','#aff5b4','#ffd6a5','#ffabab','#e0b0ff']"
+        PCFG = "{responsive:true,displayModeBar:true,modeBarButtonsToRemove:['lasso2d','select2d']}"
+
+        def _lyt(h_px: int, extra: str = "") -> str:
+            return (
+                f"{{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',"
+                f"font:{{color:'{font_c}',size:12}},"
+                f"height:{h_px},margin:{{l:55,r:20,t:10,b:65}},"
+                f"xaxis:{{gridcolor:'{grid_c}',tickangle:-38}},"
+                f"yaxis:{{gridcolor:'{grid_c}'}}{extra}}}"
             )
-            h.append(f"""<script>
-(function() {{
-    var d = {clean_data};
-    var trace1 = {{x: d, type: 'histogram', nbinsx: 50, marker: {{color: '#58a6ff', opacity: 0.7}}, yaxis: 'y'}};
-    var trace2 = {{y: d, type: 'box', marker: {{color: '#f0883e'}}, xaxis: 'x2', yaxis: 'y2'}};
-    var layout = {{
-        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
-        font: {{color: '{_dash_font_color}'}},
-        grid: {{rows: 1, columns: 2, pattern: 'independent'}},
-        height: 350, margin: {{l: 50, r: 20, t: 10, b: 30}},
-        yaxis: {{title: 'Count'}},
-        yaxis2: {{title: ''}}
-    }};
-    Plotly.newPlot('{chart_id}', [trace1, trace2], layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
-}})();
-</script>""")
 
-        # Violin distribution charts
-        import random as _random
-        for nc in numeric_cols[:6]:
-            clean_vals = df[nc].dropna().tolist()
-            if len(clean_vals) > 5000:
-                _random.seed(42)
-                clean_vals = _random.sample(clean_vals, 5000)
-            violin_id = f"violin-{nc.replace(' ', '-').replace('_', '-')}"
-            h.append(f'<div class="chart-box"><h3>{nc} Violin</h3><div id="{violin_id}" style="height:300px"></div></div>')
-            h.append(f"""<script>(function(){{
-  var data=[{{
-    y:{clean_vals},type:'violin',box:{{visible:true}},meanline:{{visible:true}},
-    name:'{nc}',fillcolor:'rgba(88,166,255,0.2)',
-    line:{{color:'#58a6ff'}},marker:{{color:'#58a6ff',size:3,opacity:0.5}},points:'suspectedoutliers'
-  }}];
-  var layout={{paper_bgcolor:'{_dash_plot_bg}',plot_bgcolor:'{_dash_plot_bg}',
-    font:{{color:'{_dash_font_color}'}},height:300,margin:{{l:40,r:10,t:10,b:40}},
-    yaxis:{{title:'{nc}'}},showlegend:false}};
-  Plotly.newPlot('{violin_id}',data,layout,{{responsive:true,displayModeBar:false}});
-}})();</script>""")
+        rfns: list[str] = []
+        for s in spec:
+            cid, t = s["id"], s["type"]
+
+            if t == "bar":
+                cc, nc = s["cc"], s["nc"]
+                rfns.append(
+                    f"function rf_{cid}(d){{\n"
+                    f"  var a={{}};\n"
+                    f"  d.forEach(function(r){{var k=String(r['{cc}']??''),v=+r['{nc}'];if(!isNaN(v))a[k]=(a[k]||0)+v;}});\n"
+                    f"  var e=Object.entries(a).sort((x,y)=>y[1]-x[1]).slice(0,25);\n"
+                    f"  var fmt=function(v){{return v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(1)+'K':Math.round(v).toString();}};\n"
+                    f"  Plotly.react('{cid}',[{{x:e.map(i=>i[0]),y:e.map(i=>i[1]),type:'bar',"
+                    f"marker:{{color:'#58a6ff',opacity:0.85}},text:e.map(i=>fmt(i[1])),textposition:'outside'}}],"
+                    f"{_lyt(340)},{PCFG});\n"
+                    f"}}"
+                )
+            elif t == "pie":
+                cc = s["cc"]
+                rfns.append(
+                    f"function rf_{cid}(d){{\n"
+                    f"  var c={{}};\n"
+                    f"  d.forEach(function(r){{var k=String(r['{cc}']??'');c[k]=(c[k]||0)+1;}});\n"
+                    f"  var e=Object.entries(c).sort((x,y)=>y[1]-x[1]).slice(0,15);\n"
+                    f"  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:12}},"
+                    f"height:340,margin:{{l:20,r:20,t:10,b:20}},showlegend:true,legend:{{orientation:'h',y:-0.14}}}};\n"
+                    f"  Plotly.react('{cid}',[{{values:e.map(i=>i[1]),labels:e.map(i=>i[0]),type:'pie',"
+                    f"hole:0.38,marker:{{colors:{COLORS}}},textinfo:'label+percent',textfont:{{size:11}},"
+                    f"pull:e.map((_,i)=>i===0?0.04:0)}}],layout,{{responsive:true,displayModeBar:false}});\n"
+                    f"}}"
+                )
+            elif t == "scatter":
+                nc1, nc2 = s["nc1"], s["nc2"]
+                rfns.append(
+                    f"function rf_{cid}(d){{\n"
+                    f"  var xs=[],ys=[];\n"
+                    f"  d.forEach(function(r){{var x=+r['{nc1}'],y=+r['{nc2}'];if(!isNaN(x)&&!isNaN(y)){{xs.push(x);ys.push(y);}}}});\n"
+                    f"  var traces=[{{x:xs,y:ys,type:'scatter',mode:'markers',"
+                    f"marker:{{color:'#58a6ff',opacity:0.5,size:5}},name:'data'}}];\n"
+                    f"  if(xs.length>1){{\n"
+                    f"    var n=xs.length,sx=xs.reduce((a,b)=>a+b,0),sy=ys.reduce((a,b)=>a+b,0),sxy=0,sxx=0,syy=0;\n"
+                    f"    for(var i=0;i<n;i++){{sxy+=xs[i]*ys[i];sxx+=xs[i]*xs[i];syy+=ys[i]*ys[i];}}\n"
+                    f"    var sl=(n*sxy-sx*sy)/(n*sxx-sx*sx||1),ic=(sy-sl*sx)/n;\n"
+                    f"    var r=(n*sxy-sx*sy)/Math.sqrt(((n*sxx-sx*sx)*(n*syy-sy*sy))||1);\n"
+                    f"    var xmn=Math.min(...xs),xmx=Math.max(...xs);\n"
+                    f"    traces.push({{x:[xmn,xmx],y:[sl*xmn+ic,sl*xmx+ic],type:'scatter',mode:'lines',"
+                    f"line:{{color:'#f0883e',width:2,dash:'dash'}},name:'r='+r.toFixed(2)}});\n"
+                    f"  }}\n"
+                    f"  var layout=Object.assign({{}},{_lyt(340)},{{showlegend:true,legend:{{x:0,y:1.1,orientation:'h'}},"
+                    f"xaxis:{{title:'{nc1}',gridcolor:'{grid_c}'}},yaxis:{{title:'{nc2}',gridcolor:'{grid_c}'}}}});\n"
+                    f"  Plotly.react('{cid}',traces,layout,{PCFG});\n"
+                    f"}}"
+                )
+            elif t == "grouped_bar":
+                cc1, cc2, nc = s["cc1"], s["cc2"], s["nc"]
+                rfns.append(
+                    f"function rf_{cid}(d){{\n"
+                    f"  var a={{}};\n"
+                    f"  d.forEach(function(r){{var k1=String(r['{cc1}']??''),k2=String(r['{cc2}']??''),v=+r['{nc}'];"
+                    f"if(!isNaN(v)){{if(!a[k2])a[k2]={{}};a[k2][k1]=(a[k2][k1]||0)+v;}}}});\n"
+                    f"  var gs=Array.from(new Set(d.map(r=>String(r['{cc1}']??'')))).slice(0,20);\n"
+                    f"  var ks=Object.keys(a).slice(0,10),C={COLORS};\n"
+                    f"  var traces=ks.map(function(k,i){{return{{x:gs,y:gs.map(g=>(a[k]&&a[k][g])||0),"
+                    f"type:'bar',name:k,marker:{{color:C[i%15],opacity:0.85}}}};}});\n"
+                    f"  var layout=Object.assign({{}},{_lyt(380)},{{barmode:'group',"
+                    f"showlegend:true,legend:{{orientation:'h',y:-0.3}}}});\n"
+                    f"  Plotly.react('{cid}',traces,layout,{PCFG});\n"
+                    f"}}"
+                )
+            elif t == "cscat":
+                nc1, nc2, cc = s["nc1"], s["nc2"], s["cc"]
+                rfns.append(
+                    f"function rf_{cid}(d){{\n"
+                    f"  var g={{}};\n"
+                    f"  d.forEach(function(r){{var x=+r['{nc1}'],y=+r['{nc2}'],k=String(r['{cc}']??'');"
+                    f"if(!isNaN(x)&&!isNaN(y)){{if(!g[k])g[k]={{x:[],y:[]}};g[k].x.push(x);g[k].y.push(y);}}}});\n"
+                    f"  var ks=Object.keys(g).slice(0,15),C={COLORS};\n"
+                    f"  var traces=ks.map(function(k,i){{return{{x:g[k].x,y:g[k].y,type:'scatter',"
+                    f"mode:'markers',name:k,marker:{{color:C[i%15],opacity:0.6,size:5}}}};}});\n"
+                    f"  var layout=Object.assign({{}},{_lyt(380)},{{showlegend:true,"
+                    f"legend:{{orientation:'h',y:-0.3}},"
+                    f"xaxis:{{title:'{nc1}',gridcolor:'{grid_c}'}},"
+                    f"yaxis:{{title:'{nc2}',gridcolor:'{grid_c}'}}}});\n"
+                    f"  Plotly.react('{cid}',traces,layout,{PCFG});\n"
+                    f"}}"
+                )
+            elif t == "box":
+                nc, cc = s["nc"], s["cc"]
+                rfns.append(
+                    f"function rf_{cid}(d){{\n"
+                    f"  var g={{}};\n"
+                    f"  d.forEach(function(r){{var v=+r['{nc}'],k=String(r['{cc}']??'');"
+                    f"if(!isNaN(v)){{if(!g[k])g[k]=[];g[k].push(v);}}}});\n"
+                    f"  var ks=Object.keys(g).sort().slice(0,20),C={COLORS};\n"
+                    f"  var traces=ks.map(function(k,i){{return{{y:g[k],type:'box',name:k,"
+                    f"marker:{{color:C[i%15],size:3}},boxpoints:'outliers'}};}});\n"
+                    f"  var layout=Object.assign({{}},{_lyt(380)},{{showlegend:false,"
+                    f"yaxis:{{title:'{nc}',gridcolor:'{grid_c}'}}}});\n"
+                    f"  Plotly.react('{cid}',traces,layout,{PCFG});\n"
+                    f"}}"
+                )
+            elif t == "corr":
+                nc_list = _json.dumps(numeric_cols[:15])
+                rfns.append(
+                    f"function rf_{cid}(d){{\n"
+                    f"  var cols={nc_list},n=d.length;if(n<2)return;\n"
+                    f"  var z=cols.map(function(r){{return cols.map(function(c){{\n"
+                    f"    var xv=d.map(row=>+row[r]),yv=d.map(row=>+row[c]),pr=[];\n"
+                    f"    for(var i=0;i<n;i++)if(!isNaN(xv[i])&&!isNaN(yv[i]))pr.push([xv[i],yv[i]]);\n"
+                    f"    if(pr.length<2)return 0;\n"
+                    f"    var mx=pr.reduce((s,p)=>s+p[0],0)/pr.length,my=pr.reduce((s,p)=>s+p[1],0)/pr.length;\n"
+                    f"    var num=0,dx=0,dy=0;pr.forEach(p=>{{num+=(p[0]-mx)*(p[1]-my);dx+=(p[0]-mx)**2;dy+=(p[1]-my)**2;}});\n"
+                    f"    return dx&&dy?num/Math.sqrt(dx*dy):0;\n"
+                    f"  }});}});\n"
+                    f"  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',"
+                    f"font:{{color:'{font_c}',size:11}},height:480,margin:{{l:120,r:20,t:10,b:120}}}};\n"
+                    f"  Plotly.react('{cid}',[{{z:z,x:cols,y:cols,type:'heatmap',"
+                    f"colorscale:'RdBu_r',zmid:0,zmin:-1,zmax:1,"
+                    f"text:z.map(r=>r.map(v=>v.toFixed(2))),texttemplate:'%{{text}}',"
+                    f"textfont:{{size:10}}}}],layout,{{responsive:true,displayModeBar:false}});\n"
+                    f"}}"
+                )
+            elif t == "agg_hm":
+                cc1, cc2, nc = s["cc1"], s["cc2"], s["nc"]
+                rfns.append(
+                    f"function rf_{cid}(d){{\n"
+                    f"  var a={{}},Rs=new Set(),Cs=new Set();\n"
+                    f"  d.forEach(function(r){{var r1=String(r['{cc1}']??''),c1=String(r['{cc2}']??''),v=+r['{nc}'];"
+                    f"if(!isNaN(v)){{Rs.add(r1);Cs.add(c1);if(!a[r1])a[r1]={{}};a[r1][c1]=(a[r1][c1]||0)+v;}}}});\n"
+                    f"  var rl=Array.from(Rs).sort().slice(0,30),cl=Array.from(Cs).sort().slice(0,30);\n"
+                    f"  var z=rl.map(r=>cl.map(c=>(a[r]&&a[r][c])||0));\n"
+                    f"  var fmt=function(v){{return v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(1)+'K':Math.round(v).toString();}};\n"
+                    f"  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',"
+                    f"font:{{color:'{font_c}',size:11}},height:460,margin:{{l:130,r:20,t:10,b:130}}}};\n"
+                    f"  Plotly.react('{cid}',[{{z:z,x:cl,y:rl,type:'heatmap',"
+                    f"colorscale:'YlOrRd',text:z.map(r=>r.map(fmt)),"
+                    f"texttemplate:'%{{text}}',textfont:{{size:9}}}}],layout,"
+                    f"{{responsive:true,displayModeBar:false}});\n"
+                    f"}}"
+                )
+            elif t == "ts":
+                dc, nc = s["dc"], s["nc"]
+                rfns.append(
+                    f"function rf_{cid}(d){{\n"
+                    f"  var bm={{}};\n"
+                    f"  d.forEach(function(r){{var dt=r['{dc}'],v=+r['{nc}'];"
+                    f"if(dt&&!isNaN(v)){{var ym=String(dt).substring(0,7);bm[ym]=(bm[ym]||0)+v;}}}});\n"
+                    f"  var dates=Object.keys(bm).sort(),vals=dates.map(d=>bm[d]);\n"
+                    f"  var ma=vals.map(function(_,i){{if(i<2)return null;return(vals[i]+vals[i-1]+vals[i-2])/3;}});\n"
+                    f"  var traces=[\n"
+                    f"    {{x:dates,y:vals,type:'scatter',mode:'lines+markers',name:'{nc}',"
+                    f"line:{{color:'#3fb950',width:2}},marker:{{size:4}}}},\n"
+                    f"    {{x:dates.slice(2),y:ma.slice(2),type:'scatter',mode:'lines',name:'3-period MA',"
+                    f"line:{{color:'#f0883e',width:2,dash:'dot'}}}}\n"
+                    f"  ];\n"
+                    f"  var layout=Object.assign({{}},{_lyt(380)},{{showlegend:true,"
+                    f"legend:{{x:0,y:1.1,orientation:'h'}},"
+                    f"xaxis:{{title:'Date',gridcolor:'{grid_c}'}},"
+                    f"yaxis:{{title:'{nc}',gridcolor:'{grid_c}'}}}});\n"
+                    f"  Plotly.react('{cid}',traces,layout,{PCFG});\n"
+                    f"}}"
+                )
+            elif t == "dist":
+                nc = s["nc"]
+                rfns.append(
+                    f"function rf_{cid}(d){{\n"
+                    f"  var vals=d.map(r=>+r['{nc}']).filter(v=>!isNaN(v));if(!vals.length)return;\n"
+                    f"  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',"
+                    f"font:{{color:'{font_c}',size:12}},height:320,"
+                    f"margin:{{l:50,r:20,t:10,b:30}},"
+                    f"grid:{{rows:1,columns:2,pattern:'independent'}},"
+                    f"xaxis:{{gridcolor:'{grid_c}'}},yaxis:{{title:'Count',gridcolor:'{grid_c}'}},"
+                    f"xaxis2:{{gridcolor:'{grid_c}'}},yaxis2:{{gridcolor:'{grid_c}'}}}};\n"
+                    f"  Plotly.react('{cid}',"
+                    f"[{{x:vals,type:'histogram',nbinsx:50,"
+                    f"marker:{{color:'#58a6ff',opacity:0.75}},xaxis:'x',yaxis:'y',name:'hist'}},"
+                    f"{{y:vals,type:'box',marker:{{color:'#f0883e',size:3}},"
+                    f"xaxis:'x2',yaxis:'y2',boxpoints:'outliers',name:'box'}}],"
+                    f"layout,{{responsive:true,displayModeBar:false}});\n"
+                    f"}}"
+                )
+
+        # KPI dynamic updaters
+        kpi_upd = "\n".join(
+            f"  (function(){{var s=d.map(r=>+r['{nc}']).filter(v=>!isNaN(v)).reduce((a,b)=>a+b,0);"
+            f"var el=document.getElementById('kv-{_safe(nc)}');"
+            f"if(el)el.textContent=s>=1e6?(s/1e6).toFixed(1)+'M':s>=1e3?(s/1e3).toFixed(1)+'K':Math.round(s).toLocaleString();}})();"
+            for nc in numeric_cols[:7]
+        )
+        render_calls = "\n".join(f"  rf_{s['id']}(d);" for s in spec)
+        rfns_str = "\n\n".join(rfns)
+
+        h.append(
+            f"""<script>
+var _RAW={raw_json};
+var _TOTAL=_RAW.length;
+var _CF={{}};
+var _NF={{}};
+
+function getFilt(){{
+  return _RAW.filter(function(row){{
+    for(var c in _CF){{var s=_CF[c];if(s&&s.size>0&&!s.has(String(row[c]??'')))return false;}}
+    for(var c in _NF){{var r=_NF[c],v=+row[c];if(!isNaN(v)){{if(r.min!==null&&v<r.min)return false;if(r.max!==null&&v>r.max)return false;}}}}
+    return true;
+  }});
+}}
+
+function applyF(){{
+  var d=getFilt();
+  document.getElementById('row-ctr').textContent=d.length.toLocaleString()+' of '+_TOTAL.toLocaleString()+' rows';
+  renderAll(d);
+}}
+
+function pilClick(btn){{
+  btn.classList.toggle('active');
+  var ct=btn.closest('.pills');if(!ct)return;
+  var col=ct.dataset.col,all=ct.querySelectorAll('.pill'),act=ct.querySelectorAll('.pill.active');
+  if(act.length===all.length||act.length===0){{delete _CF[col];}}
+  else{{_CF[col]=new Set(Array.from(act).map(p=>p.dataset.val));}}
+  applyF();
+}}
+
+function ddToggle(btn){{
+  var m=btn.nextElementSibling;m.classList.toggle('hid');
+  document.querySelectorAll('.ddmenu').forEach(function(x){{if(x!==m)x.classList.add('hid');}});
+}}
+
+function ddChange(col){{
+  var ct=document.querySelector('.ddw[data-col="'+col+'"]');if(!ct)return;
+  var cbs=ct.querySelectorAll('input[data-val]'),chk=Array.from(cbs).filter(c=>c.checked);
+  var btn=ct.querySelector('.ddbtn');
+  if(chk.length===cbs.length||chk.length===0){{delete _CF[col];if(btn)btn.textContent='All \u25be';}}
+  else{{_CF[col]=new Set(chk.map(c=>c.dataset.val));if(btn)btn.textContent=chk.length+' selected \u25be';}}
+  applyF();
+}}
+
+function ddAll(col,val){{
+  var ct=document.querySelector('.ddw[data-col="'+col+'"]');if(!ct)return;
+  ct.querySelectorAll('input[data-val]').forEach(function(cb){{cb.checked=val;}});
+  ddChange(col);
+}}
+
+function ddSrch(inp,col){{
+  var q=inp.value.toLowerCase(),ct=document.querySelector('.ddw[data-col="'+col+'"]');if(!ct)return;
+  ct.querySelectorAll('.optlbl').forEach(function(el){{el.style.display=el.textContent.toLowerCase().includes(q)?'':'none';}});
+}}
+
+function numCh(col,bound,val){{
+  if(!_NF[col])_NF[col]={{min:null,max:null}};
+  _NF[col][bound]=val===''?null:+val;
+  applyF();
+}}
+
+function clearAll(){{
+  _CF={{}};_NF={{}};
+  document.querySelectorAll('.pill').forEach(p=>p.classList.add('active'));
+  document.querySelectorAll('.ddw input[data-val]').forEach(cb=>{{cb.checked=true;}});
+  document.querySelectorAll('.ddbtn').forEach(btn=>{{btn.textContent='All \u25be';}});
+  document.querySelectorAll('.ninp').forEach(inp=>{{inp.value='';}});
+  applyF();
+}}
+
+function exportCSV(){{
+  var d=getFilt();if(!d.length)return;
+  var cols=Object.keys(d[0]);
+  var lines=[cols.map(c=>'"'+c.replace(/"/g,'""')+'"').join(',')];
+  d.forEach(function(row){{
+    lines.push(cols.map(function(c){{
+      var v=row[c];if(v===null||v===undefined)return'';
+      var s=String(v);return(s.includes(',')||s.includes('"')||s.includes('\\n'))?'"'+s.replace(/"/g,'""')+'"':s;
+    }}).join(','));
+  }});
+  var b=new Blob([lines.join('\\n')],{{type:'text/csv'}});
+  var u=URL.createObjectURL(b);var a=document.createElement('a');a.href=u;a.download='export.csv';a.click();URL.revokeObjectURL(u);
+}}
+
+function expand(id,ttl){{
+  var src=document.getElementById(id);if(!src||!src.data)return;
+  document.getElementById('mttl').textContent=ttl;
+  document.getElementById('modal').classList.add('open');
+  Plotly.newPlot('mdiv',src.data,Object.assign({{}},src.layout,{{height:null,autosize:true}}),{{responsive:true}});
+}}
+function closeM(){{document.getElementById('modal').classList.remove('open');Plotly.purge('mdiv');}}
+document.getElementById('modal').addEventListener('click',function(e){{if(e.target===this)closeM();}});
+document.addEventListener('keydown',function(e){{if(e.key==='Escape')closeM();}});
+document.addEventListener('click',function(e){{if(!e.target.closest('.ddw'))document.querySelectorAll('.ddmenu').forEach(m=>m.classList.add('hid'));}});
+
+function updKPIs(d){{
+{kpi_upd}
+}}
+
+{rfns_str}
+
+function renderAll(d){{
+  updKPIs(d);
+{render_calls}
+}}
+
+applyF();
+</script>"""
+        )
 
         if theme == "device":
             h.append(device_mode_js())
-        h.append("</div></body></html>")
+
+        h.append("</body></html>")
 
         html_content = "\n".join(h)
 
@@ -2831,6 +3028,10 @@ function clearFilters() {
         if open_after:
             _open_file(out)
 
+        if was_sampled:
+            progress.append(
+                warn("Large dataset sampled", f"{EMBED_LIMIT:,} of {len(df):,} rows embedded")
+            )
         progress.append(ok("Dashboard saved", f"{out.name} ({size_kb:,} KB)"))
 
         result = {
@@ -2840,8 +3041,11 @@ function clearFilters() {
             "output_name": out.name,
             "dashboard_title": dashboard_title,
             "charts_included": charts,
-            "kpi_columns": numeric_cols[:6],
-            "filter_columns": cat_cols[:5],
+            "kpi_columns": numeric_cols[:7],
+            "filter_columns": [fc["col"] for fc in filter_controls],
+            "rows_embedded": len(embed_df),
+            "rows_total": len(df),
+            "was_sampled": was_sampled,
             "report_size_kb": size_kb,
             "progress": progress,
         }
@@ -2857,654 +3061,3 @@ function clearFilters() {
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
-
-        path = resolve_path(file_path)
-        if not path.exists():
-            return {
-                "success": False,
-                "error": f"File not found: {path.name}",
-                "hint": "Check file_path is absolute and the file exists.",
-                "progress": [fail("File not found", path.name)],
-                "token_estimate": 20,
-            }
-
-        df = _read_csv(str(path))
-        dashboard_title = title if title else path.stem
-
-        # Classify columns
-        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-        cat_cols = [
-            c
-            for c in df.columns
-            if not pd.api.types.is_numeric_dtype(df[c])
-            and not pd.api.types.is_datetime64_any_dtype(df[c])
-        ]
-        datetime_cols = [
-            c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])
-        ]
-
-        # Auto-detect charts
-        detected = []
-        if numeric_cols and cat_cols:
-            detected.append("bar")
-        if datetime_cols and numeric_cols:
-            detected.append("time_series")
-        if len(numeric_cols) >= 2:
-            detected.append("scatter")
-        if cat_cols:
-            detected.append("pie")
-        if geo_file_path:
-            detected.append("geo")
-
-        charts = chart_types if chart_types else detected
-
-        # Build interactive HTML dashboard
-        h = []
-        h.append("""<!DOCTYPE html>
-<html><head><meta charset='utf-8'><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Dashboard</title>
-<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-<style>
-:root{--bg:#0d1117;--surface:#161b22;--border:#21262d;--text:#c9d1d9;--text-muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--orange:#f0883e;--red:#f85149}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;max-width:100vw}
-::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:#30363d;border-radius:4px}
-header{background:var(--surface);border-bottom:1px solid var(--border);padding:20px 30px;display:flex;justify-content:space-between;align-items:center}
-header h1{color:var(--accent);font-size:22px;font-weight:600}
-header .meta{color:var(--text-muted);font-size:13px}
-.filters{background:var(--surface);border-bottom:1px solid var(--border);padding:16px 30px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
-.filters label{color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:600}
-.filters select{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:13px;min-width:150px}
-.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;padding:20px 30px}
-.kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;text-align:center}
-.kpi-card .num{font-size:26px;font-weight:700;color:var(--accent)}
-.kpi-card .label{font-size:11px;color:var(--text-muted);margin-top:4px;text-transform:uppercase}
-.charts{padding:20px 30px;display:grid;grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:16px}
-.chart-box{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;overflow:hidden;min-width:0}
-.chart-box h3{color:var(--text);font-size:13px;margin-bottom:8px;padding-left:4px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.full-width{grid-column:1/-1}
-@media(max-width:1100px){.charts{grid-template-columns:1fr}}
-@media(max-width:600px){header,.filters,.kpi-row,.charts{padding-left:16px;padding-right:16px}.kpi-row{grid-template-columns:repeat(2,1fr)}.charts{grid-template-columns:1fr}}
-@media(max-width:600px){header,.filters,.kpi-row,.charts{padding-left:16px;padding-right:16px}.kpi-row{grid-template-columns:repeat(2,1fr)}.charts{grid-template-columns:1fr}}
-</style></head><body>""")
-
-        # Header
-        h.append(f"""<header><h1>:bar_chart: {dashboard_title}</h1>
-<p class="meta">{len(df):,} rows x {len(df.columns)} columns | {len(numeric_cols)} numeric, {len(cat_cols)} categorical</p></header>""")
-
-        # Filters
-        if cat_cols:
-            h.append('<div class="filters"><label>Filters:</label>')
-            for fc in cat_cols[:5]:
-                unique_vals = df[fc].dropna().unique().tolist()
-                if len(unique_vals) <= 50:
-                    options = "".join(
-                        f'<option value="{v}">{v}</option>' for v in unique_vals[:50]
-                    )
-                    h.append(
-                        f'<div><label>{fc}</label><select id="filter-{fc}" multiple size="1" onchange="applyFilters()">{options}</select></div>'
-                    )
-            h.append("</div>")
-
-        # KPI cards
-        h.append('<div class="kpi-row">')
-        for nc in numeric_cols[:6]:
-            val = df[nc].sum()
-            h.append(
-                f'<div class="kpi-card"><div class="num">{val:,.0f}</div><div class="label">{nc}</div></div>'
-            )
-        h.append("</div>")
-
-        # Charts grid
-        h.append('<div class="charts">')
-
-        # Bar charts
-        if "bar" in charts and cat_cols and numeric_cols:
-            for cc in cat_cols[:3]:
-                for nc in numeric_cols[:2]:
-                    agg_df = (
-                        df.groupby(cc, as_index=False)[nc]
-                        .sum()
-                        .sort_values(nc, ascending=False)
-                        .head(20)
-                    )
-                    chart_id = f"bar-{cc}-{nc}"
-                    h.append(
-                        f'<div class="chart-box"><h3>Total {nc} by {cc}</h3><div id="{chart_id}" style="height:380px"></div></div>'
-                    )
-                    h.append(f"""<script>
-(function() {{
-    var data = [{{
-        x: {agg_df[cc].tolist()},
-        y: {agg_df[nc].tolist()},
-        type: 'bar',
-        marker: {{color: '#58a6ff'}},
-        text: {agg_df[nc].apply(lambda x: "{x:,.0f}").tolist()},
-        textposition: 'outside'
-    }}];
-    var layout = {{
-        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
-        font: {{color: '{_dash_font_color}'}},
-        height: 380, margin: {{l: 20, r: 20, t: 10, b: 60}},
-        xaxis: {{tickangle: -45}}
-    }};
-    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
-}})();
-</script>""")
-
-        # Pie charts
-        if "pie" in charts and cat_cols:
-            for cc in cat_cols[:4]:
-                val_counts = df[cc].value_counts().head(15)
-                chart_id = f"pie-{cc}"
-                h.append(
-                    f'<div class="chart-box"><h3>{cc} Distribution</h3><div id="{chart_id}" style="height:380px"></div></div>'
-                )
-                h.append(f"""<script>
-(function() {{
-    var data = [{{
-        values: {val_counts.values.tolist()},
-        labels: {val_counts.index.tolist()},
-        type: 'pie',
-        hole: 0.4,
-        marker: {{colors: ['#58a6ff', '#3fb950', '#f0883e', '#f85149', '#bc8cff', '#79c0ff', '#7ee787', '#ffa657', '#ff7b72', '#d2a8ff', '#a5d6ff', '#aff5b4', '#ffd6a5', '#ffabab', '#e0b0ff']}},
-        textinfo: 'label+percent',
-        textfont: {{size: 12}}
-    }}];
-    var layout = {{
-        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
-        font: {{color: '{_dash_font_color}'}},
-        height: 380, margin: {{l: 20, r: 20, t: 10, b: 20}}
-    }};
-    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
-}})();
-</script>""")
-
-        # Scatter plots
-        if "scatter" in charts and len(numeric_cols) >= 2:
-            for i in range(min(3, len(numeric_cols))):
-                for j in range(i + 1, min(4, len(numeric_cols))):
-                    nc1, nc2 = numeric_cols[i], numeric_cols[j]
-                    chart_id = f"scatter-{nc1}-{nc2}"
-                    h.append(
-                        f'<div class="chart-box"><h3>{nc1} vs {nc2}</h3><div id="{chart_id}" style="height:380px"></div></div>'
-                    )
-                    h.append(f"""<script>
-(function() {{
-    var data = [{{
-        x: {df[nc1].dropna().tolist()},
-        y: {df[nc2].dropna().tolist()},
-        type: 'scatter', mode: 'markers',
-        marker: {{color: '#58a6ff', opacity: 0.6, size: 6}},
-        text: ['{nc1}: ' + {df[nc1].dropna().apply(lambda x: "{x:,.1f}").tolist()} + '<br>{nc2}: ' + {df[nc2].dropna().apply(lambda x: "{x:,.1f}").tolist()}],
-        hoverinfo: 'text'
-    }}];
-    var layout = {{
-        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
-        font: {{color: '{_dash_font_color}'}},
-        height: 380, margin: {{l: 20, r: 20, t: 10, b: 40}},
-        xaxis: {{title: '{nc1}'}},
-        yaxis: {{title: '{nc2}'}}
-    }};
-    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
-}})();
-</script>""")
-
-        # Correlation heatmap
-        if len(numeric_cols) >= 2:
-            corr = df[numeric_cols].corr()
-            chart_id = "corr-heatmap"
-            h.append(
-                f'<div class="chart-box full-width"><h3>Correlation Matrix</h3><div id="{chart_id}" style="height:500px"></div></div>'
-            )
-            h.append(f"""<script>
-(function() {{
-    var z = {corr.values.tolist()};
-    var x = {corr.columns.tolist()};
-    var data = [{{z: z, x: x, y: x, type: 'heatmap', colorscale: 'RdBu_r', zmid: 0,
-        text: z.map(function(r) {{ return r.map(function(v) {{ return v.toFixed(2); }}); }}),
-        texttemplate: '%{{text}}', textfont: {{size: 11}}}}];
-    var layout = {{
-        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
-        font: {{color: '{_dash_font_color}'}},
-        height: 500, margin: {{l: 120, r: 20, t: 10, b: 120}}
-    }};
-    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: false}});
-}})();
-</script>""")
-
-        # Time series
-        if "time_series" in charts and datetime_cols and numeric_cols:
-            for dc in datetime_cols[:2]:
-                for nc in numeric_cols[:3]:
-                    try:
-                        ts_df = df.copy()
-                        ts_df[dc] = pd.to_datetime(ts_df[dc])
-                        ts_df = (
-                            ts_df.set_index(dc).resample("ME")[nc].sum().reset_index()
-                        )
-                        chart_id = f"ts-{dc}-{nc}"
-                        h.append(
-                            f'<div class="chart-box"><h3>{nc} Over Time (Monthly)</h3><div id="{chart_id}" style="height:380px"></div></div>'
-                        )
-                        h.append(f"""<script>
-(function() {{
-    var data = [{{
-        x: {ts_df[dc].astype(str).tolist()},
-        y: {ts_df[nc].tolist()},
-        type: 'scatter', mode: 'lines+markers',
-        line: {{color: '#3fb950', width: 2}},
-        marker: {{size: 4, color: '#3fb950'}}
-    }}];
-    var layout = {{
-        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
-        font: {{color: '{_dash_font_color}'}},
-        height: 380, margin: {{l: 20, r: 20, t: 10, b: 60}}
-    }};
-    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
-}})();
-</script>""")
-                    except Exception:
-                        pass
-
-        # Distribution charts
-        for nc in numeric_cols[:6]:
-            clean_data = df[nc].dropna().tolist()
-            chart_id = f"dist-{nc}"
-            h.append(
-                f'<div class="chart-box"><h3>{nc} Distribution</h3><div id="{chart_id}" style="height:350px"></div></div>'
-            )
-            h.append(f"""<script>
-(function() {{
-    var d = {clean_data};
-    var trace1 = {{x: d, type: 'histogram', nbinsx: 50, marker: {{color: '#58a6ff', opacity: 0.7}}, yaxis: 'y'}};
-    var trace2 = {{y: d, type: 'box', marker: {{color: '#f0883e'}}, xaxis: 'x2', yaxis: 'y2'}};
-    var layout = {{
-        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
-        font: {{color: '{_dash_font_color}'}},
-        grid: {{rows: 1, columns: 2, pattern: 'independent'}},
-        height: 350, margin: {{l: 50, r: 20, t: 10, b: 30}},
-        yaxis: {{title: 'Count'}},
-        yaxis2: {{title: ''}}
-    }};
-    Plotly.newPlot('{chart_id}', [trace1, trace2], layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
-}})();
-</script>""")
-
-        h.append("</div></body></html>")
-
-        html_content = "\n".join(h)
-
-        if output_path:
-            out = Path(output_path)
-        else:
-            out = path.parent / f"{path.stem}_dashboard.html"
-
-        out.write_text(html_content, encoding="utf-8")
-        size_kb = round(out.stat().st_size / 1024)
-
-        if open_after:
-            _open_file(out)
-
-        progress.append(ok("Dashboard saved", f"{out.name} ({size_kb:,} KB)"))
-
-        result = {
-            "success": True,
-            "op": "generate_dashboard",
-            "output_path": str(out.resolve()),
-            "output_name": out.name,
-            "dashboard_title": dashboard_title,
-            "charts_included": charts,
-            "kpi_columns": numeric_cols[:6],
-            "filter_columns": cat_cols[:5],
-            "report_size_kb": size_kb,
-            "progress": progress,
-        }
-        result["token_estimate"] = _token_estimate(result)
-        return result
-
-    except Exception as exc:
-        logger.exception("generate_dashboard error")
-        return {
-            "success": False,
-            "error": str(exc),
-            "hint": "Check file_path is absolute and the file is a valid CSV.",
-            "progress": [fail("Unexpected error", str(exc))],
-            "token_estimate": 20,
-        }
-
-        df = _read_csv(str(path))
-        dashboard_title = title if title else path.stem
-
-        # Classify columns
-        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-        cat_cols = [
-            c
-            for c in df.columns
-            if not pd.api.types.is_numeric_dtype(df[c])
-            and not pd.api.types.is_datetime64_any_dtype(df[c])
-        ]
-        datetime_cols = [
-            c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])
-        ]
-
-        # Auto-detect charts
-        detected = []
-        if numeric_cols and cat_cols:
-            detected.append("bar")
-        if datetime_cols and numeric_cols:
-            detected.append("time_series")
-        if len(numeric_cols) >= 2:
-            detected.append("scatter")
-        if cat_cols:
-            detected.append("pie")
-        if geo_file_path:
-            detected.append("geo")
-
-        charts = chart_types if chart_types else detected
-
-        if dry_run:
-            progress.append(info("Dry run — no file written", path.name))
-            result = {
-                "success": True,
-                "dry_run": True,
-                "op": "generate_dashboard",
-                "would_generate": {
-                    "title": dashboard_title,
-                    "charts": charts,
-                    "kpi_columns": numeric_cols[:5],
-                    "filter_columns": cat_cols[:3],
-                    "run_command": "streamlit run app.py",
-                },
-                "progress": progress,
-            }
-            result["token_estimate"] = _token_estimate(result)
-            return result
-
-        # Generate app.py - comprehensive auto-dashboard
-        abs_path = str(path.resolve())
-        str(Path(geo_file_path).resolve()) if geo_file_path else ""
-
-        filter_cols = cat_cols[:5]
-        kpi_cols = numeric_cols[:6]
-
-        # Build comprehensive dashboard
-        app_code = f'''"""Auto-generated comprehensive dashboard for {dashboard_title}."""
-import pandas as pd
-import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import streamlit as st
-from pathlib import Path
-
-st.set_page_config(page_title="{dashboard_title}", layout="wide", page_icon=":bar_chart:")
-
-# Custom CSS
-st.markdown("""
-<style>
-    .metric-card {{background-color: #0d1117; border: 1px solid #21262d; border-radius: 10px; padding: 18px; text-align: center;}}
-    .metric-card .num {{font-size: 28px; font-weight: 700; color: #58a6ff;}}
-    .metric-card .label {{font-size: 11px; color: #8b949e; text-transform: uppercase; margin-top: 4px;}}
-    [data-testid="stSidebar"] {{background-color: #161b22;}}
-    [data-testid="stSidebar"] * {{color: #c9d1d9;}}
-</style>
-""", unsafe_allow_html=True)
-
-# Load data
-df = pd.read_csv(r"{abs_path}")
-
-# Auto-detect column types
-numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-cat_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
-datetime_cols = df.select_dtypes(include=["datetime"]).columns.tolist()
-
-# Title
-st.title(":bar_chart: {dashboard_title}")
-st.caption(f"{len(df):,} rows x {len(df.columns)} columns | {len(numeric_cols)} numeric, {len(cat_cols)} categorical")
-
-# Sidebar
-with st.sidebar:
-    st.header(":gear: Filters")
-    for fc in {filter_cols}:
-        if fc in df.columns:
-            unique_vals = df[fc].dropna().unique().tolist()
-            if len(unique_vals) <= 50:
-                selected = st.multiselect(fc, options=unique_vals, default=unique_vals)
-                df = df[df[fc].isin(selected)]
-            else:
-                selected = st.selectbox(fc, options=unique_vals)
-                df = df[df[fc] == selected]
-
-    st.divider()
-    st.caption(f"Showing {{len(df):,}} of {{len(pd.read_csv(r'{abs_path}')):,}} rows")
-
-# KPI Cards
-st.subheader(":rocket: Key Metrics")
-kpi_cols_list = numeric_cols[:6]
-cols = st.columns(min(len(kpi_cols_list), 6))
-for i, kc in enumerate(kpi_cols_list):
-    if kc in df.columns:
-        with cols[i % 6]:
-            val = df[kc].sum()
-            st.metric(label=kc, value=f"{{val:,.0f}}")
-
-# Tabs
-tab_overview, tab_multi, tab_analysis, tab_trends, tab_distribution, tab_data = st.tabs([
-    ":chart_with_upwards_trend: Overview",
-    ":chart_with_upwards_trend: Multi-Condition",
-    ":mag: Analysis",
-    ":calendar: Trends",
-    ":bar_chart: Distribution",
-    ":table: Data"
-])
-
-with tab_overview:
-    # Bar charts for categorical vs numeric
-    if cat_cols and numeric_cols:
-        for cc in cat_cols[:3]:
-            for nc in numeric_cols[:2]:
-                if cc in df.columns and nc in df.columns:
-                    agg_df = df.groupby(cc, as_index=False)[nc].sum().sort_values(nc, ascending=False)
-                    fig = px.bar(agg_df.head(20), x=cc, y=nc, title=f"Total {{nc}} by {{cc}}",
-                                 color=nc, color_continuous_scale="Blues", template="plotly_dark")
-                    fig.update_layout(height=400, margin=dict(l=20, r=20, t=40, b=60))
-                    st.plotly_chart(fig, use_container_width=True)
-
-    # Pie charts for categorical distribution
-    if cat_cols:
-        for cc in cat_cols[:4]:
-            if cc in df.columns:
-                val_counts = df[cc].value_counts().head(15)
-                fig = px.pie(values=val_counts.values, names=val_counts.index,
-                             title=f"{{cc}} Distribution", template="plotly_dark", hole=0.4)
-                fig.update_layout(height=400, margin=dict(l=20, r=20, t=40, b=20))
-                st.plotly_chart(fig, use_container_width=True)
-
-with tab_multi:
-    st.subheader("Multi-Condition Charts")
-
-    # Stacked bar chart: category x value, colored by another category
-    if len(cat_cols) >= 2 and numeric_cols:
-        cc1, cc2 = cat_cols[0], cat_cols[1]
-        nc = numeric_cols[0]
-        if all(c in df.columns for c in [cc1, cc2, nc]):
-            agg_df = df.groupby([cc1, cc2], as_index=False)[nc].sum()
-            fig = px.bar(agg_df, x=cc1, y=nc, color=cc2, barmode="group",
-                         title=f"{{nc}} by {{cc1}}, grouped by {{cc2}}", template="plotly_dark")
-            fig.update_layout(height=450, margin=dict(l=20, r=20, t=40, b=80))
-            st.plotly_chart(fig, use_container_width=True)
-
-            # Stacked version
-            fig2 = px.bar(agg_df, x=cc1, y=nc, color=cc2, barmode="stack",
-                          title=f"{{nc}} by {{cc1}}, stacked by {{cc2}}", template="plotly_dark")
-            fig2.update_layout(height=450, margin=dict(l=20, r=20, t=40, b=80))
-            st.plotly_chart(fig2, use_container_width=True)
-
-    # 100% stacked bar chart
-    if len(cat_cols) >= 2 and numeric_cols:
-        cc1, cc2 = cat_cols[0], cat_cols[1]
-        nc = numeric_cols[0]
-        if all(c in df.columns for c in [cc1, cc2, nc]):
-            agg_df = df.groupby([cc1, cc2], as_index=False)[nc].sum()
-            agg_df["pct"] = agg_df.groupby(cc1)[nc].transform(lambda x: x / x.sum() * 100)
-            fig = px.bar(agg_df, x=cc1, y="pct", color=cc2, barmode="stack",
-                         title=f"% {{nc}} by {{cc1}}, stacked by {{cc2}}", template="plotly_dark",
-                         labels={{"pct": "Percentage (%)"}})
-            fig.update_layout(height=450, margin=dict(l=20, r=20, t=40, b=80), yaxis_ticksuffix="%")
-            st.plotly_chart(fig, use_container_width=True)
-
-    # Multi-line time series: multiple metrics over time
-    if datetime_cols and len(numeric_cols) >= 2:
-        dc = datetime_cols[0]
-        if dc in df.columns:
-            ts_df = df.copy()
-            ts_df[dc] = pd.to_datetime(ts_df[dc])
-            ts_df = ts_df.set_index(dc).resample("ME").agg({{nc: "sum" for nc in numeric_cols[:4]}}).reset_index()
-            fig = go.Figure()
-            for nc in numeric_cols[:4]:
-                if nc in ts_df.columns:
-                    fig.add_trace(go.Scatter(x=ts_df[dc], y=ts_df[nc], mode="lines+markers",
-                                             name=nc, line=dict(width=2)))
-            fig.update_layout(title="Multiple Metrics Over Time (Monthly)", template="plotly_dark",
-                              height=450, margin=dict(l=20, r=20, t=40, b=60),
-                              xaxis_title="Date", yaxis_title="Value")
-            st.plotly_chart(fig, use_container_width=True)
-
-    # Colored scatter plot: two numeric columns, colored by category, sized by another
-    if len(numeric_cols) >= 2 and cat_cols:
-        nc1, nc2 = numeric_cols[0], numeric_cols[1]
-        cc = cat_cols[0]
-        if all(c in df.columns for c in [nc1, nc2, cc]):
-            size_col = numeric_cols[2] if len(numeric_cols) > 2 else None
-            fig = px.scatter(df, x=nc1, y=nc2, color=cc,
-                             size=size_col if size_col else None,
-                             title=f"{{nc1}} vs {{nc2}}, colored by {{cc}}",
-                             template="plotly_dark", hover_data=df.columns[:6].tolist())
-            fig.update_layout(height=450, margin=dict(l=20, r=20, t=40, b=20))
-            st.plotly_chart(fig, use_container_width=True)
-
-    # Grouped box plot: numeric distribution by category
-    if numeric_cols and cat_cols:
-        nc = numeric_cols[0]
-        cc = cat_cols[0]
-        if nc in df.columns and cc in df.columns:
-            fig = px.box(df, x=cc, y=nc, color=cc, title=f"{{nc}} distribution by {{cc}}",
-                         template="plotly_dark", points="outliers")
-            fig.update_layout(height=450, margin=dict(l=20, r=20, t=40, b=80), showlegend=False)
-            st.plotly_chart(fig, use_container_width=True)
-
-    # Aggregation heatmap: category x category with numeric aggregation
-    if len(cat_cols) >= 2 and numeric_cols:
-        cc1, cc2 = cat_cols[0], cat_cols[1]
-        nc = numeric_cols[0]
-        if all(c in df.columns for c in [cc1, cc2, nc]):
-            pivot = df.pivot_table(index=cc1, columns=cc2, values=nc, aggfunc="sum", fill_value=0)
-            fig = px.imshow(pivot, text_auto=".0f", color_continuous_scale="YlOrRd",
-                            title=f"Sum {{nc}}: {{cc1}} x {{cc2}}", template="plotly_dark")
-            fig.update_layout(height=500, margin=dict(l=120, r=20, t=40, b=120))
-            st.plotly_chart(fig, use_container_width=True)
-
-with tab_analysis:
-    # Scatter plots for numeric pairs
-    if len(numeric_cols) >= 2:
-        for i in range(min(3, len(numeric_cols))):
-            for j in range(i+1, min(4, len(numeric_cols))):
-                nc1, nc2 = numeric_cols[i], numeric_cols[j]
-                fig = px.scatter(df, x=nc1, y=nc2, title=f"{{nc1}} vs {{nc2}}",
-                                 template="plotly_dark", trendline="ols")
-                fig.update_layout(height=400, margin=dict(l=20, r=20, t=40, b=20))
-                st.plotly_chart(fig, use_container_width=True)
-
-    # Correlation heatmap
-    if len(numeric_cols) >= 2:
-        corr = df[numeric_cols].corr()
-        fig = px.imshow(corr, text_auto=".2f", color_continuous_scale="RdBu_r", zmid=0,
-                        title="Correlation Matrix", template="plotly_dark")
-        fig.update_layout(height=500, margin=dict(l=20, r=20, t=40, b=20))
-        st.plotly_chart(fig, use_container_width=True)
-
-with tab_trends:
-    if datetime_cols and numeric_cols:
-        for dc in datetime_cols[:2]:
-            for nc in numeric_cols[:3]:
-                if dc in df.columns and nc in df.columns:
-                    try:
-                        ts_df = df.copy()
-                        ts_df[dc] = pd.to_datetime(ts_df[dc])
-                        ts_df = ts_df.set_index(dc).resample("ME")[nc].sum().reset_index()
-                        fig = px.line(ts_df, x=dc, y=nc, title=f"{{nc}} Over Time (Monthly)",
-                                      template="plotly_dark", markers=True)
-                        fig.update_layout(height=400, margin=dict(l=20, r=20, t=40, b=60))
-                        st.plotly_chart(fig, use_container_width=True)
-                    except Exception:
-                        pass
-    else:
-        st.info("No datetime columns detected for trend analysis.")
-
-with tab_distribution:
-    for nc in numeric_cols[:6]:
-        if nc in df.columns:
-            fig = make_subplots(rows=1, cols=2, subplot_titles=[f"{{nc}} Distribution", f"{{nc}} Box Plot"])
-            fig.add_trace(go.Histogram(x=df[nc].dropna(), nbinsx=50, marker_color="#58a6ff"), row=1, col=1)
-            fig.add_trace(go.Box(y=df[nc].dropna(), marker_color="#f0883e"), row=1, col=2)
-            fig.update_layout(height=350, template="plotly_dark", margin=dict(l=20, r=20, t=40, b=20),
-                              showlegend=False)
-            st.plotly_chart(fig, use_container_width=True)
-
-with tab_data:
-    st.subheader("Raw Data")
-    st.dataframe(df, use_container_width=True, height=600)
-
-    # Data summary
-    st.subheader("Data Summary")
-    st.dataframe(df.describe(), use_container_width=True)
-'''
-
-        if output_path:
-            out = Path(output_path)
-        else:
-            out = path.parent / "app.py"
-
-        out.write_text(app_code)
-
-        # Validate generated code
-        import py_compile
-
-        try:
-            py_compile.compile(str(out), doraise=True)
-        except py_compile.PyCompileError as e:
-            progress.append(warn("Generated code has syntax issues", str(e)))
-
-        progress.append(
-            ok("Dashboard generated", f"{out.name} — run: streamlit run {out.name}")
-        )
-
-        result = {
-            "success": True,
-            "op": "generate_dashboard",
-            "output_path": out.name,
-            "dashboard_title": dashboard_title,
-            "charts_included": charts,
-            "kpi_columns": kpi_cols,
-            "filter_columns": filter_cols,
-            "run_command": f"streamlit run {out.name}",
-            "progress": progress,
-        }
-        result["token_estimate"] = _token_estimate(result)
-        return result
-
-    except Exception as exc:
-        logger.exception("generate_dashboard error")
-        return {
-            "success": False,
-            "error": str(exc),
-            "hint": "Check file_path is absolute and the file is a valid CSV.",
-            "progress": [fail("Unexpected error", str(exc))],
-            "token_estimate": 20,
-        }
-
-
-# ---------------------------------------------------------------------------
-# generate_auto_profile - comprehensive EDA rivaling sweetviz/ydata-profiling
-# ---------------------------------------------------------------------------
