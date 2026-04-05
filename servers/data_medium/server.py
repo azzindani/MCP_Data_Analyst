@@ -28,9 +28,12 @@ def check_outliers(
     method: str = "both",
     th1: float = 0.25,
     th3: float = 0.75,
+    output_path: str = "",
+    open_after: bool = True,
+    theme: str = "dark",
 ) -> dict:
     """Scan numeric columns for outliers. method: iqr std both."""
-    return engine.check_outliers(file_path, columns, method, th1, th3)
+    return engine.check_outliers(file_path, columns, method, th1, th3, output_path, open_after, theme)
 
 
 @mcp.tool()
@@ -38,9 +41,12 @@ def scan_nulls_zeros(
     file_path: str,
     include_zeros: bool = True,
     min_count: int = 1,
+    output_path: str = "",
+    open_after: bool = True,
+    theme: str = "dark",
 ) -> dict:
     """Scan all columns for nulls and zeros. Returns counts and pcts."""
-    return engine.scan_nulls_zeros(file_path, include_zeros, min_count)
+    return engine.scan_nulls_zeros(file_path, include_zeros, min_count, output_path, open_after, theme)
 
 
 @mcp.tool()
@@ -101,9 +107,12 @@ def correlation_analysis(
     file_path: str,
     method: str = "pearson",
     top_n: int = 10,
+    output_path: str = "",
+    open_after: bool = True,
+    theme: str = "dark",
 ) -> dict:
     """Correlation matrix + top N strongest pairs for numeric columns."""
-    return engine.correlation_analysis(file_path, method, top_n)
+    return engine.correlation_analysis(file_path, method, top_n, output_path, open_after, theme)
 
 
 @mcp.tool()
@@ -114,10 +123,13 @@ def cross_tabulate(
     values_column: str = "",
     agg_func: str = "count",
     normalize: str = "",
+    output_path: str = "",
+    open_after: bool = True,
+    theme: str = "dark",
 ) -> dict:
     """Contingency table between two categorical columns."""
     return engine.cross_tabulate(
-        file_path, row_column, col_column, values_column, agg_func, normalize
+        file_path, row_column, col_column, values_column, agg_func, normalize, output_path, open_after, theme
     )
 
 
@@ -140,9 +152,12 @@ def value_counts(
     columns: list[str],
     top_n: int = 20,
     include_pct: bool = True,
+    output_path: str = "",
+    open_after: bool = True,
+    theme: str = "dark",
 ) -> dict:
     """Frequency tables with percentages for categorical columns."""
-    return engine.value_counts(file_path, columns, top_n, include_pct)
+    return engine.value_counts(file_path, columns, top_n, include_pct, output_path, open_after, theme)
 
 
 @mcp.tool()
@@ -253,10 +268,11 @@ def time_series_analysis(
     period: str = "M",
     output_path: str = "",
     open_after: bool = True,
+    theme: str = "dark",
 ) -> dict:
     """Auto-detect date column, compute trend, seasonality, rolling stats."""
     return engine.time_series_analysis(
-        file_path, date_column, value_columns, period, output_path, open_after
+        file_path, date_column, value_columns, period, output_path, open_after, theme
     )
 
 
@@ -268,10 +284,11 @@ def cohort_analysis(
     value_column: str = "",
     output_path: str = "",
     open_after: bool = True,
+    theme: str = "dark",
 ) -> dict:
     """Cohort retention analysis with auto-detection of cohort identifiers."""
     return engine.cohort_analysis(
-        file_path, cohort_column, date_column, value_column, output_path, open_after
+        file_path, cohort_column, date_column, value_column, output_path, open_after, theme
     )
 
 

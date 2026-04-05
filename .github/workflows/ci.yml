@@ -12,21 +12,20 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
         run: |
           uv sync --group dev
           cd servers/data_advanced && uv sync --dev
           cd ../..
-          uv tool install ruff
 
       - name: Lint with ruff
         run: |
-          ruff check servers/ shared/ tests/ --exclude "**/.venv/**"
+          uv run ruff check servers/ shared/ tests/ --exclude "**/.venv/**"
 
       - name: Run tests
         run: |

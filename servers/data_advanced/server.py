@@ -26,9 +26,10 @@ def run_eda(
     file_path: str,
     output_path: str = "",
     open_after: bool = True,
+    theme: str = "dark",
 ) -> dict:
     """Fast EDA summary. Stats, nulls, correlations, outliers. Opens HTML."""
-    return engine.run_eda(file_path, output_path, open_after)
+    return engine.run_eda(file_path, output_path, open_after, theme)
 
 
 @mcp.tool()
@@ -37,10 +38,11 @@ def generate_distribution_plot(
     columns: list[str] = None,
     output_path: str = "",
     open_after: bool = True,
+    theme: str = "dark",
 ) -> dict:
     """Histogram + box plot for numeric columns. Opens HTML file."""
     return engine.generate_distribution_plot(
-        file_path, columns, output_path, open_after
+        file_path, columns, output_path, open_after, theme
     )
 
 
@@ -55,6 +57,7 @@ def generate_multi_chart(
     output_path: str = "",
     title: str = "",
     open_after: bool = True,
+    theme: str = "dark",
 ) -> dict:
     """Multi-variable bar/line chart. Compares 2+ metrics. Opens HTML."""
     return engine.generate_multi_chart(
@@ -67,6 +70,7 @@ def generate_multi_chart(
         output_path,
         title,
         open_after,
+        theme,
     )
 
 
@@ -85,7 +89,7 @@ def generate_chart(
     geo_join_column: str = "",
     output_path: str = "",
     title: str = "",
-    theme: str = "plotly_dark",
+    theme: str = "dark",
     open_after: bool = True,
 ) -> dict:
     """Generate Plotly chart. type: bar pie line scatter geo treemap radius."""
@@ -115,12 +119,13 @@ def generate_dashboard(
     title: str = "",
     chart_types: list[str] = None,
     geo_file_path: str = "",
-    theme: str = "plotly_dark",
+    theme: str = "dark",
     dry_run: bool = False,
+    open_after: bool = True,
 ) -> dict:
-    """Generate Streamlit dashboard app.py from dataset. Run separately."""
+    """Generate interactive HTML dashboard with auto-detected charts. Opens HTML."""
     return engine.generate_dashboard(
-        file_path, output_path, title, chart_types, geo_file_path, theme, dry_run
+        file_path, output_path, title, chart_types, geo_file_path, theme, dry_run, open_after
     )
 
 
@@ -130,10 +135,11 @@ def generate_correlation_heatmap(
     method: str = "pearson",
     output_path: str = "",
     open_after: bool = True,
+    theme: str = "dark",
 ) -> dict:
     """Interactive correlation heatmap for numeric columns. Opens HTML."""
     return engine.generate_correlation_heatmap(
-        file_path, method, output_path, open_after
+        file_path, method, output_path, open_after, theme
     )
 
 
@@ -144,11 +150,23 @@ def generate_pairwise_plot(
     max_cols: int = 6,
     output_path: str = "",
     open_after: bool = True,
+    theme: str = "dark",
 ) -> dict:
     """Pairwise scatter + histogram matrix for numeric columns. Opens HTML."""
     return engine.generate_pairwise_plot(
-        file_path, columns, max_cols, output_path, open_after
+        file_path, columns, max_cols, output_path, open_after, theme
     )
+
+
+@mcp.tool()
+def generate_auto_profile(
+    file_path: str,
+    output_path: str = "",
+    open_after: bool = True,
+    theme: str = "dark",
+) -> dict:
+    """Full column profile: stats, charts, correlations, outliers, insights."""
+    return engine.generate_auto_profile(file_path, output_path, open_after, theme)
 
 
 @mcp.tool()

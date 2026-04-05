@@ -1183,16 +1183,16 @@ def check_outliers(
 
 **Development checklist**
 
-- [ ] IQR formula matches notebook §03.04.01: `Q3 + 1.5*IQR` / `Q1 - 1.5*IQR`
-- [ ] Std formula matches notebook §03.04.02: `mean ± 3*std`
-- [ ] `columns=None` auto-selects all `int64`/`float64` columns
-- [ ] Skips non-numeric columns silently (no error)
-- [ ] Results truncated at `get_max_results()` with `truncated: true` flag
-- [ ] Test: column with known outliers → counts match manual calculation
-- [ ] Test: clean column → `has_outliers_iqr: false, has_outliers_std: false`
-- [ ] Test: `method="iqr"` → only IQR fields in results (no std fields)
-- [ ] Test: `columns=["Revenue"]` → only scans Revenue
-- [ ] Test: column not found → error listing available columns
+- [x] IQR formula matches notebook §03.04.01: `Q3 + 1.5*IQR` / `Q1 - 1.5*IQR`
+- [x] Std formula matches notebook §03.04.02: `mean ± 3*std`
+- [x] `columns=None` auto-selects all `int64`/`float64` columns
+- [x] Skips non-numeric columns silently (no error)
+- [x] Results truncated at `get_max_results()` with `truncated: true` flag
+- [x] Test: column with known outliers → counts match manual calculation
+- [x] Test: clean column → `has_outliers_iqr: false, has_outliers_std: false`
+- [x] Test: `method="iqr"` → only IQR fields in results (no std fields)
+- [x] Test: `columns=["Revenue"]` → only scans Revenue
+- [x] Test: column not found → error listing available columns
 
 ---
 
@@ -1241,15 +1241,15 @@ def scan_nulls_zeros(
 
 **Development checklist**
 
-- [ ] Detects NaN, None, and pandas `NA` as null for all column types
-- [ ] Detects `0` and `"0"` as zero for numeric columns
-- [ ] Object columns: detect `""`, `"-"`, `"N/A"`, `"null"` as null-like values
-- [ ] `suggested_actions` provides a hint string per flagged column
-- [ ] `zero_count` is `null` (not 0) for non-numeric columns in response
-- [ ] Test: messy fixture → all null/zero counts correct
-- [ ] Test: `include_zeros=False` → zero counts omitted from results
-- [ ] Test: `min_count=5` → columns with fewer than 5 issues excluded
-- [ ] Test: clean dataset → `flagged_columns: 0`, `results: {}`
+- [x] Detects NaN, None, and pandas `NA` as null for all column types
+- [x] Detects `0` and `"0"` as zero for numeric columns
+- [x] Object columns: detect `""`, `"-"`, `"N/A"`, `"null"` as null-like values
+- [x] `suggested_actions` provides a hint string per flagged column
+- [x] `zero_count` is `null` (not 0) for non-numeric columns in response
+- [x] Test: messy fixture → all null/zero counts correct
+- [x] Test: `include_zeros=False` → zero counts omitted from results
+- [x] Test: `min_count=5` → columns with fewer than 5 issues excluded
+- [x] Test: clean dataset → `flagged_columns: 0`, `results: {}`
 
 ---
 
@@ -1296,16 +1296,16 @@ def enrich_with_geo(
 
 **Development checklist**
 
-- [ ] Mismatch detection: print values in main not in geo and vice versa (notebook §04)
-- [ ] Left join by default — no rows dropped from main dataset
-- [ ] `unmatched_main` capped at 20 values in response
-- [ ] Geometry column serialised as WKT string in output CSV
-- [ ] `dry_run=True` → returns match stats without writing
-- [ ] Snapshot of `file_path` taken before write
-- [ ] Test: exact match → `unmatched_main: []`, all rows enriched
-- [ ] Test: partial match → unmatched lists populated correctly
-- [ ] Test: `join_column` not in dataset → error with hint
-- [ ] Test: dry_run → no file written
+- [x] Mismatch detection: print values in main not in geo and vice versa (notebook §04)
+- [x] Left join by default — no rows dropped from main dataset
+- [x] `unmatched_main` capped at 20 values in response
+- [x] Geometry column serialised as WKT string in output CSV
+- [x] `dry_run=True` → returns match stats without writing
+- [x] Snapshot of `file_path` taken before write
+- [x] Test: exact match → `unmatched_main: []`, all rows enriched
+- [x] Test: partial match → unmatched lists populated correctly
+- [x] Test: `join_column` not in dataset → error with hint
+- [x] Test: dry_run → no file written
 
 ---
 
@@ -1352,14 +1352,14 @@ def validate_dataset(
 
 **Development checklist**
 
-- [ ] Quality score formula: 100 - (null_pct_penalty + dup_penalty + type_penalty)
-- [ ] `severity` levels: `"error"` (nulls > max_null_pct), `"warning"` (zeros), `"info"` (low impact)
-- [ ] `expected_dtypes=None` skips dtype checking
-- [ ] `passed=True` only when issues list is empty
-- [ ] Test: clean dataset → `passed: true`, score near 100
-- [ ] Test: messy fixture → all issue types reported correctly
-- [ ] Test: `expected_dtypes` with mismatch → dtype issue in issues list
-- [ ] Test: `check_duplicates=False` → no duplicate check in results
+- [x] Quality score formula: 100 - (null_pct_penalty + dup_penalty + type_penalty)
+- [x] `severity` levels: `"error"` (nulls > max_null_pct), `"warning"` (zeros), `"info"` (low impact)
+- [x] `expected_dtypes=None` skips dtype checking
+- [x] `passed=True` only when issues list is empty
+- [x] Test: clean dataset → `passed: true`, score near 100
+- [x] Test: messy fixture → all issue types reported correctly
+- [x] Test: `expected_dtypes` with mismatch → dtype issue in issues list
+- [x] Test: `check_duplicates=False` → no duplicate check in results
 
 ---
 
@@ -1409,15 +1409,15 @@ def compute_aggregations(
 
 **Development checklist**
 
-- [ ] `result` rows capped at `get_max_rows()` — truncated flag if exceeded
-- [ ] `top_n > 0` applies before row cap (top_n takes priority)
-- [ ] `agg_func="count"` works on any column type (not just numeric)
-- [ ] `group_by` columns must all exist — error lists missing columns
-- [ ] Test: single group-by sum → values match manual groupby
-- [ ] Test: multi-column group-by → compound key rows returned
-- [ ] Test: `top_n=3` → only 3 rows regardless of dataset size
-- [ ] Test: `agg_func="count"` on categorical column → correct counts
-- [ ] Test: group_by column not found → error with hint
+- [x] `result` rows capped at `get_max_rows()` — truncated flag if exceeded
+- [x] `top_n > 0` applies before row cap (top_n takes priority)
+- [x] `agg_func="count"` works on any column type (not just numeric)
+- [x] `group_by` columns must all exist — error lists missing columns
+- [x] Test: single group-by sum → values match manual groupby
+- [x] Test: multi-column group-by → compound key rows returned
+- [x] Test: `top_n=3` → only 3 rows regardless of dataset size
+- [x] Test: `agg_func="count"` on categorical column → correct counts
+- [x] Test: group_by column not found → error with hint
 
 ---
 
@@ -1472,15 +1472,15 @@ cleaning sequences that span multiple op types (clean_text + cast + fill_nulls
 
 **Development checklist**
 
-- [ ] One snapshot taken before pipeline, not per-op
-- [ ] Internally delegates each op to same engine functions as `apply_patch`
-- [ ] Failure on op N → restore from snapshot, report which op failed
-- [ ] `dry_run=True` → simulate all ops, return `would_change` per op
-- [ ] Single receipt log entry for the full pipeline (not one per op)
-- [ ] Test: 4-op pipeline → all ops applied, one backup created
-- [ ] Test: op 3 of 4 fails → file restored to pre-pipeline state
-- [ ] Test: dry_run → `would_change` per op, no file modification
-- [ ] Test: empty ops list → returns error ("at least one op required")
+- [x] One snapshot taken before pipeline, not per-op
+- [x] Internally delegates each op to same engine functions as `apply_patch`
+- [x] Failure on op N → restore from snapshot, report which op failed
+- [x] `dry_run=True` → simulate all ops, return `would_change` per op
+- [x] Single receipt log entry for the full pipeline (not one per op)
+- [x] Test: 4-op pipeline → all ops applied, one backup created
+- [x] Test: op 3 of 4 fails → file restored to pre-pipeline state
+- [x] Test: dry_run → `would_change` per op, no file modification
+- [x] Test: empty ops list → returns error ("at least one op required")
 
 ---
 

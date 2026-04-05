@@ -13,6 +13,7 @@ import pandas as pd
 # Shared utilities
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from shared.file_utils import resolve_path
+from shared.html_theme import css_vars, device_mode_js, plotly_template, save_chart as _html_save_chart, VIEWPORT_META
 from shared.progress import fail, info, ok, warn
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,11 @@ def _open_file(path: Path) -> None:
             pass
 
 
+def _save_chart(fig, output_path: str, stem_suffix: str, input_path: Path, open_after: bool, theme: str = "dark") -> tuple[str, str]:
+    """Save plotly figure to themed responsive HTML."""
+    return _html_save_chart(fig, output_path, stem_suffix, input_path, theme, open_after, _open_file)
+
+
 def _dtype_label(series: pd.Series) -> str:
     if pd.api.types.is_integer_dtype(series):
         return "int64"
@@ -68,6 +74,7 @@ def run_eda(
     file_path: str,
     output_path: str = "",
     open_after: bool = True,
+    theme: str = "dark",
 ) -> dict:
     """Fast EDA summary. Returns stats, nulls, correlations, outliers as HTML."""
     progress = []
@@ -176,81 +183,374 @@ def run_eda(
             0, round(100 - null_penalty - dup_penalty * 0.5 - outlier_penalty * 0.3)
         )
 
-        # Build HTML report
-        html_parts = [
-            "<!DOCTYPE html><html><head><meta charset='utf-8'>",
-            "<title>EDA Report</title>",
-            "<style>",
-            "body{font-family:system-ui,sans-serif;background:#1a1a2e;color:#eee;padding:20px}",
-            "h1{color:#e94560}h2{color:#0f3460;border-bottom:1px solid #333;padding-bottom:5px}",
-            "table{border-collapse:collapse;width:100%;margin:10px 0}",
-            "th,td{padding:8px 12px;text-align:left;border:1px solid #333}",
-            "th{background:#16213e}.good{color:#4ecca3}.warn{color:#f9a825}.bad{color:#e94560}",
-            ".card{background:#16213e;padding:15px;border-radius:8px;margin:10px 0;display:inline-block;min-width:150px}",
-            ".score{font-size:48px;font-weight:bold}",
-            "</style></head><body>",
-            f"<h1>EDA Report: {path.name}</h1>",
-            f"<p>{rows:,} rows × {cols} columns</p>",
-            f"<div class='card'><div class='score {'good' if quality_score >= 80 else 'warn' if quality_score >= 60 else 'bad'}'>{quality_score}</div>Data Quality Score</div>",
-            f"<div class='card'><div>{len(numeric_cols)}</div>Numeric Columns</div>",
-            f"<div class='card'><div>{len(cat_cols)}</div>Categorical Columns</div>",
-            f"<div class='card'><div>{len(datetime_cols)}</div>Datetime Columns</div>",
-            f"<div class='card'><div>{dup_count:,}</div>Duplicate Rows</div>",
-            "<h2>Column Summary</h2>",
-            "<table><tr><th>Column</th><th>Type</th><th>Nulls</th><th>Null %</th><th>Unique</th><th>Stats</th></tr>",
-        ]
+        # ---- ALERTS computation ----
+        alerts = []
+        for c in df.columns:
+            if df[c].nunique(dropna=True) <= 1:
+                alerts.append({"col": c, "type": "CONSTANT", "sev": "error",
+                               "msg": f"'{c}' has only 1 unique value — constant, no predictive value."})
+        for c in df.columns:
+            np_ = round(df[c].isna().mean() * 100, 1)
+            if np_ > 50:
+                alerts.append({"col": c, "type": "HIGH NULLS", "sev": "error",
+                               "msg": f"'{c}': {np_}% missing values — consider dropping."})
+            elif np_ > 20:
+                alerts.append({"col": c, "type": "HIGH NULLS", "sev": "warning",
+                               "msg": f"'{c}': {np_}% missing — imputation needed."})
+        for c in numeric_cols:
+            zp = round((df[c] == 0).mean() * 100, 1)
+            if zp > 50:
+                alerts.append({"col": c, "type": "ZEROS", "sev": "warning",
+                               "msg": f"'{c}': {zp}% zero values — zero-inflated distribution."})
+        for c in cat_cols:
+            uniq = df[c].nunique()
+            if uniq > max(50, rows * 0.5):
+                alerts.append({"col": c, "type": "HIGH CARDINALITY", "sev": "warning",
+                               "msg": f"'{c}': {uniq:,} unique values — likely an ID, consider dropping."})
+        for c in cat_cols:
+            if df[c].notna().sum() > 0:
+                top_pct = round(df[c].value_counts(normalize=True).iloc[0] * 100, 1)
+                if top_pct > 90:
+                    alerts.append({"col": c, "type": "IMBALANCED", "sev": "warning",
+                                   "msg": f"'{c}': top category = {top_pct}% of values — highly imbalanced."})
+        for c in numeric_cols:
+            try:
+                skv = round(float(df[c].skew()), 2)
+                if abs(skv) > 2:
+                    alerts.append({"col": c, "type": "SKEWED", "sev": "warning",
+                                   "msg": f"'{c}': skewness={skv:+.2f} — consider log/sqrt transform."})
+            except Exception:
+                pass
+        for c in numeric_cols:
+            q1_, q3_ = df[c].quantile(0.25), df[c].quantile(0.75)
+            iqr_ = q3_ - q1_
+            oc_ = int(((df[c] < q1_ - 1.5 * iqr_) | (df[c] > q3_ + 1.5 * iqr_)).sum())
+            op_ = round(oc_ / max(rows, 1) * 100, 1)
+            if op_ > 10:
+                alerts.append({"col": c, "type": "OUTLIERS", "sev": "warning",
+                               "msg": f"'{c}': {oc_:,} outliers ({op_}%) — investigate or cap."})
+        for p in corr_pairs[:20]:
+            if abs(p["correlation"]) > 0.9:
+                alerts.append({"col": p["col_a"], "type": "HIGH CORR", "sev": "warning",
+                               "msg": f"'{p['col_a']}' \u2194 '{p['col_b']}': r={p['correlation']:+.3f} — possible multicollinearity."})
+        if dup_count > 0:
+            dp_ = round(dup_count / max(rows, 1) * 100, 1)
+            alerts.append({"col": None, "type": "DUPLICATES", "sev": "warning" if dp_ < 5 else "error",
+                           "msg": f"{dup_count:,} duplicate rows ({dp_}%) — consider deduplication."})
 
+        # ---- Spearman correlation ----
+        spearman_matrix = None
+        if len(numeric_cols) >= 2:
+            spearman_matrix = df[numeric_cols].corr(method="spearman")
+
+        # Add zero counts to column summaries
         for s in column_summaries:
-            cls = (
-                "good"
-                if s["null_pct"] == 0
-                else "warn"
-                if s["null_pct"] < 10
-                else "bad"
-            )
-            stats = ""
+            if s["column"] in numeric_cols:
+                s["zero_count"] = int((df[s["column"]] == 0).sum())
+                s["zero_pct"] = round(s["zero_count"] / rows * 100, 2) if rows > 0 else 0
+
+        # Build polished HTML report
+        vars_css = css_vars(theme)
+        score_cls = "good" if quality_score >= 80 else "warn" if quality_score >= 60 else "bad"
+        missing_by_col = {s["column"]: s["null_count"] for s in column_summaries if s["null_count"] > 0}
+
+        # Correlation heatmap JSON for embedded plotly
+        if theme == "dark":
+            _plot_bg = "#161b22"
+            _font_color = "#c9d1d9"
+            accent_color = "#58a6ff"
+        elif theme == "light":
+            _plot_bg = "#f6f8fa"
+            _font_color = "#1f2328"
+            accent_color = "#0969da"
+        else:  # device — start light, JS switches
+            _plot_bg = "#f6f8fa"
+            _font_color = "#1f2328"
+            accent_color = "#58a6ff"
+
+        corr_json = ""
+        if len(numeric_cols) >= 2:
+            corr = df[numeric_cols].corr(method="pearson")
+            corr_z = corr.values.tolist()
+            corr_x = list(corr.columns)
+
+            corr_json = f"""
+<div class="chart-container" id="corr-chart"></div>
+<script>
+(function(){{
+  var z={corr_z};var x={corr_x};
+  var dark=(typeof window!=='undefined')&&window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches;
+  var bg=dark?'#161b22':'{_plot_bg}';var fc=dark?'#c9d1d9':'{_font_color}';
+  var data=[{{z:z,x:x,y:x,type:'heatmap',colorscale:'RdBu',zmid:0,
+    text:z.map(function(r){{return r.map(function(v){{return v.toFixed(2);}});}}),
+    texttemplate:'%{{text}}',textfont:{{size:11}}}}];
+  var layout={{paper_bgcolor:bg,plot_bgcolor:bg,font:{{color:fc}},
+    margin:{{l:120,r:20,t:20,b:120}},autosize:true}};
+  Plotly.newPlot('corr-chart',data,layout,{{responsive:true,displayModeBar:false}});
+}})();
+</script>"""
+
+        spearman_json = ""
+        if spearman_matrix is not None:
+            sp_z = spearman_matrix.values.tolist()
+            sp_x = spearman_matrix.columns.tolist()
+            spearman_json = f"""
+<h3 style="color:var(--accent);font-size:15px;margin:20px 0 8px">Spearman Rank Correlation</h3>
+<div class="chart-container" id="sp-corr-chart"></div>
+<script>
+(function(){{
+  var z={sp_z};var x={sp_x};
+  var dark=(typeof window!=='undefined')&&window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches;
+  var bg=dark?'#161b22':'{_plot_bg}';var fc=dark?'#c9d1d9':'{_font_color}';
+  var data=[{{z:z,x:x,y:x,type:'heatmap',colorscale:'RdBu',zmid:0,
+    text:z.map(function(r){{return r.map(function(v){{return v.toFixed(2);}});}}),
+    texttemplate:'%{{text}}',textfont:{{size:11}}}}];
+  var layout={{paper_bgcolor:bg,plot_bgcolor:bg,font:{{color:fc}},
+    margin:{{l:120,r:20,t:20,b:120}},autosize:true}};
+  Plotly.newPlot('sp-corr-chart',data,layout,{{responsive:true,displayModeBar:false}});
+}})();
+</script>"""
+
+        # Build column summary table rows
+        col_rows = []
+        for s in column_summaries:
+            nc_ = s["null_count"]
+            np_ = s["null_pct"]
+            cls = "good" if nc_ == 0 else "warn" if np_ < 10 else "bad"
             if "mean" in s:
-                stats = f"μ={s['mean']}, σ={s['std']}, [{s['min']}–{s['max']}]"
+                stats_str = f"μ={s['mean']}, σ={s['std']}, [{s['min']}–{s['max']}]"
             elif "top_values" in s:
-                top_str = ", ".join(
-                    f"{k}: {v}" for k, v in list(s["top_values"].items())[:3]
-                )
-                stats = f"Top: {top_str}"
-            html_parts.append(
-                f"<tr><td>{s['column']}</td><td>{s['dtype']}</td>"
-                f"<td class='{cls}'>{s['null_count']}</td><td>{s['null_pct']}%</td>"
-                f"<td>{s['unique_count']}</td><td>{stats}</td></tr>"
+                stats_str = "Top: " + ", ".join(f"{k}:{v}" for k, v in list(s["top_values"].items())[:3])
+            else:
+                stats_str = "—"
+            zero_cell = f'{s.get("zero_count", "")} ({s.get("zero_pct", "")}%)' if "zero_count" in s else "—"
+            col_rows.append(
+                f'<tr><td><b>{s["column"]}</b></td><td><span class="badge">{s["dtype"]}</span></td>'
+                f'<td class="{cls}">{nc_}</td><td class="{cls}">{np_}%</td>'
+                f'<td>{zero_cell}</td>'
+                f'<td>{s["unique_count"]}</td><td class="stats-cell">{stats_str}</td></tr>'
             )
+        col_rows_html = "\n".join(col_rows)
 
-        html_parts.append("</table>")
+        # Build insights list
+        insights = []
+        for s in column_summaries:
+            if s["null_pct"] > 50:
+                insights.append(f'<li class="bad"><b>{s["column"]}</b>: {s["null_pct"]}% null — consider dropping</li>')
+            elif s["null_pct"] > 10:
+                insights.append(f'<li class="warn"><b>{s["column"]}</b>: {s["null_pct"]}% null — consider imputation</li>')
+        for p in corr_pairs[:5]:
+            if abs(p["correlation"]) > 0.8:
+                insights.append(f'<li><b>{p["col_a"]}</b> ↔ <b>{p["col_b"]}</b>: r={p["correlation"]:+.3f} (very strong)</li>')
+        for s in column_summaries:
+            if "std" in s and s.get("std", 0) > 0:
+                skew_val = None
+                try:
+                    skew_val = round(float(df[s["column"]].skew()), 2)
+                except Exception:
+                    pass
+                if skew_val is not None and abs(skew_val) > 2:
+                    insights.append(f'<li class="warn"><b>{s["column"]}</b>: skewness={skew_val} — consider log transform</li>')
+        if dup_count > 0:
+            insights.append(f'<li class="warn">{dup_count:,} duplicate rows detected — use drop_duplicates</li>')
+        if not insights:
+            insights.append('<li class="good">No major data quality issues detected.</li>')
+        insights_html = "\n".join(insights)
 
+        # Outlier table rows
+        outlier_rows = "".join(
+            f'<tr><td><b>{o["column"]}</b></td><td class="warn">{o["outlier_count"]}</td>'
+            f'<td>{o["outlier_pct"]}%</td><td>[{o["lower_limit"]} – {o["upper_limit"]}]</td></tr>'
+            for o in outlier_cols
+        ) if outlier_cols else '<tr><td colspan="4" class="good">No outliers detected</td></tr>'
+
+        # Correlation table rows
+        corr_rows = ""
+        for p in corr_pairs[:10]:
+            s_str = "Very Strong" if abs(p["correlation"]) > 0.9 else "Strong" if abs(p["correlation"]) > 0.7 else "Moderate" if abs(p["correlation"]) > 0.5 else "Weak"
+            cls = "good" if abs(p["correlation"]) > 0.7 else "warn" if abs(p["correlation"]) > 0.5 else ""
+            corr_rows += f'<tr class="{cls}"><td>{p["col_a"]}</td><td>{p["col_b"]}</td><td>{p["correlation"]:+.4f}</td><td>{s_str}</td></tr>'
+
+        plotly_script = '<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>'
+
+        missing_section = ""
+        if missing_by_col:
+            missing_rows = "".join(
+                f'<tr><td><b>{c}</b></td><td>{cnt}</td><td>{round(cnt/rows*100,1)}%</td>'
+                f'<td><div class="mbar"><div class="mbar-fill" style="width:{round(cnt/rows*100,1)}%"></div></div></td></tr>'
+                for c, cnt in sorted(missing_by_col.items(), key=lambda x: -x[1])
+            )
+            miss_cols = list(missing_by_col.keys())
+            miss_sample = df[miss_cols].isnull().astype(int)
+            if len(miss_sample) > 300:
+                miss_sample = miss_sample.sample(300, random_state=42).reset_index(drop=True)
+            else:
+                miss_sample = miss_sample.reset_index(drop=True)
+            miss_z = miss_sample.values.tolist()
+            miss_y = list(range(len(miss_sample)))
+            miss_matrix_html = f"""<div class="chart-container" id="miss-matrix-wrap">
+  <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">White = present, colored = missing. Sampled {len(miss_sample)} rows.</p>
+  <div id="miss-matrix" style="height:{min(400, max(200, len(miss_sample)))}px"></div>
+</div>
+<script>
+(function(){{
+  var z={miss_z};var x={miss_cols};var y={miss_y};
+  var data=[{{z:z,x:x,y:y,type:'heatmap',colorscale:[['0','rgba(0,0,0,0)'],['1','{accent_color}']],
+    showscale:false,hovertemplate:'Column: %{{x}}<br>Row: %{{y}}<br>Missing: %{{z}}<extra></extra>'}}];
+  var layout={{paper_bgcolor:'{_plot_bg}',plot_bgcolor:'{_plot_bg}',
+    font:{{color:'{_font_color}'}},
+    margin:{{l:60,r:10,t:10,b:80}},autosize:true,
+    xaxis:{{tickangle:-45,tickfont:{{size:11}}}},
+    yaxis:{{title:'Row index',tickfont:{{size:10}}}}
+  }};
+  Plotly.newPlot('miss-matrix',data,layout,{{responsive:true,displayModeBar:false}});
+}})();
+</script>"""
+            missing_section = f'<div id="nulls" class="section"><h2>Missing Data</h2><table><tr><th>Column</th><th>Missing</th><th>%</th><th>Visual</th></tr>{missing_rows}</table>{miss_matrix_html}</div>'
+
+        corr_section = ""
         if corr_pairs:
-            html_parts.append("<h2>Top Correlations</h2>")
-            html_parts.append(
-                "<table><tr><th>Column A</th><th>Column B</th><th>Correlation</th></tr>"
-            )
-            for p in corr_pairs:
-                html_parts.append(
-                    f"<tr><td>{p['col_a']}</td><td>{p['col_b']}</td>"
-                    f"<td class={'good' if abs(p['correlation']) > 0.7 else 'warn'}>{p['correlation']}</td></tr>"
-                )
-            html_parts.append("</table>")
+            corr_section = f'<div id="correlations" class="section"><h2>Correlations</h2>{corr_json}{spearman_json}<table><tr><th>Variable A</th><th>Variable B</th><th>r</th><th>Strength</th></tr>{corr_rows}</table></div>'
 
-        if outlier_cols:
-            html_parts.append("<h2>Outliers (IQR Method)</h2>")
-            html_parts.append(
-                "<table><tr><th>Column</th><th>Count</th><th>%</th><th>Range</th></tr>"
-            )
-            for o in outlier_cols:
-                html_parts.append(
-                    f"<tr><td>{o['column']}</td><td>{o['outlier_count']}</td>"
-                    f"<td>{o['outlier_pct']}%</td><td>[{o['lower_limit']} – {o['upper_limit']}]</td></tr>"
-                )
-            html_parts.append("</table>")
+        nulls_nav = '<a href="#nulls">Missing Data</a>' if missing_by_col else ""
+        corr_nav = '<a href="#correlations">Correlations</a>' if corr_pairs else ""
 
-        html_parts.append("</body></html>")
+        # Data sample HTML (first 5 rows)
+        sample_rows_df = df.head(5)
+        sample_cols_list = list(sample_rows_df.columns)
+        sample_header = "".join(f"<th>{c}</th>" for c in sample_cols_list)
+        sample_body = ""
+        for _, row in sample_rows_df.iterrows():
+            cells = "".join(f"<td>{str(v)[:50]}</td>" for v in row.values)
+            sample_body += f"<tr>{cells}</tr>"
+        sample_html = f"""<div id="sample" class="section">
+  <h2>Data Sample (first 5 rows)</h2>
+  <div style="overflow-x:auto">
+    <table><tr>{sample_header}</tr>{sample_body}</table>
+  </div>
+</div>"""
 
-        html_content = "\n".join(html_parts)
+        # Alerts HTML helper
+        def _alerts_html(al):
+            if not al:
+                return '<div class="alert-panel"><div class="alert-item info"><span class="alert-badge info">OK</span> No data quality alerts detected.</div></div>'
+            items = []
+            for a in al:
+                badge_cls = "error" if a["sev"] == "error" else "warning" if a["sev"] == "warning" else "info"
+                items.append(f'<div class="alert-item {badge_cls}"><span class="alert-badge {badge_cls}">{a["type"]}</span> {a["msg"]}</div>')
+            return f'<div class="alert-panel">{"".join(items)}</div>'
+
+        alerts_section = f'<div id="alerts" class="section"><h2>&#9888; Alerts ({len(alerts)})</h2>{_alerts_html(alerts)}</div>'
+
+        html_content = f"""<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+{VIEWPORT_META}
+<title>EDA Report — {path.name}</title>
+{plotly_script}
+<style>
+{vars_css}
+*{{box-sizing:border-box;margin:0;padding:0}}
+html{{scroll-behavior:smooth}}
+body{{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;transition:background 0.2s,color 0.2s}}
+::-webkit-scrollbar{{width:6px}}::-webkit-scrollbar-track{{background:var(--bg)}}::-webkit-scrollbar-thumb{{background:var(--border);border-radius:3px}}
+.sidebar{{width:260px;background:var(--surface);border-right:1px solid var(--border);position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:100}}
+.sidebar-hdr{{padding:20px;border-bottom:1px solid var(--border)}}
+.sidebar-hdr h2{{color:var(--accent);font-size:16px;margin-bottom:4px}}
+.sidebar-hdr .meta{{color:var(--text-muted);font-size:12px}}
+.nav{{padding:8px 0}}
+.nav a{{display:block;padding:7px 20px;color:var(--text-muted);text-decoration:none;font-size:13px;border-left:3px solid transparent;transition:all 0.15s}}
+.nav a:hover,.nav a.active{{color:var(--accent);background:rgba(88,166,255,0.06);border-left-color:var(--accent)}}
+.nav .st{{padding:14px 20px 4px;color:var(--border);font-size:10px;text-transform:uppercase;letter-spacing:1px;font-weight:600}}
+.main{{margin-left:260px;padding:32px;flex:1;max-width:1400px}}
+.section{{margin-bottom:48px}}
+.section>h2{{color:var(--accent);font-size:20px;margin-bottom:20px;padding-bottom:10px;border-bottom:2px solid var(--border);font-weight:600}}
+.cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:24px}}
+.card{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center;transition:transform 0.15s,border-color 0.15s}}
+.card:hover{{transform:translateY(-2px);border-color:var(--accent)}}
+.card .num{{font-size:28px;font-weight:700;color:var(--accent);line-height:1.2}}
+.card .lbl{{font-size:11px;color:var(--text-muted);margin-top:4px;text-transform:uppercase;letter-spacing:0.8px}}
+.card.good .num{{color:var(--green)}}.card.warn .num{{color:var(--orange)}}.card.bad .num{{color:var(--red)}}
+table{{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px;background:var(--surface);border-radius:8px;overflow:hidden}}
+th,td{{padding:10px 14px;text-align:left;border-bottom:1px solid var(--border)}}
+th{{background:rgba(88,166,255,0.08);color:var(--accent);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.5px}}
+tr:hover{{background:rgba(88,166,255,0.03)}}
+.good{{color:var(--green)}}.warn{{color:var(--orange)}}.bad{{color:var(--red)}}
+.badge{{font-size:11px;padding:2px 8px;border-radius:10px;background:var(--border);color:var(--text-muted);font-weight:500}}
+.stats-cell{{font-size:12px;color:var(--text-muted);font-family:monospace}}
+.insights{{list-style:none;padding:0}}
+.insights li{{padding:10px 14px;margin:6px 0;background:var(--surface);border-radius:8px;border-left:4px solid var(--accent);font-size:13px;line-height:1.5}}
+.insights li.warn{{border-left-color:var(--orange)}}.insights li.bad{{border-left-color:var(--red)}}.insights li.good{{border-left-color:var(--green)}}
+.mbar{{height:24px;background:var(--border);border-radius:6px;overflow:hidden;margin:4px 0}}
+.mbar-fill{{height:100%;background:linear-gradient(90deg,var(--orange),var(--red));border-radius:6px}}
+.chart-container{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin:16px 0;min-height:300px}}
+.alert-panel{{border-radius:10px;overflow:hidden;margin-bottom:20px}}
+.alert-item{{padding:10px 14px;margin:3px 0;font-size:13px;border-radius:8px;display:flex;align-items:flex-start;gap:10px;background:var(--surface);border:1px solid var(--border)}}
+.alert-item.error{{border-left:4px solid var(--red)}}.alert-item.warning{{border-left:4px solid var(--orange)}}.alert-item.info{{border-left:4px solid var(--green)}}
+.alert-badge{{font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;white-space:nowrap;flex-shrink:0;margin-top:1px}}
+.alert-badge.error{{background:var(--red);color:#fff}}.alert-badge.warning{{background:var(--orange);color:#fff}}.alert-badge.info{{background:var(--green);color:#fff}}
+@media(max-width:1100px){{.sidebar{{width:220px}}.main{{margin-left:220px}}}}
+@media(max-width:768px){{.sidebar{{display:none}}.main{{margin-left:0;padding:16px}}.cards{{grid-template-columns:repeat(2,1fr)}}}}
+@media(max-width:480px){{.cards{{grid-template-columns:1fr}}th,td{{padding:8px 10px;font-size:12px}}}}
+</style></head><body>
+<div class="sidebar">
+  <div class="sidebar-hdr"><h2>EDA Report</h2><p class="meta">{path.name}</p><p class="meta">{rows:,} rows × {cols} cols</p></div>
+  <div class="nav">
+    <div class="st">Sections</div>
+    <a href="#alerts">Alerts ({len(alerts)})</a>
+    <a href="#overview">Overview</a>
+    <a href="#sample">Data Sample</a>
+    <a href="#columns">Column Summary</a>
+    {nulls_nav}
+    {corr_nav}
+    <a href="#outliers">Outliers</a>
+    <a href="#insights">Insights</a>
+  </div>
+</div>
+<div class="main">
+  {alerts_section}
+
+  <div id="overview" class="section">
+    <h2>Dataset Overview</h2>
+    <div class="cards">
+      <div class="card good"><div class="num">{rows:,}</div><div class="lbl">Rows</div></div>
+      <div class="card"><div class="num">{cols}</div><div class="lbl">Columns</div></div>
+      <div class="card"><div class="num">{len(numeric_cols)}</div><div class="lbl">Numeric</div></div>
+      <div class="card"><div class="num">{len(cat_cols)}</div><div class="lbl">Categorical</div></div>
+      <div class="card"><div class="num">{len(datetime_cols)}</div><div class="lbl">Datetime</div></div>
+      <div class="card {score_cls}"><div class="num">{quality_score}</div><div class="lbl">Quality Score</div></div>
+      <div class="card {'warn' if dup_count > 0 else 'good'}"><div class="num">{dup_count:,}</div><div class="lbl">Duplicates</div></div>
+    </div>
+  </div>
+
+  {sample_html}
+
+  <div id="columns" class="section">
+    <h2>Column Summary</h2>
+    <table>
+      <tr><th>Column</th><th>Type</th><th>Nulls</th><th>Null %</th><th>Zeros</th><th>Unique</th><th>Stats</th></tr>
+      {col_rows_html}
+    </table>
+  </div>
+
+  {missing_section}
+
+  {corr_section}
+
+  <div id="outliers" class="section">
+    <h2>Outliers (IQR Method)</h2>
+    <table><tr><th>Column</th><th>Count</th><th>%</th><th>IQR Range</th></tr>
+    {outlier_rows}
+    </table>
+  </div>
+
+  <div id="insights" class="section">
+    <h2>Key Insights</h2>
+    <ul class="insights">{insights_html}</ul>
+  </div>
+</div>
+{device_mode_js() if theme == "device" else ""}
+</body></html>"""
 
         if output_path:
             out = Path(output_path)
@@ -317,6 +617,7 @@ def generate_distribution_plot(
     columns: list[str] = None,
     output_path: str = "",
     open_after: bool = True,
+    theme: str = "dark",
 ) -> dict:
     """Histogram + box plot for numeric columns. Saves and optionally opens HTML."""
     progress = []
@@ -386,34 +687,25 @@ def generate_distribution_plot(
 
         fig.update_layout(
             height=300 * n,
-            width=1000,
             title_text=f"Distribution Analysis: {', '.join(cols_to_plot)}",
-            template="plotly_dark",
+            template=plotly_template(theme),
             showlegend=False,
         )
 
-        if output_path:
-            out = Path(output_path)
-        else:
-            out = path.parent / f"{path.stem}_distributions.html"
-
-        fig.write_html(str(out), include_plotlyjs=True, full_html=True)
-
-        if open_after:
-            _open_file(out)
+        abs_p, fname = _save_chart(fig, output_path, "distributions", path, open_after, theme)
 
         progress.append(
             ok(
                 "Distribution plots saved",
-                f"{out.name} — {n} columns",
+                f"{fname} — {n} columns",
             )
         )
 
         result = {
             "success": True,
             "op": "generate_distribution_plot",
-            "output_path": str(out.resolve()),
-            "output_name": out.name,
+            "output_path": abs_p,
+            "output_name": fname,
             "columns_plotted": cols_to_plot,
             "chart_count": n * 2,
             "progress": progress,
@@ -442,6 +734,7 @@ def generate_correlation_heatmap(
     method: str = "pearson",
     output_path: str = "",
     open_after: bool = True,
+    theme: str = "dark",
 ) -> dict:
     """Interactive correlation heatmap for numeric columns. Opens HTML."""
     progress = []
@@ -488,30 +781,22 @@ def generate_correlation_heatmap(
             title=f"Correlation Matrix ({method})",
             aspect="auto",
         )
-        fig.update_layout(template="plotly_dark", height=300 + 50 * len(numeric_cols))
+        fig.update_layout(template=plotly_template(theme), height=300 + 50 * len(numeric_cols))
 
-        if output_path:
-            out = Path(output_path)
-        else:
-            out = path.parent / f"{path.stem}_correlation_heatmap.html"
-
-        fig.write_html(str(out), include_plotlyjs=True, full_html=True)
-
-        if open_after:
-            _open_file(out)
+        abs_p, fname = _save_chart(fig, output_path, "correlation_heatmap", path, open_after, theme)
 
         progress.append(
             ok(
                 "Correlation heatmap saved",
-                f"{out.name} — {len(numeric_cols)} columns",
+                f"{fname} — {len(numeric_cols)} columns",
             )
         )
 
         result = {
             "success": True,
             "op": "generate_correlation_heatmap",
-            "output_path": str(out.resolve()),
-            "output_name": out.name,
+            "output_path": abs_p,
+            "output_name": fname,
             "columns": numeric_cols,
             "method": method,
             "progress": progress,
@@ -544,6 +829,7 @@ def generate_auto_profile(
     file_path: str,
     output_path: str = "",
     open_after: bool = True,
+    theme: str = "dark",
 ) -> dict:
     """Comprehensive auto-profile: sidebar nav, per-column stats+charts, correlations, outliers, insights. Opens HTML."""
     progress = []
@@ -654,62 +940,154 @@ def generate_auto_profile(
         total_nulls = int(df.isna().sum().sum())
         null_pct = round(total_nulls / (rows * cols) * 100, 1) if rows * cols > 0 else 0
 
+        # Add zero counts to col_analysis for numeric columns
+        for c in numeric_cols:
+            col_analysis[c]["zero_count"] = int((df[c] == 0).sum())
+            col_analysis[c]["zero_pct"] = round(col_analysis[c]["zero_count"] / rows * 100, 1) if rows > 0 else 0
+
+        # Spearman correlation
+        spearman_matrix_ap = None
+        if len(numeric_cols) >= 2:
+            spearman_matrix_ap = df[numeric_cols].corr(method="spearman")
+
+        # ---- ALERTS computation ----
+        ap_alerts = []
+        for c in df.columns:
+            if df[c].nunique(dropna=True) <= 1:
+                ap_alerts.append({"col": c, "type": "CONSTANT", "sev": "error",
+                                  "msg": f"'{c}' has only 1 unique value — constant, no predictive value."})
+        for c in df.columns:
+            np_ = round(df[c].isna().mean() * 100, 1)
+            if np_ > 50:
+                ap_alerts.append({"col": c, "type": "HIGH NULLS", "sev": "error",
+                                  "msg": f"'{c}': {np_}% missing values — consider dropping."})
+            elif np_ > 20:
+                ap_alerts.append({"col": c, "type": "HIGH NULLS", "sev": "warning",
+                                  "msg": f"'{c}': {np_}% missing — imputation needed."})
+        for c in numeric_cols:
+            zp = round((df[c] == 0).mean() * 100, 1)
+            if zp > 50:
+                ap_alerts.append({"col": c, "type": "ZEROS", "sev": "warning",
+                                  "msg": f"'{c}': {zp}% zero values — zero-inflated distribution."})
+        for c in cat_cols:
+            uniq = df[c].nunique()
+            if uniq > max(50, rows * 0.5):
+                ap_alerts.append({"col": c, "type": "HIGH CARDINALITY", "sev": "warning",
+                                  "msg": f"'{c}': {uniq:,} unique values — likely an ID, consider dropping."})
+        for c in cat_cols:
+            if df[c].notna().sum() > 0:
+                top_pct = round(df[c].value_counts(normalize=True).iloc[0] * 100, 1)
+                if top_pct > 90:
+                    ap_alerts.append({"col": c, "type": "IMBALANCED", "sev": "warning",
+                                      "msg": f"'{c}': top category = {top_pct}% of values — highly imbalanced."})
+        for c in numeric_cols:
+            try:
+                skv = round(float(df[c].skew()), 2)
+                if abs(skv) > 2:
+                    ap_alerts.append({"col": c, "type": "SKEWED", "sev": "warning",
+                                      "msg": f"'{c}': skewness={skv:+.2f} — consider log/sqrt transform."})
+            except Exception:
+                pass
+        for c in numeric_cols:
+            q1_, q3_ = df[c].quantile(0.25), df[c].quantile(0.75)
+            iqr_ = q3_ - q1_
+            oc_ = int(((df[c] < q1_ - 1.5 * iqr_) | (df[c] > q3_ + 1.5 * iqr_)).sum())
+            op_ = round(oc_ / max(rows, 1) * 100, 1)
+            if op_ > 10:
+                ap_alerts.append({"col": c, "type": "OUTLIERS", "sev": "warning",
+                                  "msg": f"'{c}': {oc_:,} outliers ({op_}%) — investigate or cap."})
+        for p in corr_pairs[:20]:
+            if abs(p["correlation"]) > 0.9:
+                ap_alerts.append({"col": p["col_a"], "type": "HIGH CORR", "sev": "warning",
+                                  "msg": f"'{p['col_a']}' \u2194 '{p['col_b']}': r={p['correlation']:+.3f} — possible multicollinearity."})
+        if dup_count > 0:
+            dp_ = round(dup_count / max(rows, 1) * 100, 1)
+            ap_alerts.append({"col": None, "type": "DUPLICATES", "sev": "warning" if dp_ < 5 else "error",
+                              "msg": f"{dup_count:,} duplicate rows ({dp_}%) — consider deduplication."})
+
+        def _ap_alerts_html(al):
+            if not al:
+                return '<div class="alert-panel"><div class="alert-item info"><span class="alert-badge info">OK</span> No data quality alerts detected.</div></div>'
+            items = []
+            for a in al:
+                badge_cls = "error" if a["sev"] == "error" else "warning" if a["sev"] == "warning" else "info"
+                items.append(f'<div class="alert-item {badge_cls}"><span class="alert-badge {badge_cls}">{a["type"]}</span> {a["msg"]}</div>')
+            return f'<div class="alert-panel">{"".join(items)}</div>'
+
+        _profile_vars = css_vars(theme)
+        if theme == "dark":
+            _plot_bg = "#161b22"
+            _font_color = "#c9d1d9"
+        elif theme == "light":
+            _plot_bg = "#f6f8fa"
+            _font_color = "#1f2328"
+        else:  # device
+            _plot_bg = "#f6f8fa"
+            _font_color = "#1f2328"
+
         h = []
-        h.append("""<!DOCTYPE html><html><head><meta charset='utf-8'><meta name="viewport" content="width=device-width,initial-scale=1"><title>Data Profile</title>
-<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+        _profile_css = f"""<!DOCTYPE html><html><head><meta charset='utf-8'><meta name="viewport" content="width=device-width,initial-scale=1"><title>Data Profile</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <style>
-:root{--bg:#0d1117;--surface:#161b22;--border:#21262d;--text:#c9d1d9;--text-muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--orange:#f0883e;--red:#f85149;--sidebar-w:300px;--chart-h:420px;--heatmap-h:500px}
-*{box-sizing:border-box;margin:0;padding:0}
-html{scroll-behavior:smooth}
-body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh}
-::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:#30363d;border-radius:4px}::-webkit-scrollbar-thumb:hover{background:#484f58}
-.sidebar{width:var(--sidebar-w);background:var(--surface);border-right:1px solid var(--border);position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:100;display:flex;flex-direction:column}
-.sidebar-header{padding:24px 20px 16px;border-bottom:1px solid var(--border)}
-.sidebar-header h2{color:var(--accent);font-size:18px;margin-bottom:4px;font-weight:600}
-.sidebar-header .file-name{color:var(--text-muted);font-size:13px;margin-bottom:2px;word-break:break-all}
-.sidebar-header .meta{color:var(--text-muted);font-size:12px}
-.sidebar-nav{padding:12px 0;flex:1}
-.sidebar-nav a{display:block;padding:8px 20px;color:var(--text-muted);text-decoration:none;font-size:13px;border-left:3px solid transparent;transition:all 0.15s}
-.sidebar-nav a:hover{color:var(--accent);background:rgba(88,166,255,0.06);border-left-color:var(--accent)}
-.sidebar-nav .st{padding:16px 20px 6px;color:#484f58;font-size:10px;text-transform:uppercase;letter-spacing:1.2px;font-weight:600}
-.main{margin-left:var(--sidebar-w);padding:32px;flex:1;max-width:1400px;width:100%}
-.section{margin-bottom:48px}
-.section h1{color:var(--accent);font-size:26px;margin-bottom:24px;padding-bottom:12px;border-bottom:2px solid var(--border);font-weight:600}
-.section h2{color:var(--accent);font-size:20px;margin:32px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border);font-weight:600}
-.section h3{color:var(--text);font-size:15px;margin:12px 0 8px;font-weight:500}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:24px}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px 20px;text-align:center;transition:transform 0.15s,border-color 0.15s}
-.card:hover{transform:translateY(-2px);border-color:var(--accent)}
-.card .num{font-size:30px;font-weight:700;color:var(--accent);line-height:1.2}
-.card .label{font-size:11px;color:var(--text-muted);margin-top:6px;text-transform:uppercase;letter-spacing:0.8px}
-.card.good .num{color:var(--green)}.card.warn .num{color:var(--orange)}.card.bad .num{color:var(--red)}
-table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px;background:var(--surface);border-radius:8px;overflow:hidden}
-th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border)}
-th{background:rgba(88,166,255,0.08);color:var(--accent);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.5px}
-tr:hover{background:rgba(88,166,255,0.04)}
-.split{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:16px 0}
-.split-left table{margin:0}
-.split-right .cc{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px}
-.cc-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;margin:16px 0;overflow:hidden;transition:border-color 0.15s}
-.cc-card:hover{border-color:var(--accent)}
-.cc-hdr{padding:14px 18px;background:rgba(88,166,255,0.04);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
-.cc-hdr h3{color:var(--text);font-size:15px;margin:0;font-weight:600}
-.badge{font-size:11px;padding:3px 10px;border-radius:12px;background:var(--border);color:var(--text-muted);font-weight:500}
-.cc-body{padding:18px}
-.insights{list-style:none;padding:0}
-.insights li{padding:12px 16px;margin:6px 0;background:var(--surface);border-radius:8px;border-left:4px solid var(--accent);font-size:13px;line-height:1.5}
-.insights li.warn{border-left-color:var(--orange)}.insights li.bad{border-left-color:var(--red)}.insights li.good{border-left-color:var(--green)}
-.mbar{height:28px;background:var(--border);border-radius:6px;overflow:hidden;margin:4px 0}
-.mbar-fill{height:100%;background:linear-gradient(90deg,var(--orange),var(--red));border-radius:6px;transition:width 0.3s}
-.chart-container{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin:16px 0}
-@media(max-width:1100px){.split{grid-template-columns:1fr}.sidebar{width:260px}.main{margin-left:260px}}
-@media(max-width:768px){.sidebar{display:none}.main{margin-left:0;padding:20px}.cards{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}}
-</style></head><body>""")
+{_profile_vars}
+:root{{--sidebar-w:300px;--chart-h:420px;--heatmap-h:500px}}
+*{{box-sizing:border-box;margin:0;padding:0}}
+html{{scroll-behavior:smooth}}
+body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh}}
+::-webkit-scrollbar{{width:8px}}::-webkit-scrollbar-track{{background:var(--bg)}}::-webkit-scrollbar-thumb{{background:#30363d;border-radius:4px}}::-webkit-scrollbar-thumb:hover{{background:#484f58}}
+.sidebar{{width:var(--sidebar-w);background:var(--surface);border-right:1px solid var(--border);position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:100;display:flex;flex-direction:column}}
+.sidebar-header{{padding:24px 20px 16px;border-bottom:1px solid var(--border)}}
+.sidebar-header h2{{color:var(--accent);font-size:18px;margin-bottom:4px;font-weight:600}}
+.sidebar-header .file-name{{color:var(--text-muted);font-size:13px;margin-bottom:2px;word-break:break-all}}
+.sidebar-header .meta{{color:var(--text-muted);font-size:12px}}
+.sidebar-nav{{padding:12px 0;flex:1}}
+.sidebar-nav a{{display:block;padding:8px 20px;color:var(--text-muted);text-decoration:none;font-size:13px;border-left:3px solid transparent;transition:all 0.15s}}
+.sidebar-nav a:hover{{color:var(--accent);background:rgba(88,166,255,0.06);border-left-color:var(--accent)}}
+.sidebar-nav .st{{padding:16px 20px 6px;color:#484f58;font-size:10px;text-transform:uppercase;letter-spacing:1.2px;font-weight:600}}
+.main{{margin-left:var(--sidebar-w);padding:32px;flex:1;max-width:1400px;width:100%}}
+.section{{margin-bottom:48px}}
+.section h1{{color:var(--accent);font-size:26px;margin-bottom:24px;padding-bottom:12px;border-bottom:2px solid var(--border);font-weight:600}}
+.section h2{{color:var(--accent);font-size:20px;margin:32px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border);font-weight:600}}
+.section h3{{color:var(--text);font-size:15px;margin:12px 0 8px;font-weight:500}}
+.cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:24px}}
+.card{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px 20px;text-align:center;transition:transform 0.15s,border-color 0.15s}}
+.card:hover{{transform:translateY(-2px);border-color:var(--accent)}}
+.card .num{{font-size:30px;font-weight:700;color:var(--accent);line-height:1.2}}
+.card .label{{font-size:11px;color:var(--text-muted);margin-top:6px;text-transform:uppercase;letter-spacing:0.8px}}
+.card.good .num{{color:var(--green)}}.card.warn .num{{color:var(--orange)}}.card.bad .num{{color:var(--red)}}
+table{{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px;background:var(--surface);border-radius:8px;overflow:hidden}}
+th,td{{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border)}}
+th{{background:rgba(88,166,255,0.08);color:var(--accent);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.5px}}
+tr:hover{{background:rgba(88,166,255,0.04)}}
+.split{{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:16px 0}}
+.split-left table{{margin:0}}
+.split-right .cc{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px}}
+.cc-card{{background:var(--surface);border:1px solid var(--border);border-radius:10px;margin:16px 0;overflow:hidden;transition:border-color 0.15s}}
+.cc-card:hover{{border-color:var(--accent)}}
+.cc-hdr{{padding:14px 18px;background:rgba(88,166,255,0.04);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}}
+.cc-hdr h3{{color:var(--text);font-size:15px;margin:0;font-weight:600}}
+.badge{{font-size:11px;padding:3px 10px;border-radius:12px;background:var(--border);color:var(--text-muted);font-weight:500}}
+.cc-body{{padding:18px}}
+.insights{{list-style:none;padding:0}}
+.insights li{{padding:12px 16px;margin:6px 0;background:var(--surface);border-radius:8px;border-left:4px solid var(--accent);font-size:13px;line-height:1.5}}
+.insights li.warn{{border-left-color:var(--orange)}}.insights li.bad{{border-left-color:var(--red)}}.insights li.good{{border-left-color:var(--green)}}
+.mbar{{height:28px;background:var(--border);border-radius:6px;overflow:hidden;margin:4px 0}}
+.mbar-fill{{height:100%;background:linear-gradient(90deg,var(--orange),var(--red));border-radius:6px;transition:width 0.3s}}
+.chart-container{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin:16px 0}}
+.alert-panel{{border-radius:10px;overflow:hidden;margin-bottom:20px}}
+.alert-item{{padding:10px 14px;margin:3px 0;font-size:13px;border-radius:8px;display:flex;align-items:flex-start;gap:10px;background:var(--surface);border:1px solid var(--border)}}
+.alert-item.error{{border-left:4px solid var(--red)}}.alert-item.warning{{border-left:4px solid var(--orange)}}.alert-item.info{{border-left:4px solid var(--green)}}
+.alert-badge{{font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;white-space:nowrap;flex-shrink:0;margin-top:1px}}
+.alert-badge.error{{background:var(--red);color:#fff}}.alert-badge.warning{{background:var(--orange);color:#fff}}.alert-badge.info{{background:var(--green);color:#fff}}
+@media(max-width:1100px){{.split{{grid-template-columns:1fr}}.sidebar{{width:260px}}.main{{margin-left:260px}}}}
+@media(max-width:768px){{.sidebar{{display:none}}.main{{margin-left:0;padding:20px}}.cards{{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}}}}
+</style></head><body>"""
+        h.append(_profile_css)
 
         # Sidebar
         h.append(f"""<div class="sidebar"><div class="sidebar-header"><h2>Data Profile</h2><p class="file-name">{path.name}</p><p class="meta">{rows:,} rows x {cols} columns</p></div>
 <div class="sidebar-nav"><div class="st">Overview</div>
-<a href="#overview">Dashboard</a><a href="#quality">Data Quality</a><a href="#stats">Statistics</a><a href="#categorical">Categorical</a><a href="#correlations">Correlations</a><a href="#network">Network</a><a href="#recommendations">Recommendations</a><a href="#insights">Insights</a>
+<a href="#overview">Dashboard</a><a href="#alerts">Alerts ({len(ap_alerts)})</a><a href="#sample">Data Sample</a><a href="#quality">Data Quality</a><a href="#stats">Statistics</a><a href="#categorical">Categorical</a><a href="#correlations">Correlations</a><a href="#network">Network</a><a href="#recommendations">Recommendations</a><a href="#insights">Insights</a>
 <div class="st">Variables ({cols})</div>""")
         for c in df.columns:
             info = col_analysis[c]
@@ -747,6 +1125,23 @@ tr:hover{background:rgba(88,166,255,0.04)}
             )
         h.append("</div></div>")
 
+        # Alerts section
+        h.append(f'<div id="alerts" class="section"><h1>Alerts &amp; Warnings</h1>{_ap_alerts_html(ap_alerts)}</div>')
+
+        # Data Sample (head 5 + tail 5)
+        ap_sample_cols = list(df.columns)
+        ap_sample_header = "".join(f"<th>{c}</th>" for c in ap_sample_cols)
+        ap_sample_body = ""
+        for _, row in df.head(5).iterrows():
+            cells = "".join(f"<td>{str(v)[:50]}</td>" for v in row.values)
+            ap_sample_body += f"<tr>{cells}</tr>"
+        if len(df) > 5:
+            ap_sample_body += f'<tr><td colspan="{len(ap_sample_cols)}" style="text-align:center;color:var(--text-muted);font-style:italic">... {len(df) - 10:,} rows omitted ...</td></tr>'
+            for _, row in df.tail(5).iterrows():
+                cells = "".join(f"<td>{str(v)[:50]}</td>" for v in row.values)
+                ap_sample_body += f"<tr>{cells}</tr>"
+        h.append(f'<div id="sample" class="section"><h1>Data Sample</h1><div style="overflow-x:auto"><table><tr>{ap_sample_header}</tr>{ap_sample_body}</table></div></div>')
+
         # Missing Data
         if missing_by_col:
             h.append('<div id="missing" class="section"><h2>Missing Data Analysis</h2>')
@@ -758,7 +1153,37 @@ tr:hover{background:rgba(88,166,255,0.04)}
                 h.append(
                     f'<tr><td><b>{c}</b></td><td>{count:,}</td><td>{pct}%</td><td><div class="mbar"><div class="mbar-fill" style="width:{pct}%"></div></div></td></tr>'
                 )
-            h.append("</table></div>")
+            h.append("</table>")
+            # Missing value matrix
+            if missing_by_col:
+                ap_miss_cols = list(missing_by_col.keys())
+                ap_miss_sample = df[ap_miss_cols].isnull().astype(int)
+                if len(ap_miss_sample) > 300:
+                    ap_miss_sample = ap_miss_sample.sample(300, random_state=42).reset_index(drop=True)
+                else:
+                    ap_miss_sample = ap_miss_sample.reset_index(drop=True)
+                ap_miss_z = ap_miss_sample.values.tolist()
+                ap_miss_y = list(range(len(ap_miss_sample)))
+                ap_accent = "#58a6ff" if theme in ("dark", "device") else "#0969da"
+                h.append(f"""<div class="chart-container">
+  <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">White = present, colored = missing. Sampled {len(ap_miss_sample)} rows.</p>
+  <div id="ap-miss-matrix" style="height:{min(400, max(200, len(ap_miss_sample)))}px"></div>
+</div>
+<script>
+(function(){{
+  var z={ap_miss_z};var x={ap_miss_cols};var y={ap_miss_y};
+  var data=[{{z:z,x:x,y:y,type:'heatmap',colorscale:[['0','rgba(0,0,0,0)'],['1','{ap_accent}']],
+    showscale:false,hovertemplate:'Column: %{{x}}<br>Row: %{{y}}<br>Missing: %{{z}}<extra></extra>'}}];
+  var layout={{paper_bgcolor:'{_plot_bg}',plot_bgcolor:'{_plot_bg}',
+    font:{{color:'{_font_color}'}},
+    margin:{{l:60,r:10,t:10,b:80}},autosize:true,
+    xaxis:{{tickangle:-45,tickfont:{{size:11}}}},
+    yaxis:{{title:'Row index',tickfont:{{size:10}}}}
+  }};
+  Plotly.newPlot('ap-miss-matrix',data,layout,{{responsive:true,displayModeBar:false}});
+}})();
+</script>""")
+            h.append("</div>")
 
         # Correlations
         if corr_pairs:
@@ -776,12 +1201,12 @@ tr:hover{background:rgba(88,166,255,0.04)}
     var z = {corr_z};
     var x = {corr_x};
     var data = [{{z: z, x: x, y: x, type: 'heatmap', colorscale: 'RdBu', zmid: 0, text: z.map(function(r) {{ return r.map(function(v) {{ return v.toFixed(2); }}); }}), texttemplate: '%{{text}}', textfont: {{size: 11}}}}];
-    var layout = {{paper_bgcolor: '#161b22', plot_bgcolor: '#161b22', font: {{color: '#c9d1d9'}}, margin: {{l: 120, r: 20, t: 20, b: 120}}, height: 500}};
+    var layout = {{paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}', font: {{color: '{_font_color}'}}, margin: {{l: 120, r: 20, t: 20, b: 120}}, height: 500}};
     Plotly.newPlot('corr-heatmap', data, layout, {{responsive: true, displayModeBar: false}});
 }})();
 </script>""")
             h.append(
-                "<h3>Strongest Correlations</h3><table><tr><th>Variable A</th><th>Variable B</th><th>r</th><th>Strength</th></tr>"
+                "<h3>Strongest Correlations (Pearson)</h3><table><tr><th>Variable A</th><th>Variable B</th><th>r</th><th>Strength</th></tr>"
             )
             for p in corr_pairs[:15]:
                 s = (
@@ -803,7 +1228,23 @@ tr:hover{background:rgba(88,166,255,0.04)}
                 h.append(
                     f'<tr class="{cls}"><td>{p["col_a"]}</td><td>{p["col_b"]}</td><td>{p["correlation"]:+.4f}</td><td>{s}</td></tr>'
                 )
-            h.append("</table></div>")
+            h.append("</table>")
+            # Spearman heatmap
+            if spearman_matrix_ap is not None:
+                sp_ap_z = spearman_matrix_ap.values.tolist()
+                sp_ap_x = spearman_matrix_ap.columns.tolist()
+                h.append(f"""<h3 style="color:var(--accent);font-size:15px;margin:20px 0 8px">Spearman Rank Correlation</h3>
+<div class="chart-container" style="margin:16px 0"><div id="sp-corr-ap" style="height:var(--heatmap-h)"></div></div>
+<script>
+(function() {{
+    var z = {sp_ap_z};
+    var x = {sp_ap_x};
+    var data = [{{z: z, x: x, y: x, type: 'heatmap', colorscale: 'RdBu', zmid: 0, text: z.map(function(r) {{ return r.map(function(v) {{ return v.toFixed(2); }}); }}), texttemplate: '%{{text}}', textfont: {{size: 11}}}}];
+    var layout = {{paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}', font: {{color: '{_font_color}'}}, margin: {{l: 120, r: 20, t: 20, b: 120}}, height: 500}};
+    Plotly.newPlot('sp-corr-ap', data, layout, {{responsive: true, displayModeBar: false}});
+}})();
+</script>""")
+            h.append("</div>")
 
         # Key Insights
         h.append(
@@ -975,15 +1416,15 @@ tr:hover{background:rgba(88,166,255,0.04)}
         x: nodePos.map(function(n) {{ return n.x; }}),
         y: nodePos.map(function(n) {{ return n.y; }}),
         text: nodePos.map(function(n) {{ return n.label; }}),
-        textposition: 'middle center', textfont: {{size: 12, color: '#c9d1d9'}},
-        marker: {{size: 20, color: '#58a6ff', line: {{width: 2, color: '#0d1117'}}}},
+        textposition: 'middle center', textfont: {{size: 12, color: '{_font_color}'}},
+        marker: {{size: 20, color: '#58a6ff', line: {{width: 2, color: '{_plot_bg}'}}}},
         hoverinfo: 'text',
         text: nodePos.map(function(n) {{ return n.label; }}),
         showlegend: false
     }});
     var layout = {{
-        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
-        font: {{color: '#c9d1d9'}},
+        paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}',
+        font: {{color: '{_font_color}'}},
         height: 500, margin: {{l: 20, r: 20, t: 20, b: 20}},
         xaxis: {{visible: false, range: [-250, 250]}},
         yaxis: {{visible: false, range: [-250, 250]}},
@@ -1094,16 +1535,20 @@ tr:hover{background:rgba(88,166,255,0.04)}
                 ]:
                     h.append(f"<tr><td>{k.title()}</td><td>{info[k]:,.4f}</td></tr>")
                 h.append(
+                    f"<tr><td>Zeros</td><td>{info.get('zero_count', 0):,} ({info.get('zero_pct', 0)}%)</td></tr>"
+                )
+                h.append(
                     f"<tr><td>Outliers</td><td>{info['outlier_count']:,} ({info['outlier_pct']}%)</td></tr>"
                 )
             elif c in cat_cols:
                 h.append(
-                    f"<tr><td>Mode</td><td>{info['mode']}</td></tr></table><h4 style='margin-top:10px;color:#8b949e;font-size:12px'>Top Values</h4><table><tr><th>Value</th><th>Count</th><th>%</th></tr>"
+                    f"<tr><td>Mode</td><td>{info['mode']}</td></tr></table><h4 style='margin-top:10px;color:#8b949e;font-size:12px'>Top Values</h4><table><tr><th>Value</th><th>Count</th><th>%</th><th>Bar</th></tr>"
                 )
                 for val, count in info["top_values"].items():
                     pct = round(count / rows * 100, 1)
                     h.append(
-                        f"<tr><td>{val}</td><td>{count:,}</td><td>{pct}%</td></tr>"
+                        f'<tr><td>{val}</td><td>{count:,}</td><td>{pct}%</td>'
+                        f'<td><div class="mbar"><div class="mbar-fill" style="width:{pct}%;background:var(--accent)"></div></div></td></tr>'
                     )
             elif c in datetime_cols:
                 h.append(
@@ -1122,8 +1567,8 @@ tr:hover{background:rgba(88,166,255,0.04)}
     var trace1 = {{x: d, type: 'histogram', nbinsx: 50, marker: {{color: '#58a6ff', opacity: 0.7}}, yaxis: 'y'}};
     var trace2 = {{y: d, type: 'box', marker: {{color: '#f0883e'}}, xaxis: 'x2', yaxis: 'y2'}};
     var layout = {{
-        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
-        font: {{color: '#c9d1d9'}},
+        paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}',
+        font: {{color: '{_font_color}'}},
         grid: {{rows: 2, columns: 1, pattern: 'independent'}},
         height: 420, margin: {{l: 50, r: 20, t: 10, b: 30}},
         yaxis: {{title: 'Count'}},
@@ -1145,8 +1590,8 @@ tr:hover{background:rgba(88,166,255,0.04)}
         textposition: 'outside'
     }}];
     var layout = {{
-        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
-        font: {{color: '#c9d1d9'}},
+        paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}',
+        font: {{color: '{_font_color}'}},
         height: 420, margin: {{l: 50, r: 20, t: 10, b: 80}},
         xaxis: {{tickangle: -45}}
     }};
@@ -1165,8 +1610,8 @@ tr:hover{background:rgba(88,166,255,0.04)}
         line: {{color: '#3fb950'}}
     }}];
     var layout = {{
-        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
-        font: {{color: '#c9d1d9'}},
+        paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}',
+        font: {{color: '{_font_color}'}},
         height: 420, margin: {{l: 50, r: 20, t: 10, b: 30}}
     }};
     Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
@@ -1174,6 +1619,8 @@ tr:hover{background:rgba(88,166,255,0.04)}
 </script>""")
             h.append("</div></div></div></div></div>")
 
+        if theme == "device":
+            h.append(device_mode_js())
         h.append("</div></body></html>")
 
         html_content = "\n".join(h)
@@ -1239,6 +1686,7 @@ def generate_pairwise_plot(
     max_cols: int = 6,
     output_path: str = "",
     open_after: bool = True,
+    theme: str = "dark",
 ) -> dict:
     """Pairwise scatter + histogram matrix for numeric columns. Opens HTML."""
     progress = []
@@ -1295,29 +1743,21 @@ def generate_pairwise_plot(
         fig = px.scatter_matrix(
             plot_df,
             title=f"Pairwise Plot: {', '.join(cols_to_plot)}",
-            template="plotly_dark",
+            template=plotly_template(theme),
         )
-        fig.update_layout(height=200 * len(cols_to_plot), width=200 * len(cols_to_plot))
+        fig.update_layout(autosize=True)
 
-        if output_path:
-            out = Path(output_path)
-        else:
-            out = path.parent / f"{path.stem}_pairwise.html"
-
-        fig.write_html(str(out), include_plotlyjs=True, full_html=True)
-
-        if open_after:
-            _open_file(out)
+        abs_p, fname = _save_chart(fig, output_path, "pairwise", path, open_after, theme)
 
         progress.append(
-            ok("Pairwise plot saved", f"{out.name} — {len(cols_to_plot)} columns")
+            ok("Pairwise plot saved", f"{fname} — {len(cols_to_plot)} columns")
         )
 
         result = {
             "success": True,
             "op": "generate_pairwise_plot",
-            "output_path": str(out.resolve()),
-            "output_name": out.name,
+            "output_path": abs_p,
+            "output_name": fname,
             "columns_plotted": cols_to_plot,
             "progress": progress,
         }
@@ -1436,6 +1876,7 @@ def generate_multi_chart(
     output_path: str = "",
     title: str = "",
     open_after: bool = True,
+    theme: str = "dark",
 ) -> dict:
     """Multi-variable bar/line chart. Compares 2+ metrics. Opens HTML."""
     progress = []
@@ -1511,32 +1952,25 @@ def generate_multi_chart(
 
         fig.update_layout(
             title=chart_title,
-            template="plotly_dark",
+            template=plotly_template(theme),
             xaxis_title=category_column or "Period",
             yaxis_title=agg_func.title(),
             legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
             margin=dict(l=20, r=20, t=40, b=20),
         )
 
-        if output_path:
-            out = Path(output_path)
-        else:
-            out = path.parent / f"{path.stem}_multi_{chart_type}.html"
-
-        fig.write_html(str(out), include_plotlyjs=True, full_html=True)
-        if open_after:
-            _open_file(out)
+        abs_p, fname = _save_chart(fig, output_path, f"multi_{chart_type}", path, open_after, theme)
 
         progress.append(
-            ok("Multi-chart saved", f"{out.name} - {len(value_columns)} metrics")
+            ok("Multi-chart saved", f"{fname} - {len(value_columns)} metrics")
         )
 
         result = {
             "success": True,
             "op": "generate_multi_chart",
             "chart_type": chart_type,
-            "output_path": str(out.resolve()),
-            "output_name": out.name,
+            "output_path": abs_p,
+            "output_name": fname,
             "title": chart_title,
             "metrics_plotted": value_columns,
             "progress": progress,
@@ -1576,7 +2010,7 @@ def generate_chart(
     geo_join_column: str = "",
     output_path: str = "",
     title: str = "",
-    theme: str = "plotly_dark",
+    theme: str = "dark",
     open_after: bool = True,
 ) -> dict:
     """Generate Plotly chart. type: bar pie line scatter geo treemap radius."""
@@ -1712,7 +2146,7 @@ def generate_chart(
                 x=category_column,
                 y=value_column,
                 title=chart_title,
-                template=theme,
+                template=plotly_template(theme),
                 color=color_column if color_column else None,
             )
         elif chart_type == "pie":
@@ -1721,7 +2155,7 @@ def generate_chart(
                 names=category_column,
                 values=value_column,
                 title=chart_title,
-                template=theme,
+                template=plotly_template(theme),
                 hole=0.5,
             )
         elif chart_type == "line":
@@ -1730,7 +2164,7 @@ def generate_chart(
                 x=category_column,
                 y=value_column,
                 title=chart_title,
-                template=theme,
+                template=plotly_template(theme),
                 color=color_column if color_column else None,
             )
         elif chart_type == "scatter":
@@ -1739,7 +2173,7 @@ def generate_chart(
                 x=category_column,
                 y=value_column,
                 title=chart_title,
-                template=theme,
+                template=plotly_template(theme),
                 color=color_column if color_column else None,
             )
         elif chart_type == "geo":
@@ -1749,7 +2183,7 @@ def generate_chart(
                 locations=chart_df.index,
                 color=value_column,
                 title=chart_title,
-                template=theme,
+                template=plotly_template(theme),
                 mapbox_style="carto-positron",
                 center={"lat": 37.09, "lon": -73.94},
                 zoom=3,
@@ -1760,7 +2194,7 @@ def generate_chart(
                 path=hierarchy_columns,
                 values=value_column,
                 title=chart_title,
-                template=theme,
+                template=plotly_template(theme),
             )
         elif chart_type == "time_series":
             fig = px.line(
@@ -1768,7 +2202,7 @@ def generate_chart(
                 x="period",
                 y=value_column,
                 title=chart_title,
-                template=theme,
+                template=plotly_template(theme),
                 markers=True,
             )
             fig.update_xaxes(title_text="Period")
@@ -1785,7 +2219,7 @@ def generate_chart(
             fig.update_layout(
                 polar=dict(radialaxis=dict(visible=True)),
                 title=chart_title,
-                template=theme,
+                template=plotly_template(theme),
             )
 
         if fig is None:
@@ -1798,26 +2232,18 @@ def generate_chart(
             }
 
         fig.update_layout(margin=dict(l=20, r=20, t=40, b=20))
-
-        if output_path:
-            out = Path(output_path)
-        else:
-            out = path.parent / f"{path.stem}_{chart_type}.html"
-
-        fig.write_html(str(out), include_plotlyjs=True, full_html=True)
         rows_plotted = len(chart_df)
 
-        if open_after:
-            _open_file(out)
+        abs_p, fname = _save_chart(fig, output_path, chart_type, path, open_after, theme)
 
-        progress.append(ok("Chart saved", f"{out.name} ({rows_plotted} rows)"))
+        progress.append(ok("Chart saved", f"{fname} ({rows_plotted} rows)"))
 
         result = {
             "success": True,
             "op": "generate_chart",
             "chart_type": chart_type,
-            "output_path": str(out.resolve()),
-            "output_name": out.name,
+            "output_path": abs_p,
+            "output_name": fname,
             "title": chart_title,
             "rows_plotted": rows_plotted,
             "progress": progress,
@@ -1847,7 +2273,7 @@ def generate_dashboard(
     title: str = "",
     chart_types: list[str] = None,
     geo_file_path: str = "",
-    theme: str = "plotly_dark",
+    theme: str = "dark",
     dry_run: bool = False,
     open_after: bool = True,
 ) -> dict:
@@ -1926,37 +2352,51 @@ def generate_dashboard(
             return result
 
         # Build interactive HTML dashboard
+        _dash_vars = css_vars(theme)
+        if theme == "dark":
+            _dash_plot_bg = "#161b22"
+            _dash_font_color = "#c9d1d9"
+        elif theme == "light":
+            _dash_plot_bg = "#f6f8fa"
+            _dash_font_color = "#1f2328"
+        else:  # device
+            _dash_plot_bg = "#f6f8fa"
+            _dash_font_color = "#1f2328"
+
         h = []
-        h.append("""<!DOCTYPE html>
+        h.append(f"""<!DOCTYPE html>
 <html><head><meta charset='utf-8'><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Dashboard</title>
-<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <style>
-:root{--bg:#0d1117;--surface:#161b22;--border:#21262d;--text:#c9d1d9;--text-muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--orange:#f0883e;--red:#f85149}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;max-width:100vw}
-::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:#30363d;border-radius:4px}
-header{background:var(--surface);border-bottom:1px solid var(--border);padding:20px 30px;display:flex;justify-content:space-between;align-items:center}
-header h1{color:var(--accent);font-size:22px;font-weight:600}
-header .meta{color:var(--text-muted);font-size:13px}
-.filters{background:var(--surface);border-bottom:1px solid var(--border);padding:16px 30px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
-.filters label{color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:600}
-.filters select{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:13px;min-width:150px}
-.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;padding:20px 30px}
-.kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;text-align:center}
-.kpi-card .num{font-size:26px;font-weight:700;color:var(--accent)}
-.kpi-card .label{font-size:11px;color:var(--text-muted);margin-top:4px;text-transform:uppercase}
-.charts{padding:20px 30px;display:grid;grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:16px}
-.chart-box{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;overflow:hidden;min-width:0}
-.chart-box h3{color:var(--text);font-size:13px;margin-bottom:8px;padding-left:4px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.full-width{grid-column:1/-1}
-@media(max-width:1100px){.charts{grid-template-columns:1fr}}
-@media(max-width:600px){header,.filters,.kpi-row,.charts{padding-left:16px;padding-right:16px}.kpi-row{grid-template-columns:repeat(2,1fr)}.charts{grid-template-columns:1fr}}
-@media(max-width:600px){header,.filters,.kpi-row,.charts{padding-left:16px;padding-right:16px}.kpi-row{grid-template-columns:repeat(2,1fr)}.charts{grid-template-columns:1fr}}
+{_dash_vars}
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;max-width:100vw}}
+::-webkit-scrollbar{{width:8px}}::-webkit-scrollbar-track{{background:var(--bg)}}::-webkit-scrollbar-thumb{{background:var(--border);border-radius:4px}}
+header{{background:var(--surface);border-bottom:1px solid var(--border);padding:20px 30px;display:flex;justify-content:space-between;align-items:center}}
+header h1{{color:var(--accent);font-size:22px;font-weight:600}}
+header .meta{{color:var(--text-muted);font-size:13px}}
+.filters{{background:var(--surface);border-bottom:1px solid var(--border);padding:16px 30px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}}
+.filters label{{color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:600}}
+.filters select{{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:13px;min-width:150px}}
+.kpi-row{{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;padding:20px 30px}}
+.kpi-card{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;text-align:center}}
+.kpi-card .num{{font-size:26px;font-weight:700;color:var(--accent)}}
+.kpi-card .label{{font-size:11px;color:var(--text-muted);margin-top:4px;text-transform:uppercase}}
+.kpi-trend{{font-size:14px;margin-top:4px;font-weight:600}}
+.trend-up{{color:var(--green)}}.trend-down{{color:var(--red)}}.trend-flat{{color:var(--text-muted)}}
+.charts{{padding:20px 30px;display:grid;grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:16px}}
+.chart-box{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;overflow:hidden;min-width:0}}
+.chart-box h3{{color:var(--text);font-size:13px;margin-bottom:8px;padding-left:4px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.full-width{{grid-column:1/-1}}
+.filter-clear{{background:none;border:1px solid var(--border);color:var(--text-muted);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer}}
+.filter-clear:hover{{border-color:var(--accent);color:var(--accent)}}
+@media(max-width:1100px){{.charts{{grid-template-columns:1fr}}}}
+@media(max-width:600px){{header,.filters,.kpi-row,.charts{{padding-left:16px;padding-right:16px}}.kpi-row{{grid-template-columns:repeat(2,1fr)}}.charts{{grid-template-columns:1fr}}}}
 </style></head><body>""")
 
         # Header
-        h.append(f"""<header><h1>:bar_chart: {dashboard_title}</h1>
+        h.append(f"""<header><h1>{dashboard_title}</h1>
 <p class="meta">{len(df):,} rows x {len(df.columns)} columns | {len(numeric_cols)} numeric, {len(cat_cols)} categorical</p></header>""")
 
         # Filters
@@ -1969,17 +2409,51 @@ header .meta{color:var(--text-muted);font-size:13px}
                         f'<option value="{v}">{v}</option>' for v in unique_vals[:50]
                     )
                     h.append(
-                        f'<div><label>{fc}</label><select id="filter-{fc}" multiple size="1" onchange="applyFilters()">{options}</select></div>'
+                        f'<div><label>{fc}</label><select id="filter-{fc}" multiple size="3" onchange="applyFilters()">{options}</select></div>'
                     )
+            h.append('<button class="filter-clear" onclick="clearFilters()">Clear All</button>')
             h.append("</div>")
+            h.append("""<script>
+function applyFilters() {}
+function clearFilters() {
+  document.querySelectorAll('.filters select').forEach(function(s) {
+    Array.from(s.options).forEach(function(o) { o.selected = false; });
+  });
+}
+</script>""")
 
-        # KPI cards
+        # Data quality + KPI cards with sparklines and trend indicators
+        dash_null_pct = round(df.isnull().mean().mean() * 100, 1)
+        dash_dup_count = int(df.duplicated().sum())
+        dash_quality = max(0, round(100 - dash_null_pct * 2 - (dash_dup_count / max(len(df), 1) * 100) * 0.5))
+
         h.append('<div class="kpi-row">')
+        h.append(f'<div class="kpi-card"><div class="num" style="color:var(--{"green" if dash_quality >= 80 else "orange" if dash_quality >= 60 else "red"})">{dash_quality}</div><div class="label">Quality Score</div></div>')
         for nc in numeric_cols[:6]:
             val = df[nc].sum()
-            h.append(
-                f'<div class="kpi-card"><div class="num">{val:,.0f}</div><div class="label">{nc}</div></div>'
-            )
+            n_points = min(30, len(df))
+            step = max(1, len(df) // n_points)
+            spark_vals = df[nc].iloc[::step].head(n_points).fillna(0).tolist()
+            midpoint = len(df) // 2
+            first_half_mean = float(df[nc].iloc[:midpoint].mean()) if midpoint > 0 else 0
+            second_half_mean = float(df[nc].iloc[midpoint:].mean()) if midpoint < len(df) else 0
+            if second_half_mean > first_half_mean * 1.02:
+                trend_arrow, trend_cls = "\u2191", "trend-up"
+            elif second_half_mean < first_half_mean * 0.98:
+                trend_arrow, trend_cls = "\u2193", "trend-down"
+            else:
+                trend_arrow, trend_cls = "\u2192", "trend-flat"
+            spark_id = f"spark-{nc.replace(' ', '-').replace('_', '-')}"
+            h.append(f'<div class="kpi-card"><div class="num">{val:,.0f}</div><div class="kpi-trend {trend_cls}">{trend_arrow} <span style="font-size:10px">{nc}</span></div><div id="{spark_id}" style="height:40px;margin-top:4px"></div></div>')
+            h.append(f"""<script>(function(){{
+  var sv={spark_vals};
+  Plotly.newPlot('{spark_id}',[{{y:sv,type:'scatter',mode:'lines',
+    line:{{color:'var(--accent)',width:1.5}},fill:'tozeroy',fillcolor:'rgba(88,166,255,0.1)'}}],
+    {{paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',
+      margin:{{l:0,r:0,t:0,b:0}},xaxis:{{visible:false}},yaxis:{{visible:false}},
+      showlegend:false}},
+    {{responsive:true,displayModeBar:false,staticPlot:true}});
+}})();</script>""")
         h.append("</div>")
 
         # Charts grid
@@ -2010,8 +2484,8 @@ header .meta{color:var(--text-muted);font-size:13px}
         textposition: 'outside'
     }}];
     var layout = {{
-        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
-        font: {{color: '#c9d1d9'}},
+        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
+        font: {{color: '{_dash_font_color}'}},
         height: 380, margin: {{l: 20, r: 20, t: 10, b: 60}},
         xaxis: {{tickangle: -45}}
     }};
@@ -2039,8 +2513,8 @@ header .meta{color:var(--text-muted);font-size:13px}
         textfont: {{size: 12}}
     }}];
     var layout = {{
-        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
-        font: {{color: '#c9d1d9'}},
+        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
+        font: {{color: '{_dash_font_color}'}},
         height: 380, margin: {{l: 20, r: 20, t: 10, b: 20}}
     }};
     Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
@@ -2067,8 +2541,8 @@ header .meta{color:var(--text-muted);font-size:13px}
         hoverinfo: 'text'
     }}];
     var layout = {{
-        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
-        font: {{color: '#c9d1d9'}},
+        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
+        font: {{color: '{_dash_font_color}'}},
         height: 380, margin: {{l: 20, r: 20, t: 10, b: 40}},
         xaxis: {{title: '{nc1}'}},
         yaxis: {{title: '{nc2}'}}
@@ -2092,8 +2566,8 @@ header .meta{color:var(--text-muted);font-size:13px}
         text: z.map(function(r) {{ return r.map(function(v) {{ return v.toFixed(2); }}); }}),
         texttemplate: '%{{text}}', textfont: {{size: 11}}}}];
     var layout = {{
-        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
-        font: {{color: '#c9d1d9'}},
+        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
+        font: {{color: '{_dash_font_color}'}},
         height: 500, margin: {{l: 120, r: 20, t: 10, b: 120}}
     }};
     Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: false}});
@@ -2124,8 +2598,8 @@ header .meta{color:var(--text-muted);font-size:13px}
 (function() {{
     var data = [{",".join(traces)}];
     var layout = {{
-        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
-        font: {{color: '#c9d1d9'}},
+        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
+        font: {{color: '{_dash_font_color}'}},
         barmode: 'group',
         height: 400, margin: {{l: 20, r: 20, t: 10, b: 80}},
         xaxis: {{tickangle: -45}},
@@ -2154,8 +2628,8 @@ header .meta{color:var(--text-muted);font-size:13px}
 (function() {{
     var data = [{",".join(traces2)}];
     var layout = {{
-        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
-        font: {{color: '#c9d1d9'}},
+        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
+        font: {{color: '{_dash_font_color}'}},
         barmode: 'stack',
         height: 400, margin: {{l: 20, r: 20, t: 10, b: 80}},
         xaxis: {{tickangle: -45}},
@@ -2188,8 +2662,8 @@ header .meta{color:var(--text-muted);font-size:13px}
 (function() {{
     var data = [{",".join(traces)}];
     var layout = {{
-        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
-        font: {{color: '#c9d1d9'}},
+        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
+        font: {{color: '{_dash_font_color}'}},
         height: 400, margin: {{l: 20, r: 20, t: 10, b: 40}},
         xaxis: {{title: '{nc1}'}},
         yaxis: {{title: '{nc2}'}},
@@ -2222,8 +2696,8 @@ header .meta{color:var(--text-muted);font-size:13px}
         }}
     }}
     var layout = {{
-        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
-        font: {{color: '#c9d1d9'}},
+        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
+        font: {{color: '{_dash_font_color}'}},
         height: 400, margin: {{l: 20, r: 20, t: 10, b: 80}},
         xaxis: {{tickangle: -45}},
         showlegend: false
@@ -2253,8 +2727,8 @@ header .meta{color:var(--text-muted);font-size:13px}
         text: z.map(function(r) {{ return r.map(function(v) {{ return v.toFixed(0); }}); }}),
         texttemplate: '%{{text}}', textfont: {{size: 10}}}}];
     var layout = {{
-        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
-        font: {{color: '#c9d1d9'}},
+        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
+        font: {{color: '{_dash_font_color}'}},
         height: 500, margin: {{l: 120, r: 20, t: 10, b: 120}}
     }};
     Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: false}});
@@ -2285,8 +2759,8 @@ header .meta{color:var(--text-muted);font-size:13px}
         marker: {{size: 4, color: '#3fb950'}}
     }}];
     var layout = {{
-        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
-        font: {{color: '#c9d1d9'}},
+        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
+        font: {{color: '{_dash_font_color}'}},
         height: 380, margin: {{l: 20, r: 20, t: 10, b: 60}}
     }};
     Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
@@ -2295,7 +2769,7 @@ header .meta{color:var(--text-muted);font-size:13px}
                     except Exception:
                         pass
 
-        # Distribution charts
+        # Distribution charts (histogram + box)
         for nc in numeric_cols[:6]:
             clean_data = df[nc].dropna().tolist()
             chart_id = f"dist-{nc}"
@@ -2308,8 +2782,8 @@ header .meta{color:var(--text-muted);font-size:13px}
     var trace1 = {{x: d, type: 'histogram', nbinsx: 50, marker: {{color: '#58a6ff', opacity: 0.7}}, yaxis: 'y'}};
     var trace2 = {{y: d, type: 'box', marker: {{color: '#f0883e'}}, xaxis: 'x2', yaxis: 'y2'}};
     var layout = {{
-        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
-        font: {{color: '#c9d1d9'}},
+        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
+        font: {{color: '{_dash_font_color}'}},
         grid: {{rows: 1, columns: 2, pattern: 'independent'}},
         height: 350, margin: {{l: 50, r: 20, t: 10, b: 30}},
         yaxis: {{title: 'Count'}},
@@ -2319,6 +2793,29 @@ header .meta{color:var(--text-muted);font-size:13px}
 }})();
 </script>""")
 
+        # Violin distribution charts
+        import random as _random
+        for nc in numeric_cols[:6]:
+            clean_vals = df[nc].dropna().tolist()
+            if len(clean_vals) > 5000:
+                _random.seed(42)
+                clean_vals = _random.sample(clean_vals, 5000)
+            violin_id = f"violin-{nc.replace(' ', '-').replace('_', '-')}"
+            h.append(f'<div class="chart-box"><h3>{nc} Violin</h3><div id="{violin_id}" style="height:300px"></div></div>')
+            h.append(f"""<script>(function(){{
+  var data=[{{
+    y:{clean_vals},type:'violin',box:{{visible:true}},meanline:{{visible:true}},
+    name:'{nc}',fillcolor:'rgba(88,166,255,0.2)',
+    line:{{color:'#58a6ff'}},marker:{{color:'#58a6ff',size:3,opacity:0.5}},points:'suspectedoutliers'
+  }}];
+  var layout={{paper_bgcolor:'{_dash_plot_bg}',plot_bgcolor:'{_dash_plot_bg}',
+    font:{{color:'{_dash_font_color}'}},height:300,margin:{{l:40,r:10,t:10,b:40}},
+    yaxis:{{title:'{nc}'}},showlegend:false}};
+  Plotly.newPlot('{violin_id}',data,layout,{{responsive:true,displayModeBar:false}});
+}})();</script>""")
+
+        if theme == "device":
+            h.append(device_mode_js())
         h.append("</div></body></html>")
 
         html_content = "\n".join(h)
@@ -2486,8 +2983,8 @@ header .meta{color:var(--text-muted);font-size:13px}
         textposition: 'outside'
     }}];
     var layout = {{
-        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
-        font: {{color: '#c9d1d9'}},
+        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
+        font: {{color: '{_dash_font_color}'}},
         height: 380, margin: {{l: 20, r: 20, t: 10, b: 60}},
         xaxis: {{tickangle: -45}}
     }};
@@ -2515,8 +3012,8 @@ header .meta{color:var(--text-muted);font-size:13px}
         textfont: {{size: 12}}
     }}];
     var layout = {{
-        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
-        font: {{color: '#c9d1d9'}},
+        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
+        font: {{color: '{_dash_font_color}'}},
         height: 380, margin: {{l: 20, r: 20, t: 10, b: 20}}
     }};
     Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
@@ -2543,8 +3040,8 @@ header .meta{color:var(--text-muted);font-size:13px}
         hoverinfo: 'text'
     }}];
     var layout = {{
-        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
-        font: {{color: '#c9d1d9'}},
+        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
+        font: {{color: '{_dash_font_color}'}},
         height: 380, margin: {{l: 20, r: 20, t: 10, b: 40}},
         xaxis: {{title: '{nc1}'}},
         yaxis: {{title: '{nc2}'}}
@@ -2568,8 +3065,8 @@ header .meta{color:var(--text-muted);font-size:13px}
         text: z.map(function(r) {{ return r.map(function(v) {{ return v.toFixed(2); }}); }}),
         texttemplate: '%{{text}}', textfont: {{size: 11}}}}];
     var layout = {{
-        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
-        font: {{color: '#c9d1d9'}},
+        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
+        font: {{color: '{_dash_font_color}'}},
         height: 500, margin: {{l: 120, r: 20, t: 10, b: 120}}
     }};
     Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: false}});
@@ -2600,8 +3097,8 @@ header .meta{color:var(--text-muted);font-size:13px}
         marker: {{size: 4, color: '#3fb950'}}
     }}];
     var layout = {{
-        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
-        font: {{color: '#c9d1d9'}},
+        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
+        font: {{color: '{_dash_font_color}'}},
         height: 380, margin: {{l: 20, r: 20, t: 10, b: 60}}
     }};
     Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']}});
@@ -2623,8 +3120,8 @@ header .meta{color:var(--text-muted);font-size:13px}
     var trace1 = {{x: d, type: 'histogram', nbinsx: 50, marker: {{color: '#58a6ff', opacity: 0.7}}, yaxis: 'y'}};
     var trace2 = {{y: d, type: 'box', marker: {{color: '#f0883e'}}, xaxis: 'x2', yaxis: 'y2'}};
     var layout = {{
-        paper_bgcolor: '#161b22', plot_bgcolor: '#161b22',
-        font: {{color: '#c9d1d9'}},
+        paper_bgcolor: '{_dash_plot_bg}', plot_bgcolor: '{_dash_plot_bg}',
+        font: {{color: '{_dash_font_color}'}},
         grid: {{rows: 1, columns: 2, pattern: 'independent'}},
         height: 350, margin: {{l: 50, r: 20, t: 10, b: 30}},
         yaxis: {{title: 'Count'}},
