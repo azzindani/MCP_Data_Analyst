@@ -17,37 +17,44 @@ constrained hardware with a local LLM — or at all.
 
 1. [Why these standards exist](#1-why-these-standards-exist)
 2. [The core mental model](#2-the-core-mental-model)
-3. [The self-hosted execution principle](#3-the-self-hosted-execution-principle)
-4. [Language and runtime selection](#4-language-and-runtime-selection)
-5. [Repository structure](#5-repository-structure)
-6. [The three-tier split](#6-the-three-tier-split)
-7. [Tool count discipline](#7-tool-count-discipline)
-8. [The four-tool pattern](#8-the-four-tool-pattern)
-9. [Surgical read protocol](#9-surgical-read-protocol)
-10. [Tool schema design](#10-tool-schema-design)
-11. [The patch protocol](#11-the-patch-protocol)
-12. [Engine and server separation](#12-engine-and-server-separation)
-13. [Return value contract](#13-return-value-contract)
-14. [Error handling contract](#14-error-handling-contract)
-15. [State and version control](#15-state-and-version-control)
-16. [Token budget discipline](#16-token-budget-discipline)
-17. [Hardware tiers and resource constraints](#17-hardware-tiers-and-resource-constraints)
-18. [Progress output](#18-progress-output)
-19. [Live state and reload](#19-live-state-and-reload)
-20. [Operation receipt log](#20-operation-receipt-log)
-21. [Testing standards](#21-testing-standards)
-22. [Cross-platform compatibility](#22-cross-platform-compatibility)
-23. [Multi-client compatibility](#23-multi-client-compatibility)
-24. [Transport modes](#24-transport-modes)
-25. [Installation and distribution](#25-installation-and-distribution)
-26. [Naming conventions](#26-naming-conventions)
-27. [Dependency policy](#27-dependency-policy)
-28. [CI/CD requirements](#28-cicd-requirements)
-29. [Documentation requirements](#29-documentation-requirements)
-30. [What to never do](#30-what-to-never-do)
-31. [Checklist — new server from scratch](#31-checklist--new-server-from-scratch)
-32. [Checklist — new tool in existing server](#32-checklist--new-tool-in-existing-server)
-33. [Domain reference table](#33-domain-reference-table)
+3. [MCP Primitives — Tools, Resources, and Prompts](#3-mcp-primitives--tools-resources-and-prompts)
+4. [The self-hosted execution principle](#4-the-self-hosted-execution-principle)
+5. [Language and runtime selection](#5-language-and-runtime-selection)
+6. [Repository structure](#6-repository-structure)
+7. [The three-tier split](#7-the-three-tier-split)
+8. [Tool count discipline](#8-tool-count-discipline)
+9. [The four-tool pattern](#9-the-four-tool-pattern)
+10. [Surgical read protocol](#10-surgical-read-protocol)
+11. [Tool schema design](#11-tool-schema-design)
+12. [Tool annotations](#12-tool-annotations)
+13. [The patch protocol](#13-the-patch-protocol)
+14. [Engine and server separation](#14-engine-and-server-separation)
+15. [Engine sub-module pattern](#15-engine-sub-module-pattern)
+16. [Return value contract](#16-return-value-contract)
+17. [Error handling contract](#17-error-handling-contract)
+18. [Security considerations](#18-security-considerations)
+19. [State and version control](#19-state-and-version-control)
+20. [Token budget discipline](#20-token-budget-discipline)
+21. [Hardware tiers and resource constraints](#21-hardware-tiers-and-resource-constraints)
+22. [Progress output](#22-progress-output)
+23. [Long-running operations and async](#23-long-running-operations-and-async)
+24. [Live state and reload](#24-live-state-and-reload)
+25. [Operation receipt log](#25-operation-receipt-log)
+26. [Output generation pattern](#26-output-generation-pattern)
+27. [Testing standards](#27-testing-standards)
+28. [Cross-platform compatibility](#28-cross-platform-compatibility)
+29. [Multi-client compatibility](#29-multi-client-compatibility)
+30. [Transport modes](#30-transport-modes)
+31. [Installation and distribution](#31-installation-and-distribution)
+32. [Naming conventions](#32-naming-conventions)
+33. [Dependency policy](#33-dependency-policy)
+34. [CI/CD requirements](#34-cicd-requirements)
+35. [Documentation requirements](#35-documentation-requirements)
+36. [Smart domain inference pattern](#36-smart-domain-inference-pattern)
+37. [What to never do](#37-what-to-never-do)
+38. [Checklist — new server from scratch](#38-checklist--new-server-from-scratch)
+39. [Checklist — new tool in existing server](#39-checklist--new-tool-in-existing-server)
+40. [Domain reference table](#40-domain-reference-table)
 
 ---
 
@@ -104,7 +111,63 @@ hardware-constrained machines.
 
 ---
 
-## 3. The Self-Hosted Execution Principle
+## 3. MCP Primitives — Tools, Resources, and Prompts
+
+The MCP protocol defines three primitives: Tools, Resources, and Prompts. Use each
+for what it is designed for — do not substitute one for another.
+
+### Tools
+
+**Tools** are the primary primitive. They are called by the model with arguments and
+return structured JSON. Use tools for: all operations that read, transform, write, or
+execute something in response to model intent.
+
+Tools are the right choice for:
+- Reading a file or database (result changes between calls)
+- Applying a patch or transformation to data
+- Running a computation or analysis
+- Generating an output file
+
+### Resources
+
+**Resources** expose stable, re-readable context that the model can include in its
+conversation without a tool call. Use resources for: schemas that never change between
+calls, reference data the model needs repeatedly (e.g. a database schema, a list of
+supported operations, a config file). Resources are read-only and stateless.
+
+Do not use resources for data that changes between calls. If the data can change, it
+must be a tool.
+
+Example of a Resource that belongs in a data server:
+
+```python
+@mcp.resource("schema://{file_path}")
+def get_schema_resource(file_path: str) -> str:
+    """Expose dataset schema as a resource the model can read without a tool call."""
+    return engine.get_schema_json(file_path)
+```
+
+Do not use Resources as a workaround for surgical read tools. If the data changes
+between calls, it must be a tool.
+
+### Prompts
+
+**Prompts** are reusable prompt templates registered with the server. Use prompts
+sparingly — only when you need to give the model a structured starting workflow that
+users will invoke directly (e.g., a "clean this dataset" workflow prompt). Most
+servers do not need prompts.
+
+### Rule of thumb
+
+```
+Model needs to call it to do work          → Tool
+Model needs to reference it for context    → Resource
+User needs a starting workflow template    → Prompt
+```
+
+---
+
+## 4. The Self-Hosted Execution Principle
 
 This is the founding principle that distinguishes this standard from cloud-first MCP
 servers.
@@ -151,7 +214,7 @@ Document every exception clearly in the tool's docstring and in the README.
 
 ---
 
-## 4. Language and Runtime Selection
+## 5. Language and Runtime Selection
 
 ### The rule: libraries dictate language, not preference
 
@@ -182,18 +245,30 @@ problem is already solved locally.
 
 ### Python setup
 
-Pin Python to `3.11`. Use `uv` as the package manager. Never use pip directly in
+Pin Python to `3.12`. Use `uv` as the package manager. Never use pip directly in
 production. Never use conda. Never use poetry for new projects.
 
 ```
 # .python-version
-3.11
+3.12
 ```
 
 ```toml
 # pyproject.toml
 [project]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
+```
+
+Pin `fastmcp` version in `pyproject.toml`. The FastMCP API surface has changed
+between major versions. Breaking changes in the tool registration API have caused
+silent failures where tools appear to register but are never served.
+
+```toml
+[project]
+dependencies = [
+    "fastmcp>=2.0,<3.0",
+    ...
+]
 ```
 
 ### TypeScript setup
@@ -211,7 +286,7 @@ Use Rust stable channel. Use the `rmcp` crate. Commit `Cargo.lock`.
 
 ---
 
-## 5. Repository Structure
+## 6. Repository Structure
 
 ### Monorepo is the default for multi-server projects
 
@@ -287,7 +362,7 @@ pipeline, one install script.
 
 ---
 
-## 6. The Three-Tier Split
+## 7. The Three-Tier Split
 
 Every MCP server targets a specific complexity tier. Never mix tiers in one server.
 This is the most important structural decision because it directly controls how many
@@ -359,7 +434,7 @@ Does the tool span all three concerns?
 
 ---
 
-## 7. Tool Count Discipline
+## 8. Tool Count Discipline
 
 ### Hard limits by hardware target
 
@@ -390,7 +465,7 @@ better than a tool that does three things approximately.
 
 ---
 
-## 8. The Four-Tool Pattern
+## 9. The Four-Tool Pattern
 
 Every data or state-changing task follows this exact four-step loop. Encode this in
 your tool design so the model is guided through it naturally.
@@ -465,7 +540,7 @@ Round 4 (VERIFY):   read_model_report(model_path="...")
 
 ---
 
-## 9. Surgical Read Protocol
+## 10. Surgical Read Protocol
 
 ### The fundamental rule
 
@@ -547,7 +622,7 @@ This is for the model to budget remaining context window capacity.
 
 ---
 
-## 10. Tool Schema Design
+## 11. Tool Schema Design
 
 ### Docstring length — the 80-character rule
 
@@ -642,7 +717,45 @@ if dry_run:
 
 ---
 
-## 11. The Patch Protocol
+## 12. Tool Annotations
+
+FastMCP and the MCP protocol support tool annotations that help AI clients display
+and reason about tools correctly. Always set these.
+
+```python
+from fastmcp import FastMCP
+
+mcp = FastMCP("server-name")
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": True,       # does not modify any state
+        "destructiveHint": False,   # does not destroy data
+        "idempotentHint": True,     # safe to call multiple times
+        "openWorldHint": False,     # does not interact with external services
+    }
+)
+def read_column_stats(file_path: str, column: str) -> dict:
+    """Stats for one column: mean median std min max nulls unique top."""
+    return engine.read_column_stats(file_path, column)
+```
+
+### Annotation rules by tool type
+
+| Tool type | readOnlyHint | destructiveHint | idempotentHint | openWorldHint |
+|---|---|---|---|---|
+| Read / inspect / search | True | False | True | False |
+| Write / patch (with snapshot) | False | False | False | False |
+| Delete / drop rows | False | True | False | False |
+| Network / scrape / download | False | False | False | True |
+| Export / generate HTML | False | False | True | False |
+
+`destructiveHint=True` should trigger an extra confirmation prompt in most AI
+clients. Use it for `drop_column`, `delete_rows`, `purge_versions`.
+
+---
+
+## 13. The Patch Protocol
 
 ### When to use a patch protocol
 
@@ -730,7 +843,7 @@ Stop on first failure. Never partially apply a batch and report success.
 
 ---
 
-## 12. Engine and Server Separation
+## 14. Engine and Server Separation
 
 ### The mandatory split
 
@@ -785,7 +898,68 @@ is more than two lines, it has logic that belongs in `engine.py`.
 
 ---
 
-## 13. Return Value Contract
+## 15. Engine Sub-Module Pattern
+
+When `engine.py` grows beyond ~400–500 lines, split it into focused sub-modules.
+The engine entry point becomes a thin router.
+
+### Sub-module layout
+
+```
+servers/data_advanced/
+├── server.py              ← MCP wrapper (unchanged)
+├── engine.py              ← thin router: imports from sub-modules, re-exports
+├── _adv_io.py             ← file loading, export, format conversion
+├── _adv_transform.py      ← data cleaning, patching, aggregations
+├── _adv_analysis.py       ← statistics, outlier detection, profiling
+├── _adv_charts.py         ← chart generation (bar, pie, line, scatter, etc.)
+├── _adv_dashboard.py      ← dashboard HTML assembly
+└── _adv_report.py         ← EDA report HTML assembly
+```
+
+### Sub-module naming rules
+
+- Prefix with `_{domain_abbr}_` to avoid name collisions
+- Group by what the code does, not by what tool calls it
+- Sub-modules have zero MCP imports (same rule as `engine.py`)
+- `engine.py` re-exports all public functions:
+
+```python
+# engine.py — thin router
+from ._adv_io import load_file, export_data
+from ._adv_transform import apply_patch, run_cleaning_pipeline
+from ._adv_analysis import run_eda, check_outliers
+from ._adv_charts import generate_chart, generate_multi_chart
+from ._adv_dashboard import generate_dashboard
+
+__all__ = [
+    "load_file", "export_data",
+    "apply_patch", "run_cleaning_pipeline",
+    "run_eda", "check_outliers",
+    "generate_chart", "generate_multi_chart",
+    "generate_dashboard",
+]
+```
+
+Tests still import from `engine.py` — sub-module structure is invisible to tests.
+
+### Lazy imports for heavy dependencies
+
+Sub-modules that depend on large libraries (torch, sklearn, transformers) should
+import those libraries inside the function, not at module level. This avoids paying
+the import cost when `engine.py` is loaded for a function that does not need that
+library.
+
+```python
+# _adv_ml.py — import torch only when the function is called
+def run_inference(model_path: str, input_path: str) -> dict:
+    import torch   # lazy import — only loaded when this function runs
+    ...
+```
+
+---
+
+## 16. Return Value Contract
 
 ### Every tool returns a dict
 
@@ -836,7 +1010,7 @@ Write tools confirm the write. Read tools read.
 
 ---
 
-## 14. Error Handling Contract
+## 17. Error Handling Contract
 
 ### Never raise exceptions to the caller
 
@@ -918,7 +1092,86 @@ tool to call or a specific value to check.
 
 ---
 
-## 15. State and Version Control
+## 18. Security Considerations
+
+### Path traversal prevention
+
+All file paths from tool parameters must be validated before use:
+
+```python
+from pathlib import Path
+
+def resolve_path(file_path: str, allowed_extensions: tuple[str, ...] = ()) -> Path:
+    """Resolve and validate a file path from tool input."""
+    path = Path(file_path).resolve()
+
+    # Reject paths that escape the user's home directory
+    home = Path.home().resolve()
+    try:
+        path.relative_to(home)
+    except ValueError:
+        raise ValueError(f"Path outside allowed directory: {file_path}")
+
+    if allowed_extensions and path.suffix.lower() not in allowed_extensions:
+        raise ValueError(
+            f"Extension {path.suffix!r} not allowed. Expected: {allowed_extensions}"
+        )
+
+    return path
+```
+
+Never use raw `file_path` strings in `open()`, `pd.read_csv()`, or subprocess calls
+without resolving and validating first. Add `resolve_path()` to
+`shared/file_utils.py`.
+
+### Subprocess injection prevention
+
+For servers that spawn subprocesses (FFmpeg, Tesseract, LibreOffice, etc.), never
+pass user-provided strings directly into shell commands:
+
+```python
+# Wrong — shell injection risk
+subprocess.run(f"ffmpeg -i {input_path} {output_path}", shell=True)
+
+# Correct — argument list, no shell
+subprocess.run(
+    ["ffmpeg", "-i", str(input_path), str(output_path)],
+    shell=False,
+    capture_output=True,
+    timeout=300,
+)
+```
+
+Always set `shell=False`. Always pass an argument list. Always set `timeout`.
+Always `capture_output=True` to avoid stdout leakage.
+
+### Expression evaluation — no eval()
+
+For servers that accept user-defined expressions (column calculations, filter
+expressions, formula strings), never use `eval()` or `exec()`. Parse the expression
+tree manually:
+
+```python
+# Wrong
+result = eval(user_expression)
+
+# Correct — parse and validate against allowed operations
+ALLOWED_OPS = {"+", "-", "*", "/"}
+result = _safe_eval_expr(user_expression, df.columns, ALLOWED_OPS)
+```
+
+Implement `_safe_eval_expr` in the engine using AST parsing with an allowlist of
+operations.
+
+### Sensitive data in responses
+
+Never include connection strings, API keys, passwords, or full system paths in tool
+responses. Use `Path(x).name` for file references in progress messages. Redact
+credentials in error messages.
+
+---
+
+## 19. State and Version Control
 
 ### The snapshot rule
 
@@ -1000,7 +1253,7 @@ def delete_all_nulls(file_path: str, confirm: bool = False) -> dict:
 
 ---
 
-## 16. Token Budget Discipline
+## 20. Token Budget Discipline
 
 ### The VRAM → context window → token budget chain
 
@@ -1051,7 +1304,7 @@ VRAM. Never hardcode limits in engine functions — always call these helpers.
 
 ---
 
-## 17. Hardware Tiers and Resource Constraints
+## 21. Hardware Tiers and Resource Constraints
 
 ### Design for constrained — test on standard — document for high-end
 
@@ -1102,7 +1355,7 @@ Include this in every MCP server README:
 
 ---
 
-## 18. Progress Output
+## 22. Progress Output
 
 ### The rule
 
@@ -1146,7 +1399,67 @@ in messages — never full paths.
 
 ---
 
-## 19. Live State and Reload
+## 23. Long-Running Operations and Async
+
+### When async matters
+
+For tools that invoke subprocesses (FFmpeg, model training, OCR on large files),
+sync blocking is fine for operations under ~30 seconds. For longer operations, use
+async:
+
+```python
+import asyncio
+from fastmcp import FastMCP
+
+mcp = FastMCP("video_basic")
+
+@mcp.tool()
+async def transcode_video(input_path: str, output_format: str) -> dict:
+    """Transcode video to target format. Async for long operations."""
+    return await engine.transcode_video_async(input_path, output_format)
+```
+
+For subprocess-based async:
+
+```python
+async def transcode_video_async(input_path: str, output_format: str) -> dict:
+    proc = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-i", str(input_path), str(output_path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
+    if proc.returncode != 0:
+        return {
+            "success": False,
+            "error": stderr.decode(),
+            "hint": "Check input file format and available disk space.",
+        }
+    return {"success": True, ...}
+```
+
+### Do not mix sync and async
+
+If your server has any async tools, make the FastMCP instance async-compatible. Do
+not mix `@mcp.tool()` (sync) and `async def` tools without verifying FastMCP version
+compatibility.
+
+### Progress for long operations
+
+For tools that take more than a few seconds, include `"elapsed_seconds"` in the
+response and intermediate `info()` entries in the progress array:
+
+```python
+progress = [
+    info("Started transcoding", f"{input_path.name} → {output_format}"),
+    info("Encoding video stream", "pass 1 of 2"),
+    ok("Transcoding complete", f"elapsed: {elapsed:.1f}s"),
+]
+```
+
+---
+
+## 24. Live State and Reload
 
 For servers that edit files that may be open in another application (documents,
 spreadsheets, config files), implement `shared/live_edit.py`:
@@ -1166,7 +1479,7 @@ progress array. Never fail the main operation because reload failed.
 
 ---
 
-## 20. Operation Receipt Log
+## 25. Operation Receipt Log
 
 Every server that writes data maintains a persistent receipt log alongside modified
 files:
@@ -1213,7 +1526,82 @@ def read_receipt(file_path: str) -> dict:
 
 ---
 
-## 21. Testing Standards
+## 26. Output Generation Pattern
+
+Some servers generate file outputs as their primary artifact: HTML reports, charts,
+PDF exports, generated dashboards. This section defines the standard for these tools.
+
+### The output generation contract
+
+Output-generating tools must:
+1. Accept an `output_path: str = ""` parameter — empty string means auto-generate
+   beside the input file
+2. Accept `open_after: bool = True` — auto-open in the default application after
+   generating
+3. Return `"output_path"` (absolute path) and `"output_name"` (filename only) in
+   the response
+4. Never stream raw bytes through the MCP channel — always write to disk and return
+   the path
+
+```python
+@mcp.tool()
+def generate_report(
+    file_path: str,
+    output_path: str = "",    # "" = auto-generate name beside input
+    open_after: bool = True,  # open in browser/app after generation
+    theme: str = "dark",      # "dark" | "light" | "device"
+) -> dict:
+    """Generate HTML report for dataset. Opens in browser."""
+    return engine.generate_report(file_path, output_path, open_after, theme)
+```
+
+### Auto-naming convention
+
+When `output_path=""`, derive the filename from the input:
+
+```python
+def _resolve_output_path(input_path: Path, suffix: str, output_path: str) -> Path:
+    if output_path:
+        return Path(output_path).resolve()
+    return input_path.parent / f"{input_path.stem}_{suffix}.html"
+```
+
+Standard suffixes: `_eda`, `_dashboard`, `_report`, `_chart`, `_distribution`,
+`_profile`.
+
+### HTML output standards
+
+For HTML outputs (charts, reports, dashboards):
+- Use a shared `html_theme.py` module for CSS variables, viewport meta, and Plotly
+  template
+- Support dark/light/device themes via CSS custom properties
+- Use `Plotly.js` loaded from local CDN or bundled — never a remote CDN in production
+- All charts must be `responsive: true` in their Plotly layout config
+- Wrap wide tables in `<div style="overflow-x:auto">` to prevent horizontal overflow
+- Chart containers must have `overflow: hidden; max-width: 100%`
+
+### Opening files after generation
+
+```python
+def _open_file(path: Path) -> None:
+    """Open generated file in default app. Best-effort, never fails."""
+    try:
+        webbrowser.open(f"file://{path.resolve()}")
+    except Exception:
+        try:
+            if sys.platform == "win32":
+                subprocess.Popen(["start", str(path.resolve())], shell=True)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(path.resolve())])
+            else:
+                subprocess.Popen(["xdg-open", str(path.resolve())])
+        except Exception:
+            pass   # non-critical; report was still generated
+```
+
+---
+
+## 27. Testing Standards
 
 ### Test engine, not server
 
@@ -1275,7 +1663,7 @@ strategy:
 
 ---
 
-## 22. Cross-Platform Compatibility
+## 28. Cross-Platform Compatibility
 
 ### The path rule — pathlib everywhere
 
@@ -1341,7 +1729,7 @@ shutil.move(tmp_path, path)
 
 ---
 
-## 23. Multi-Client Compatibility
+## 29. Multi-Client Compatibility
 
 ### Config file locations by platform
 
@@ -1358,7 +1746,7 @@ Server code is identical regardless of client.
 
 ---
 
-## 24. Transport Modes
+## 30. Transport Modes
 
 ### Every server supports two modes
 
@@ -1394,7 +1782,7 @@ stored in config, never hardcoded in source.
 
 ---
 
-## 25. Installation and Distribution
+## 31. Installation and Distribution
 
 ### The install experience standard
 
@@ -1410,7 +1798,7 @@ A user who has never used a terminal must be able to install and use the server:
 
 ```sh
 #!/bin/sh
-# 1. Check Python 3.11+
+# 1. Check Python 3.12+
 # 2. Check/install uv
 # 3. uv sync
 # 4. Detect hardware (VRAM) and set MCP_CONSTRAINED_MODE if ≤ 8GB
@@ -1429,7 +1817,7 @@ A user who has never used a terminal must be able to install and use the server:
 
 ---
 
-## 26. Naming Conventions
+## 32. Naming Conventions
 
 ### Server directories
 
@@ -1486,7 +1874,7 @@ test(ml_basic): add OOM failure test for large datasets
 
 ---
 
-## 27. Dependency Policy
+## 33. Dependency Policy
 
 ### Approved licenses
 
@@ -1514,7 +1902,7 @@ Any cloud SDK used as primary execution engine (boto3 for ML, google-cloud-*, et
 
 ---
 
-## 28. CI/CD Requirements
+## 34. CI/CD Requirements
 
 ### Required checks on every PR
 
@@ -1524,6 +1912,9 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-22.04, windows-latest, macos-13]
+    env:
+      MCP_CONSTRAINED_MODE: "1"
+      PYTHONPATH: "."
     steps:
       - uv sync --frozen
       - uv run ruff check .
@@ -1531,9 +1922,15 @@ jobs:
       - uv run pyright servers/ shared/
       - uv run pytest tests/ --cov=servers --cov=shared --cov-fail-under=90
       - python verify_tool_docstrings.py
-    env:
-      MCP_CONSTRAINED_MODE: "1"
 ```
+
+Setting `PYTHONPATH: "."` is required so that `shared/` imports resolve correctly
+when tests are run from the repo root. Without it, `from shared.progress import ok`
+fails on CI even when it works locally.
+
+`pyright` must be run on engine sub-modules too, not just the top-level `engine.py`.
+When using the sub-module pattern (§15), ensure `pyright` covers the full
+`servers/{name}/` directory, which includes `_adv_io.py`, `_adv_charts.py`, etc.
 
 ### verify_tool_docstrings.py
 
@@ -1563,7 +1960,7 @@ if errors:
 
 ---
 
-## 29. Documentation Requirements
+## 35. Documentation Requirements
 
 ### README.md required sections
 
@@ -1574,7 +1971,7 @@ if errors:
 5. Tool reference — table of tools with name, description, key parameters
 6. Usage patterns — 2–3 example prompts showing the four-tool loop
 7. Hardware requirements — VRAM table with recommendations
-8. The hardware sovereignty statement (see section 17)
+8. The hardware sovereignty statement (see section 21)
 9. Contributing — how to add tools, link to STANDARDS.md
 10. License
 
@@ -1614,7 +2011,106 @@ def fill_nulls(file_path: str, column: str, strategy: str,
 
 ---
 
-## 30. What to Never Do
+## 36. Smart Domain Inference Pattern
+
+When a tool operates over multiple columns or fields and needs to select the right
+operation per item (e.g. sum vs mean vs max for numeric columns in a dashboard), do
+not require the user to specify every detail. Implement smart inference with an
+override escape hatch.
+
+### The inference pattern
+
+```python
+# shared/column_utils.py — domain inference utilities
+import re
+import pandas as pd
+
+_AGG_MEAN = frozenset({
+    "rate", "ratio", "pct", "percent", "score", "avg",
+    "average", "mean", "temperature", "density",
+})
+_AGG_MAX  = frozenset({"max", "maximum", "peak", "high", "ceiling"})
+_AGG_MIN  = frozenset({"min", "minimum", "low", "lowest", "floor"})
+
+def infer_agg(col: str, series: pd.Series | None = None) -> str:
+    """
+    Infer the best aggregation for a column.
+    Priority: name-keyword match > [0,1] range heuristic > default sum.
+    Returns: "sum" | "mean" | "max" | "min"
+    """
+    lower = col.lower()
+    words = set(re.split(r"[^a-zA-Z]+", lower))
+    if words & _AGG_MEAN: return "mean"
+    if words & _AGG_MAX:  return "max"
+    if words & _AGG_MIN:  return "min"
+
+    # distribution heuristic: values in [0,1] are likely rates/proportions
+    if series is not None:
+        try:
+            v = series.dropna()
+            if len(v) > 0 and float(v.min()) >= 0.0 and float(v.max()) <= 1.0:
+                return "mean"
+        except Exception:
+            pass
+    return "sum"
+```
+
+### The override escape hatch
+
+Always expose override parameters so the user can correct inference errors:
+
+```python
+@mcp.tool()
+def generate_dashboard(
+    file_path: str,
+    agg_overrides: list[str] = None,  # e.g. ["revenue:sum", "rate:mean"]
+    ...
+) -> dict:
+    """Generate dashboard with auto-detected chart types and aggregations."""
+```
+
+```python
+def parse_agg_overrides(overrides: list[str] | None) -> dict[str, str]:
+    """Parse ["col:agg", ...] into {col: agg} dict."""
+    result = {}
+    if not overrides:
+        return result
+    for item in overrides:
+        if ":" in item:
+            col, agg = item.split(":", 1)
+            if agg.strip() in {"sum", "mean", "max", "min", "count"}:
+                result[col.strip()] = agg.strip()
+    return result
+```
+
+### Where to apply this pattern
+
+- Dashboard chart type detection (bar vs time_series vs scatter)
+- Aggregation function selection per numeric column
+- Date format detection for datetime parsing
+- Encoding detection for CSV loading
+- Delimiter detection for CSV loading
+
+The rule: **infer from evidence, expose an override, document what was inferred**.
+
+Always include the inferred values in the tool response so the user can see what was
+decided:
+
+```python
+{
+    "success": True,
+    "agg_used": {
+        "revenue": "sum",
+        "satisfaction_rate": "mean",
+        "temperature": "mean",
+    },
+    ...
+}
+```
+
+---
+
+## 37. What to Never Do
 
 These are absolute prohibitions. Any code that violates them is a defect.
 
@@ -1667,9 +2163,29 @@ These are absolute prohibitions. Any code that violates them is a defect.
 16. **Make a tool that cannot run offline.**
     Unless network access is the explicit stated purpose of the tool.
 
+17. **Use `eval()` or `exec()` on user-provided input.**
+    Parse expressions manually using AST with an operation allowlist.
+
+18. **Pass user-provided strings into `subprocess.run()` with `shell=True`.**
+    Always use argument lists and `shell=False`. Always set `timeout`.
+
+19. **Use user-provided file paths without calling `resolve_path()` first.**
+    Path traversal is a real attack vector even in local tools.
+
+20. **Mix async and sync tool definitions without verifying framework compatibility.**
+    Either all tools are sync or you have an async-aware server setup.
+
+21. **Return `None` from an async tool.**
+    Async engine functions must return a dict in all code paths.
+
+22. **Load the entire engine module at import time for a server that only uses a few
+    functions.**
+    Sub-module imports in `engine.py` are acceptable — lazy import sub-modules that
+    have heavy dependencies (torch, sklearn) only when the function is called.
+
 ---
 
-## 31. Checklist — New Server from Scratch
+## 38. Checklist — New Server from Scratch
 
 ### Discovery
 - [ ] Define the domain clearly
@@ -1685,14 +2201,15 @@ These are absolute prohibitions. Any code that violates them is a defect.
 ### Setup
 - [ ] Create `servers/{domain}_{tier}/`
 - [ ] Create `__init__.py`
-- [ ] Create `pyproject.toml` with `shared` dependency
+- [ ] Create `pyproject.toml` with `requires-python = ">=3.12"` and `shared` dependency
+- [ ] Pin `fastmcp>=2.0,<3.0` in `pyproject.toml`
 - [ ] Add to workspace `pyproject.toml` members list
 - [ ] `uv sync` — no errors
 
 ### Shared modules
 - [ ] `shared/version_control.py` — tested
 - [ ] `shared/patch_validator.py` — tested
-- [ ] `shared/file_utils.py` — tested
+- [ ] `shared/file_utils.py` — includes `resolve_path()` with path traversal check
 - [ ] `shared/platform_utils.py` — `is_constrained_mode()` and limit helpers
 - [ ] `shared/progress.py` — ok/fail/info/warn/undo helpers
 - [ ] `shared/receipt.py` — append_receipt / read_receipt_log
@@ -1709,12 +2226,16 @@ These are absolute prohibitions. Any code that violates them is a defect.
 - [ ] Bounded reads use `get_max_*()` helpers
 - [ ] No `print()` statements anywhere
 - [ ] `restore_version` delegates to `shared.version_control`
+- [ ] All file path inputs validated through `resolve_path()` before use
+- [ ] No `eval()` or `exec()` on user-provided input
+- [ ] Subprocess calls use argument lists with `shell=False` and `timeout`
 
 ### Server
 - [ ] `server.py` with FastMCP setup
 - [ ] One `@mcp.tool()` per tool, each body is `return engine.func(params)`
 - [ ] Every docstring ≤ 80 characters
 - [ ] All parameters typed with allowed types
+- [ ] Tool annotations set (`readOnlyHint`, `destructiveHint`, etc.)
 - [ ] `--transport` and `--port` CLI args in `main()`
 - [ ] `project.scripts` entry in `pyproject.toml`
 
@@ -1730,7 +2251,7 @@ These are absolute prohibitions. Any code that violates them is a defect.
 - [ ] Test `restore_version`: file reverts correctly
 - [ ] Run with `MCP_CONSTRAINED_MODE=1`: limits enforced
 - [ ] `uv run pytest` — all pass
-- [ ] `uv run pyright servers/{name}/` — no errors
+- [ ] `uv run pyright servers/{name}/` — no errors (covers sub-modules too)
 - [ ] `uv run ruff check servers/{name}/` — no errors
 
 ### Distribution
@@ -1748,7 +2269,7 @@ These are absolute prohibitions. Any code that violates them is a defect.
 
 ---
 
-## 32. Checklist — New Tool in Existing Server
+## 39. Checklist — New Tool in Existing Server
 
 - [ ] Server tool count will not exceed 10 after adding
 - [ ] Tool name follows `verb_noun` snake_case convention
@@ -1767,9 +2288,12 @@ These are absolute prohibitions. Any code that violates them is a defect.
 - [ ] Error dict includes `"hint"` with actionable recovery
 - [ ] Engine function uses `get_max_*()` helpers for bounded returns
 - [ ] No `print()` statements
+- [ ] No `eval()` or `exec()` on user-provided input
+- [ ] Subprocess calls use `shell=False` and `timeout` (if applicable)
 - [ ] Tool can run offline (self-hosted execution principle)
 - [ ] Add `@mcp.tool()` in `server.py` calling engine function
 - [ ] Tool docstring ≤ 80 characters
+- [ ] Tool annotations set (`readOnlyHint`, `destructiveHint`, etc.)
 - [ ] All parameters have allowed type annotations
 - [ ] Optional parameters have primitive defaults
 - [ ] Add success test
@@ -1784,7 +2308,7 @@ These are absolute prohibitions. Any code that violates them is a defect.
 
 ---
 
-## 33. Domain Reference Table
+## 40. Domain Reference Table
 
 This table maps domains to their local execution engines, giving a quick reference
 for building new servers that comply with the self-hosted execution principle.
@@ -1818,7 +2342,7 @@ for building new servers that comply with the self-hosted execution principle.
 
 ---
 
-*Version: 2.0*
+*Version: 3.0*
 *Derived from: MCP_Microsoft_Office STANDARDS.md v1.1, expanded for general-purpose
 self-hosted MCP server development.*
 *This document should be linked from every MCP server project's README and CLAUDE.md.*
