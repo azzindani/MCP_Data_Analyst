@@ -36,6 +36,11 @@ def _token_estimate(obj) -> int:
     return len(str(obj)) // 4
 
 
+def _is_string_col(series: "pd.Series") -> bool:
+    """Return True for object and pandas 3.x StringDtype columns."""
+    return series.dtype == object or isinstance(series.dtype, pd.StringDtype)
+
+
 def _read_csv(
     file_path: str, encoding: str = "utf-8", separator: str = ",", max_rows: int = 0
 ) -> pd.DataFrame:
@@ -1539,7 +1544,7 @@ def auto_detect_schema(
             s = df[col]
             info_entry: dict = {"current_dtype": str(s.dtype), "inferred_type": None, "suggestion": None}
 
-            if s.dtype == object:
+            if _is_string_col(s):
                 # Try datetime
                 try:
                     parsed = pd.to_datetime(s.dropna().head(50), errors="raise")
@@ -1934,7 +1939,7 @@ def feature_engineering(
                     new_columns.append(new_col)
 
         if "text_length" in requested:
-            text_cols = [c for c in df.columns if df[c].dtype == object]
+            text_cols = [c for c in df.columns if _is_string_col(df[c])]
             for col in text_cols:
                 new_col = f"{col}_len"
                 df[new_col] = df[col].astype(str).str.len()
@@ -1953,7 +1958,7 @@ def feature_engineering(
         if "one_hot" in requested:
             cat_cols = [
                 c for c in df.columns
-                if df[c].dtype == object and df[c].nunique() <= 10 and c not in new_columns
+                if _is_string_col(df[c]) and df[c].nunique() <= 10 and c not in new_columns
             ]
             for col in cat_cols[:5]:  # cap at 5
                 dummies = pd.get_dummies(df[col], prefix=col, drop_first=False).astype(int)
@@ -2252,7 +2257,7 @@ def time_series_analysis(
             if not date_cols:
                 # Try to parse object columns as dates
                 for col in df.columns:
-                    if df[col].dtype == object:
+                    if _is_string_col(df[col]):
                         try:
                             pd.to_datetime(df[col].dropna().head(10), errors="raise")
                             date_column = col
@@ -2406,7 +2411,7 @@ def cohort_analysis(
             date_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])]
             if not date_cols:
                 for col in df.columns:
-                    if df[col].dtype == object:
+                    if _is_string_col(df[col]):
                         try:
                             pd.to_datetime(df[col].dropna().head(10), errors="raise")
                             date_column = col
@@ -2430,7 +2435,7 @@ def cohort_analysis(
 
         # Auto-detect cohort column if not specified
         if not cohort_column:
-            cat_cols = [c for c in df.columns if df[c].dtype == object and df[c].nunique() < 50]
+            cat_cols = [c for c in df.columns if _is_string_col(df[c]) and df[c].nunique() < 50]
             if cat_cols:
                 cohort_column = cat_cols[0]
                 progress.append(info("Auto-detected cohort column", cohort_column))
