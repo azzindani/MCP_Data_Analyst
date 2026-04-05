@@ -9,12 +9,15 @@ import pytest
 import pandas as pd
 
 from servers.data_medium.engine import (
+    analyze_text_column,
     auto_detect_schema,
     check_outliers,
     cohort_analysis,
+    compare_datasets,
     compute_aggregations,
     correlation_analysis,
     cross_tabulate,
+    detect_anomalies,
     enrich_with_geo,
     feature_engineering,
     filter_rows,
@@ -1027,4 +1030,175 @@ class TestCohortAnalysis:
 
     def test_file_not_found(self, tmp_path):
         r = cohort_analysis(str(tmp_path / "missing.csv"))
+        assert r["success"] is False
+
+
+# ---------------------------------------------------------------------------
+# time_series_analysis — forecast extension
+# ---------------------------------------------------------------------------
+
+
+class TestTimeSeriesForecast:
+    def test_has_forecast(self, date_csv):
+        r = time_series_analysis(
+            str(date_csv),
+            date_column="Date",
+            value_columns=["Revenue"],
+            open_after=False,
+        )
+        assert r["success"] is True
+        assert "forecast_values" in r
+        assert "forecast_periods" in r
+        assert r["forecast_periods"] == 3
+        assert "Revenue" in r["forecast_values"]
+        assert len(r["forecast_values"]["Revenue"]) == 3
+
+
+# ---------------------------------------------------------------------------
+# analyze_text_column
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def text_csv(tmp_path) -> Path:
+    f = tmp_path / "text_data.csv"
+    f.write_text(
+        "ID,Description,Email\n"
+        "1,hello world foo bar,user@example.com\n"
+        "2,foo baz qux,admin@test.org\n"
+        "3,hello foo world,\n"
+        "4,,other@domain.net\n"
+    )
+    return f
+
+
+class TestAnalyzeTextColumn:
+    def test_basic(self, text_csv):
+        r = analyze_text_column(str(text_csv), column="Description")
+        assert r["success"] is True
+        assert "word_freq" in r
+        assert "char_stats" in r
+        assert r["char_stats"]["min"] >= 0
+        assert r["char_stats"]["max"] >= r["char_stats"]["min"]
+        assert "foo" in r["word_freq"]
+
+    def test_patterns(self, text_csv):
+        r = analyze_text_column(str(text_csv), column="Email")
+        assert r["success"] is True
+        assert "patterns" in r
+        assert r["patterns"]["emails"] >= 1
+
+    def test_null_count(self, text_csv):
+        r = analyze_text_column(str(text_csv), column="Description")
+        assert r["success"] is True
+        assert r["null_count"] >= 1
+
+    def test_missing_column(self, text_csv):
+        r = analyze_text_column(str(text_csv), column="NonExistent")
+        assert r["success"] is False
+        assert "hint" in r
+
+    def test_file_not_found(self, tmp_path):
+        r = analyze_text_column(str(tmp_path / "missing.csv"), column="col")
+        assert r["success"] is False
+
+
+# ---------------------------------------------------------------------------
+# detect_anomalies
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def anomaly_csv(tmp_path) -> Path:
+    f = tmp_path / "anomaly_data.csv"
+    f.write_text(
+        "A,B\n"
+        "10,100\n"
+        "11,105\n"
+        "12,98\n"
+        "9,102\n"
+        "10,103\n"
+        "1000,99\n"
+        "11,9999\n"
+    )
+    return f
+
+
+class TestDetectAnomalies:
+    def test_iqr(self, anomaly_csv):
+        r = detect_anomalies(str(anomaly_csv), method="iqr")
+        assert r["success"] is True
+        assert r["anomaly_count"] > 0
+        assert "A" in r["per_column"]
+        assert "iqr_outliers" in r["per_column"]["A"]
+
+    def test_zscore(self, anomaly_csv):
+        r = detect_anomalies(str(anomaly_csv), method="zscore")
+        assert r["success"] is True
+        assert "A" in r["per_column"]
+        assert "zscore_outliers" in r["per_column"]["A"]
+
+    def test_both_flags_in_output(self, anomaly_csv, tmp_path):
+        out = tmp_path / "flagged.csv"
+        r = detect_anomalies(str(anomaly_csv), method="both", output_path=str(out))
+        assert r["success"] is True
+        assert out.exists()
+        df = pd.read_csv(str(out))
+        assert "_anomaly_score" in df.columns
+        assert any(c.endswith("_iqr_flag") for c in df.columns)
+        assert any(c.endswith("_zscore_flag") for c in df.columns)
+
+    def test_file_not_found(self, tmp_path):
+        r = detect_anomalies(str(tmp_path / "missing.csv"))
+        assert r["success"] is False
+
+
+# ---------------------------------------------------------------------------
+# compare_datasets
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def compare_csv_a(tmp_path) -> Path:
+    f = tmp_path / "a.csv"
+    f.write_text("Region,Revenue,Units\nWest,5000,10\nEast,7500,15\nSouth,2100,5\n")
+    return f
+
+
+@pytest.fixture()
+def compare_csv_b(tmp_path) -> Path:
+    f = tmp_path / "b.csv"
+    f.write_text("Region,Revenue,Units\nWest,5000,10\nEast,7500,15\nSouth,2100,5\n")
+    return f
+
+
+@pytest.fixture()
+def compare_csv_c(tmp_path) -> Path:
+    f = tmp_path / "c.csv"
+    f.write_text("Region,Revenue,Manager\nWest,5000,Alice\nEast,9000,Bob\n")
+    return f
+
+
+class TestCompareDatasets:
+    def test_identical(self, compare_csv_a, compare_csv_b):
+        r = compare_datasets(str(compare_csv_a), str(compare_csv_b))
+        assert r["success"] is True
+        assert r["columns_only_in_a"] == []
+        assert r["columns_only_in_b"] == []
+        assert r["dtype_changes"] == {}
+        assert r["rows_a"] == r["rows_b"]
+
+    def test_schema_diff(self, compare_csv_a, compare_csv_c):
+        r = compare_datasets(str(compare_csv_a), str(compare_csv_c))
+        assert r["success"] is True
+        assert "Units" in r["columns_only_in_a"]
+        assert "Manager" in r["columns_only_in_b"]
+
+    def test_row_diff(self, compare_csv_a, compare_csv_c):
+        r = compare_datasets(str(compare_csv_a), str(compare_csv_c))
+        assert r["success"] is True
+        assert r["row_diff"] == r["rows_b"] - r["rows_a"]
+
+    def test_file_not_found(self, tmp_path, compare_csv_a):
+        r = compare_datasets(str(compare_csv_a), str(tmp_path / "missing.csv"))
         assert r["success"] is False

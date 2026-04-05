@@ -4,15 +4,18 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 
 ## Features
 
-- **36 tools** across 3 tiers: basic, medium, and advanced
+- **46 tools** across 3 tiers: basic (8), medium (22), advanced (11) — plus 5 new chart types
 - **LOCATE → INSPECT → PATCH → VERIFY** workflow for surgical data edits
 - **Automatic version control** — every write is snapshotted and fully restorable
 - **Operation receipt logging** — full audit trail of all modifications
 - **Constrained mode** — safe for machines with ≤8 GB VRAM
 - **ydata-profiler quality reports** — alerts panel, Spearman + Pearson correlations, missing value matrix, per-column distribution charts
-- **Interactive dashboards** — KPI sparklines, trend indicators, violin plots, auto-detected charts
+- **Interactive dashboards** — KPI sparklines, trend indicators, violin plots, geo maps, auto-detected charts
+- **Geo visualization** — scatter maps (lat/lon), choropleth (country/state), zero external data needed
+- **3D charts** — scatter_3d and surface plots
 - **Light / dark / device theme** — all HTML outputs accept `theme: "dark" | "light" | "device"`
 - **Mobile-responsive HTML** — viewport meta + CSS breakpoints on every report
+- **Modular architecture** — each engine split into focused sub-modules, all under 1 000 lines
 
 ## Quick Install (LM Studio)
 
@@ -91,11 +94,21 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
 | `inspect_dataset` | Full schema inspection: dtypes, nulls, column classification |
 | `read_column_stats` | Stats for one column: mean, median, outliers, top values |
 | `search_columns` | Find columns by criteria: has_nulls, dtype, name_contains |
-| `apply_patch` | 8 ops: fill_nulls, drop_duplicates, clean_text, cast_column, add_column, cap_outliers, replace_values, drop_column |
+| `apply_patch` | **13 ops**: fill_nulls, drop_duplicates, clean_text, cast_column, add_column, cap_outliers, replace_values, drop_column, **normalize**, **label_encode**, **extract_regex**, **date_diff**, **rank_column** |
 | `restore_version` | Restore a file to any previous snapshot |
 | `read_receipt` | Read the operation history log for a file |
 
-### Tier 2 — Medium (19 tools)
+#### New `apply_patch` ops
+
+| Op | Description |
+|---|---|
+| `normalize` | Min-max or z-score scale a numeric column (`method: "minmax"\|"zscore"`) |
+| `label_encode` | Encode categorical column to 0-based integers; returns `encoding` mapping |
+| `extract_regex` | Extract a regex capture group into a new column |
+| `date_diff` | Compute difference between two date columns in days/months/years |
+| `rank_column` | Rank rows by a numeric column (dense, min, max, average, first) |
+
+### Tier 2 — Medium (22 tools)
 
 | Tool | Auto-Detect | Purpose |
 |---|---|---|
@@ -119,23 +132,51 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
 | `time_series_analysis` | Date column | Auto-detect date, trend, seasonality, rolling stats — saves line chart HTML |
 | `cohort_analysis` | Cohort/date | Auto-detect cohort identifiers, build retention matrix — saves heatmap HTML |
 
-All 7 chart-producing medium tools accept `theme: "dark" | "light" | "device"`, `output_path`, and `open_after`.
+| `analyze_text_column` | — | Character length stats, word frequency top-N, pattern detection (email, URL, phone, number) |
+| `detect_anomalies` | Numeric | IQR + z-score row flagging — adds `_anomaly_score` column, saves annotated CSV |
+| `compare_datasets` | — | Schema diff, dtype changes, row count diff, null/mean delta between two CSVs |
 
-### Tier 3 — Advanced (9 tools)
+All chart-producing medium tools accept `theme: "dark" | "light" | "device"`, `output_path`, and `open_after`.
+
+### Tier 3 — Advanced (11 tools)
 
 | Tool | Purpose |
 |---|---|
 | `run_eda` | EDA report: alerts panel, data sample, Pearson + Spearman correlations, missing value matrix, zero stats, outliers, insights |
 | `generate_auto_profile` | Full column profile: per-column charts, both correlation methods, alerts, missing matrix, data sample (head + tail), recommendations |
-| `generate_dashboard` | Interactive HTML dashboard: KPI sparklines + trend arrows, auto-detected charts, violin plots, filter controls |
+| `generate_dashboard` | Interactive HTML dashboard: KPI sparklines + trend arrows, auto-detected charts, violin plots, geo maps, filter controls |
+| `generate_geo_map` | Geo map: auto-detects lat/lon → scatter map, or country/state column → choropleth. No external data needed |
+| `generate_3d_chart` | 3D scatter or surface chart (`type: "scatter_3d"\|"surface"`) |
 | `generate_distribution_plot` | Histogram + box plot for numeric columns |
 | `generate_correlation_heatmap` | Interactive Pearson/Spearman heatmap |
 | `generate_pairwise_plot` | Scatter matrix for numeric columns |
 | `generate_multi_chart` | Multi-variable bar/line charts (2+ metrics) |
-| `generate_chart` | 8 chart types: bar, pie, line, scatter, geo, treemap, time_series, radius |
+| `generate_chart` | **13 chart types**: bar, pie, line, scatter, geo, treemap, time_series, radius, **sunburst**, **waterfall**, **funnel**, **parallel_coords**, **sankey** |
 | `export_data` | Export to CSV, Excel, or JSON |
 
-All 9 advanced tools accept `theme: "dark" | "light" | "device"` and `open_after`.
+All 11 advanced tools accept `theme: "dark" | "light" | "device"` and `open_after`.
+
+#### New chart types in `generate_chart`
+
+| Type | Use case |
+|---|---|
+| `sunburst` | Hierarchical part-of-whole (requires `hierarchy_columns`) |
+| `waterfall` | Running total / delta analysis (financial, budget) |
+| `funnel` | Conversion / drop-off stages sorted descending |
+| `parallel_coords` | Compare all numeric columns across rows (colored by value) |
+| `sankey` | Flow between source and target categories (requires `color_column` as target) |
+
+### Geo Map (`generate_geo_map`)
+
+Auto-detects the right map type from your data:
+
+| Data columns | Map type | Notes |
+|---|---|---|
+| `lat`/`latitude` + `lon`/`longitude` | Scatter map | No external data; uses Plotly's Natural Earth projection |
+| `country`/`iso3`/`iso_code` | Choropleth (world) | Auto-detects ISO-3 codes vs country names |
+| `state`/`state_code`/`state_abbr` | Choropleth (USA) | 2-letter US state codes → `USA-states` mode |
+
+The `generate_dashboard` tool also auto-inserts geo charts when it detects these column patterns.
 
 ### Theme options (all HTML outputs)
 
@@ -275,16 +316,28 @@ Or run the uninstall script:
 MCP_Data_Analyst/
 ├── servers/
 │   ├── data_basic/
-│   │   ├── server.py      ← thin MCP wrapper (zero domain logic)
-│   │   ├── engine.py      ← all pandas logic (zero MCP imports)
+│   │   ├── server.py        ← thin MCP wrapper (zero domain logic)
+│   │   ├── engine.py        ← public API re-exports (<900 lines)
+│   │   ├── _patch_ops.py    ← all apply_patch operations
 │   │   └── pyproject.toml
 │   ├── data_medium/
 │   │   ├── server.py
-│   │   ├── engine.py
+│   │   ├── engine.py        ← public API re-exports (<100 lines)
+│   │   ├── _med_helpers.py  ← shared helpers
+│   │   ├── _med_inspect.py  ← inspection + detection tools
+│   │   ├── _med_transform.py← transformation tools
+│   │   ├── _med_analysis.py ← analysis + stats tools
+│   │   ├── _med_report.py   ← reporting + aggregation tools
 │   │   └── pyproject.toml
 │   └── data_advanced/
 │       ├── server.py
-│       ├── engine.py
+│       ├── engine.py        ← public API re-exports (<50 lines)
+│       ├── _adv_helpers.py  ← shared helpers + geo detection
+│       ├── _adv_eda.py      ← run_eda
+│       ├── _adv_profile.py  ← generate_auto_profile
+│       ├── _adv_charts.py   ← distribution, correlation, pairwise, multi, export
+│       ├── _adv_gencharts.py← generate_chart (13 types), geo_map, 3d_chart
+│       ├── _adv_dashboard.py← generate_dashboard
 │       └── pyproject.toml
 ├── shared/
 │   ├── version_control.py   ← snapshot() and restore()

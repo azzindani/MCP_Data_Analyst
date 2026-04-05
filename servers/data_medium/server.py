@@ -292,6 +292,35 @@ def cohort_analysis(
     )
 
 
+@mcp.tool()
+def analyze_text_column(file_path: str, column: str, top_n: int = 20) -> dict:
+    """Analyze text column: length stats, word freq, pattern detection."""
+    return engine.analyze_text_column(file_path, column, top_n)
+
+
+@mcp.tool()
+def detect_anomalies(
+    file_path: str,
+    columns: list[str] = None,
+    method: str = "both",
+    output_path: str = "",
+    threshold: float = 3.0,
+) -> dict:
+    """Flag anomalous rows using IQR and/or z-score. Saves flagged CSV."""
+    return engine.detect_anomalies(file_path, columns, method, output_path, threshold)
+
+
+@mcp.tool()
+def compare_datasets(
+    file_path_a: str,
+    file_path_b: str,
+    key_columns: list[str] = None,
+    output_path: str = "",
+) -> dict:
+    """Compare two CSVs: schema diff, row counts, value changes."""
+    return engine.compare_datasets(file_path_a, file_path_b, key_columns, output_path)
+
+
 def main() -> None:
     mcp.run()
 

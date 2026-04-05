@@ -517,6 +517,106 @@ class TestReadReceipt:
 
 
 # ---------------------------------------------------------------------------
+# apply_patch — new ops
+# ---------------------------------------------------------------------------
+
+
+class TestApplyPatchNewOps:
+    def test_normalize_minmax(self, tmp_path):
+        f = tmp_path / "data.csv"
+        f.write_text("Value\n10\n20\n30\n40\n50\n")
+        r = apply_patch(str(f), [{"op": "normalize", "column": "Value", "method": "minmax"}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert df["Value"].min() >= 0.0
+        assert df["Value"].max() <= 1.0
+        res = r["results"][0]
+        assert res["op"] == "normalize"
+        assert res["method"] == "minmax"
+        assert "min" in res and "max" in res
+
+    def test_normalize_zscore(self, tmp_path):
+        f = tmp_path / "data.csv"
+        f.write_text("Value\n10\n20\n30\n40\n50\n")
+        r = apply_patch(str(f), [{"op": "normalize", "column": "Value", "method": "zscore"}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert abs(df["Value"].mean()) < 1e-9
+
+    def test_label_encode(self, tmp_path):
+        f = tmp_path / "data.csv"
+        f.write_text("Color\nRed\nBlue\nGreen\nRed\nBlue\n")
+        r = apply_patch(str(f), [{"op": "label_encode", "column": "Color"}])
+        assert r["success"] is True
+        res = r["results"][0]
+        assert res["op"] == "label_encode"
+        assert "encoding" in res
+        assert res["unique_count"] == 3
+        df = pd.read_csv(str(f))
+        # All values should be integers now
+        assert pd.api.types.is_numeric_dtype(df["Color"])
+        # Encoding should be alphabetical: Blue=0, Green=1, Red=2
+        assert res["encoding"]["Blue"] == 0
+        assert res["encoding"]["Green"] == 1
+        assert res["encoding"]["Red"] == 2
+
+    def test_extract_regex(self, tmp_path):
+        f = tmp_path / "data.csv"
+        f.write_text("Text\nOrder123\nItem456\nNoMatch\n")
+        r = apply_patch(
+            str(f),
+            [{"op": "extract_regex", "column": "Text", "pattern": r"\d+", "new_column": "Digits"}],
+        )
+        assert r["success"] is True
+        res = r["results"][0]
+        assert res["op"] == "extract_regex"
+        assert res["matched"] == 2
+        assert res["failed"] == 1
+        df = pd.read_csv(str(f), dtype={"Digits": str})
+        assert "Digits" in df.columns
+        assert df["Digits"].iloc[0] == "123"
+        assert df["Digits"].iloc[1] == "456"
+
+    def test_date_diff_days(self, tmp_path):
+        f = tmp_path / "data.csv"
+        f.write_text("Start,End\n2024-01-10,2024-01-01\n2024-03-15,2024-03-01\n")
+        r = apply_patch(
+            str(f),
+            [{"op": "date_diff", "date_col_a": "Start", "date_col_b": "End",
+              "new_column": "DiffDays", "unit": "days"}],
+        )
+        assert r["success"] is True
+        res = r["results"][0]
+        assert res["op"] == "date_diff"
+        assert res["unit"] == "days"
+        assert res["null_count"] == 0
+        df = pd.read_csv(str(f))
+        assert "DiffDays" in df.columns
+        assert int(df["DiffDays"].iloc[0]) == 9
+        assert int(df["DiffDays"].iloc[1]) == 14
+
+    def test_rank_column(self, tmp_path):
+        f = tmp_path / "data.csv"
+        f.write_text("Score\n30\n10\n20\n10\n")
+        r = apply_patch(
+            str(f),
+            [{"op": "rank_column", "column": "Score", "ascending": True, "method": "dense"}],
+        )
+        assert r["success"] is True
+        res = r["results"][0]
+        assert res["op"] == "rank_column"
+        assert res["new_column"] == "Score_rank"
+        assert res["ascending"] is True
+        df = pd.read_csv(str(f))
+        assert "Score_rank" in df.columns
+        # Dense rank ascending: 10→1, 10→1, 20→2, 30→3
+        ranks = df.set_index("Score")["Score_rank"].to_dict()
+        assert ranks[10] == 1.0
+        assert ranks[20] == 2.0
+        assert ranks[30] == 3.0
+
+
+# ---------------------------------------------------------------------------
 # Docstring length CI check
 # ---------------------------------------------------------------------------
 

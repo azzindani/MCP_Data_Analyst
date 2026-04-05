@@ -17,6 +17,7 @@ try:
         generate_chart,
         generate_dashboard,
         export_data,
+        generate_3d_chart,
     )
 
     HAS_ADVANCED = True
@@ -288,3 +289,109 @@ class TestExportData:
     def test_file_not_found(self, tmp_path):
         r = export_data(str(tmp_path / "missing.csv"))
         assert r["success"] is False
+
+
+# ---------------------------------------------------------------------------
+# generate_3d_chart
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not HAS_ADVANCED, reason="advanced deps not installed")
+class TestGenerate3DChart:
+    def test_scatter_3d(self, rich_csv):
+        r = generate_3d_chart(
+            str(rich_csv),
+            chart_type="scatter_3d",
+            x_column="Revenue",
+            y_column="Units_Sold",
+            z_column="Discount",
+            open_after=False,
+        )
+        assert r["success"] is True
+        assert r["chart_type"] == "scatter_3d"
+        assert Path(rich_csv.parent / r["output_path"]).exists()
+
+    def test_bad_type(self, rich_csv):
+        r = generate_3d_chart(
+            str(rich_csv),
+            chart_type="invalid",
+            x_column="Revenue",
+            y_column="Units_Sold",
+            z_column="Discount",
+        )
+        assert r["success"] is False
+        assert "hint" in r
+
+    def test_missing_column(self, rich_csv):
+        r = generate_3d_chart(
+            str(rich_csv),
+            chart_type="scatter_3d",
+            x_column="Revenue",
+            y_column="Units_Sold",
+            z_column="NonExistentColumn",
+        )
+        assert r["success"] is False
+        assert "hint" in r
+
+
+# ---------------------------------------------------------------------------
+# New chart types in generate_chart
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not HAS_ADVANCED, reason="advanced deps not installed")
+class TestGenerateChartNewTypes:
+    def test_sunburst(self, rich_csv):
+        r = generate_chart(
+            str(rich_csv),
+            chart_type="sunburst",
+            value_column="Revenue",
+            hierarchy_columns=["Region", "Product"],
+            open_after=False,
+        )
+        assert r["success"] is True
+        assert r["chart_type"] == "sunburst"
+
+    def test_waterfall(self, rich_csv):
+        r = generate_chart(
+            str(rich_csv),
+            chart_type="waterfall",
+            value_column="Revenue",
+            category_column="Region",
+            open_after=False,
+        )
+        assert r["success"] is True
+        assert r["chart_type"] == "waterfall"
+
+    def test_funnel(self, rich_csv):
+        r = generate_chart(
+            str(rich_csv),
+            chart_type="funnel",
+            value_column="Revenue",
+            category_column="Region",
+            open_after=False,
+        )
+        assert r["success"] is True
+        assert r["chart_type"] == "funnel"
+
+    def test_parallel_coords(self, rich_csv):
+        r = generate_chart(
+            str(rich_csv),
+            chart_type="parallel_coords",
+            value_column="Revenue",
+            open_after=False,
+        )
+        assert r["success"] is True
+        assert r["chart_type"] == "parallel_coords"
+
+    def test_sankey(self, rich_csv):
+        r = generate_chart(
+            str(rich_csv),
+            chart_type="sankey",
+            value_column="Revenue",
+            category_column="Region",
+            color_column="Product",
+            open_after=False,
+        )
+        assert r["success"] is True
+        assert r["chart_type"] == "sankey"

@@ -113,6 +113,36 @@ def generate_chart(
 
 
 @mcp.tool()
+def generate_geo_map(
+    file_path: str,
+    lat_column: str = "",
+    lon_column: str = "",
+    location_column: str = "",
+    value_column: str = "",
+    location_mode: str = "",
+    color_column: str = "",
+    title: str = "",
+    output_path: str = "",
+    theme: str = "dark",
+    open_after: bool = True,
+) -> dict:
+    """Geo map: scatter (lat/lon) or choropleth (country/state). Auto-detects columns."""
+    return engine.generate_geo_map(
+        file_path,
+        lat_column,
+        lon_column,
+        location_column,
+        value_column,
+        location_mode,
+        color_column,
+        title,
+        output_path,
+        theme,
+        open_after,
+    )
+
+
+@mcp.tool()
 def generate_dashboard(
     file_path: str,
     output_path: str = "",
@@ -181,6 +211,26 @@ def export_data(
     """Export dataset to CSV, Excel, or JSON format."""
     return engine.export_data(
         file_path, output_path, format, encoding, separator, open_after
+    )
+
+
+@mcp.tool()
+def generate_3d_chart(
+    file_path: str,
+    chart_type: str,
+    x_column: str,
+    y_column: str,
+    z_column: str,
+    color_column: str = "",
+    title: str = "",
+    output_path: str = "",
+    theme: str = "dark",
+    open_after: bool = True,
+) -> dict:
+    """3D scatter or surface chart. type: scatter_3d surface. Opens HTML."""
+    return engine.generate_3d_chart(
+        file_path, chart_type, x_column, y_column, z_column,
+        color_column, title, output_path, theme, open_after,
     )
 
 

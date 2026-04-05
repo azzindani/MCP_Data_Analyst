@@ -9,6 +9,11 @@ VALID_OPS: frozenset[str] = frozenset({
     "cap_outliers",
     "fill_nulls",
     "drop_duplicates",
+    "normalize",
+    "label_encode",
+    "extract_regex",
+    "date_diff",
+    "rank_column",
 })
 
 _FILL_STRATEGIES = frozenset({"mean", "median", "mode", "ffill", "bfill", "drop"})
@@ -105,6 +110,52 @@ def validate_ops(ops: list[dict]) -> list[str]:
                 errors.append(
                     f"{prefix} (fill_nulls): invalid strategy '{strategy}'. "
                     f"Valid: {', '.join(sorted(_FILL_STRATEGIES))}"
+                )
+
+        elif op_name == "normalize":
+            if "column" not in op:
+                errors.append(f"{prefix} (normalize): missing 'column'")
+            method = op.get("method", "minmax")
+            if method not in {"minmax", "zscore"}:
+                errors.append(
+                    f"{prefix} (normalize): invalid method '{method}'. "
+                    f"Valid: minmax, zscore"
+                )
+
+        elif op_name == "label_encode":
+            if "column" not in op:
+                errors.append(f"{prefix} (label_encode): missing 'column'")
+
+        elif op_name == "extract_regex":
+            if "column" not in op:
+                errors.append(f"{prefix} (extract_regex): missing 'column'")
+            if "pattern" not in op:
+                errors.append(f"{prefix} (extract_regex): missing 'pattern'")
+            if "new_column" not in op:
+                errors.append(f"{prefix} (extract_regex): missing 'new_column'")
+
+        elif op_name == "date_diff":
+            if "date_col_a" not in op:
+                errors.append(f"{prefix} (date_diff): missing 'date_col_a'")
+            if "date_col_b" not in op:
+                errors.append(f"{prefix} (date_diff): missing 'date_col_b'")
+            if "new_column" not in op:
+                errors.append(f"{prefix} (date_diff): missing 'new_column'")
+            unit = op.get("unit", "days")
+            if unit not in {"days", "months", "years"}:
+                errors.append(
+                    f"{prefix} (date_diff): invalid unit '{unit}'. "
+                    f"Valid: days, months, years"
+                )
+
+        elif op_name == "rank_column":
+            if "column" not in op:
+                errors.append(f"{prefix} (rank_column): missing 'column'")
+            method = op.get("method", "dense")
+            if method not in {"average", "min", "max", "first", "dense"}:
+                errors.append(
+                    f"{prefix} (rank_column): invalid method '{method}'. "
+                    f"Valid: average, min, max, first, dense"
                 )
 
     return errors
