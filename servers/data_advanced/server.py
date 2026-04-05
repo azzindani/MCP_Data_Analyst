@@ -148,6 +148,7 @@ def generate_dashboard(
     output_path: str = "",
     title: str = "",
     chart_types: list[str] = None,
+    agg_overrides: list[str] = None,
     geo_file_path: str = "",
     theme: str = "dark",
     dry_run: bool = False,
@@ -155,7 +156,7 @@ def generate_dashboard(
 ) -> dict:
     """Generate interactive HTML dashboard with auto-detected charts. Opens HTML."""
     return engine.generate_dashboard(
-        file_path, output_path, title, chart_types, geo_file_path, theme, dry_run, open_after
+        file_path, output_path, title, chart_types, agg_overrides, geo_file_path, theme, dry_run, open_after
     )
 
 

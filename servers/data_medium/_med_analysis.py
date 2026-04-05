@@ -29,6 +29,7 @@ from _med_helpers import (
 from shared.file_utils import resolve_path
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
+from shared.column_utils import infer_agg
 
 logger = logging.getLogger(__name__)
 
@@ -442,7 +443,20 @@ def time_series_analysis(
             }
 
         df = df.set_index(date_column).sort_index()
-        resampled = df[value_columns].resample(resample_period).sum()
+        col_agg_map = {c: infer_agg(c, df[c]) for c in value_columns}
+        resampled_parts = []
+        for _vc in value_columns:
+            _agg_fn = col_agg_map.get(_vc, "sum")
+            _rs = df[[_vc]].resample(resample_period)
+            if _agg_fn == "mean":
+                resampled_parts.append(_rs.mean())
+            elif _agg_fn == "max":
+                resampled_parts.append(_rs.max())
+            elif _agg_fn == "min":
+                resampled_parts.append(_rs.min())
+            else:
+                resampled_parts.append(_rs.sum())
+        resampled = pd.concat(resampled_parts, axis=1) if resampled_parts else df[value_columns].resample(resample_period).sum()
 
         rolling_7 = resampled.rolling(window=7, min_periods=1).mean()  # noqa: F841
         rolling_30 = resampled.rolling(window=30, min_periods=1).mean()  # noqa: F841
