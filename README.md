@@ -6,12 +6,17 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 
 - **36 tools** across 3 tiers: basic, medium, and advanced
 - **LOCATE → INSPECT → PATCH → VERIFY** workflow for surgical data edits
-- **Automatic version control** — every change is snapshotted and restorable
+- **Automatic version control** — every write is snapshotted and fully restorable
 - **Operation receipt logging** — full audit trail of all modifications
 - **Constrained mode** — safe for machines with ≤8 GB VRAM
-- **Fast EDA** — lightweight reports that run in seconds, not minutes
+- **ydata-profiler quality reports** — alerts panel, Spearman + Pearson correlations, missing value matrix, per-column distribution charts
+- **Interactive dashboards** — KPI sparklines, trend indicators, violin plots, auto-detected charts
+- **Light / dark / device theme** — all HTML outputs accept `theme: "dark" | "light" | "device"`
+- **Mobile-responsive HTML** — viewport meta + CSS breakpoints on every report
 
 ## Quick Install (LM Studio)
+
+> **Tested on Windows 11** with LM Studio 0.4.x and uv 0.5+.
 
 1. Open LM Studio → **Developer** tab (`</>` icon)
 2. Scroll to **MCP Servers** → click **Add Server**
@@ -78,6 +83,7 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
 ## Available Tools
 
 ### Tier 1 — Basic (8 tools)
+
 | Tool | Purpose |
 |---|---|
 | `load_dataset` | Load CSV with auto-encoding detection |
@@ -85,45 +91,83 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
 | `inspect_dataset` | Full schema inspection: dtypes, nulls, column classification |
 | `read_column_stats` | Stats for one column: mean, median, outliers, top values |
 | `search_columns` | Find columns by criteria: has_nulls, dtype, name_contains |
-| `apply_patch` | 8 transformation ops: fill_nulls, drop_duplicates, clean_text, cast_column, add_column, cap_outliers, replace_values, drop_column |
-| `restore_version` | Restore a file to a previous snapshot |
+| `apply_patch` | 8 ops: fill_nulls, drop_duplicates, clean_text, cast_column, add_column, cap_outliers, replace_values, drop_column |
+| `restore_version` | Restore a file to any previous snapshot |
 | `read_receipt` | Read the operation history log for a file |
 
 ### Tier 2 — Medium (19 tools)
+
 | Tool | Auto-Detect | Purpose |
 |---|---|---|
-| `check_outliers` | Numeric | IQR/std outlier scan |
-| `scan_nulls_zeros` | Type-aware | Null/zero detection + suggested fixes |
-| `enrich_with_geo` | — | Merge dataset with geo data |
-| `validate_dataset` | Dtype | Quality scoring (0-100) |
-| `compute_aggregations` | — | Group-by aggregation (sum/mean/count) |
-| `run_cleaning_pipeline` | — | Multi-op cleaning with rollback |
-| `correlation_analysis` | Numeric | Correlation matrix + top N pairs |
-| `cross_tabulate` | — | Contingency tables between categories |
+| `check_outliers` | Numeric | IQR/std outlier scan — saves outlier box plot HTML |
+| `scan_nulls_zeros` | Type-aware | Null/zero detection + suggested fixes — saves bar chart HTML |
+| `enrich_with_geo` | — | Merge dataset with geo data on a location key |
+| `validate_dataset` | Dtype | Data quality scoring 0–100 |
+| `compute_aggregations` | — | Group-by aggregation (sum/mean/count/min/max) |
+| `run_cleaning_pipeline` | — | Multi-op cleaning with single snapshot + rollback |
+| `correlation_analysis` | Numeric | Correlation matrix + top N pairs — saves heatmap HTML |
+| `cross_tabulate` | — | Contingency tables — saves heatmap HTML |
 | `pivot_table` | — | Multi-dimensional pivot tables |
-| `value_counts` | — | Frequency tables with percentages |
-| `filter_rows` | — | Filter by 8 condition types (equals, contains, gt, lt, etc.) |
+| `value_counts` | — | Frequency tables — saves bar chart HTML |
+| `filter_rows` | — | Filter by 8 condition types (equals, contains, gt, lt, gte, lte, not_null, is_null) |
 | `sample_data` | — | Random/head/tail sampling |
 | `auto_detect_schema` | Full | Smart column type inference with cleaning suggestions |
 | `smart_impute` | Type→strategy | Auto-impute: numeric→median, datetime→ffill, categorical→mode |
-| `merge_datasets` | Join keys | Merge two datasets with auto-detect join keys |
+| `merge_datasets` | Join keys | Merge two datasets with auto-detect join keys and mismatch report |
 | `feature_engineering` | Date/numeric/text | Auto-create features: date parts, bins, log transforms, one-hot |
 | `statistical_tests` | Test selection | Auto-select: t-test, ANOVA, chi-square, correlation |
-| `time_series_analysis` | Date column | Auto-detect date, compute trend, seasonality, rolling stats |
-| `cohort_analysis` | Cohort/date | Auto-detect cohort identifiers, build retention matrix |
+| `time_series_analysis` | Date column | Auto-detect date, trend, seasonality, rolling stats — saves line chart HTML |
+| `cohort_analysis` | Cohort/date | Auto-detect cohort identifiers, build retention matrix — saves heatmap HTML |
+
+All 7 chart-producing medium tools accept `theme: "dark" | "light" | "device"`, `output_path`, and `open_after`.
 
 ### Tier 3 — Advanced (9 tools)
+
 | Tool | Purpose |
 |---|---|
-| `run_eda` | Fast EDA HTML report (stats, nulls, correlations, outliers) |
+| `run_eda` | EDA report: alerts panel, data sample, Pearson + Spearman correlations, missing value matrix, zero stats, outliers, insights |
+| `generate_auto_profile` | Full column profile: per-column charts, both correlation methods, alerts, missing matrix, data sample (head + tail), recommendations |
+| `generate_dashboard` | Interactive HTML dashboard: KPI sparklines + trend arrows, auto-detected charts, violin plots, filter controls |
 | `generate_distribution_plot` | Histogram + box plot for numeric columns |
+| `generate_correlation_heatmap` | Interactive Pearson/Spearman heatmap |
+| `generate_pairwise_plot` | Scatter matrix for numeric columns |
 | `generate_multi_chart` | Multi-variable bar/line charts (2+ metrics) |
 | `generate_chart` | 8 chart types: bar, pie, line, scatter, geo, treemap, time_series, radius |
-| `generate_dashboard` | Auto-generate Streamlit dashboard |
-| `generate_correlation_heatmap` | Interactive correlation heatmap |
-| `generate_pairwise_plot` | Scatter matrix for numeric columns |
 | `export_data` | Export to CSV, Excel, or JSON |
-| `generate_auto_profile` | Comprehensive HTML profile report with sidebar navigation |
+
+All 9 advanced tools accept `theme: "dark" | "light" | "device"` and `open_after`.
+
+### Theme options (all HTML outputs)
+
+| Value | Behaviour |
+|---|---|
+| `"dark"` | GitHub-style dark palette, Plotly dark template (default) |
+| `"light"` | Light palette, Plotly white template |
+| `"device"` | Auto-detects system `prefers-color-scheme`, switches at runtime via JS |
+
+## Report Highlights
+
+### `run_eda`
+- **Alerts panel**: auto-detects CONSTANT columns, HIGH NULLS, ZEROS, HIGH CARDINALITY, IMBALANCED, SKEWED, OUTLIERS, HIGH CORR, DUPLICATES
+- **Pearson + Spearman** correlation heatmaps
+- **Missing value matrix**: Plotly heatmap showing WHERE data is absent (up to 300 sampled rows)
+- **Zero counts** in column summary table
+- Data sample (first 5 rows), outlier table, key insights
+
+### `generate_auto_profile`
+All of `run_eda` plus:
+- Per-column distribution charts (histogram + box for numeric, bar for categorical with percentage bars)
+- Correlation network graph (force-directed layout for pairs with |r| > 0.5)
+- Data quality dashboard (completeness bars per column)
+- Summary statistics table (mean, median, std, Q1, Q3, skew, kurtosis, outliers, zeros)
+- Actionable recommendations
+
+### `generate_dashboard`
+- **KPI sparklines**: 30-point mini trend chart on each metric card
+- **Trend indicators**: ↑ / ↓ / → based on first-half vs second-half mean comparison
+- **Data quality card**: overall quality score (0–100)
+- **Violin plots**: distribution + outliers for numeric columns
+- **Responsive filter bar**: multi-select dropdowns with Clear All
 
 ## Usage Examples
 
@@ -157,16 +201,22 @@ Fill null values in the Revenue column of sales.csv using the median strategy
 Analyze C:\data\messy.csv for issues, then clean it up — fill nulls, remove duplicates, and standardize text
 ```
 
-### Auto-detect schema
+### Run a full data profile (ydata-profiler style)
 
 ```
-Auto-detect the schema of sales.csv and suggest cleaning actions
+Generate a comprehensive profile of C:\data\sales.csv
 ```
 
-### Smart imputation
+### Quick EDA with alerts
 
 ```
-Smart impute missing values in sales.csv using appropriate strategies for each column type
+Run EDA on sales.csv and highlight any data quality issues
+```
+
+### Interactive dashboard
+
+```
+Generate a dashboard for sales.csv in light theme
 ```
 
 ### Statistical analysis
@@ -179,12 +229,6 @@ Run statistical tests on sales.csv to compare Revenue across Regions
 
 ```
 Analyze the time series trends in sales.csv
-```
-
-### Cohort analysis
-
-```
-Run cohort analysis on sales.csv to understand customer retention
 ```
 
 ### Undo a change
@@ -248,7 +292,8 @@ MCP_Data_Analyst/
 │   ├── file_utils.py        ← path resolution, atomic writes
 │   ├── platform_utils.py    ← constrained mode, row limits
 │   ├── progress.py          ← ok/fail/info/warn helpers
-│   └── receipt.py           ← operation receipt logging
+│   ├── receipt.py           ← operation receipt logging
+│   └── html_theme.py        ← CSS vars, Plotly templates, responsive HTML helpers
 ├── install/
 │   ├── run_server.bat       ← Windows launcher
 │   └── uninstall.bat        ← Windows uninstaller
@@ -264,18 +309,27 @@ MCP_Data_Analyst/
 ### Local Testing
 
 ```bash
+# Install root dev dependencies
+uv sync --group dev
+
+# Run tests (Windows)
+python -m pytest tests/ -v
+
+# Run tests (Linux/macOS CI)
+uv sync --group dev
+cd servers/data_advanced && uv sync --dev && cd ../..
+PYTHONPATH=. servers/data_advanced/.venv/bin/python -m pytest tests/ -v --tb=short
+
+# Lint
+uvx ruff check servers/ shared/ tests/ --exclude "**/.venv/**"
+```
+
+### Run a single tier server locally
+
+```bash
 cd servers/data_basic
 uv sync
 uv run python server.py
-```
-
-### Run Test Suite
-
-```bash
-uv sync --group dev
-cd servers/data_advanced && uv sync --dev
-cd ../..
-PYTHONPATH=. servers/data_advanced/.venv/bin/python -m pytest tests/ -v
 ```
 
 ## License
