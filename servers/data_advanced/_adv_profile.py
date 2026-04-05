@@ -356,7 +356,7 @@ tr:hover{{background:rgba(88,166,255,0.04)}}
 
 def _profile_sidebar(path, rows, cols, df, col_analysis, ap_alerts):
     h = [f'<div class="sidebar"><div class="sidebar-header"><h2>Data Profile</h2><p class="file-name">{path.name}</p><p class="meta">{rows:,} rows x {cols} columns</p></div>']
-    h.append(f'<div class="sidebar-nav"><div class="st">Overview</div>')
+    h.append('<div class="sidebar-nav"><div class="st">Overview</div>')
     h.append('<a href="#overview">Dashboard</a>')
     h.append(f'<a href="#alerts">Alerts ({len(ap_alerts)})</a>')
     h.append('<a href="#sample">Data Sample</a><a href="#quality">Data Quality</a><a href="#stats">Statistics</a><a href="#categorical">Categorical</a><a href="#correlations">Correlations</a><a href="#network">Network</a><a href="#recommendations">Recommendations</a><a href="#insights">Insights</a>')

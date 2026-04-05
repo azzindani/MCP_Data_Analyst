@@ -569,7 +569,7 @@ def _build_render_functions(spec, bg, font_c, grid_c, geo_land_c, geo_ocean_c, g
         elif t == "geo_scatter":
             lat_c, lon_c = s["lat"], s["lon"]
             val_c = s.get("val", "")
-            txt_expr = f"'{val_c}: '+String(r['{val_c}'])" if val_c else f"lt.toFixed(4)+', '+ln.toFixed(4)"
+            txt_expr = f"'{val_c}: '+String(r['{val_c}'])" if val_c else "lt.toFixed(4)+', '+ln.toFixed(4)"
             rfns.append(f"function rf_{cid}(d){{\n  var lts=[],lns=[],txts=[];\n  d.forEach(function(r){{var lt=+r['{lat_c}'],ln=+r['{lon_c}'];if(!isNaN(lt)&&!isNaN(ln)){{lts.push(lt);lns.push(ln);txts.push({txt_expr});}}}});\n  if(!lts.length)return;\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',geo:{{showland:true,landcolor:'{geo_land_c}',showocean:true,oceancolor:'{geo_ocean_c}',showcoastlines:true,coastlinecolor:'{geo_coast_c}',showcountries:true,countrycolor:'{geo_coast_c}',showframe:false,bgcolor:'{bg}',projection:{{type:'natural earth'}}}},font:{{color:'{font_c}',size:12}},height:500,margin:{{l:0,r:0,t:10,b:0}}}};\n  Plotly.react('{cid}',[{{type:'scattergeo',lat:lts,lon:lns,mode:'markers',marker:{{color:'#58a6ff',size:6,opacity:0.75,line:{{color:'rgba(255,255,255,0.25)',width:0.5}}}},text:txts,hovertemplate:'%{{text}}<extra></extra>'}}],layout,{PCFG});\n}}")
         elif t == "geo_choro":
             loc_c, nc, mode = s["loc"], s["nc"], s["mode"]
