@@ -4,8 +4,7 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 
 ## Features
 
-- **43 tools** across 3 tiers: basic, medium, and advanced
-- **11 auto-detection tools** with nested logic for smart column inference
+- **36 tools** across 3 tiers: basic, medium, and advanced
 - **LOCATE → INSPECT → PATCH → VERIFY** workflow for surgical data edits
 - **Automatic version control** — every change is snapshotted and restorable
 - **Operation receipt logging** — full audit trail of all modifications
@@ -63,7 +62,7 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 
 4. Restart LM Studio
 5. Wait for the green dot next to each server
-6. Start chatting — the model will see all 43 tools
+6. Start chatting — the model will see all 36 tools
 
 ### First Run
 
@@ -105,30 +104,26 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
 | `value_counts` | — | Frequency tables with percentages |
 | `filter_rows` | — | Filter by 8 condition types (equals, contains, gt, lt, etc.) |
 | `sample_data` | — | Random/head/tail sampling |
-| **`auto_detect_schema`** | ✅ Full | Smart column type inference with cleaning suggestions |
-| **`smart_impute`** | ✅ Type→strategy | Auto-impute: numeric→median, datetime→ffill, categorical→mode |
-| **`merge_datasets`** | ✅ Join keys | Merge two datasets with auto-detect join keys |
-| **`feature_engineering`** | ✅ Date/numeric/text | Auto-create features: date parts, bins, log transforms, one-hot |
-| **`statistical_tests`** | ✅ Test selection | Auto-select: t-test, ANOVA, chi-square, correlation |
-| **`time_series_analysis`** | ✅ Date column | Auto-detect date, compute trend, seasonality, rolling stats |
-| **`cohort_analysis`** | ✅ Cohort/date | Auto-detect cohort identifiers, build retention matrix |
+| `auto_detect_schema` | Full | Smart column type inference with cleaning suggestions |
+| `smart_impute` | Type→strategy | Auto-impute: numeric→median, datetime→ffill, categorical→mode |
+| `merge_datasets` | Join keys | Merge two datasets with auto-detect join keys |
+| `feature_engineering` | Date/numeric/text | Auto-create features: date parts, bins, log transforms, one-hot |
+| `statistical_tests` | Test selection | Auto-select: t-test, ANOVA, chi-square, correlation |
+| `time_series_analysis` | Date column | Auto-detect date, compute trend, seasonality, rolling stats |
+| `cohort_analysis` | Cohort/date | Auto-detect cohort identifiers, build retention matrix |
 
-### Tier 3 — Advanced (16 tools)
-| Tool | Auto-Detect | Purpose |
-|---|---|---|
-| `run_eda` | Column analysis | Fast EDA HTML report (stats, nulls, correlations, outliers) |
-| `generate_distribution_plot` | Numeric | Histogram + box plot for numeric columns |
-| `generate_multi_chart` | — | Multi-variable bar/line charts (2+ metrics) |
-| `generate_chart` | — | 8 chart types: bar, pie, line, scatter, geo, treemap, time_series, radius |
-| `generate_dashboard` | Dtype scanning | Auto-generate Streamlit dashboard |
-| `generate_correlation_heatmap` | Numeric | Interactive correlation heatmap |
-| `generate_pairwise_plot` | Numeric | Scatter matrix for numeric columns |
-| `export_data` | — | Export to CSV, JSON, or Excel |
-| **`rfm_analysis`** | ✅ Customer/date/monetary | RFM segmentation for customer data |
-| **`auto_chart_recommendation`** | ✅ Column types | Recommend best chart type for any column pair |
-| **`generate_insights_report`** | ✅ Full analysis | Auto-generate text insights from data patterns |
-| **`anomaly_detection`** | ✅ Numeric columns | Z-score or IQR anomaly detection |
-| **`segmentation_analysis`** | ✅ Clustering features | K-means customer/data segmentation |
+### Tier 3 — Advanced (9 tools)
+| Tool | Purpose |
+|---|---|
+| `run_eda` | Fast EDA HTML report (stats, nulls, correlations, outliers) |
+| `generate_distribution_plot` | Histogram + box plot for numeric columns |
+| `generate_multi_chart` | Multi-variable bar/line charts (2+ metrics) |
+| `generate_chart` | 8 chart types: bar, pie, line, scatter, geo, treemap, time_series, radius |
+| `generate_dashboard` | Auto-generate Streamlit dashboard |
+| `generate_correlation_heatmap` | Interactive correlation heatmap |
+| `generate_pairwise_plot` | Scatter matrix for numeric columns |
+| `export_data` | Export to CSV, Excel, or JSON |
+| `generate_auto_profile` | Comprehensive HTML profile report with sidebar navigation |
 
 ## Usage Examples
 
@@ -186,16 +181,10 @@ Run statistical tests on sales.csv to compare Revenue across Regions
 Analyze the time series trends in sales.csv
 ```
 
-### RFM segmentation
+### Cohort analysis
 
 ```
-Run RFM analysis on customers.csv to segment customers
-```
-
-### Anomaly detection
-
-```
-Detect anomalies in sales.csv using the IQR method
+Run cohort analysis on sales.csv to understand customer retention
 ```
 
 ### Undo a change
@@ -267,7 +256,7 @@ MCP_Data_Analyst/
     ├── conftest.py
     ├── test_engine_basic.py
     ├── test_engine_medium.py
-    └── test_shared.py
+    └── test_engine_advanced.py
 ```
 
 ## Development
@@ -283,8 +272,10 @@ uv run python server.py
 ### Run Test Suite
 
 ```bash
-cd servers/data_basic
-uv run pytest tests/ -v
+uv sync --group dev
+cd servers/data_advanced && uv sync --dev
+cd ../..
+PYTHONPATH=. servers/data_advanced/.venv/bin/python -m pytest tests/ -v
 ```
 
 ## License
