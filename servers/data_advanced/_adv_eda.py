@@ -460,10 +460,12 @@ def _build_eda_html(
   {sample_html}
   <div id="columns" class="section">
     <h2>Column Summary</h2>
-    <table>
-      <tr><th>Column</th><th>Type</th><th>Nulls</th><th>Null %</th><th>Zeros</th><th>Unique</th><th>Stats</th></tr>
-      {col_rows_html}
-    </table>
+    <div style="overflow-x:auto">
+      <table>
+        <tr><th>Column</th><th>Type</th><th>Nulls</th><th>Null %</th><th>Zeros</th><th>Unique</th><th>Stats</th></tr>
+        {col_rows_html}
+      </table>
+    </div>
   </div>
   {missing_section}
   {corr_section}
@@ -554,7 +556,7 @@ tr:hover{{background:rgba(88,166,255,0.03)}}
 .insights li.warn{{border-left-color:var(--orange)}}.insights li.bad{{border-left-color:var(--red)}}.insights li.good{{border-left-color:var(--green)}}
 .mbar{{height:24px;background:var(--border);border-radius:6px;overflow:hidden;margin:4px 0}}
 .mbar-fill{{height:100%;background:linear-gradient(90deg,var(--orange),var(--red));border-radius:6px}}
-.chart-container{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin:16px 0;min-height:420px}}
+.chart-container{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin:16px 0;min-height:420px;overflow:hidden;max-width:100%}}
 .alert-panel{{border-radius:10px;overflow:hidden;margin-bottom:20px}}
 .alert-item{{padding:10px 14px;margin:3px 0;font-size:13px;border-radius:8px;display:flex;align-items:flex-start;gap:10px;background:var(--surface);border:1px solid var(--border)}}
 .alert-item.error{{border-left:4px solid var(--red)}}.alert-item.warning{{border-left:4px solid var(--orange)}}.alert-item.info{{border-left:4px solid var(--green)}}

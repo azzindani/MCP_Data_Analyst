@@ -276,7 +276,10 @@ def generate_dashboard(
             f"if(el)el.textContent=s>=1e6?(s/1e6).toFixed(1)+'M':s>=1e3?(s/1e3).toFixed(1)+'K':Math.round(s).toLocaleString();}})();"
             for nc in numeric_cols[:7]
         )
-        render_calls = "\n".join(f"  rf_{s['id']}(d);" for s in spec)
+        render_calls = "\n".join(
+            "  try{rf_" + s['id'] + "(d);}catch(_e){console.warn('chart " + s['id'] + "',_e);}"
+            for s in spec
+        )
         rfns_str = "\n\n".join(rfns)
 
         h.append(_dash_js(raw_json, kpi_upd, rfns_str, render_calls))
