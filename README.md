@@ -81,7 +81,7 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
 - **Git** — `git --version`
 - **uv** — `uv --version` ([install guide](https://docs.astral.sh/uv/getting-started/installation/))
 - **Python 3.12** (auto-managed by uv)
-- **LM Studio** with a model that supports tool calling (Qwen 2.5, Llama 3.1, etc.)
+- **LM Studio** with a model that supports tool calling (Qwen 3.5, Gemma4, etc.)
 
 ## Available Tools
 
