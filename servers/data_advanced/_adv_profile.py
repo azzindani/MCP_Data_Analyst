@@ -1,4 +1,5 @@
 """generate_auto_profile sub-module. No MCP imports."""
+
 from __future__ import annotations
 
 import logging
@@ -65,7 +66,8 @@ def generate_auto_profile(
 
         numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
         cat_cols = [
-            c for c in df.columns
+            c
+            for c in df.columns
             if not pd.api.types.is_numeric_dtype(df[c])
             and not pd.api.types.is_datetime64_any_dtype(df[c])
         ]
@@ -75,7 +77,11 @@ def generate_auto_profile(
 
         col_analysis = _compute_col_analysis(df, rows, numeric_cols, cat_cols)
         corr_matrix, corr_pairs = _compute_correlations(df, numeric_cols)
-        missing_by_col = {c: col_analysis[c]["null_count"] for c in df.columns if col_analysis[c]["null_count"] > 0}
+        missing_by_col = {
+            c: col_analysis[c]["null_count"]
+            for c in df.columns
+            if col_analysis[c]["null_count"] > 0
+        }
         dup_count = int(df.duplicated().sum())
         dup_pct = round(dup_count / rows * 100, 1) if rows > 0 else 0
         total_nulls = int(df.isna().sum().sum())
@@ -83,13 +89,17 @@ def generate_auto_profile(
 
         for c in numeric_cols:
             col_analysis[c]["zero_count"] = int((df[c] == 0).sum())
-            col_analysis[c]["zero_pct"] = round(col_analysis[c]["zero_count"] / rows * 100, 1) if rows > 0 else 0
+            col_analysis[c]["zero_pct"] = (
+                round(col_analysis[c]["zero_count"] / rows * 100, 1) if rows > 0 else 0
+            )
 
         spearman_matrix = None
         if len(numeric_cols) >= 2:
             spearman_matrix = df[numeric_cols].corr(method="spearman")
 
-        ap_alerts = _compute_ap_alerts(df, numeric_cols, cat_cols, corr_pairs, rows, dup_count)
+        ap_alerts = _compute_ap_alerts(
+            df, numeric_cols, cat_cols, corr_pairs, rows, dup_count
+        )
 
         _profile_vars = css_vars(theme)
         if theme == "dark":
@@ -107,18 +117,62 @@ def generate_auto_profile(
         h.append(_profile_head_css(_profile_vars))
         h.append(_profile_sidebar(path, rows, cols, df, col_analysis, ap_alerts))
         h.append('<div class="main">')
-        h.append(_profile_overview(rows, cols, numeric_cols, cat_cols, datetime_cols, total_nulls, null_pct, dup_count, dup_pct))
+        h.append(
+            _profile_overview(
+                rows,
+                cols,
+                numeric_cols,
+                cat_cols,
+                datetime_cols,
+                total_nulls,
+                null_pct,
+                dup_count,
+                dup_pct,
+            )
+        )
         h.append(_profile_alerts_section(_ap_alerts_html(ap_alerts), ap_alerts))
         h.append(_profile_sample(df))
-        h.append(_profile_missing(df, missing_by_col, rows, ap_accent, _plot_bg, _font_color))
-        h.append(_profile_correlations(corr_matrix, corr_pairs, spearman_matrix, _plot_bg, _font_color))
-        h.append(_profile_insights(df, col_analysis, numeric_cols, cat_cols, corr_pairs, dup_count, dup_pct, rows))
+        h.append(
+            _profile_missing(df, missing_by_col, rows, ap_accent, _plot_bg, _font_color)
+        )
+        h.append(
+            _profile_correlations(
+                corr_matrix, corr_pairs, spearman_matrix, _plot_bg, _font_color
+            )
+        )
+        h.append(
+            _profile_insights(
+                df,
+                col_analysis,
+                numeric_cols,
+                cat_cols,
+                corr_pairs,
+                dup_count,
+                dup_pct,
+                rows,
+            )
+        )
         h.append(_profile_quality(df, col_analysis))
         h.append(_profile_stats_table(numeric_cols, col_analysis))
         h.append(_profile_categorical(cat_cols, col_analysis, rows))
         h.append(_profile_network(corr_pairs, _plot_bg, _font_color))
-        h.append(_profile_recommendations(df, col_analysis, numeric_cols, cat_cols, corr_pairs))
-        h.append(_profile_variables(df, col_analysis, numeric_cols, cat_cols, datetime_cols, rows, _plot_bg, _font_color))
+        h.append(
+            _profile_recommendations(
+                df, col_analysis, numeric_cols, cat_cols, corr_pairs
+            )
+        )
+        h.append(
+            _profile_variables(
+                df,
+                col_analysis,
+                numeric_cols,
+                cat_cols,
+                datetime_cols,
+                rows,
+                _plot_bg,
+                _font_color,
+            )
+        )
         if theme == "device":
             h.append(device_mode_js())
         h.append("</div></body></html>")
@@ -136,10 +190,12 @@ def generate_auto_profile(
         if open_after:
             _open_file(out)
 
-        progress.append(ok(
-            "Auto profile saved",
-            f"{out.name} ({size_kb:,} KB) - {rows:,} rows x {cols} columns",
-        ))
+        progress.append(
+            ok(
+                "Auto profile saved",
+                f"{out.name} ({size_kb:,} KB) - {rows:,} rows x {cols} columns",
+            )
+        )
 
         result = {
             "success": True,
@@ -153,7 +209,9 @@ def generate_auto_profile(
             "categorical_columns": len(cat_cols),
             "datetime_columns": len(datetime_cols),
             "total_nulls": total_nulls,
-            "outlier_columns": sum(1 for c in numeric_cols if col_analysis[c].get("outlier_count", 0) > 0),
+            "outlier_columns": sum(
+                1 for c in numeric_cols if col_analysis[c].get("outlier_count", 0) > 0
+            ),
             "correlation_pairs": len(corr_pairs),
             "progress": progress,
         }
@@ -175,11 +233,13 @@ def generate_auto_profile(
 # Helper builders
 # ---------------------------------------------------------------------------
 
+
 def _compute_col_analysis(df, rows, numeric_cols, cat_cols):
     col_analysis = {}
     for c in df.columns:
         info = {
-            "name": c, "dtype": _dtype_label(df[c]),
+            "name": c,
+            "dtype": _dtype_label(df[c]),
             "count": int(df[c].notna().sum()),
             "null_count": int(df[c].isna().sum()),
             "null_pct": round(df[c].isna().sum() / rows * 100, 1) if rows > 0 else 0,
@@ -187,21 +247,27 @@ def _compute_col_analysis(df, rows, numeric_cols, cat_cols):
             "unique_pct": round(df[c].nunique() / rows * 100, 1) if rows > 0 else 0,
         }
         if c in numeric_cols:
-            info.update({
-                "mean": round(float(df[c].mean()), 4),
-                "median": round(float(df[c].median()), 4),
-                "std": round(float(df[c].std()), 4),
-                "min": round(float(df[c].min()), 4),
-                "max": round(float(df[c].max()), 4),
-                "q1": round(float(df[c].quantile(0.25)), 4),
-                "q3": round(float(df[c].quantile(0.75)), 4),
-                "skew": round(float(df[c].skew()), 4),
-                "kurtosis": round(float(df[c].kurtosis()), 4),
-            })
+            info.update(
+                {
+                    "mean": round(float(df[c].mean()), 4),
+                    "median": round(float(df[c].median()), 4),
+                    "std": round(float(df[c].std()), 4),
+                    "min": round(float(df[c].min()), 4),
+                    "max": round(float(df[c].max()), 4),
+                    "q1": round(float(df[c].quantile(0.25)), 4),
+                    "q3": round(float(df[c].quantile(0.75)), 4),
+                    "skew": round(float(df[c].skew()), 4),
+                    "kurtosis": round(float(df[c].kurtosis()), 4),
+                }
+            )
             q1, q3 = df[c].quantile(0.25), df[c].quantile(0.75)
             iqr = q3 - q1
-            info["outlier_count"] = int(((df[c] < q1 - 1.5 * iqr) | (df[c] > q3 + 1.5 * iqr)).sum())
-            info["outlier_pct"] = round(info["outlier_count"] / rows * 100, 1) if rows > 0 else 0
+            info["outlier_count"] = int(
+                ((df[c] < q1 - 1.5 * iqr) | (df[c] > q3 + 1.5 * iqr)).sum()
+            )
+            info["outlier_pct"] = (
+                round(info["outlier_count"] / rows * 100, 1) if rows > 0 else 0
+            )
         elif c in cat_cols:
             info["top_values"] = df[c].value_counts().head(10).to_dict()
             info["mode"] = str(df[c].mode().iloc[0]) if len(df[c].mode()) > 0 else ""
@@ -218,11 +284,13 @@ def _compute_correlations(df, numeric_cols):
         for j in range(i + 1, len(numeric_cols)):
             val = corr_matrix.iloc[i, j]
             if not pd.isna(val):
-                corr_pairs.append({
-                    "col_a": numeric_cols[i],
-                    "col_b": numeric_cols[j],
-                    "correlation": round(float(val), 4),
-                })
+                corr_pairs.append(
+                    {
+                        "col_a": numeric_cols[i],
+                        "col_b": numeric_cols[j],
+                        "correlation": round(float(val), 4),
+                    }
+                )
     corr_pairs.sort(key=lambda x: abs(x["correlation"]), reverse=True)
     return corr_matrix, corr_pairs
 
@@ -231,38 +299,80 @@ def _compute_ap_alerts(df, numeric_cols, cat_cols, corr_pairs, rows, dup_count):
     alerts = []
     for c in df.columns:
         if df[c].nunique(dropna=True) <= 1:
-            alerts.append({"col": c, "type": "CONSTANT", "sev": "error",
-                           "msg": f"'{c}' has only 1 unique value — constant, no predictive value."})
+            alerts.append(
+                {
+                    "col": c,
+                    "type": "CONSTANT",
+                    "sev": "error",
+                    "msg": f"'{c}' has only 1 unique value — constant, no predictive value.",
+                }
+            )
     for c in df.columns:
         np_ = round(df[c].isna().mean() * 100, 1)
         if np_ > 50:
-            alerts.append({"col": c, "type": "HIGH NULLS", "sev": "error",
-                           "msg": f"'{c}': {np_}% missing values — consider dropping."})
+            alerts.append(
+                {
+                    "col": c,
+                    "type": "HIGH NULLS",
+                    "sev": "error",
+                    "msg": f"'{c}': {np_}% missing values — consider dropping.",
+                }
+            )
         elif np_ > 20:
-            alerts.append({"col": c, "type": "HIGH NULLS", "sev": "warning",
-                           "msg": f"'{c}': {np_}% missing — imputation needed."})
+            alerts.append(
+                {
+                    "col": c,
+                    "type": "HIGH NULLS",
+                    "sev": "warning",
+                    "msg": f"'{c}': {np_}% missing — imputation needed.",
+                }
+            )
     for c in numeric_cols:
         zp = round((df[c] == 0).mean() * 100, 1)
         if zp > 50:
-            alerts.append({"col": c, "type": "ZEROS", "sev": "warning",
-                           "msg": f"'{c}': {zp}% zero values — zero-inflated distribution."})
+            alerts.append(
+                {
+                    "col": c,
+                    "type": "ZEROS",
+                    "sev": "warning",
+                    "msg": f"'{c}': {zp}% zero values — zero-inflated distribution.",
+                }
+            )
     for c in cat_cols:
         uniq = df[c].nunique()
         if uniq > max(50, rows * 0.5):
-            alerts.append({"col": c, "type": "HIGH CARDINALITY", "sev": "warning",
-                           "msg": f"'{c}': {uniq:,} unique values — likely an ID, consider dropping."})
+            alerts.append(
+                {
+                    "col": c,
+                    "type": "HIGH CARDINALITY",
+                    "sev": "warning",
+                    "msg": f"'{c}': {uniq:,} unique values — likely an ID, consider dropping.",
+                }
+            )
     for c in cat_cols:
         if df[c].notna().sum() > 0:
             top_pct = round(df[c].value_counts(normalize=True).iloc[0] * 100, 1)
             if top_pct > 90:
-                alerts.append({"col": c, "type": "IMBALANCED", "sev": "warning",
-                               "msg": f"'{c}': top category = {top_pct}% of values — highly imbalanced."})
+                alerts.append(
+                    {
+                        "col": c,
+                        "type": "IMBALANCED",
+                        "sev": "warning",
+                        "msg": f"'{c}': top category = {top_pct}% of values — highly imbalanced.",
+                    }
+                )
     for c in numeric_cols:
         try:
             skv = round(float(df[c].skew()), 2)
             if abs(skv) > 2:
-                alerts.append({"col": c, "type": "SKEWED", "sev": "warning",
-                               "msg": f"'{c}': skewness={skv:+.2f} — consider log/sqrt transform."})
+                alerts.append(
+                    {
+                        "col": c,
+                        "type": "SKEWED",
+                        "sev": "warning",
+                        "msg": f"'{c}': skewness={skv:+.2f} — consider log/sqrt transform.",
+                    }
+                )
         except Exception:
             pass
     for c in numeric_cols:
@@ -271,17 +381,34 @@ def _compute_ap_alerts(df, numeric_cols, cat_cols, corr_pairs, rows, dup_count):
         oc_ = int(((df[c] < q1_ - 1.5 * iqr_) | (df[c] > q3_ + 1.5 * iqr_)).sum())
         op_ = round(oc_ / max(rows, 1) * 100, 1)
         if op_ > 10:
-            alerts.append({"col": c, "type": "OUTLIERS", "sev": "warning",
-                           "msg": f"'{c}': {oc_:,} outliers ({op_}%) — investigate or cap."})
+            alerts.append(
+                {
+                    "col": c,
+                    "type": "OUTLIERS",
+                    "sev": "warning",
+                    "msg": f"'{c}': {oc_:,} outliers ({op_}%) — investigate or cap.",
+                }
+            )
     for p in corr_pairs[:20]:
         if abs(p["correlation"]) > 0.9:
-            alerts.append({"col": p["col_a"], "type": "HIGH CORR", "sev": "warning",
-                           "msg": f"'{p['col_a']}' \u2194 '{p['col_b']}': r={p['correlation']:+.3f} — possible multicollinearity."})
+            alerts.append(
+                {
+                    "col": p["col_a"],
+                    "type": "HIGH CORR",
+                    "sev": "warning",
+                    "msg": f"'{p['col_a']}' \u2194 '{p['col_b']}': r={p['correlation']:+.3f} — possible multicollinearity.",
+                }
+            )
     if dup_count > 0:
         dp_ = round(dup_count / max(rows, 1) * 100, 1)
-        alerts.append({"col": None, "type": "DUPLICATES",
-                       "sev": "warning" if dp_ < 5 else "error",
-                       "msg": f"{dup_count:,} duplicate rows ({dp_}%) — consider deduplication."})
+        alerts.append(
+            {
+                "col": None,
+                "type": "DUPLICATES",
+                "sev": "warning" if dp_ < 5 else "error",
+                "msg": f"{dup_count:,} duplicate rows ({dp_}%) — consider deduplication.",
+            }
+        )
     return alerts
 
 
@@ -290,8 +417,16 @@ def _ap_alerts_html(al):
         return '<div class="alert-panel"><div class="alert-item info"><span class="alert-badge info">OK</span> No data quality alerts detected.</div></div>'
     items = []
     for a in al:
-        badge_cls = "error" if a["sev"] == "error" else "warning" if a["sev"] == "warning" else "info"
-        items.append(f'<div class="alert-item {badge_cls}"><span class="alert-badge {badge_cls}">{a["type"]}</span> {a["msg"]}</div>')
+        badge_cls = (
+            "error"
+            if a["sev"] == "error"
+            else "warning"
+            if a["sev"] == "warning"
+            else "info"
+        )
+        items.append(
+            f'<div class="alert-item {badge_cls}"><span class="alert-badge {badge_cls}">{a["type"]}</span> {a["msg"]}</div>'
+        )
     return f'<div class="alert-panel">{"".join(items)}</div>'
 
 
@@ -355,29 +490,59 @@ tr:hover{{background:rgba(88,166,255,0.04)}}
 
 
 def _profile_sidebar(path, rows, cols, df, col_analysis, ap_alerts):
-    h = [f'<div class="sidebar"><div class="sidebar-header"><h2>Data Profile</h2><p class="file-name">{path.name}</p><p class="meta">{rows:,} rows x {cols} columns</p></div>']
+    h = [
+        f'<div class="sidebar"><div class="sidebar-header"><h2>Data Profile</h2><p class="file-name">{path.name}</p><p class="meta">{rows:,} rows x {cols} columns</p></div>'
+    ]
     h.append('<div class="sidebar-nav"><div class="st">Overview</div>')
     h.append('<a href="#overview">Dashboard</a>')
     h.append(f'<a href="#alerts">Alerts ({len(ap_alerts)})</a>')
-    h.append('<a href="#sample">Data Sample</a><a href="#quality">Data Quality</a><a href="#stats">Statistics</a><a href="#categorical">Categorical</a><a href="#correlations">Correlations</a><a href="#network">Network</a><a href="#recommendations">Recommendations</a><a href="#insights">Insights</a>')
+    h.append(
+        '<a href="#sample">Data Sample</a><a href="#quality">Data Quality</a><a href="#stats">Statistics</a><a href="#categorical">Categorical</a><a href="#correlations">Correlations</a><a href="#network">Network</a><a href="#recommendations">Recommendations</a><a href="#insights">Insights</a>'
+    )
     h.append(f'<div class="st">Variables ({cols})</div>')
     for c in df.columns:
         info = col_analysis[c]
-        h.append(f'<a href="#col-{c.replace(" ", "-")}">{c} <span class="badge">{info["dtype"]}</span></a>')
+        h.append(
+            f'<a href="#col-{c.replace(" ", "-")}">{c} <span class="badge">{info["dtype"]}</span></a>'
+        )
     h.append("</div></div>")
     return "\n".join(h)
 
 
-def _profile_overview(rows, cols, numeric_cols, cat_cols, datetime_cols, total_nulls, null_pct, dup_count, dup_pct):
-    h = ['<div id="overview" class="section"><h1>Dataset Overview</h1><div class="cards">']
+def _profile_overview(
+    rows,
+    cols,
+    numeric_cols,
+    cat_cols,
+    datetime_cols,
+    total_nulls,
+    null_pct,
+    dup_count,
+    dup_pct,
+):
+    h = [
+        '<div id="overview" class="section"><h1>Dataset Overview</h1><div class="cards">'
+    ]
     for num, label, cls in [
-        (f"{rows:,}", "Rows", "good"), (str(cols), "Columns", ""),
-        (str(len(numeric_cols)), "Numeric", ""), (str(len(cat_cols)), "Categorical", ""),
+        (f"{rows:,}", "Rows", "good"),
+        (str(cols), "Columns", ""),
+        (str(len(numeric_cols)), "Numeric", ""),
+        (str(len(cat_cols)), "Categorical", ""),
         (str(len(datetime_cols)), "Datetime", ""),
-        (f"{total_nulls:,}", f"Nulls ({null_pct}%)", "good" if null_pct < 5 else "warn" if null_pct < 20 else "bad"),
-        (f"{dup_count:,}", f"Duplicates ({dup_pct}%)", "good" if dup_pct < 1 else "warn"),
+        (
+            f"{total_nulls:,}",
+            f"Nulls ({null_pct}%)",
+            "good" if null_pct < 5 else "warn" if null_pct < 20 else "bad",
+        ),
+        (
+            f"{dup_count:,}",
+            f"Duplicates ({dup_pct}%)",
+            "good" if dup_pct < 1 else "warn",
+        ),
     ]:
-        h.append(f'<div class="card {cls}"><div class="num">{num}</div><div class="label">{label}</div></div>')
+        h.append(
+            f'<div class="card {cls}"><div class="num">{num}</div><div class="label">{label}</div></div>'
+        )
     h.append("</div></div>")
     return "\n".join(h)
 
@@ -408,12 +573,16 @@ def _profile_missing(df, missing_by_col, rows, ap_accent, _plot_bg, _font_color)
     h.append("<table><tr><th>Column</th><th>Missing</th><th>%</th><th>Visual</th></tr>")
     for c, count in sorted(missing_by_col.items(), key=lambda x: -x[1]):
         pct = round(count / rows * 100, 1)
-        h.append(f'<tr><td><b>{c}</b></td><td>{count:,}</td><td>{pct}%</td><td><div class="mbar"><div class="mbar-fill" style="width:{pct}%"></div></div></td></tr>')
+        h.append(
+            f'<tr><td><b>{c}</b></td><td>{count:,}</td><td>{pct}%</td><td><div class="mbar"><div class="mbar-fill" style="width:{pct}%"></div></div></td></tr>'
+        )
     h.append("</table>")
     ap_miss_cols = list(missing_by_col.keys())
     ap_miss_sample = df[ap_miss_cols].isnull().astype(int)
     if len(ap_miss_sample) > 300:
-        ap_miss_sample = ap_miss_sample.sample(300, random_state=42).reset_index(drop=True)
+        ap_miss_sample = ap_miss_sample.sample(300, random_state=42).reset_index(
+            drop=True
+        )
     else:
         ap_miss_sample = ap_miss_sample.reset_index(drop=True)
     ap_miss_z = ap_miss_sample.values.tolist()
@@ -438,11 +607,15 @@ def _profile_missing(df, missing_by_col, rows, ap_accent, _plot_bg, _font_color)
     return "\n".join(h)
 
 
-def _profile_correlations(corr_matrix, corr_pairs, spearman_matrix, _plot_bg, _font_color):
+def _profile_correlations(
+    corr_matrix, corr_pairs, spearman_matrix, _plot_bg, _font_color
+):
     if not corr_pairs:
         return ""
     h = ['<div id="correlations" class="section"><h2>Correlation Analysis</h2>']
-    h.append('<div class="chart-container" style="margin:16px 0"><div id="corr-heatmap" style="height:var(--heatmap-h)"></div></div>')
+    h.append(
+        '<div class="chart-container" style="margin:16px 0"><div id="corr-heatmap" style="height:var(--heatmap-h)"></div></div>'
+    )
     corr_z = corr_matrix.values.tolist()
     corr_x = corr_matrix.columns.tolist()
     h.append(f"""<script>
@@ -454,11 +627,29 @@ def _profile_correlations(corr_matrix, corr_pairs, spearman_matrix, _plot_bg, _f
     Plotly.newPlot('corr-heatmap', data, layout, {{responsive: true, displayModeBar: true, scrollZoom: true}});
 }})();
 </script>""")
-    h.append("<h3>Strongest Correlations (Pearson)</h3><table><tr><th>Variable A</th><th>Variable B</th><th>r</th><th>Strength</th></tr>")
+    h.append(
+        "<h3>Strongest Correlations (Pearson)</h3><table><tr><th>Variable A</th><th>Variable B</th><th>r</th><th>Strength</th></tr>"
+    )
     for p in corr_pairs[:15]:
-        s = "Very Strong" if abs(p["correlation"]) > 0.9 else "Strong" if abs(p["correlation"]) > 0.7 else "Moderate" if abs(p["correlation"]) > 0.5 else "Weak"
-        cls = "good" if abs(p["correlation"]) > 0.7 else "warn" if abs(p["correlation"]) > 0.5 else ""
-        h.append(f'<tr class="{cls}"><td>{p["col_a"]}</td><td>{p["col_b"]}</td><td>{p["correlation"]:+.4f}</td><td>{s}</td></tr>')
+        s = (
+            "Very Strong"
+            if abs(p["correlation"]) > 0.9
+            else "Strong"
+            if abs(p["correlation"]) > 0.7
+            else "Moderate"
+            if abs(p["correlation"]) > 0.5
+            else "Weak"
+        )
+        cls = (
+            "good"
+            if abs(p["correlation"]) > 0.7
+            else "warn"
+            if abs(p["correlation"]) > 0.5
+            else ""
+        )
+        h.append(
+            f'<tr class="{cls}"><td>{p["col_a"]}</td><td>{p["col_b"]}</td><td>{p["correlation"]:+.4f}</td><td>{s}</td></tr>'
+        )
     h.append("</table>")
     if spearman_matrix is not None:
         sp_z = spearman_matrix.values.tolist()
@@ -477,39 +668,59 @@ def _profile_correlations(corr_matrix, corr_pairs, spearman_matrix, _plot_bg, _f
     return "\n".join(h)
 
 
-def _profile_insights(df, col_analysis, numeric_cols, cat_cols, corr_pairs, dup_count, dup_pct, rows):
-    h = ['<div id="insights" class="section"><h2>Key Insights</h2><ul class="insights">']
+def _profile_insights(
+    df, col_analysis, numeric_cols, cat_cols, corr_pairs, dup_count, dup_pct, rows
+):
+    h = [
+        '<div id="insights" class="section"><h2>Key Insights</h2><ul class="insights">'
+    ]
     for c in df.columns:
         nc = col_analysis[c]["null_count"]
         if nc > 0:
             pct = col_analysis[c]["null_pct"]
             if pct > 50:
-                h.append(f'<li class="bad"><b>{c}</b>: {pct}% null values - consider dropping</li>')
+                h.append(
+                    f'<li class="bad"><b>{c}</b>: {pct}% null values - consider dropping</li>'
+                )
             elif pct > 10:
-                h.append(f'<li class="warn"><b>{c}</b>: {pct}% null values - consider imputation</li>')
+                h.append(
+                    f'<li class="warn"><b>{c}</b>: {pct}% null values - consider imputation</li>'
+                )
     for c in cat_cols:
         uniq = col_analysis[c]["unique"]
         if uniq > rows * 0.5 and uniq > 10:
-            h.append(f'<li class="warn"><b>{c}</b>: high cardinality ({uniq:,} unique) - likely an ID column</li>')
+            h.append(
+                f'<li class="warn"><b>{c}</b>: high cardinality ({uniq:,} unique) - likely an ID column</li>'
+            )
     for p in corr_pairs[:5]:
         if abs(p["correlation"]) > 0.8:
-            h.append(f"<li><b>{p['col_a']}</b> <-> <b>{p['col_b']}</b>: r={p['correlation']:+.3f} (very strong correlation)</li>")
+            h.append(
+                f"<li><b>{p['col_a']}</b> <-> <b>{p['col_b']}</b>: r={p['correlation']:+.3f} (very strong correlation)</li>"
+            )
     for c in numeric_cols:
         skew = col_analysis[c].get("skew", 0)
         if abs(skew) > 2:
-            h.append(f'<li class="warn"><b>{c}</b>: highly skewed (skewness={skew:.2f}) - consider log transform</li>')
+            h.append(
+                f'<li class="warn"><b>{c}</b>: highly skewed (skewness={skew:.2f}) - consider log transform</li>'
+            )
         oc = col_analysis[c].get("outlier_count", 0)
         if oc > 0:
-            h.append(f'<li class="warn"><b>{c}</b>: {oc:,} outliers ({col_analysis[c]["outlier_pct"]}%) detected</li>')
+            h.append(
+                f'<li class="warn"><b>{c}</b>: {oc:,} outliers ({col_analysis[c]["outlier_pct"]}%) detected</li>'
+            )
     if dup_count > 0:
-        h.append(f'<li class="warn"><b>{dup_count:,} duplicate rows</b> ({dup_pct}%) - consider removing</li>')
+        h.append(
+            f'<li class="warn"><b>{dup_count:,} duplicate rows</b> ({dup_pct}%) - consider removing</li>'
+        )
     h.append("</ul></div>")
     return "\n".join(h)
 
 
 def _profile_quality(df, col_analysis):
     h = ['<div id="quality" class="section"><h2>Data Quality Dashboard</h2>']
-    h.append("<table><tr><th>Column</th><th>Type</th><th>Completeness</th><th>Unique %</th><th>Quality</th></tr>")
+    h.append(
+        "<table><tr><th>Column</th><th>Type</th><th>Completeness</th><th>Unique %</th><th>Quality</th></tr>"
+    )
     for c in df.columns:
         info = col_analysis[c]
         completeness = 100 - info["null_pct"]
@@ -529,7 +740,9 @@ def _profile_stats_table(numeric_cols, col_analysis):
     if not numeric_cols:
         return ""
     h = ['<div id="stats" class="section"><h2>Summary Statistics (Numeric)</h2>']
-    h.append("<table><tr><th>Column</th><th>Mean</th><th>Median</th><th>Std</th><th>Min</th><th>Q1</th><th>Q3</th><th>Max</th><th>Skew</th><th>Outliers</th></tr>")
+    h.append(
+        "<table><tr><th>Column</th><th>Mean</th><th>Median</th><th>Std</th><th>Min</th><th>Q1</th><th>Q3</th><th>Max</th><th>Skew</th><th>Outliers</th></tr>"
+    )
     for c in numeric_cols:
         info = col_analysis[c]
         h.append(f"""<tr>
@@ -546,7 +759,9 @@ def _profile_stats_table(numeric_cols, col_analysis):
 def _profile_categorical(cat_cols, col_analysis, rows):
     if not cat_cols:
         return ""
-    h = ['<div id="categorical" class="section"><h2>Categorical Distribution</h2><div class="cards">']
+    h = [
+        '<div id="categorical" class="section"><h2>Categorical Distribution</h2><div class="cards">'
+    ]
     for c in cat_cols[:8]:
         info = col_analysis[c]
         top_val = list(info["top_values"].keys())[0] if info["top_values"] else "N/A"
@@ -567,21 +782,37 @@ def _profile_network(corr_pairs, _plot_bg, _font_color):
     if not strong_pairs:
         return ""
     h = ['<div id="network" class="section"><h2>Correlation Network (|r| > 0.5)</h2>']
-    nodes = list(set([p["col_a"] for p in strong_pairs] + [p["col_b"] for p in strong_pairs]))
+    nodes = list(
+        set([p["col_a"] for p in strong_pairs] + [p["col_b"] for p in strong_pairs])
+    )
     n_nodes = len(nodes)
     radius = 200
     node_positions = []
     for i in range(n_nodes):
         angle = 2 * math.pi * i / n_nodes - math.pi / 2
-        node_positions.append({"x": radius * math.cos(angle), "y": radius * math.sin(angle), "label": nodes[i]})
+        node_positions.append(
+            {
+                "x": radius * math.cos(angle),
+                "y": radius * math.sin(angle),
+                "label": nodes[i],
+            }
+        )
     edges = []
     for p in strong_pairs:
-        edges.append({
-            "x": [node_positions[nodes.index(p["col_a"])]["x"], node_positions[nodes.index(p["col_b"])]["x"]],
-            "y": [node_positions[nodes.index(p["col_a"])]["y"], node_positions[nodes.index(p["col_b"])]["y"]],
-            "text": f"{p['col_a']} ↔ {p['col_b']}: {p['correlation']:+.3f}",
-            "width": max(1, abs(p["correlation"]) * 4),
-        })
+        edges.append(
+            {
+                "x": [
+                    node_positions[nodes.index(p["col_a"])]["x"],
+                    node_positions[nodes.index(p["col_b"])]["x"],
+                ],
+                "y": [
+                    node_positions[nodes.index(p["col_a"])]["y"],
+                    node_positions[nodes.index(p["col_b"])]["y"],
+                ],
+                "text": f"{p['col_a']} ↔ {p['col_b']}: {p['correlation']:+.3f}",
+                "width": max(1, abs(p["correlation"]) * 4),
+            }
+        )
     h.append(f"""<div class="chart-container" style="margin:16px 0"><div id="corr-network" style="height:500px"></div></div>
 <script>
 (function() {{
@@ -612,79 +843,142 @@ def _profile_network(corr_pairs, _plot_bg, _font_color):
 
 
 def _profile_recommendations(df, col_analysis, numeric_cols, cat_cols, corr_pairs):
-    h = ['<div id="recommendations" class="section"><h2>EDA Recommendations</h2><ul class="insights">']
+    h = [
+        '<div id="recommendations" class="section"><h2>EDA Recommendations</h2><ul class="insights">'
+    ]
     for c in df.columns:
         nc = col_analysis[c]["null_count"]
         if nc > 0:
             pct = col_analysis[c]["null_pct"]
             if c in numeric_cols:
                 if pct < 5:
-                    h.append(f'<li class="good"><b>{c}</b>: {pct}% missing - fill with median/mean</li>')
+                    h.append(
+                        f'<li class="good"><b>{c}</b>: {pct}% missing - fill with median/mean</li>'
+                    )
                 elif pct < 20:
-                    h.append(f'<li class="warn"><b>{c}</b>: {pct}% missing - consider KNN imputation</li>')
+                    h.append(
+                        f'<li class="warn"><b>{c}</b>: {pct}% missing - consider KNN imputation</li>'
+                    )
                 else:
-                    h.append(f'<li class="bad"><b>{c}</b>: {pct}% missing - consider dropping</li>')
+                    h.append(
+                        f'<li class="bad"><b>{c}</b>: {pct}% missing - consider dropping</li>'
+                    )
             elif c in cat_cols:
                 if pct < 10:
-                    h.append(f'<li class="good"><b>{c}</b>: {pct}% missing - fill with mode or "Unknown"</li>')
+                    h.append(
+                        f'<li class="good"><b>{c}</b>: {pct}% missing - fill with mode or "Unknown"</li>'
+                    )
                 else:
-                    h.append(f'<li class="warn"><b>{c}</b>: {pct}% missing - consider dropping</li>')
+                    h.append(
+                        f'<li class="warn"><b>{c}</b>: {pct}% missing - consider dropping</li>'
+                    )
     for c in numeric_cols:
         skew = col_analysis[c].get("skew", 0)
         if abs(skew) > 1:
             transform = "log" if skew > 0 else "log(-x + max + 1)"
-            h.append(f'<li class="warn"><b>{c}</b>: skewed ({skew:+.2f}) - apply {transform} transform</li>')
+            h.append(
+                f'<li class="warn"><b>{c}</b>: skewed ({skew:+.2f}) - apply {transform} transform</li>'
+            )
     for c in numeric_cols:
         oc = col_analysis[c].get("outlier_count", 0)
         if oc > 0:
             pct = col_analysis[c]["outlier_pct"]
             if pct < 5:
-                h.append(f'<li class="good"><b>{c}</b>: {oc:,} outliers ({pct}%) - consider capping at 1.5*IQR</li>')
+                h.append(
+                    f'<li class="good"><b>{c}</b>: {oc:,} outliers ({pct}%) - consider capping at 1.5*IQR</li>'
+                )
             else:
-                h.append(f'<li class="warn"><b>{c}</b>: {oc:,} outliers ({pct}%) - investigate data quality</li>')
+                h.append(
+                    f'<li class="warn"><b>{c}</b>: {oc:,} outliers ({pct}%) - investigate data quality</li>'
+                )
     for c in cat_cols:
         uniq = col_analysis[c]["unique"]
         rows = col_analysis[c]["count"] + col_analysis[c]["null_count"]
         if uniq > rows * 0.5 and uniq > 10:
-            h.append(f'<li class="warn"><b>{c}</b>: high cardinality ({uniq:,} unique) - likely an ID column</li>')
+            h.append(
+                f'<li class="warn"><b>{c}</b>: high cardinality ({uniq:,} unique) - likely an ID column</li>'
+            )
     for p in corr_pairs[:3]:
         if abs(p["correlation"]) > 0.8:
-            h.append(f'<li class="warn"><b>{p["col_a"]}</b> ↔ <b>{p["col_b"]}</b>: r={p["correlation"]:+.3f} - multicollinearity detected</li>')
+            h.append(
+                f'<li class="warn"><b>{p["col_a"]}</b> ↔ <b>{p["col_b"]}</b>: r={p["correlation"]:+.3f} - multicollinearity detected</li>'
+            )
     h.append("</ul></div>")
     return "\n".join(h)
 
 
-def _profile_variables(df, col_analysis, numeric_cols, cat_cols, datetime_cols, rows, _plot_bg, _font_color):
+def _profile_variables(
+    df, col_analysis, numeric_cols, cat_cols, datetime_cols, rows, _plot_bg, _font_color
+):
     h = ['<div class="section"><h2>Variable Analysis</h2>']
     for c in df.columns:
         info = col_analysis[c]
         anchor = c.replace(" ", "-")
-        h.append(f'<div id="col-{anchor}" class="cc-card"><div class="cc-hdr"><h3>{c}</h3><span class="badge">{info["dtype"]}</span></div><div class="cc-body"><div class="split"><div class="split-left"><table>')
+        h.append(
+            f'<div id="col-{anchor}" class="cc-card"><div class="cc-hdr"><h3>{c}</h3><span class="badge">{info["dtype"]}</span></div><div class="cc-body"><div class="split"><div class="split-left"><table>'
+        )
         h.append(f"<tr><td>Count</td><td>{info['count']:,}</td></tr>")
-        h.append(f"<tr><td>Missing</td><td>{info['null_count']:,} ({info['null_pct']}%)</td></tr>")
-        h.append(f"<tr><td>Unique</td><td>{info['unique']:,} ({info['unique_pct']}%)</td></tr>")
+        h.append(
+            f"<tr><td>Missing</td><td>{info['null_count']:,} ({info['null_pct']}%)</td></tr>"
+        )
+        h.append(
+            f"<tr><td>Unique</td><td>{info['unique']:,} ({info['unique_pct']}%)</td></tr>"
+        )
         if c in numeric_cols:
-            for k in ["mean", "median", "std", "min", "q1", "q3", "max", "skew", "kurtosis"]:
+            for k in [
+                "mean",
+                "median",
+                "std",
+                "min",
+                "q1",
+                "q3",
+                "max",
+                "skew",
+                "kurtosis",
+            ]:
                 h.append(f"<tr><td>{k.title()}</td><td>{info[k]:,.4f}</td></tr>")
-            h.append(f"<tr><td>Zeros</td><td>{info.get('zero_count', 0):,} ({info.get('zero_pct', 0)}%)</td></tr>")
-            h.append(f"<tr><td>Outliers</td><td>{info['outlier_count']:,} ({info['outlier_pct']}%)</td></tr>")
+            h.append(
+                f"<tr><td>Zeros</td><td>{info.get('zero_count', 0):,} ({info.get('zero_pct', 0)}%)</td></tr>"
+            )
+            h.append(
+                f"<tr><td>Outliers</td><td>{info['outlier_count']:,} ({info['outlier_pct']}%)</td></tr>"
+            )
         elif c in cat_cols:
-            h.append(f"<tr><td>Mode</td><td>{info['mode']}</td></tr></table><h4 style='margin-top:10px;color:#8b949e;font-size:12px'>Top Values</h4><table><tr><th>Value</th><th>Count</th><th>%</th><th>Bar</th></tr>")
+            h.append(
+                f"<tr><td>Mode</td><td>{info['mode']}</td></tr></table><h4 style='margin-top:10px;color:#8b949e;font-size:12px'>Top Values</h4><table><tr><th>Value</th><th>Count</th><th>%</th><th>Bar</th></tr>"
+            )
             for val, count in info["top_values"].items():
                 pct = round(count / rows * 100, 1)
-                h.append(f'<tr><td>{val}</td><td>{count:,}</td><td>{pct}%</td><td><div class="mbar"><div class="mbar-fill" style="width:{pct}%;background:var(--accent)"></div></div></td></tr>')
+                h.append(
+                    f'<tr><td>{val}</td><td>{count:,}</td><td>{pct}%</td><td><div class="mbar"><div class="mbar-fill" style="width:{pct}%;background:var(--accent)"></div></div></td></tr>'
+                )
         elif c in datetime_cols:
-            h.append(f"<tr><td>Min Date</td><td>{df[c].min()}</td></tr><tr><td>Max Date</td><td>{df[c].max()}</td></tr><tr><td>Time Span</td><td>{df[c].max() - df[c].min()}</td></tr>")
+            h.append(
+                f"<tr><td>Min Date</td><td>{df[c].min()}</td></tr><tr><td>Max Date</td><td>{df[c].max()}</td></tr><tr><td>Time Span</td><td>{df[c].max() - df[c].min()}</td></tr>"
+            )
         h.append("</table></div>")
         h.append('<div class="split-right"><div class="chart-container">')
         chart_id = f"chart-{anchor}"
         h.append(f'<div id="{chart_id}" style="height:var(--chart-h)"></div>')
-        h.append(_col_chart_script(c, chart_id, df, numeric_cols, cat_cols, datetime_cols, _plot_bg, _font_color))
+        h.append(
+            _col_chart_script(
+                c,
+                chart_id,
+                df,
+                numeric_cols,
+                cat_cols,
+                datetime_cols,
+                _plot_bg,
+                _font_color,
+            )
+        )
         h.append("</div></div></div></div></div>")
     return "\n".join(h)
 
 
-def _col_chart_script(c, chart_id, df, numeric_cols, cat_cols, datetime_cols, _plot_bg, _font_color):
+def _col_chart_script(
+    c, chart_id, df, numeric_cols, cat_cols, datetime_cols, _plot_bg, _font_color
+):
     if c in numeric_cols:
         clean_data = df[c].dropna().tolist()
         return f"""<script>

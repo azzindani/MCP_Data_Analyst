@@ -1,4 +1,5 @@
 """Tier 2 engine — public API. Zero MCP imports."""
+
 from __future__ import annotations
 
 import sys

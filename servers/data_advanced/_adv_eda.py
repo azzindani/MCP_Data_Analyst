@@ -1,4 +1,5 @@
 """run_eda sub-module. No MCP imports."""
+
 from __future__ import annotations
 
 import logging
@@ -65,7 +66,8 @@ def run_eda(
 
         numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
         cat_cols = [
-            c for c in df.columns
+            c
+            for c in df.columns
             if not pd.api.types.is_numeric_dtype(df[c])
             and not pd.api.types.is_datetime64_any_dtype(df[c])
         ]
@@ -98,11 +100,13 @@ def run_eda(
                 for j in range(i + 1, len(numeric_cols)):
                     val = corr.iloc[i, j]
                     if not pd.isna(val):
-                        pairs.append({
-                            "col_a": numeric_cols[i],
-                            "col_b": numeric_cols[j],
-                            "correlation": round(float(val), 4),
-                        })
+                        pairs.append(
+                            {
+                                "col_a": numeric_cols[i],
+                                "col_b": numeric_cols[j],
+                                "correlation": round(float(val), 4),
+                            }
+                        )
             pairs.sort(key=lambda x: abs(x["correlation"]), reverse=True)
             corr_pairs = pairs[:10]
 
@@ -115,13 +119,15 @@ def run_eda(
             upper = q3 + 1.5 * iqr
             count = int(((df[c] < lower) | (df[c] > upper)).sum())
             if count > 0:
-                outlier_cols.append({
-                    "column": c,
-                    "outlier_count": count,
-                    "outlier_pct": round(count / rows * 100, 2),
-                    "lower_limit": round(float(lower), 4),
-                    "upper_limit": round(float(upper), 4),
-                })
+                outlier_cols.append(
+                    {
+                        "column": c,
+                        "outlier_count": count,
+                        "outlier_pct": round(count / rows * 100, 2),
+                        "lower_limit": round(float(lower), 4),
+                        "upper_limit": round(float(upper), 4),
+                    }
+                )
 
         null_penalty = sum(s["null_pct"] for s in column_summaries) / max(cols, 1)
         dup_count = int(df.duplicated().sum())
@@ -131,7 +137,9 @@ def run_eda(
             0, round(100 - null_penalty - dup_penalty * 0.5 - outlier_penalty * 0.3)
         )
 
-        alerts = _compute_alerts(df, numeric_cols, cat_cols, corr_pairs, rows, dup_count)
+        alerts = _compute_alerts(
+            df, numeric_cols, cat_cols, corr_pairs, rows, dup_count
+        )
 
         spearman_matrix = None
         if len(numeric_cols) >= 2:
@@ -140,12 +148,26 @@ def run_eda(
         for s in column_summaries:
             if s["column"] in numeric_cols:
                 s["zero_count"] = int((df[s["column"]] == 0).sum())
-                s["zero_pct"] = round(s["zero_count"] / rows * 100, 2) if rows > 0 else 0
+                s["zero_pct"] = (
+                    round(s["zero_count"] / rows * 100, 2) if rows > 0 else 0
+                )
 
         html_content = _build_eda_html(
-            df, path, rows, cols, numeric_cols, cat_cols, datetime_cols,
-            column_summaries, corr_pairs, outlier_cols, quality_score,
-            alerts, spearman_matrix, dup_count, theme,
+            df,
+            path,
+            rows,
+            cols,
+            numeric_cols,
+            cat_cols,
+            datetime_cols,
+            column_summaries,
+            corr_pairs,
+            outlier_cols,
+            quality_score,
+            alerts,
+            spearman_matrix,
+            dup_count,
+            theme,
         )
 
         if output_path:
@@ -159,10 +181,12 @@ def run_eda(
         if open_after:
             _open_file(out)
 
-        progress.append(ok(
-            "EDA report saved",
-            f"{out.name} ({size_kb:,} KB) — {quality_score}/100 quality score",
-        ))
+        progress.append(
+            ok(
+                "EDA report saved",
+                f"{out.name} ({size_kb:,} KB) — {quality_score}/100 quality score",
+            )
+        )
 
         result = {
             "success": True,
@@ -205,38 +229,80 @@ def _compute_alerts(df, numeric_cols, cat_cols, corr_pairs, rows, dup_count):
     alerts = []
     for c in df.columns:
         if df[c].nunique(dropna=True) <= 1:
-            alerts.append({"col": c, "type": "CONSTANT", "sev": "error",
-                           "msg": f"'{c}' has only 1 unique value — constant, no predictive value."})
+            alerts.append(
+                {
+                    "col": c,
+                    "type": "CONSTANT",
+                    "sev": "error",
+                    "msg": f"'{c}' has only 1 unique value — constant, no predictive value.",
+                }
+            )
     for c in df.columns:
         np_ = round(df[c].isna().mean() * 100, 1)
         if np_ > 50:
-            alerts.append({"col": c, "type": "HIGH NULLS", "sev": "error",
-                           "msg": f"'{c}': {np_}% missing values — consider dropping."})
+            alerts.append(
+                {
+                    "col": c,
+                    "type": "HIGH NULLS",
+                    "sev": "error",
+                    "msg": f"'{c}': {np_}% missing values — consider dropping.",
+                }
+            )
         elif np_ > 20:
-            alerts.append({"col": c, "type": "HIGH NULLS", "sev": "warning",
-                           "msg": f"'{c}': {np_}% missing — imputation needed."})
+            alerts.append(
+                {
+                    "col": c,
+                    "type": "HIGH NULLS",
+                    "sev": "warning",
+                    "msg": f"'{c}': {np_}% missing — imputation needed.",
+                }
+            )
     for c in numeric_cols:
         zp = round((df[c] == 0).mean() * 100, 1)
         if zp > 50:
-            alerts.append({"col": c, "type": "ZEROS", "sev": "warning",
-                           "msg": f"'{c}': {zp}% zero values — zero-inflated distribution."})
+            alerts.append(
+                {
+                    "col": c,
+                    "type": "ZEROS",
+                    "sev": "warning",
+                    "msg": f"'{c}': {zp}% zero values — zero-inflated distribution.",
+                }
+            )
     for c in cat_cols:
         uniq = df[c].nunique()
         if uniq > max(50, rows * 0.5):
-            alerts.append({"col": c, "type": "HIGH CARDINALITY", "sev": "warning",
-                           "msg": f"'{c}': {uniq:,} unique values — likely an ID, consider dropping."})
+            alerts.append(
+                {
+                    "col": c,
+                    "type": "HIGH CARDINALITY",
+                    "sev": "warning",
+                    "msg": f"'{c}': {uniq:,} unique values — likely an ID, consider dropping.",
+                }
+            )
     for c in cat_cols:
         if df[c].notna().sum() > 0:
             top_pct = round(df[c].value_counts(normalize=True).iloc[0] * 100, 1)
             if top_pct > 90:
-                alerts.append({"col": c, "type": "IMBALANCED", "sev": "warning",
-                               "msg": f"'{c}': top category = {top_pct}% of values — highly imbalanced."})
+                alerts.append(
+                    {
+                        "col": c,
+                        "type": "IMBALANCED",
+                        "sev": "warning",
+                        "msg": f"'{c}': top category = {top_pct}% of values — highly imbalanced.",
+                    }
+                )
     for c in numeric_cols:
         try:
             skv = round(float(df[c].skew()), 2)
             if abs(skv) > 2:
-                alerts.append({"col": c, "type": "SKEWED", "sev": "warning",
-                               "msg": f"'{c}': skewness={skv:+.2f} — consider log/sqrt transform."})
+                alerts.append(
+                    {
+                        "col": c,
+                        "type": "SKEWED",
+                        "sev": "warning",
+                        "msg": f"'{c}': skewness={skv:+.2f} — consider log/sqrt transform.",
+                    }
+                )
         except Exception:
             pass
     for c in numeric_cols:
@@ -245,17 +311,34 @@ def _compute_alerts(df, numeric_cols, cat_cols, corr_pairs, rows, dup_count):
         oc_ = int(((df[c] < q1_ - 1.5 * iqr_) | (df[c] > q3_ + 1.5 * iqr_)).sum())
         op_ = round(oc_ / max(rows, 1) * 100, 1)
         if op_ > 10:
-            alerts.append({"col": c, "type": "OUTLIERS", "sev": "warning",
-                           "msg": f"'{c}': {oc_:,} outliers ({op_}%) — investigate or cap."})
+            alerts.append(
+                {
+                    "col": c,
+                    "type": "OUTLIERS",
+                    "sev": "warning",
+                    "msg": f"'{c}': {oc_:,} outliers ({op_}%) — investigate or cap.",
+                }
+            )
     for p in corr_pairs[:20]:
         if abs(p["correlation"]) > 0.9:
-            alerts.append({"col": p["col_a"], "type": "HIGH CORR", "sev": "warning",
-                           "msg": f"'{p['col_a']}' \u2194 '{p['col_b']}': r={p['correlation']:+.3f} — possible multicollinearity."})
+            alerts.append(
+                {
+                    "col": p["col_a"],
+                    "type": "HIGH CORR",
+                    "sev": "warning",
+                    "msg": f"'{p['col_a']}' \u2194 '{p['col_b']}': r={p['correlation']:+.3f} — possible multicollinearity.",
+                }
+            )
     if dup_count > 0:
         dp_ = round(dup_count / max(rows, 1) * 100, 1)
-        alerts.append({"col": None, "type": "DUPLICATES",
-                       "sev": "warning" if dp_ < 5 else "error",
-                       "msg": f"{dup_count:,} duplicate rows ({dp_}%) — consider deduplication."})
+        alerts.append(
+            {
+                "col": None,
+                "type": "DUPLICATES",
+                "sev": "warning" if dp_ < 5 else "error",
+                "msg": f"{dup_count:,} duplicate rows ({dp_}%) — consider deduplication.",
+            }
+        )
     return alerts
 
 
@@ -264,7 +347,13 @@ def _alerts_html(al):
         return '<div class="alert-panel"><div class="alert-item info"><span class="alert-badge info">OK</span> No data quality alerts detected.</div></div>'
     items = []
     for a in al:
-        badge_cls = "error" if a["sev"] == "error" else "warning" if a["sev"] == "warning" else "info"
+        badge_cls = (
+            "error"
+            if a["sev"] == "error"
+            else "warning"
+            if a["sev"] == "warning"
+            else "info"
+        )
         items.append(
             f'<div class="alert-item {badge_cls}"><span class="alert-badge {badge_cls}">{a["type"]}</span> {a["msg"]}</div>'
         )
@@ -272,13 +361,29 @@ def _alerts_html(al):
 
 
 def _build_eda_html(
-    df, path, rows, cols, numeric_cols, cat_cols, datetime_cols,
-    column_summaries, corr_pairs, outlier_cols, quality_score,
-    alerts, spearman_matrix, dup_count, theme,
+    df,
+    path,
+    rows,
+    cols,
+    numeric_cols,
+    cat_cols,
+    datetime_cols,
+    column_summaries,
+    corr_pairs,
+    outlier_cols,
+    quality_score,
+    alerts,
+    spearman_matrix,
+    dup_count,
+    theme,
 ):
     vars_css = css_vars(theme)
-    score_cls = "good" if quality_score >= 80 else "warn" if quality_score >= 60 else "bad"
-    missing_by_col = {s["column"]: s["null_count"] for s in column_summaries if s["null_count"] > 0}
+    score_cls = (
+        "good" if quality_score >= 80 else "warn" if quality_score >= 60 else "bad"
+    )
+    missing_by_col = {
+        s["column"]: s["null_count"] for s in column_summaries if s["null_count"] > 0
+    }
 
     if theme == "dark":
         _plot_bg = "#161b22"
@@ -343,14 +448,20 @@ def _build_eda_html(
         if "mean" in s:
             stats_str = f"μ={s['mean']}, σ={s['std']}, [{s['min']}–{s['max']}]"
         elif "top_values" in s:
-            stats_str = "Top: " + ", ".join(f"{k}:{v}" for k, v in list(s["top_values"].items())[:3])
+            stats_str = "Top: " + ", ".join(
+                f"{k}:{v}" for k, v in list(s["top_values"].items())[:3]
+            )
         else:
             stats_str = "—"
-        zero_cell = f'{s.get("zero_count", "")} ({s.get("zero_pct", "")}%)' if "zero_count" in s else "—"
+        zero_cell = (
+            f"{s.get('zero_count', '')} ({s.get('zero_pct', '')}%)"
+            if "zero_count" in s
+            else "—"
+        )
         col_rows.append(
             f'<tr><td><b>{s["column"]}</b></td><td><span class="badge">{s["dtype"]}</span></td>'
             f'<td class="{cls}">{nc_}</td><td class="{cls}">{np_}%</td>'
-            f'<td>{zero_cell}</td>'
+            f"<td>{zero_cell}</td>"
             f'<td>{s["unique_count"]}</td><td class="stats-cell">{stats_str}</td></tr>'
         )
     col_rows_html = "\n".join(col_rows)
@@ -358,12 +469,18 @@ def _build_eda_html(
     insights = []
     for s in column_summaries:
         if s["null_pct"] > 50:
-            insights.append(f'<li class="bad"><b>{s["column"]}</b>: {s["null_pct"]}% null — consider dropping</li>')
+            insights.append(
+                f'<li class="bad"><b>{s["column"]}</b>: {s["null_pct"]}% null — consider dropping</li>'
+            )
         elif s["null_pct"] > 10:
-            insights.append(f'<li class="warn"><b>{s["column"]}</b>: {s["null_pct"]}% null — consider imputation</li>')
+            insights.append(
+                f'<li class="warn"><b>{s["column"]}</b>: {s["null_pct"]}% null — consider imputation</li>'
+            )
     for p in corr_pairs[:5]:
         if abs(p["correlation"]) > 0.8:
-            insights.append(f'<li><b>{p["col_a"]}</b> ↔ <b>{p["col_b"]}</b>: r={p["correlation"]:+.3f} (very strong)</li>')
+            insights.append(
+                f"<li><b>{p['col_a']}</b> ↔ <b>{p['col_b']}</b>: r={p['correlation']:+.3f} (very strong)</li>"
+            )
     for s in column_summaries:
         if "std" in s and s.get("std", 0) > 0:
             skew_val = None
@@ -372,28 +489,52 @@ def _build_eda_html(
             except Exception:
                 pass
             if skew_val is not None and abs(skew_val) > 2:
-                insights.append(f'<li class="warn"><b>{s["column"]}</b>: skewness={skew_val} — consider log transform</li>')
+                insights.append(
+                    f'<li class="warn"><b>{s["column"]}</b>: skewness={skew_val} — consider log transform</li>'
+                )
     if dup_count > 0:
-        insights.append(f'<li class="warn">{dup_count:,} duplicate rows detected — use drop_duplicates</li>')
+        insights.append(
+            f'<li class="warn">{dup_count:,} duplicate rows detected — use drop_duplicates</li>'
+        )
     if not insights:
         insights.append('<li class="good">No major data quality issues detected.</li>')
     insights_html = "\n".join(insights)
 
-    outlier_rows = "".join(
-        f'<tr><td><b>{o["column"]}</b></td><td class="warn">{o["outlier_count"]}</td>'
-        f'<td>{o["outlier_pct"]}%</td><td>[{o["lower_limit"]} – {o["upper_limit"]}]</td></tr>'
-        for o in outlier_cols
-    ) if outlier_cols else '<tr><td colspan="4" class="good">No outliers detected</td></tr>'
+    outlier_rows = (
+        "".join(
+            f'<tr><td><b>{o["column"]}</b></td><td class="warn">{o["outlier_count"]}</td>'
+            f"<td>{o['outlier_pct']}%</td><td>[{o['lower_limit']} – {o['upper_limit']}]</td></tr>"
+            for o in outlier_cols
+        )
+        if outlier_cols
+        else '<tr><td colspan="4" class="good">No outliers detected</td></tr>'
+    )
 
     corr_rows = ""
     for p in corr_pairs[:10]:
-        s_str = "Very Strong" if abs(p["correlation"]) > 0.9 else "Strong" if abs(p["correlation"]) > 0.7 else "Moderate" if abs(p["correlation"]) > 0.5 else "Weak"
-        cls = "good" if abs(p["correlation"]) > 0.7 else "warn" if abs(p["correlation"]) > 0.5 else ""
+        s_str = (
+            "Very Strong"
+            if abs(p["correlation"]) > 0.9
+            else "Strong"
+            if abs(p["correlation"]) > 0.7
+            else "Moderate"
+            if abs(p["correlation"]) > 0.5
+            else "Weak"
+        )
+        cls = (
+            "good"
+            if abs(p["correlation"]) > 0.7
+            else "warn"
+            if abs(p["correlation"]) > 0.5
+            else ""
+        )
         corr_rows += f'<tr class="{cls}"><td>{p["col_a"]}</td><td>{p["col_b"]}</td><td>{p["correlation"]:+.4f}</td><td>{s_str}</td></tr>'
 
     plotly_script = '<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>'
 
-    missing_section = _build_missing_section(df, missing_by_col, rows, accent_color, _plot_bg, _font_color)
+    missing_section = _build_missing_section(
+        df, missing_by_col, rows, accent_color, _plot_bg, _font_color
+    )
     corr_section = ""
     if corr_pairs:
         corr_section = f'<div id="correlations" class="section"><h2>Correlations</h2>{corr_json}{spearman_json}<table><tr><th>Variable A</th><th>Variable B</th><th>r</th><th>Strength</th></tr>{corr_rows}</table></div>'
@@ -454,7 +595,7 @@ def _build_eda_html(
       <div class="card"><div class="num">{len(cat_cols)}</div><div class="lbl">Categorical</div></div>
       <div class="card"><div class="num">{len(datetime_cols)}</div><div class="lbl">Datetime</div></div>
       <div class="card {score_cls}"><div class="num">{quality_score}</div><div class="lbl">Quality Score</div></div>
-      <div class="card {'warn' if dup_count > 0 else 'good'}"><div class="num">{dup_count:,}</div><div class="lbl">Duplicates</div></div>
+      <div class="card {"warn" if dup_count > 0 else "good"}"><div class="num">{dup_count:,}</div><div class="lbl">Duplicates</div></div>
     </div>
   </div>
   {sample_html}
@@ -484,12 +625,14 @@ def _build_eda_html(
 </body></html>"""
 
 
-def _build_missing_section(df, missing_by_col, rows, accent_color, _plot_bg, _font_color):
+def _build_missing_section(
+    df, missing_by_col, rows, accent_color, _plot_bg, _font_color
+):
     if not missing_by_col:
         return ""
     missing_rows = "".join(
-        f'<tr><td><b>{c}</b></td><td>{cnt}</td><td>{round(cnt/rows*100,1)}%</td>'
-        f'<td><div class="mbar"><div class="mbar-fill" style="width:{round(cnt/rows*100,1)}%"></div></div></td></tr>'
+        f"<tr><td><b>{c}</b></td><td>{cnt}</td><td>{round(cnt / rows * 100, 1)}%</td>"
+        f'<td><div class="mbar"><div class="mbar-fill" style="width:{round(cnt / rows * 100, 1)}%"></div></div></td></tr>'
         for c, cnt in sorted(missing_by_col.items(), key=lambda x: -x[1])
     )
     miss_cols = list(missing_by_col.keys())

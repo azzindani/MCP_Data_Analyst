@@ -1,4 +1,5 @@
 """generate_chart, generate_geo_map, generate_3d_chart. No MCP imports."""
+
 from __future__ import annotations
 
 import logging
@@ -28,9 +29,19 @@ from shared.file_utils import resolve_path
 logger = logging.getLogger(__name__)
 
 _VALID_CHART_TYPES = {
-    "bar", "pie", "line", "scatter", "geo", "treemap",
-    "time_series", "radius", "sunburst", "waterfall",
-    "funnel", "parallel_coords", "sankey",
+    "bar",
+    "pie",
+    "line",
+    "scatter",
+    "geo",
+    "treemap",
+    "time_series",
+    "radius",
+    "sunburst",
+    "waterfall",
+    "funnel",
+    "parallel_coords",
+    "sankey",
 }
 
 
@@ -88,7 +99,11 @@ def generate_chart(
         df = _read_csv(str(path))
         tmpl = plotly_template(theme)
         chart_title = title if title else f"{agg_func} of {value_column}"
-        if category_column and chart_type not in ("treemap", "sunburst", "parallel_coords"):
+        if category_column and chart_type not in (
+            "treemap",
+            "sunburst",
+            "parallel_coords",
+        ):
             chart_title += f" by {category_column}"
 
         # Validate required params per type
@@ -98,7 +113,9 @@ def generate_chart(
                     "success": False,
                     "error": "geo chart requires geo_file_path and geo_join_column",
                     "hint": "Provide both geo_file_path and geo_join_column.",
-                    "progress": [fail("Missing params", "geo_file_path, geo_join_column")],
+                    "progress": [
+                        fail("Missing params", "geo_file_path, geo_join_column")
+                    ],
                     "token_estimate": 30,
                 }
         if chart_type in ("treemap", "sunburst") and not hierarchy_columns:
@@ -129,7 +146,9 @@ def generate_chart(
         # Build chart_df
         if chart_type in ("bar", "pie", "line", "scatter"):
             if category_column:
-                grouped = df.groupby(category_column, as_index=False)[value_column].agg(agg_func)
+                grouped = df.groupby(category_column, as_index=False)[value_column].agg(
+                    agg_func
+                )
                 grouped = grouped.sort_values(by=value_column, ascending=False)
                 chart_df = grouped
             else:
@@ -153,11 +172,17 @@ def generate_chart(
                     "token_estimate": 20,
                 }
             gdf = gpd.read_file(geo_file_path)
-            grouped = df.groupby(category_column, as_index=False)[value_column].agg(agg_func)
-            chart_df = gdf.merge(grouped, left_on=geo_join_column, right_on=category_column, how="left")
+            grouped = df.groupby(category_column, as_index=False)[value_column].agg(
+                agg_func
+            )
+            chart_df = gdf.merge(
+                grouped, left_on=geo_join_column, right_on=category_column, how="left"
+            )
         elif chart_type in ("waterfall", "funnel"):
             if category_column:
-                chart_df = df.groupby(category_column, as_index=False)[value_column].agg(agg_func)
+                chart_df = df.groupby(category_column, as_index=False)[
+                    value_column
+                ].agg(agg_func)
                 chart_df = chart_df.sort_values(by=value_column, ascending=False)
             else:
                 chart_df = df
@@ -170,8 +195,18 @@ def generate_chart(
 
         # Generate figure
         fig = _dispatch_chart(
-            chart_type, chart_df, df, value_column, category_column,
-            color_column, date_column, hierarchy_columns, chart_title, tmpl, go, px,
+            chart_type,
+            chart_df,
+            df,
+            value_column,
+            category_column,
+            color_column,
+            date_column,
+            hierarchy_columns,
+            chart_title,
+            tmpl,
+            go,
+            px,
         )
 
         if fig is None:
@@ -186,7 +221,9 @@ def generate_chart(
         fig.update_layout(margin=dict(l=20, r=20, t=40, b=20))
         rows_plotted = len(chart_df)
 
-        abs_p, fname = _save_chart(fig, output_path, chart_type, path, open_after, theme)
+        abs_p, fname = _save_chart(
+            fig, output_path, chart_type, path, open_after, theme
+        )
         progress.append(ok("Chart saved", f"{fname} ({rows_plotted} rows)"))
 
         result = {
@@ -214,89 +251,151 @@ def generate_chart(
 
 
 def _dispatch_chart(
-    chart_type, chart_df, df, value_column, category_column,
-    color_column, date_column, hierarchy_columns, chart_title, tmpl, go, px,
+    chart_type,
+    chart_df,
+    df,
+    value_column,
+    category_column,
+    color_column,
+    date_column,
+    hierarchy_columns,
+    chart_title,
+    tmpl,
+    go,
+    px,
 ):
     """Build and return a plotly Figure for the given chart_type."""
     if chart_type == "bar":
         return px.bar(
-            chart_df, x=category_column, y=value_column,
-            title=chart_title, template=tmpl,
+            chart_df,
+            x=category_column,
+            y=value_column,
+            title=chart_title,
+            template=tmpl,
             color=color_column if color_column else None,
         )
     if chart_type == "pie":
         return px.pie(
-            chart_df, names=category_column, values=value_column,
-            title=chart_title, template=tmpl, hole=0.5,
+            chart_df,
+            names=category_column,
+            values=value_column,
+            title=chart_title,
+            template=tmpl,
+            hole=0.5,
         )
     if chart_type == "line":
         return px.line(
-            chart_df, x=category_column, y=value_column,
-            title=chart_title, template=tmpl,
+            chart_df,
+            x=category_column,
+            y=value_column,
+            title=chart_title,
+            template=tmpl,
             color=color_column if color_column else None,
         )
     if chart_type == "scatter":
         return px.scatter(
-            chart_df, x=category_column, y=value_column,
-            title=chart_title, template=tmpl,
+            chart_df,
+            x=category_column,
+            y=value_column,
+            title=chart_title,
+            template=tmpl,
             color=color_column if color_column else None,
         )
     if chart_type == "geo":
         return px.choropleth_mapbox(
-            chart_df, geojson=chart_df.geometry, locations=chart_df.index,
-            color=value_column, title=chart_title, template=tmpl,
+            chart_df,
+            geojson=chart_df.geometry,
+            locations=chart_df.index,
+            color=value_column,
+            title=chart_title,
+            template=tmpl,
             mapbox_style="carto-positron",
-            center={"lat": 37.09, "lon": -73.94}, zoom=3,
+            center={"lat": 37.09, "lon": -73.94},
+            zoom=3,
         )
     if chart_type == "treemap":
         return px.treemap(
-            chart_df, path=hierarchy_columns, values=value_column,
-            title=chart_title, template=tmpl,
+            chart_df,
+            path=hierarchy_columns,
+            values=value_column,
+            title=chart_title,
+            template=tmpl,
         )
     if chart_type == "time_series":
         fig = px.line(
-            chart_df, x="period", y=value_column,
-            title=chart_title, template=tmpl, markers=True,
+            chart_df,
+            x="period",
+            y=value_column,
+            title=chart_title,
+            template=tmpl,
+            markers=True,
         )
         fig.update_xaxes(title_text="Period")
         return fig
     if chart_type == "radius":
         fig = go.Figure()
-        fig.add_trace(go.Scatterpolar(
-            r=chart_df[value_column].tolist(),
-            theta=chart_df[category_column].tolist(),
-            fill="toself", name=value_column,
-        ))
+        fig.add_trace(
+            go.Scatterpolar(
+                r=chart_df[value_column].tolist(),
+                theta=chart_df[category_column].tolist(),
+                fill="toself",
+                name=value_column,
+            )
+        )
         fig.update_layout(
             polar=dict(radialaxis=dict(visible=True)),
-            title=chart_title, template=tmpl,
+            title=chart_title,
+            template=tmpl,
         )
         return fig
     if chart_type == "sunburst":
         return px.sunburst(
-            chart_df, path=hierarchy_columns, values=value_column,
-            title=chart_title, template=tmpl,
+            chart_df,
+            path=hierarchy_columns,
+            values=value_column,
+            title=chart_title,
+            template=tmpl,
         )
     if chart_type == "waterfall":
-        labels = chart_df[category_column].tolist() if category_column else list(range(len(chart_df)))
+        labels = (
+            chart_df[category_column].tolist()
+            if category_column
+            else list(range(len(chart_df)))
+        )
         values = chart_df[value_column].tolist()
-        fig = go.Figure(go.Waterfall(
-            x=labels, y=values,
-            measure=["relative"] * len(values),
-            connector={"line": {"color": "rgb(63,63,63)"}},
-        ))
+        fig = go.Figure(
+            go.Waterfall(
+                x=labels,
+                y=values,
+                measure=["relative"] * len(values),
+                connector={"line": {"color": "rgb(63,63,63)"}},
+            )
+        )
         fig.update_layout(title=chart_title, template=tmpl)
         return fig
     if chart_type == "funnel":
-        labels = chart_df[category_column].tolist() if category_column else list(range(len(chart_df)))
+        labels = (
+            chart_df[category_column].tolist()
+            if category_column
+            else list(range(len(chart_df)))
+        )
         values = chart_df[value_column].tolist()
         return px.funnel(
-            chart_df, x=value_column, y=category_column,
-            title=chart_title, template=tmpl,
+            chart_df,
+            x=value_column,
+            y=category_column,
+            title=chart_title,
+            template=tmpl,
         )
     if chart_type == "parallel_coords":
-        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])][:10]
-        color_col = value_column if value_column in numeric_cols else (numeric_cols[0] if numeric_cols else None)
+        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])][
+            :10
+        ]
+        color_col = (
+            value_column
+            if value_column in numeric_cols
+            else (numeric_cols[0] if numeric_cols else None)
+        )
         return px.parallel_coordinates(
             df[numeric_cols].dropna(),
             color=color_col,
@@ -304,7 +403,9 @@ def _dispatch_chart(
             title=chart_title,
         )
     if chart_type == "sankey":
-        return _build_sankey(df, category_column, color_column, value_column, chart_title, tmpl, go)
+        return _build_sankey(
+            df, category_column, color_column, value_column, chart_title, tmpl, go
+        )
     return None
 
 
@@ -316,10 +417,12 @@ def _build_sankey(df, source_col, target_col, value_col, chart_title, tmpl, go):
     src_idx = [node_idx[v] for v in grouped[source_col]]
     tgt_idx = [node_idx[v] for v in grouped[target_col]]
     vals = grouped[value_col].tolist()
-    fig = go.Figure(go.Sankey(
-        node=dict(label=all_nodes, pad=15, thickness=20),
-        link=dict(source=src_idx, target=tgt_idx, value=vals),
-    ))
+    fig = go.Figure(
+        go.Sankey(
+            node=dict(label=all_nodes, pad=15, thickness=20),
+            link=dict(source=src_idx, target=tgt_idx, value=vals),
+        )
+    )
     fig.update_layout(title=chart_title, template=tmpl)
     return fig
 
@@ -424,10 +527,16 @@ def generate_geo_map(
                 chart_title = f"Geographic Distribution — {path.stem}"
 
             fig = px.scatter_geo(
-                plot_df, lat=lat_col, lon=lon_col,
+                plot_df,
+                lat=lat_col,
+                lon=lon_col,
                 size=value_column if value_column else None,
-                color=color_column if color_column else (value_column if value_column else None),
-                title=chart_title, template=tmpl, projection="natural earth",
+                color=color_column
+                if color_column
+                else (value_column if value_column else None),
+                title=chart_title,
+                template=tmpl,
+                projection="natural earth",
             )
             fig.update_traces(marker={"opacity": 0.75, "sizemin": 3})
             map_type = "scatter_geo"
@@ -459,14 +568,22 @@ def generate_geo_map(
                 chart_title = f"{nc_label} by {loc_col} — {path.stem}"
 
             fig = px.choropleth(
-                grouped, locations=loc_col, color=agg_col,
-                locationmode=loc_mode, title=chart_title, template=tmpl,
+                grouped,
+                locations=loc_col,
+                color=agg_col,
+                locationmode=loc_mode,
+                title=chart_title,
+                template=tmpl,
                 color_continuous_scale="YlOrRd",
             )
             fig.update_layout(geo={"showframe": False, "showcoastlines": True})
             map_type = f"choropleth ({loc_mode})"
             rows_plotted = len(grouped)
-            progress.append(info("Map type", f"choropleth, mode={loc_mode}, {rows_plotted} locations"))
+            progress.append(
+                info(
+                    "Map type", f"choropleth, mode={loc_mode}, {rows_plotted} locations"
+                )
+            )
 
         fig.update_layout(margin={"l": 0, "r": 0, "t": 40, "b": 0}, autosize=True)
         abs_p, fname = _save_chart(fig, output_path, "geo_map", path, open_after, theme)
@@ -560,7 +677,11 @@ def generate_3d_chart(
                 }
 
         tmpl = plotly_template(theme)
-        chart_title = title if title else f"3D {chart_type.replace('_', ' ').title()}: {x_column} × {y_column} × {z_column}"
+        chart_title = (
+            title
+            if title
+            else f"3D {chart_type.replace('_', ' ').title()}: {x_column} × {y_column} × {z_column}"
+        )
 
         if chart_type == "scatter_3d":
             plot_df = df
@@ -568,9 +689,14 @@ def generate_3d_chart(
                 plot_df = plot_df.sample(5000, random_state=42)
             fig = px.scatter_3d(
                 plot_df,
-                x=x_column, y=y_column, z=z_column,
-                color=color_column if color_column and color_column in df.columns else None,
-                title=chart_title, template=tmpl,
+                x=x_column,
+                y=y_column,
+                z=z_column,
+                color=color_column
+                if color_column and color_column in df.columns
+                else None,
+                title=chart_title,
+                template=tmpl,
             )
             rows_plotted = len(plot_df)
 
@@ -586,8 +712,10 @@ def generate_3d_chart(
                     }
             try:
                 grid = df.pivot_table(
-                    index=y_column, columns=x_column,
-                    values=z_column, aggfunc="mean",
+                    index=y_column,
+                    columns=x_column,
+                    values=z_column,
+                    aggfunc="mean",
                 )
             except Exception as e:
                 return {
@@ -605,17 +733,21 @@ def generate_3d_chart(
                     "progress": [fail("Grid too large", str(grid.shape))],
                     "token_estimate": 20,
                 }
-            fig = go.Figure(go.Surface(
-                z=grid.values,
-                x=grid.columns.tolist(),
-                y=grid.index.tolist(),
-                colorscale="Viridis",
-            ))
+            fig = go.Figure(
+                go.Surface(
+                    z=grid.values,
+                    x=grid.columns.tolist(),
+                    y=grid.index.tolist(),
+                    colorscale="Viridis",
+                )
+            )
             fig.update_layout(title=chart_title, template=tmpl)
             rows_plotted = len(df)
 
         fig.update_layout(margin=dict(l=20, r=20, t=40, b=20))
-        abs_p, fname = _save_chart(fig, output_path, chart_type, path, open_after, theme)
+        abs_p, fname = _save_chart(
+            fig, output_path, chart_type, path, open_after, theme
+        )
         progress.append(ok("3D chart saved", f"{fname} ({rows_plotted} rows)"))
 
         result = {

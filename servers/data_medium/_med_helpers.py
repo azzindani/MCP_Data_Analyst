@@ -1,4 +1,5 @@
 """Shared helpers for data_medium sub-modules. No MCP imports."""
+
 from __future__ import annotations
 
 import subprocess

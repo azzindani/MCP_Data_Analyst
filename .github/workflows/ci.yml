@@ -2,31 +2,77 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
   pull_request:
-    branches: [main]
+    branches: ["**"]
 
 jobs:
-  lint-and-test:
-    runs-on: ubuntu-latest
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-latest, windows-latest]
+
+    env:
+      MCP_CONSTRAINED_MODE: "1"
+      PYTHONPATH: "."
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
 
       - name: Install dependencies
-        run: |
-          uv sync --group dev
-          cd servers/data_advanced && uv sync --dev
-          cd ../..
+        run: uv sync --frozen
 
-      - name: Lint with ruff
-        run: |
-          uv run ruff check servers/ shared/ tests/ --exclude "**/.venv/**"
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Format check (ruff)
+        run: uv run ruff format --check .
+
+      - name: Type check (pyright)
+        run: uv run pyright servers/ shared/
+
+      - name: Verify tool docstrings
+        run: python verify_tool_docstrings.py
 
       - name: Run tests
-        run: |
-          PYTHONPATH=. servers/data_advanced/.venv/bin/python -m pytest tests/ -v --tb=short
+        run: uv run python -m pytest tests/ -q --tb=short
+
+  constrained:
+    name: Constrained mode (ubuntu)
+    runs-on: ubuntu-22.04
+
+    env:
+      MCP_CONSTRAINED_MODE: "1"
+      PYTHONPATH: "."
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run tests in constrained mode
+        run: uv run python -m pytest tests/ -q --tb=short

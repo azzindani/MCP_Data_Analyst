@@ -1,4 +1,5 @@
 """Inspection and detection tools for data_medium. No MCP imports."""
+
 from __future__ import annotations
 
 import logging
@@ -18,6 +19,7 @@ try:
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
     from shared.html_theme import plotly_template
+
     _PLOTLY_AVAILABLE = True
 except ImportError:
     _PLOTLY_AVAILABLE = False
@@ -156,12 +158,16 @@ def check_outliers(
                 template=plotly_template(theme),
                 height=450,
             )
-            abs_p, fname = _save_chart(fig, output_path, "outliers", path, open_after, theme)
+            abs_p, fname = _save_chart(
+                fig, output_path, "outliers", path, open_after, theme
+            )
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))
         elif not _PLOTLY_AVAILABLE:
-            progress.append(warn("plotly not installed", "pip install plotly to enable HTML export"))
+            progress.append(
+                warn("plotly not installed", "pip install plotly to enable HTML export")
+            )
 
         result["token_estimate"] = _token_estimate(result)
         return result
@@ -222,7 +228,9 @@ def scan_nulls_zeros(
                 null_c += int(null_like)
                 null_p = round(null_c / total_rows * 100, 2) if total_rows > 0 else 0.0
 
-            flagged = null_c >= min_count or (zero_c is not None and zero_c >= min_count)
+            flagged = null_c >= min_count or (
+                zero_c is not None and zero_c >= min_count
+            )
             if not flagged:
                 continue
 
@@ -242,10 +250,14 @@ def scan_nulls_zeros(
                 else:
                     suggested[col] = "apply_patch op=fill_nulls strategy=mode"
             if zero_c is not None and zero_c > 0:
-                suggested[col] = "apply_patch op=fill_nulls fill_zeros=true strategy=mean"
+                suggested[col] = (
+                    "apply_patch op=fill_nulls fill_zeros=true strategy=mean"
+                )
 
         clean_count = len(df.columns) - len(results)
-        progress.append(ok(f"Scanned {path.name}", f"{clean_count} clean, {len(results)} flagged"))
+        progress.append(
+            ok(f"Scanned {path.name}", f"{clean_count} clean, {len(results)} flagged")
+        )
 
         result: dict = {
             "success": True,
@@ -264,11 +276,23 @@ def scan_nulls_zeros(
             zero_vals = [results[c]["zero_count"] or 0 for c in cols]
             fig = go.Figure()
             fig.add_trace(
-                go.Bar(x=null_vals, y=cols, orientation="h", name="Nulls", marker_color="#EF553B")
+                go.Bar(
+                    x=null_vals,
+                    y=cols,
+                    orientation="h",
+                    name="Nulls",
+                    marker_color="#EF553B",
+                )
             )
             if include_zeros:
                 fig.add_trace(
-                    go.Bar(x=zero_vals, y=cols, orientation="h", name="Zeros", marker_color="#636EFA")
+                    go.Bar(
+                        x=zero_vals,
+                        y=cols,
+                        orientation="h",
+                        name="Zeros",
+                        marker_color="#636EFA",
+                    )
                 )
             fig.update_layout(
                 title=f"Null & Zero Counts — {path.name}",
@@ -277,12 +301,16 @@ def scan_nulls_zeros(
                 template=plotly_template(theme),
                 height=max(300, len(cols) * 30 + 100),
             )
-            abs_p, fname = _save_chart(fig, output_path, "nulls_zeros", path, open_after, theme)
+            abs_p, fname = _save_chart(
+                fig, output_path, "nulls_zeros", path, open_after, theme
+            )
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))
         elif not _PLOTLY_AVAILABLE:
-            progress.append(warn("plotly not installed", "pip install plotly to enable HTML export"))
+            progress.append(
+                warn("plotly not installed", "pip install plotly to enable HTML export")
+            )
 
         result["token_estimate"] = _token_estimate(result)
         return result
@@ -333,22 +361,46 @@ def validate_dataset(
                 pct = round(nc / total_rows * 100, 2) if total_rows > 0 else 0
                 null_summary[col] = nc
                 if pct > max_null_pct:
-                    issues.append({"severity": "error", "column": col, "issue": f"{nc} nulls ({pct}%)"})
+                    issues.append(
+                        {
+                            "severity": "error",
+                            "column": col,
+                            "issue": f"{nc} nulls ({pct}%)",
+                        }
+                    )
                 else:
-                    issues.append({"severity": "warning", "column": col, "issue": f"{nc} nulls ({pct}%)"})
+                    issues.append(
+                        {
+                            "severity": "warning",
+                            "column": col,
+                            "issue": f"{nc} nulls ({pct}%)",
+                        }
+                    )
 
         for col in df.columns:
             if pd.api.types.is_numeric_dtype(df[col]):
                 zc = int((df[col] == 0).sum())
                 if zc > 0:
                     pct = round(zc / total_rows * 100, 2) if total_rows > 0 else 0
-                    issues.append({"severity": "warning", "column": col, "issue": f"{zc} zeros ({pct}%)"})
+                    issues.append(
+                        {
+                            "severity": "warning",
+                            "column": col,
+                            "issue": f"{zc} zeros ({pct}%)",
+                        }
+                    )
 
         dup_count = 0
         if check_duplicates:
             dup_count = int(df.duplicated().sum())
             if dup_count > 0:
-                issues.append({"severity": "info", "column": None, "issue": f"{dup_count} duplicate rows"})
+                issues.append(
+                    {
+                        "severity": "info",
+                        "column": None,
+                        "issue": f"{dup_count} duplicate rows",
+                    }
+                )
 
         if expected_dtypes:
             for col, expected in expected_dtypes.items():
@@ -357,7 +409,11 @@ def validate_dataset(
                     if expected.lower() not in actual.lower():
                         dtype_mismatches[col] = {"expected": expected, "actual": actual}
                         issues.append(
-                            {"severity": "error", "column": col, "issue": f"Expected {expected}, got {actual}"}
+                            {
+                                "severity": "error",
+                                "column": col,
+                                "issue": f"Expected {expected}, got {actual}",
+                            }
                         )
 
         penalty = 0
@@ -372,7 +428,10 @@ def validate_dataset(
 
         passed = len(issues) == 0
         progress.append(
-            ok(f"Validated {path.name}", f"Score: {score}/100, {'PASSED' if passed else 'ISSUES FOUND'}")
+            ok(
+                f"Validated {path.name}",
+                f"Score: {score}/100, {'PASSED' if passed else 'ISSUES FOUND'}",
+            )
         )
 
         result = {
@@ -438,7 +497,9 @@ def auto_detect_schema(
                     parsed = pd.to_datetime(s.dropna().head(50), errors="raise")
                     if len(parsed) > 0:
                         info_entry["inferred_type"] = "datetime"
-                        info_entry["suggestion"] = f"cast_column col={col} dtype=datetime"
+                        info_entry["suggestion"] = (
+                            f"cast_column col={col} dtype=datetime"
+                        )
                         suggestions.append(info_entry["suggestion"])
                 except Exception:
                     pass
@@ -454,7 +515,9 @@ def auto_detect_schema(
                     unique_ratio = s.nunique() / max(len(s.dropna()), 1)
                     if s.nunique() == len(s.dropna()) and s.nunique() > 10:
                         info_entry["inferred_type"] = "id"
-                        info_entry["suggestion"] = f"drop_column col={col} (likely ID, low analytical value)"
+                        info_entry["suggestion"] = (
+                            f"drop_column col={col} (likely ID, low analytical value)"
+                        )
                     elif unique_ratio < 0.05:
                         info_entry["inferred_type"] = "category"
                     else:
@@ -474,7 +537,9 @@ def auto_detect_schema(
 
             column_info[col] = info_entry
 
-        progress.append(ok(f"Schema detected for {path.name}", f"{len(column_info)} columns"))
+        progress.append(
+            ok(f"Schema detected for {path.name}", f"{len(column_info)} columns")
+        )
 
         result = {
             "success": True,
@@ -616,7 +681,9 @@ def filter_rows(
             result=f"kept {rows_after}/{rows_before} rows",
             backup=backup,
         )
-        progress.append(ok(f"Filtered {path.name}", f"{rows_after}/{rows_before} rows kept"))
+        progress.append(
+            ok(f"Filtered {path.name}", f"{rows_after}/{rows_before} rows kept")
+        )
 
         result = {
             "success": True,
@@ -794,6 +861,7 @@ def analyze_text_column(
             all_words.extend(cleaned.split())
 
         from collections import Counter
+
         word_counts = Counter(all_words)
         word_freq = {w: c for w, c in word_counts.most_common(top_n)}
 
@@ -804,15 +872,25 @@ def analyze_text_column(
         number_re = re.compile(r"^\d+\.?\d*$")
 
         patterns = {
-            "emails": int(non_null.astype(str).apply(lambda x: bool(email_re.search(x))).sum()),
-            "urls": int(non_null.astype(str).apply(lambda x: bool(url_re.search(x))).sum()),
-            "phone_numbers": int(non_null.astype(str).apply(lambda x: bool(phone_re.search(x))).sum()),
-            "pure_numbers": int(non_null.astype(str).apply(lambda x: bool(number_re.match(x))).sum()),
+            "emails": int(
+                non_null.astype(str).apply(lambda x: bool(email_re.search(x))).sum()
+            ),
+            "urls": int(
+                non_null.astype(str).apply(lambda x: bool(url_re.search(x))).sum()
+            ),
+            "phone_numbers": int(
+                non_null.astype(str).apply(lambda x: bool(phone_re.search(x))).sum()
+            ),
+            "pure_numbers": int(
+                non_null.astype(str).apply(lambda x: bool(number_re.match(x))).sum()
+            ),
         }
 
         sample = non_null.head(3).tolist()
 
-        progress.append(ok(f"Analyzed text column '{column}'", f"{len(non_null)} non-null values"))
+        progress.append(
+            ok(f"Analyzed text column '{column}'", f"{len(non_null)} non-null values")
+        )
 
         result = {
             "success": True,

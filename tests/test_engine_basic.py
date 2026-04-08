@@ -525,7 +525,9 @@ class TestApplyPatchNewOps:
     def test_normalize_minmax(self, tmp_path):
         f = tmp_path / "data.csv"
         f.write_text("Value\n10\n20\n30\n40\n50\n")
-        r = apply_patch(str(f), [{"op": "normalize", "column": "Value", "method": "minmax"}])
+        r = apply_patch(
+            str(f), [{"op": "normalize", "column": "Value", "method": "minmax"}]
+        )
         assert r["success"] is True
         df = pd.read_csv(str(f))
         assert df["Value"].min() >= 0.0
@@ -538,7 +540,9 @@ class TestApplyPatchNewOps:
     def test_normalize_zscore(self, tmp_path):
         f = tmp_path / "data.csv"
         f.write_text("Value\n10\n20\n30\n40\n50\n")
-        r = apply_patch(str(f), [{"op": "normalize", "column": "Value", "method": "zscore"}])
+        r = apply_patch(
+            str(f), [{"op": "normalize", "column": "Value", "method": "zscore"}]
+        )
         assert r["success"] is True
         df = pd.read_csv(str(f))
         assert abs(df["Value"].mean()) < 1e-9
@@ -565,7 +569,14 @@ class TestApplyPatchNewOps:
         f.write_text("Text\nOrder123\nItem456\nNoMatch\n")
         r = apply_patch(
             str(f),
-            [{"op": "extract_regex", "column": "Text", "pattern": r"\d+", "new_column": "Digits"}],
+            [
+                {
+                    "op": "extract_regex",
+                    "column": "Text",
+                    "pattern": r"\d+",
+                    "new_column": "Digits",
+                }
+            ],
         )
         assert r["success"] is True
         res = r["results"][0]
@@ -582,8 +593,15 @@ class TestApplyPatchNewOps:
         f.write_text("Start,End\n2024-01-10,2024-01-01\n2024-03-15,2024-03-01\n")
         r = apply_patch(
             str(f),
-            [{"op": "date_diff", "date_col_a": "Start", "date_col_b": "End",
-              "new_column": "DiffDays", "unit": "days"}],
+            [
+                {
+                    "op": "date_diff",
+                    "date_col_a": "Start",
+                    "date_col_b": "End",
+                    "new_column": "DiffDays",
+                    "unit": "days",
+                }
+            ],
         )
         assert r["success"] is True
         res = r["results"][0]
@@ -600,7 +618,14 @@ class TestApplyPatchNewOps:
         f.write_text("Score\n30\n10\n20\n10\n")
         r = apply_patch(
             str(f),
-            [{"op": "rank_column", "column": "Score", "ascending": True, "method": "dense"}],
+            [
+                {
+                    "op": "rank_column",
+                    "column": "Score",
+                    "ascending": True,
+                    "method": "dense",
+                }
+            ],
         )
         assert r["success"] is True
         res = r["results"][0]

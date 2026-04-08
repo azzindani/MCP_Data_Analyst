@@ -29,13 +29,15 @@ def append_receipt(
                 entries = json.loads(rpath.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
                 entries = []
-        entries.append({
-            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ"),
-            "tool": tool,
-            "args": args,
-            "result": result,
-            "backup": backup,
-        })
+        entries.append(
+            {
+                "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ"),
+                "tool": tool,
+                "args": args,
+                "result": result,
+                "backup": backup,
+            }
+        )
         rpath.write_text(json.dumps(entries, indent=2), encoding="utf-8")
     except Exception as exc:
         logger.warning("append_receipt failed silently: %s", exc)

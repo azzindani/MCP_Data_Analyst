@@ -1,20 +1,22 @@
 from __future__ import annotations
 
-VALID_OPS: frozenset[str] = frozenset({
-    "drop_column",
-    "clean_text",
-    "cast_column",
-    "replace_values",
-    "add_column",
-    "cap_outliers",
-    "fill_nulls",
-    "drop_duplicates",
-    "normalize",
-    "label_encode",
-    "extract_regex",
-    "date_diff",
-    "rank_column",
-})
+VALID_OPS: frozenset[str] = frozenset(
+    {
+        "drop_column",
+        "clean_text",
+        "cast_column",
+        "replace_values",
+        "add_column",
+        "cap_outliers",
+        "fill_nulls",
+        "drop_duplicates",
+        "normalize",
+        "label_encode",
+        "extract_regex",
+        "date_diff",
+        "rank_column",
+    }
+)
 
 _FILL_STRATEGIES = frozenset({"mean", "median", "mode", "ffill", "bfill", "drop"})
 _CAST_DTYPES = frozenset({"int", "float", "str", "datetime"})
@@ -90,7 +92,9 @@ def validate_ops(ops: list[dict]) -> list[str]:
             if mode == "math" and "expr" not in op:
                 errors.append(f"{prefix} (add_column): math mode requires 'expr'")
             if mode == "threshold" and "source" not in op:
-                errors.append(f"{prefix} (add_column): threshold mode requires 'source'")
+                errors.append(
+                    f"{prefix} (add_column): threshold mode requires 'source'"
+                )
 
         elif op_name == "cap_outliers":
             if "column" not in op:

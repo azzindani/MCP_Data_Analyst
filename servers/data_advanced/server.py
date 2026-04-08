@@ -156,7 +156,15 @@ def generate_dashboard(
 ) -> dict:
     """Generate interactive HTML dashboard with auto-detected charts. Opens HTML."""
     return engine.generate_dashboard(
-        file_path, output_path, title, chart_types, agg_overrides, geo_file_path, theme, dry_run, open_after
+        file_path,
+        output_path,
+        title,
+        chart_types,
+        agg_overrides,
+        geo_file_path,
+        theme,
+        dry_run,
+        open_after,
     )
 
 
@@ -230,8 +238,16 @@ def generate_3d_chart(
 ) -> dict:
     """3D scatter or surface chart. type: scatter_3d surface. Opens HTML."""
     return engine.generate_3d_chart(
-        file_path, chart_type, x_column, y_column, z_column,
-        color_column, title, output_path, theme, open_after,
+        file_path,
+        chart_type,
+        x_column,
+        y_column,
+        z_column,
+        color_column,
+        title,
+        output_path,
+        theme,
+        open_after,
     )
 
 

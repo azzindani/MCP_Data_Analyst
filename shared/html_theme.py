@@ -1,4 +1,5 @@
 """Shared HTML theme utilities for all tiers."""
+
 from __future__ import annotations
 import sys
 from pathlib import Path
@@ -91,7 +92,7 @@ def save_chart(
     input_path: Path,
     theme: str,
     open_after: bool,
-    open_func,          # _open_file callable from the calling engine
+    open_func,  # _open_file callable from the calling engine
 ) -> tuple[str, str]:
     """Save Plotly fig as themed responsive HTML. Returns (abs_path, filename)."""
     tmpl = plotly_template(theme)
