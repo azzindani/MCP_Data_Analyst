@@ -5,10 +5,8 @@
   "pythonVersion": "3.12",
   "reportMissingImports": true,
   "reportMissingTypeStubs": false,
-  "reportUnknownMemberType": false,
-  "reportUnknownArgumentType": false,
-  "reportUnknownVariableType": false,
-  "reportUnknownParameterType": false,
+
+  // pandas/geopandas produce many false positives — suppress these categories
   "reportArgumentType": false,
   "reportReturnType": false,
   "reportCallIssue": false,
