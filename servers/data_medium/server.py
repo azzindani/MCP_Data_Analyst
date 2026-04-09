@@ -33,7 +33,9 @@ def check_outliers(
     theme: str = "dark",
 ) -> dict:
     """Scan numeric columns for outliers. method: iqr std both."""
-    return engine.check_outliers(file_path, columns, method, th1, th3, output_path, open_after, theme)
+    return engine.check_outliers(
+        file_path, columns, method, th1, th3, output_path, open_after, theme
+    )
 
 
 @mcp.tool()
@@ -46,7 +48,9 @@ def scan_nulls_zeros(
     theme: str = "dark",
 ) -> dict:
     """Scan all columns for nulls and zeros. Returns counts and pcts."""
-    return engine.scan_nulls_zeros(file_path, include_zeros, min_count, output_path, open_after, theme)
+    return engine.scan_nulls_zeros(
+        file_path, include_zeros, min_count, output_path, open_after, theme
+    )
 
 
 @mcp.tool()
@@ -112,7 +116,9 @@ def correlation_analysis(
     theme: str = "dark",
 ) -> dict:
     """Correlation matrix + top N strongest pairs for numeric columns."""
-    return engine.correlation_analysis(file_path, method, top_n, output_path, open_after, theme)
+    return engine.correlation_analysis(
+        file_path, method, top_n, output_path, open_after, theme
+    )
 
 
 @mcp.tool()
@@ -129,7 +135,15 @@ def cross_tabulate(
 ) -> dict:
     """Contingency table between two categorical columns."""
     return engine.cross_tabulate(
-        file_path, row_column, col_column, values_column, agg_func, normalize, output_path, open_after, theme
+        file_path,
+        row_column,
+        col_column,
+        values_column,
+        agg_func,
+        normalize,
+        output_path,
+        open_after,
+        theme,
     )
 
 
@@ -157,7 +171,9 @@ def value_counts(
     theme: str = "dark",
 ) -> dict:
     """Frequency tables with percentages for categorical columns."""
-    return engine.value_counts(file_path, columns, top_n, include_pct, output_path, open_after, theme)
+    return engine.value_counts(
+        file_path, columns, top_n, include_pct, output_path, open_after, theme
+    )
 
 
 @mcp.tool()
@@ -288,7 +304,13 @@ def cohort_analysis(
 ) -> dict:
     """Cohort retention analysis with auto-detection of cohort identifiers."""
     return engine.cohort_analysis(
-        file_path, cohort_column, date_column, value_column, output_path, open_after, theme
+        file_path,
+        cohort_column,
+        date_column,
+        value_column,
+        output_path,
+        open_after,
+        theme,
     )
 
 

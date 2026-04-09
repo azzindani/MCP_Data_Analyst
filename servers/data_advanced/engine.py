@@ -1,4 +1,5 @@
 """Tier 3 engine — public API. Zero MCP imports."""
+
 from __future__ import annotations
 
 import logging

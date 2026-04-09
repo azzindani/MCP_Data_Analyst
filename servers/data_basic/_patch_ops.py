@@ -1,4 +1,5 @@
 """Patch operation functions for apply_patch. No MCP imports."""
+
 from __future__ import annotations
 
 import re
@@ -17,14 +18,12 @@ from shared.progress import fail, ok  # noqa: F401 — re-exported for convenien
 # Existing ops
 # ---------------------------------------------------------------------------
 
+
 def _op_drop_column(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     columns = op["columns"]
     missing = [c for c in columns if c not in df.columns]
     if missing:
-        raise ValueError(
-            f"Columns not found: {missing}. "
-            f"Available: {list(df.columns)}"
-        )
+        raise ValueError(f"Columns not found: {missing}. Available: {list(df.columns)}")
     remaining = [c for c in df.columns if c not in columns]
     df = df.drop(columns=columns)
     return df, {"op": "drop_column", "dropped": columns, "remaining": len(remaining)}
@@ -48,9 +47,7 @@ def _op_clean_text(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
 def _op_cast_column(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     col = op["column"]
     if col not in df.columns:
-        raise ValueError(
-            f"Column not found: {col}. Available: {list(df.columns)}"
-        )
+        raise ValueError(f"Column not found: {col}. Available: {list(df.columns)}")
     dtype = op["dtype"]
 
     # Determine from_dtype label
@@ -101,9 +98,7 @@ def _op_cast_column(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
 def _op_replace_values(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     col = op["column"]
     if col not in df.columns:
-        raise ValueError(
-            f"Column not found: {col}. Available: {list(df.columns)}"
-        )
+        raise ValueError(f"Column not found: {col}. Available: {list(df.columns)}")
     mapping = op["mapping"]
     replaced = int(df[col].isin(mapping.keys()).sum())
     df[col] = df[col].replace(mapping)
@@ -123,8 +118,7 @@ def _parse_expr(expr: str, df: pd.DataFrame) -> pd.Series:
             return pd.Series([float(token)] * len(df), index=df.index)
         except ValueError:
             raise ValueError(
-                f"Unknown token in expr: '{token}'. "
-                f"Must be a column name or number."
+                f"Unknown token in expr: '{token}'. Must be a column name or number."
             )
 
     if len(tokens) == 1:
@@ -192,9 +186,7 @@ def _op_add_column(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
 def _op_cap_outliers(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     col = op["column"]
     if col not in df.columns:
-        raise ValueError(
-            f"Column not found: {col}. Available: {list(df.columns)}"
-        )
+        raise ValueError(f"Column not found: {col}. Available: {list(df.columns)}")
     if not pd.api.types.is_numeric_dtype(df[col]):
         raise ValueError(f"Column '{col}' is not numeric; cannot cap outliers.")
 
@@ -213,12 +205,14 @@ def _op_cap_outliers(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
         capped_lower = int((df[col] < lower).sum())
         capped_upper = int((df[col] > upper).sum())
         df[col] = df[col].clip(lower=lower, upper=upper)
-        result_info.update({
-            "capped_lower": capped_lower,
-            "capped_upper": capped_upper,
-            "lower_limit": round(lower, 4),
-            "upper_limit": round(upper, 4),
-        })
+        result_info.update(
+            {
+                "capped_lower": capped_lower,
+                "capped_upper": capped_upper,
+                "lower_limit": round(lower, 4),
+                "upper_limit": round(upper, 4),
+            }
+        )
     elif method == "std":
         mean_val = float(clean.mean())
         std_val = float(clean.std())
@@ -227,12 +221,14 @@ def _op_cap_outliers(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
         capped_lower = int((df[col] < lower).sum())
         capped_upper = int((df[col] > upper).sum())
         df[col] = df[col].clip(lower=lower, upper=upper)
-        result_info.update({
-            "capped_lower": capped_lower,
-            "capped_upper": capped_upper,
-            "lower_limit": round(lower, 4),
-            "upper_limit": round(upper, 4),
-        })
+        result_info.update(
+            {
+                "capped_lower": capped_lower,
+                "capped_upper": capped_upper,
+                "lower_limit": round(lower, 4),
+                "upper_limit": round(upper, 4),
+            }
+        )
 
     return df, result_info
 
@@ -240,9 +236,7 @@ def _op_cap_outliers(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
 def _op_fill_nulls(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     col = op["column"]
     if col not in df.columns:
-        raise ValueError(
-            f"Column not found: {col}. Available: {list(df.columns)}"
-        )
+        raise ValueError(f"Column not found: {col}. Available: {list(df.columns)}")
     strategy = op["strategy"]
     fill_zeros = op.get("fill_zeros", False)
 
@@ -280,8 +274,10 @@ def _op_fill_nulls(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
         "filled": filled,
         "value_used": (
             round(float(value_used), 4)
-            if isinstance(value_used, (int, float)) else
-            str(value_used) if value_used is not None else None
+            if isinstance(value_used, (int, float))
+            else str(value_used)
+            if value_used is not None
+            else None
         ),
     }
 
@@ -302,12 +298,11 @@ def _op_drop_duplicates(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]
 # New ops
 # ---------------------------------------------------------------------------
 
+
 def _op_normalize(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     col = op["column"]
     if col not in df.columns:
-        raise ValueError(
-            f"Column not found: {col}. Available: {list(df.columns)}"
-        )
+        raise ValueError(f"Column not found: {col}. Available: {list(df.columns)}")
     if not pd.api.types.is_numeric_dtype(df[col]):
         raise ValueError(
             f"Column '{col}' is not numeric; normalize requires a numeric column."
@@ -345,17 +340,13 @@ def _op_normalize(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
             "std": round(std_val, 4),
         }
     else:
-        raise ValueError(
-            f"Unknown normalize method: '{method}'. Valid: minmax, zscore"
-        )
+        raise ValueError(f"Unknown normalize method: '{method}'. Valid: minmax, zscore")
 
 
 def _op_label_encode(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     col = op["column"]
     if col not in df.columns:
-        raise ValueError(
-            f"Column not found: {col}. Available: {list(df.columns)}"
-        )
+        raise ValueError(f"Column not found: {col}. Available: {list(df.columns)}")
     unique_vals = sorted(df[col].dropna().unique().tolist(), key=str)
     encoding = {str(v): i for i, v in enumerate(unique_vals)}
     df[col] = df[col].map({v: i for i, v in enumerate(unique_vals)})
@@ -370,9 +361,7 @@ def _op_label_encode(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
 def _op_extract_regex(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     col = op["column"]
     if col not in df.columns:
-        raise ValueError(
-            f"Column not found: {col}. Available: {list(df.columns)}"
-        )
+        raise ValueError(f"Column not found: {col}. Available: {list(df.columns)}")
     pattern_str = op["pattern"]
     new_col = op["new_column"]
     group = op.get("group", 0)
@@ -414,9 +403,7 @@ def _op_date_diff(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
 
     for col in (col_a, col_b):
         if col not in df.columns:
-            raise ValueError(
-                f"Column not found: {col}. Available: {list(df.columns)}"
-            )
+            raise ValueError(f"Column not found: {col}. Available: {list(df.columns)}")
 
     da = pd.to_datetime(df[col_a], errors="coerce")
     db = pd.to_datetime(df[col_b], errors="coerce")
@@ -429,9 +416,7 @@ def _op_date_diff(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     elif unit == "years":
         df[new_col] = (delta_days / 365.25).round().astype("Int64")
     else:
-        raise ValueError(
-            f"Unknown unit: '{unit}'. Valid: days, months, years"
-        )
+        raise ValueError(f"Unknown unit: '{unit}'. Valid: days, months, years")
 
     null_count = int(df[new_col].isna().sum())
     return df, {
@@ -445,9 +430,7 @@ def _op_date_diff(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
 def _op_rank_column(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     col = op["column"]
     if col not in df.columns:
-        raise ValueError(
-            f"Column not found: {col}. Available: {list(df.columns)}"
-        )
+        raise ValueError(f"Column not found: {col}. Available: {list(df.columns)}")
     new_col = op.get("new_column", col + "_rank")
     ascending = op.get("ascending", True)
     method = op.get("method", "dense")

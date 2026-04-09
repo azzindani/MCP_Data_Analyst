@@ -1,0 +1,20 @@
+{
+  "include": ["servers/", "shared/"],
+  "exclude": ["**/.venv/**", "**/node_modules/**", "tests/"],
+  "typeCheckingMode": "basic",
+  "pythonVersion": "3.12",
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false,
+  "reportUnknownMemberType": false,
+  "reportUnknownArgumentType": false,
+  "reportUnknownVariableType": false,
+  "reportUnknownParameterType": false,
+  "reportArgumentType": false,
+  "reportReturnType": false,
+  "reportCallIssue": false,
+  "reportIndexIssue": false,
+  "reportAttributeAccessIssue": false,
+  "reportOperatorIssue": false,
+  "reportAssignmentType": false,
+  "reportOptionalMemberAccess": false
+}

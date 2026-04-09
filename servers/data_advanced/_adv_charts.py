@@ -1,4 +1,5 @@
 """Charts sub-module: distribution, correlation, pairwise, multi, export. No MCP imports."""
+
 from __future__ import annotations
 
 import logging
@@ -87,11 +88,13 @@ def generate_distribution_plot(
         for i, c in enumerate(cols_to_plot):
             fig.add_trace(
                 go.Histogram(x=df[c], nbinsx=30, name=c, showlegend=False),
-                row=i + 1, col=1,
+                row=i + 1,
+                col=1,
             )
             fig.add_trace(
                 go.Box(y=df[c], name=c, showlegend=False),
-                row=i + 1, col=2,
+                row=i + 1,
+                col=2,
             )
 
         fig.update_layout(
@@ -101,7 +104,9 @@ def generate_distribution_plot(
             showlegend=False,
         )
 
-        abs_p, fname = _save_chart(fig, output_path, "distributions", path, open_after, theme)
+        abs_p, fname = _save_chart(
+            fig, output_path, "distributions", path, open_after, theme
+        )
         progress.append(ok("Distribution plots saved", f"{fname} — {n} columns"))
 
         result = {
@@ -186,7 +191,9 @@ def generate_correlation_heatmap(
         abs_p, fname = _save_chart(
             fig, output_path, "correlation_heatmap", path, open_after, theme
         )
-        progress.append(ok("Correlation heatmap saved", f"{fname} — {len(numeric_cols)} columns"))
+        progress.append(
+            ok("Correlation heatmap saved", f"{fname} — {len(numeric_cols)} columns")
+        )
 
         result = {
             "success": True,
@@ -277,8 +284,12 @@ def generate_pairwise_plot(
         )
         fig.update_layout(autosize=True)
 
-        abs_p, fname = _save_chart(fig, output_path, "pairwise", path, open_after, theme)
-        progress.append(ok("Pairwise plot saved", f"{fname} — {len(cols_to_plot)} columns"))
+        abs_p, fname = _save_chart(
+            fig, output_path, "pairwise", path, open_after, theme
+        )
+        progress.append(
+            ok("Pairwise plot saved", f"{fname} — {len(cols_to_plot)} columns")
+        )
 
         result = {
             "success": True,
@@ -359,12 +370,16 @@ def generate_multi_chart(
                 "token_estimate": 30,
             }
 
-        chart_title = title if title else f"Multi-{chart_type.replace('_', ' ').title()}"
+        chart_title = (
+            title if title else f"Multi-{chart_type.replace('_', ' ').title()}"
+        )
         fig = go.Figure()
 
         if chart_type == "multi_bar":
             if category_column:
-                grouped = df.groupby(category_column, as_index=False)[value_columns].agg(agg_func)
+                grouped = df.groupby(category_column, as_index=False)[
+                    value_columns
+                ].agg(agg_func)
                 x_vals = grouped[category_column]
             else:
                 x_vals = range(len(df))
@@ -394,7 +409,9 @@ def generate_multi_chart(
         abs_p, fname = _save_chart(
             fig, output_path, f"multi_{chart_type}", path, open_after, theme
         )
-        progress.append(ok("Multi-chart saved", f"{fname} - {len(value_columns)} metrics"))
+        progress.append(
+            ok("Multi-chart saved", f"{fname} - {len(value_columns)} metrics")
+        )
 
         result = {
             "success": True,
@@ -473,7 +490,9 @@ def export_data(
                 _open_file(out)
 
         size_kb = round(out.stat().st_size / 1024)
-        progress.append(ok("Data exported", f"{out.name} ({size_kb:,} KB, {len(df)} rows)"))
+        progress.append(
+            ok("Data exported", f"{out.name} ({size_kb:,} KB, {len(df)} rows)")
+        )
 
         result = {
             "success": True,

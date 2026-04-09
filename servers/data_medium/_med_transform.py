@@ -1,4 +1,5 @@
 """Transformation tools for data_medium. No MCP imports."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -105,11 +106,15 @@ def enrich_with_geo(
         df[join_column] = df[join_column].astype(str)
 
         new_cols = [c for c in gdf_flat.columns if c != geo_join_column]
-        merged = df.merge(gdf_flat, left_on=join_column, right_on=geo_join_column, how="left")
+        merged = df.merge(
+            gdf_flat, left_on=join_column, right_on=geo_join_column, how="left"
+        )
 
         geo_col = gdf.geometry.name
         if geo_col in merged.columns:
-            merged[geo_col] = merged[geo_col].apply(lambda g: g.wkt if g is not None else None)
+            merged[geo_col] = merged[geo_col].apply(
+                lambda g: g.wkt if g is not None else None
+            )
 
         matched = int(merged[geo_col].notna().sum()) if geo_col in merged.columns else 0
 
@@ -142,7 +147,9 @@ def enrich_with_geo(
             backup=backup,
         )
 
-        progress.append(ok(f"Enriched {path.name}", f"{matched} rows matched with {geo_path.name}"))
+        progress.append(
+            ok(f"Enriched {path.name}", f"{matched} rows matched with {geo_path.name}")
+        )
 
         result = {
             "success": True,
@@ -241,7 +248,9 @@ def compute_aggregations(
 
         result_list = grouped.fillna("").to_dict(orient="records")
 
-        progress.append(ok(f"Aggregated {path.name}", f"{len(result_list)} groups returned"))
+        progress.append(
+            ok(f"Aggregated {path.name}", f"{len(result_list)} groups returned")
+        )
 
         result = {
             "success": True,
@@ -460,12 +469,14 @@ def smart_impute(
                 mode_vals = s.mode()
                 fill_val = mode_vals.iloc[0] if len(mode_vals) > 0 else None
 
-            imputation_plan.append({
-                "column": col,
-                "strategy": strategy,
-                "null_count": null_count,
-                "fill_value": str(fill_val) if fill_val is not None else None,
-            })
+            imputation_plan.append(
+                {
+                    "column": col,
+                    "strategy": strategy,
+                    "null_count": null_count,
+                    "fill_value": str(fill_val) if fill_val is not None else None,
+                }
+            )
 
         if dry_run:
             progress.append(info("Dry run — no changes written", path.name))
@@ -506,7 +517,9 @@ def smart_impute(
             result=f"imputed {len(imputation_plan)} columns",
             backup=backup,
         )
-        progress.append(ok(f"Imputed {path.name}", f"{len(imputation_plan)} columns filled"))
+        progress.append(
+            ok(f"Imputed {path.name}", f"{len(imputation_plan)} columns filled")
+        )
 
         result = {
             "success": True,
@@ -612,7 +625,11 @@ def merge_datasets(
         unmatched_right = list(right_vals - left_vals)[:20]
 
         merged = left_df.merge(
-            right_df, left_on=left_on, right_on=right_on, how=how, suffixes=("", "_right")
+            right_df,
+            left_on=left_on,
+            right_on=right_on,
+            how=how,
+            suffixes=("", "_right"),
         )
         if left_on != right_on and right_on in merged.columns:
             merged = merged.drop(columns=[right_on])
@@ -652,7 +669,10 @@ def merge_datasets(
             backup=backup,
         )
         progress.append(
-            ok(f"Merged {path.name} + {right_path.name}", f"{len(merged)} rows ({how} join)")
+            ok(
+                f"Merged {path.name} + {right_path.name}",
+                f"{len(merged)} rows ({how} join)",
+            )
         )
 
         result = {
@@ -726,7 +746,9 @@ def feature_engineering(
         new_columns = []
 
         if "date_parts" in requested:
-            date_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])]
+            date_cols = [
+                c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])
+            ]
             for col in date_cols:
                 for part in ("year", "month", "day", "dayofweek"):
                     new_col = f"{col}_{part}"
@@ -742,7 +764,8 @@ def feature_engineering(
 
         if "bins" in requested:
             num_cols = [
-                c for c in df.columns
+                c
+                for c in df.columns
                 if pd.api.types.is_numeric_dtype(df[c]) and c not in new_columns
             ]
             for col in num_cols[:5]:
@@ -757,11 +780,16 @@ def feature_engineering(
 
         if "one_hot" in requested:
             cat_cols = [
-                c for c in df.columns
-                if _is_string_col(df[c]) and df[c].nunique() <= 10 and c not in new_columns
+                c
+                for c in df.columns
+                if _is_string_col(df[c])
+                and df[c].nunique() <= 10
+                and c not in new_columns
             ]
             for col in cat_cols[:5]:
-                dummies = pd.get_dummies(df[col], prefix=col, drop_first=False).astype(int)
+                dummies = pd.get_dummies(df[col], prefix=col, drop_first=False).astype(
+                    int
+                )
                 df = pd.concat([df, dummies], axis=1)
                 new_columns.extend(dummies.columns.tolist())
 
@@ -792,7 +820,9 @@ def feature_engineering(
             result=f"added {len(new_columns)} columns",
             backup=backup,
         )
-        progress.append(ok(f"Features added to {path.name}", f"{len(new_columns)} new columns"))
+        progress.append(
+            ok(f"Features added to {path.name}", f"{len(new_columns)} new columns")
+        )
 
         result = {
             "success": True,

@@ -1,4 +1,5 @@
 """Column inference utilities shared across all tiers. No MCP imports."""
+
 from __future__ import annotations
 
 import re
@@ -6,26 +7,78 @@ import re
 import pandas as pd
 
 # Keywords that suggest mean is the right aggregation
-_AGG_MEAN = frozenset({
-    "rate", "ratio", "pct", "percent", "percentage", "score", "avg",
-    "average", "mean", "index", "idx", "temperature", "temp", "speed",
-    "density", "grade", "gpa", "weight", "proportion", "fraction",
-    "growth", "margin", "efficiency", "utilization", "utilisation",
-    "yield", "conversion", "accuracy", "precision", "recall", "f1",
-    "satisfaction", "rating", "probability", "prob", "likelihood",
-})
+_AGG_MEAN = frozenset(
+    {
+        "rate",
+        "ratio",
+        "pct",
+        "percent",
+        "percentage",
+        "score",
+        "avg",
+        "average",
+        "mean",
+        "index",
+        "idx",
+        "temperature",
+        "temp",
+        "speed",
+        "density",
+        "grade",
+        "gpa",
+        "weight",
+        "proportion",
+        "fraction",
+        "growth",
+        "margin",
+        "efficiency",
+        "utilization",
+        "utilisation",
+        "yield",
+        "conversion",
+        "accuracy",
+        "precision",
+        "recall",
+        "f1",
+        "satisfaction",
+        "rating",
+        "probability",
+        "prob",
+        "likelihood",
+    }
+)
 
 # Keywords that suggest max
-_AGG_MAX = frozenset({
-    "max", "maximum", "peak", "high", "highest", "ceiling", "top",
-    "upper", "limit", "cap", "best",
-})
+_AGG_MAX = frozenset(
+    {
+        "max",
+        "maximum",
+        "peak",
+        "high",
+        "highest",
+        "ceiling",
+        "top",
+        "upper",
+        "limit",
+        "cap",
+        "best",
+    }
+)
 
 # Keywords that suggest min
-_AGG_MIN = frozenset({
-    "min", "minimum", "low", "lowest", "floor", "bottom", "base",
-    "lower", "worst",
-})
+_AGG_MIN = frozenset(
+    {
+        "min",
+        "minimum",
+        "low",
+        "lowest",
+        "floor",
+        "bottom",
+        "base",
+        "lower",
+        "worst",
+    }
+)
 
 
 def infer_agg(col: str, series: "pd.Series | None" = None) -> str:

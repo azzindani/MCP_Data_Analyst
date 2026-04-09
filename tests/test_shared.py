@@ -1,4 +1,5 @@
 """Tests for shared/ utilities — 100% coverage required."""
+
 from __future__ import annotations
 
 import json
@@ -17,6 +18,7 @@ from shared.receipt import append_receipt, read_receipt_log
 # ---------------------------------------------------------------------------
 # progress helpers
 # ---------------------------------------------------------------------------
+
 
 def test_ok_no_detail():
     r = ok("done")
@@ -53,10 +55,12 @@ def test_undo():
 # platform_utils
 # ---------------------------------------------------------------------------
 
+
 def test_get_max_rows_normal(monkeypatch):
     monkeypatch.delenv("MCP_CONSTRAINED_MODE", raising=False)
     import importlib
     import shared.platform_utils as pu
+
     importlib.reload(pu)
     assert pu.get_max_rows() in (20, 100)  # depends on env; just check it's an int
 
@@ -76,6 +80,7 @@ def test_get_max_results_returns_int():
 # ---------------------------------------------------------------------------
 # file_utils
 # ---------------------------------------------------------------------------
+
 
 def test_resolve_path_absolute(tmp_path):
     p = tmp_path / "test.csv"
@@ -108,6 +113,7 @@ def test_atomic_write_text_overwrites(tmp_path):
 # ---------------------------------------------------------------------------
 # version_control
 # ---------------------------------------------------------------------------
+
 
 def test_snapshot_creates_backup(tmp_path):
     f = tmp_path / "data.csv"
@@ -163,6 +169,7 @@ def test_list_versions_newest_first(tmp_path):
 # patch_validator
 # ---------------------------------------------------------------------------
 
+
 def test_validate_ops_empty():
     errors = validate_ops([])
     assert errors
@@ -209,10 +216,12 @@ def test_validate_ops_add_column_math_missing_expr():
 
 
 def test_validate_ops_multiple_errors():
-    errors = validate_ops([
-        {"op": "fill_nulls", "column": "x", "strategy": "bad"},
-        {"op": "unknown_op"},
-    ])
+    errors = validate_ops(
+        [
+            {"op": "fill_nulls", "column": "x", "strategy": "bad"},
+            {"op": "unknown_op"},
+        ]
+    )
     assert len(errors) == 2
 
 
@@ -224,6 +233,7 @@ def test_validate_ops_valid_drop_duplicates():
 # ---------------------------------------------------------------------------
 # receipt
 # ---------------------------------------------------------------------------
+
 
 def test_append_and_read_receipt(tmp_path):
     f = tmp_path / "data.csv"

@@ -12,7 +12,6 @@ env/
 
 # uv
 .uv/
-uv.lock
 
 # Distribution / packaging
 dist/

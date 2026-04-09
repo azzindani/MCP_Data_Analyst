@@ -1,4 +1,5 @@
 """Tier 1 engine — all domain logic. Zero MCP imports."""
+
 from __future__ import annotations
 
 import logging
@@ -48,12 +49,14 @@ logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _token_estimate(obj) -> int:
     return len(str(obj)) // 4
 
 
-def _read_csv(file_path: str, encoding: str = "utf-8", separator: str = ",",
-              max_rows: int = 0) -> pd.DataFrame:
+def _read_csv(
+    file_path: str, encoding: str = "utf-8", separator: str = ",", max_rows: int = 0
+) -> pd.DataFrame:
     kwargs: dict = {"encoding": encoding, "sep": separator, "low_memory": False}
     if max_rows > 0:
         kwargs["nrows"] = max_rows
@@ -85,6 +88,7 @@ def _classify_columns(df: pd.DataFrame) -> tuple[list[str], list[str], list[str]
 # ---------------------------------------------------------------------------
 # load_dataset
 # ---------------------------------------------------------------------------
+
 
 def load_dataset(
     file_path: str,
@@ -124,8 +128,9 @@ def load_dataset(
             }
 
         try:
-            df = _read_csv(str(path), encoding=encoding, separator=separator,
-                           max_rows=max_rows)
+            df = _read_csv(
+                str(path), encoding=encoding, separator=separator, max_rows=max_rows
+            )
         except UnicodeDecodeError:
             return {
                 "success": False,
@@ -145,24 +150,30 @@ def load_dataset(
             }
 
         if max_rows > 0:
-            progress.append(warn(
-                "Row sampling active",
-                f"max_rows={max_rows}; constrained mode may apply"
-            ))
+            progress.append(
+                warn(
+                    "Row sampling active",
+                    f"max_rows={max_rows}; constrained mode may apply",
+                )
+            )
 
         max_r = get_max_rows()
         if len(df) > max_r and max_rows == 0:
-            progress.append(warn(
-                "Large dataset",
-                f"Constrained mode: returning metadata only, {len(df)} rows total"
-            ))
+            progress.append(
+                warn(
+                    "Large dataset",
+                    f"Constrained mode: returning metadata only, {len(df)} rows total",
+                )
+            )
 
         dtypes = {col: _dtype_label(df[col]) for col in df.columns}
         null_counts = {col: int(df[col].isna().sum()) for col in df.columns}
         unique_counts = {col: int(df[col].nunique()) for col in df.columns}
         sample = df.head(2).fillna("").to_dict(orient="records")
 
-        progress.append(ok(f"Loaded {path.name}", f"{len(df):,} rows × {len(df.columns)} cols"))
+        progress.append(
+            ok(f"Loaded {path.name}", f"{len(df):,} rows × {len(df.columns)} cols")
+        )
 
         result = {
             "success": True,
@@ -194,6 +205,7 @@ def load_dataset(
 # ---------------------------------------------------------------------------
 # load_geo_dataset
 # ---------------------------------------------------------------------------
+
 
 def load_geo_dataset(
     file_path: str,
@@ -289,6 +301,7 @@ def load_geo_dataset(
 # inspect_dataset
 # ---------------------------------------------------------------------------
 
+
 def inspect_dataset(
     file_path: str,
     include_sample: bool = False,
@@ -347,10 +360,12 @@ def inspect_dataset(
                 result["column_names"] = result["column_names"][:max_c]
                 result["truncated"] = True
                 result["total_columns"] = cols
-                progress.append(warn(
-                    "Response truncated",
-                    f"Returned first {max_c} of {cols} column names"
-                ))
+                progress.append(
+                    warn(
+                        "Response truncated",
+                        f"Returned first {max_c} of {cols} column names",
+                    )
+                )
 
         progress.append(ok(f"Inspected {path.name}", f"{rows:,} rows × {cols} cols"))
         result["progress"] = progress
@@ -371,6 +386,7 @@ def inspect_dataset(
 # ---------------------------------------------------------------------------
 # read_column_stats
 # ---------------------------------------------------------------------------
+
 
 def read_column_stats(
     file_path: str,
@@ -439,10 +455,17 @@ def read_column_stats(
             q1 = float(clean.quantile(0.25)) if len(clean) > 0 else None
             q3 = float(clean.quantile(0.75)) if len(clean) > 0 else None
             iqr = (q3 - q1) if (q1 is not None and q3 is not None) else None
-            lower_iqr = (q1 - 1.5 * iqr) if iqr is not None else None
-            upper_iqr = (q3 + 1.5 * iqr) if iqr is not None else None
-            outlier_iqr = int(((clean < lower_iqr) | (clean > upper_iqr)).sum()) \
-                if iqr is not None else 0
+            lower_iqr = (
+                (q1 - 1.5 * iqr) if (iqr is not None and q1 is not None) else None
+            )
+            upper_iqr = (
+                (q3 + 1.5 * iqr) if (iqr is not None and q3 is not None) else None
+            )
+            outlier_iqr = (
+                int(((clean < lower_iqr) | (clean > upper_iqr)).sum())
+                if iqr is not None
+                else 0
+            )
 
             if mean_val is not None and std_val is not None:
                 lower_std = mean_val - 3 * std_val
@@ -476,11 +499,7 @@ def read_column_stats(
             return result
 
         # Categorical path
-        top_values = (
-            series.value_counts()
-            .head(10)
-            .to_dict()
-        )
+        top_values = series.value_counts().head(10).to_dict()
         top_values = {str(k): int(v) for k, v in top_values.items()}
         unique_count = int(series.nunique())
 
@@ -514,6 +533,7 @@ def read_column_stats(
 # search_columns
 # ---------------------------------------------------------------------------
 
+
 def search_columns(
     file_path: str,
     has_nulls: bool = False,
@@ -541,40 +561,46 @@ def search_columns(
 
         # Apply filters
         if name_contains:
-            candidates = [c for c in candidates
-                          if name_contains.lower() in c.lower()]
+            candidates = [c for c in candidates if name_contains.lower() in c.lower()]
 
         if dtype:
             if dtype == "numeric":
-                candidates = [c for c in candidates
-                              if pd.api.types.is_numeric_dtype(df[c])]
+                candidates = [
+                    c for c in candidates if pd.api.types.is_numeric_dtype(df[c])
+                ]
             elif dtype == "datetime":
-                candidates = [c for c in candidates
-                              if pd.api.types.is_datetime64_any_dtype(df[c])]
+                candidates = [
+                    c for c in candidates if pd.api.types.is_datetime64_any_dtype(df[c])
+                ]
             elif dtype == "object":
-                candidates = [c for c in candidates
-                              if not pd.api.types.is_numeric_dtype(df[c])
-                              and not pd.api.types.is_datetime64_any_dtype(df[c])]
+                candidates = [
+                    c
+                    for c in candidates
+                    if not pd.api.types.is_numeric_dtype(df[c])
+                    and not pd.api.types.is_datetime64_any_dtype(df[c])
+                ]
 
         if has_nulls or min_null_pct > 0.0:
             null_c = {c: int(df[c].isna().sum()) for c in candidates}
-            null_p = {c: null_c[c] / rows * 100 if rows > 0 else 0.0
-                      for c in candidates}
+            null_p = {
+                c: null_c[c] / rows * 100 if rows > 0 else 0.0 for c in candidates
+            }
             if has_nulls:
                 candidates = [c for c in candidates if null_c[c] > 0]
             if min_null_pct > 0.0:
                 candidates = [c for c in candidates if null_p[c] >= min_null_pct]
 
         if has_zeros:
-            candidates = [c for c in candidates
-                          if pd.api.types.is_numeric_dtype(df[c])
-                          and int((df[c] == 0).sum()) > 0]
+            candidates = [
+                c
+                for c in candidates
+                if pd.api.types.is_numeric_dtype(df[c]) and int((df[c] == 0).sum()) > 0
+            ]
 
         # Build result counts
         null_counts = {c: int(df[c].isna().sum()) for c in candidates}
         zero_counts = {
-            c: int((df[c] == 0).sum())
-            if pd.api.types.is_numeric_dtype(df[c]) else 0
+            c: int((df[c] == 0).sum()) if pd.api.types.is_numeric_dtype(df[c]) else 0
             for c in candidates
         }
         dtypes_out = {c: _dtype_label(df[c]) for c in candidates}
@@ -584,15 +610,13 @@ def search_columns(
         truncated = len(candidates) > max_r
         if truncated:
             candidates = candidates[:max_r]
-            progress.append(warn(
-                "Results truncated",
-                f"Showing first {max_r} matching columns"
-            ))
+            progress.append(
+                warn("Results truncated", f"Showing first {max_r} matching columns")
+            )
 
-        progress.append(ok(
-            f"Searched {path.name}",
-            f"{len(candidates)} column(s) matched"
-        ))
+        progress.append(
+            ok(f"Searched {path.name}", f"{len(candidates)} column(s) matched")
+        )
 
         result = {
             "success": True,
@@ -750,6 +774,7 @@ def apply_patch(
 # restore_version
 # ---------------------------------------------------------------------------
 
+
 def restore_version(
     file_path: str,
     timestamp: str = "",
@@ -832,6 +857,7 @@ def restore_version(
 # read_receipt
 # ---------------------------------------------------------------------------
 
+
 def read_receipt(
     file_path: str,
     last_n: int = 10,
@@ -843,12 +869,16 @@ def read_receipt(
         total = len(read_receipt_log(str(path), last_n=0))
 
         if last_n == 0 and total > get_max_rows():
-            progress.append(warn(
-                "Large receipt log",
-                f"Returning all {total} entries; constrained mode limit: {get_max_rows()}"
-            ))
+            progress.append(
+                warn(
+                    "Large receipt log",
+                    f"Returning all {total} entries; constrained mode limit: {get_max_rows()}",
+                )
+            )
 
-        progress.append(ok(f"Receipt for {path.name}", f"{len(entries)} entries returned"))
+        progress.append(
+            ok(f"Receipt for {path.name}", f"{len(entries)} entries returned")
+        )
 
         result = {
             "success": True,
