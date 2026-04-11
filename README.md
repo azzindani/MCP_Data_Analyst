@@ -4,11 +4,11 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 
 ## Features
 
-- **46 tools** across 3 tiers: basic (8), medium (22), advanced (11) — plus 5 new chart types
+- **41 tools** across 3 tiers: basic (8), medium (22), advanced (11)
 - **LOCATE → INSPECT → PATCH → VERIFY** workflow for surgical data edits
 - **Automatic version control** — every write is snapshotted and fully restorable
 - **Operation receipt logging** — full audit trail of all modifications
-- **Constrained mode** — safe for machines with ≤8 GB VRAM
+- **Constrained mode** — reduces row/result limits for lower-memory machines
 - **ydata-profiler quality reports** — alerts panel, Spearman + Pearson correlations, missing value matrix, per-column distribution charts
 - **Interactive dashboards** — KPI sparklines, trend indicators, violin plots, geo maps, auto-detected charts
 - **Geo visualization** — scatter maps (lat/lon), choropleth (country/state), zero external data needed
@@ -17,12 +17,56 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 - **Mobile-responsive HTML** — viewport meta + CSS breakpoints on every report
 - **Modular architecture** — each engine split into focused sub-modules, all under 1 000 lines
 
+## Important: File Path Only
+
+> **Do not attach files via the LM Studio attachment button.**
+>
+> LM Studio will RAG-chunk any attached file and send fragments to the model — the MCP tools will never see the actual data. This MCP works exclusively through **absolute file paths**.
+>
+> Always tell the model where the file lives on disk:
+> ```
+> Analyze C:\Users\you\data\sales.csv
+> ```
+> The model will pass that path directly to the MCP tools. Attachment-based workflows are not supported and will silently produce wrong results.
+
 ## Quick Install (LM Studio)
 
 > **Tested on Windows 11** with LM Studio 0.4.x and uv 0.5+.
 
-1. Open LM Studio → **Developer** tab (`</>` icon)
-2. Scroll to **MCP Servers** → click **Add Server**
+### Requirements
+
+- **Git** — `git --version`
+- **Python 3.12 or higher** — `python --version`
+- **uv** — `uv --version` ([install guide](https://docs.astral.sh/uv/getting-started/installation/))
+- **LM Studio** with a model that supports tool calling (Gemma 4, Qwen 3.5, etc.)
+
+### Platform Support
+
+| Platform | Status |
+|---|---|
+| Windows | Tested — real-world verified (Windows 11) |
+| macOS | Untested — CI/CD pipeline passes |
+| Linux | Untested — CI/CD pipeline passes |
+
+> Real-world usage has only been verified on Windows. macOS and Linux are supported by design and pass the automated CI pipeline, but have not been tested by hand. Reports from non-Windows users are welcome.
+
+### First Run
+
+The first launch clones the repo and installs dependencies (~2-5 minutes). Subsequent launches are instant.
+
+> **Pre-install recommended:** To avoid the 60-second LM Studio connection timeout on first launch, run this once in PowerShell before connecting:
+> ```powershell
+> $d = Join-Path $env:USERPROFILE '.mcp_servers\MCP_Data_Analyst'
+> cd "$d\servers\data_basic"; uv sync
+> cd "$d\servers\data_medium"; uv sync
+> cd "$d\servers\data_advanced"; uv sync
+> ```
+> If you skip this step and LM Studio times out, press **Restart** in the MCP Servers panel — it will reconnect and complete the install immediately.
+
+### Steps
+
+1. Open LM Studio → **Developer** tab (`</>` icon) or you can find via **Integrations**
+2. Find **mcp.json** or **Edit mcp.json** → click to open
 3. Paste this config:
 
 ```json
@@ -68,20 +112,8 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 }
 ```
 
-4. Restart LM Studio
-5. Wait for the green dot next to each server
-6. Start chatting — the model will see all 36 tools
-
-### First Run
-
-The first launch clones the repo and installs dependencies (~2-5 minutes). Subsequent launches are instant.
-
-### Requirements
-
-- **Git** — `git --version`
-- **uv** — `uv --version` ([install guide](https://docs.astral.sh/uv/getting-started/installation/))
-- **Python 3.12** (auto-managed by uv)
-- **LM Studio** with a model that supports tool calling (Qwen 3.5, Gemma4, etc.)
+4. Wait for the blue dot next to each server
+5. Start chatting — the model will see all 41 tools
 
 ## Available Tools
 
@@ -221,19 +253,19 @@ Load the file C:\data\sales.csv and tell me about its schema
 ### Find problem columns
 
 ```
-Search for columns in sales.csv that have null values
+Search for columns in C:\data\sales.csv that have null values
 ```
 
 ### Get column statistics
 
 ```
-Show me the statistics for the Revenue column in sales.csv
+Show me the statistics for the Revenue column in C:\data\sales.csv
 ```
 
 ### Clean data
 
 ```
-Fill null values in the Revenue column of sales.csv using the median strategy
+Fill null values in the Revenue column of C:\data\sales.csv using the median strategy
 ```
 
 ### Full cleaning workflow
@@ -251,38 +283,38 @@ Generate a comprehensive profile of C:\data\sales.csv
 ### Quick EDA with alerts
 
 ```
-Run EDA on sales.csv and highlight any data quality issues
+Run EDA on C:\data\sales.csv and highlight any data quality issues
 ```
 
 ### Interactive dashboard
 
 ```
-Generate a dashboard for sales.csv in light theme
+Generate a dashboard for C:\data\sales.csv in light theme
 ```
 
 ### Statistical analysis
 
 ```
-Run statistical tests on sales.csv to compare Revenue across Regions
+Run statistical tests on C:\data\sales.csv to compare Revenue across Regions
 ```
 
 ### Time series analysis
 
 ```
-Analyze the time series trends in sales.csv
+Analyze the time series trends in C:\data\sales.csv
 ```
 
 ### Undo a change
 
 ```
-Restore sales.csv to the previous version
+Restore C:\data\sales.csv to the previous version
 ```
 
 ## Configuration
 
 ### Constrained Mode
 
-For machines with ≤8 GB VRAM, set `MCP_CONSTRAINED_MODE=1` in the `env` section of `mcp.json`. This reduces:
+For lower-memory machines, set `MCP_CONSTRAINED_MODE=1` in the `env` section of `mcp.json`. This reduces:
 - DataFrame rows returned: 100 → 20
 - Search results: 50 → 10
 - Column limits: 50 → 20
