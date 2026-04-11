@@ -7,6 +7,7 @@ on:
     branches: ["**"]
 
 jobs:
+  # ── Cross-platform test matrix ──────────────────────────────────────
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -16,7 +17,6 @@ jobs:
         os: [ubuntu-22.04, macos-latest, windows-latest]
 
     env:
-      MCP_CONSTRAINED_MODE: "1"
       PYTHONPATH: "."
 
     steps:
@@ -35,6 +35,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
 
+      # ── Linting & static analysis ──
       - name: Lint (ruff)
         run: uv run ruff check .
 
@@ -47,9 +48,11 @@ jobs:
       - name: Verify tool docstrings
         run: python verify_tool_docstrings.py
 
+      # ── Tests ──
       - name: Run tests
         run: uv run python -m pytest tests/ -q --tb=short
 
+  # ── Constrained mode (8 GB VRAM target) ─────────────────────────────
   constrained:
     name: Constrained mode (ubuntu)
     runs-on: ubuntu-22.04

@@ -9,6 +9,7 @@ permissions:
   contents: write
 
 jobs:
+  # ── Cross-platform test gate ────────────────────────────────────────
   ci:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -37,15 +38,24 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
 
-      - name: Lint
+      # ── Quality gates ──
+      - name: Lint (ruff)
         run: uv run ruff check .
 
-      - name: Format check
+      - name: Format check (ruff)
         run: uv run ruff format --check .
 
+      - name: Type check (pyright)
+        run: uv run pyright servers/ shared/
+
+      - name: Verify tool docstrings
+        run: python verify_tool_docstrings.py
+
+      # ── Tests ──
       - name: Run tests
         run: uv run python -m pytest tests/ -q --tb=short
 
+  # ── Publish GitHub Release ──────────────────────────────────────────
   release:
     name: Create Release
     needs: ci
@@ -58,21 +68,27 @@ jobs:
 
       - name: Extract tag name
         id: tag
-        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
 
       - name: Generate changelog
         id: changelog
         run: |
-          # Get previous tag
           PREV_TAG=$(git tag --sort=-creatordate | head -2 | tail -1)
-          if [ -z "$PREV_TAG" ] || [ "$PREV_TAG" = "${{ steps.tag.outputs.version }}" ]; then
-            # First release — use all commits
+
+          if [ -z "$PREV_TAG" ] \
+            || [ "$PREV_TAG" = "${{ steps.tag.outputs.version }}" ]; then
             LOG=$(git log --oneline --no-decorate | head -50)
           else
-            LOG=$(git log --oneline --no-decorate "${PREV_TAG}..HEAD" | head -50)
+            LOG=$(git log --oneline --no-decorate \
+              "${PREV_TAG}..HEAD" | head -50)
           fi
-          # Write to file to preserve multiline
-          echo "$LOG" > /tmp/changelog.txt
+
+          {
+            echo "## What's Changed"
+            echo ""
+            echo "$LOG" | sed 's/^/- /'
+          } > /tmp/changelog.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -81,5 +97,10 @@ jobs:
           name: ${{ steps.tag.outputs.version }}
           body_path: /tmp/changelog.txt
           draft: false
-          prerelease: ${{ contains(steps.tag.outputs.version, '-rc') || contains(steps.tag.outputs.version, '-beta') || contains(steps.tag.outputs.version, '-alpha') }}
+          prerelease: >-
+            ${{
+              contains(steps.tag.outputs.version, '-rc')
+              || contains(steps.tag.outputs.version, '-beta')
+              || contains(steps.tag.outputs.version, '-alpha')
+            }}
           generate_release_notes: true
