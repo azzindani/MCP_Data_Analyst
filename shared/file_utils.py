@@ -34,30 +34,38 @@ def read_csv(
     separator: str = ",",
     max_rows: int = 0,
 ) -> pd.DataFrame:
-    """Read CSV with automatic encoding fallback.
+    """Read CSV with automatic encoding and bad-line fallback.
 
-    Tries the specified encoding first. On failure walks through
+    Tries the specified encoding first. On UnicodeDecodeError walks through
     utf-8-sig (BOM), cp1252 (Windows/Excel), then latin-1 (never fails).
+    On tokenization errors (mismatched field counts) retries with
+    on_bad_lines='skip' to drop malformed rows.
     """
     kwargs: dict = {"sep": separator, "low_memory": False}
     if max_rows > 0:
         kwargs["nrows"] = max_rows
 
-    try:
-        return pd.read_csv(file_path, encoding=encoding, **kwargs)
-    except UnicodeDecodeError:
-        pass
-
-    for enc in _ENCODING_FALLBACKS:
-        if enc == encoding:
-            continue
+    def _try_encs(extra: dict) -> pd.DataFrame:
+        kw = {**kwargs, **extra}
         try:
-            return pd.read_csv(file_path, encoding=enc, **kwargs)
+            return pd.read_csv(file_path, encoding=encoding, **kw)
         except UnicodeDecodeError:
-            continue
+            pass
+        for enc in _ENCODING_FALLBACKS:
+            if enc == encoding:
+                continue
+            try:
+                return pd.read_csv(file_path, encoding=enc, **kw)
+            except UnicodeDecodeError:
+                continue
+        return pd.read_csv(file_path, encoding="latin-1", **kw)
 
-    # latin-1 accepts every byte value — should never reach here
-    return pd.read_csv(file_path, encoding="latin-1", **kwargs)
+    try:
+        return _try_encs({})
+    except Exception as exc:
+        if "tokeniz" in str(exc).lower() or "field" in str(exc).lower():
+            return _try_encs({"on_bad_lines": "skip"})
+        raise
 
 
 def atomic_write(target: Path, content: bytes) -> None:
