@@ -357,6 +357,24 @@ def generate_multi_chart(
 
         df = _read_csv(str(path))
 
+        missing_vals = [c for c in value_columns if c not in df.columns]
+        if missing_vals:
+            return {
+                "success": False,
+                "error": f"value_columns not found: {missing_vals}",
+                "hint": f"Available columns: {list(df.columns)}",
+                "progress": [fail("Column not found", str(missing_vals))],
+                "token_estimate": 30,
+            }
+        if category_column and category_column not in df.columns:
+            return {
+                "success": False,
+                "error": f"category_column '{category_column}' not found.",
+                "hint": f"Available columns: {list(df.columns)}",
+                "progress": [fail("Column not found", category_column)],
+                "token_estimate": 30,
+            }
+
         if chart_type == "multi_line" and not date_column:
             return {
                 "success": False,
@@ -371,7 +389,7 @@ def generate_multi_chart(
 
         if chart_type == "multi_bar":
             if category_column:
-                grouped = df.groupby(category_column, as_index=False)[value_columns].agg(agg_func)
+                grouped = df.groupby(category_column)[value_columns].agg(agg_func).reset_index()
                 x_vals = grouped[category_column]
             else:
                 x_vals = range(len(df))
@@ -382,7 +400,7 @@ def generate_multi_chart(
             df[date_column] = pd.to_datetime(df[date_column], errors="coerce")
             df = df.dropna(subset=[date_column])
             df["period"] = df[date_column].dt.to_period("M").astype(str)
-            grouped = df.groupby("period", as_index=False)[value_columns].agg(agg_func)
+            grouped = df.groupby("period")[value_columns].agg(agg_func).reset_index()
             x_vals = grouped["period"]
             for vc in value_columns:
                 fig.add_trace(go.Scatter(x=x_vals, y=grouped[vc], name=vc, mode="lines+markers"))
