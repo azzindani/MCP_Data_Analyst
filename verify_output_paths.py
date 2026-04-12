@@ -33,6 +33,7 @@ def ok(msg: str) -> None:
 # Test get_output_path (html_layout.py)
 # ---------------------------------------------------------------------------
 
+
 def check_html_layout() -> None:
     from shared.html_layout import get_output_path
 
@@ -66,9 +67,7 @@ def check_html_layout() -> None:
         try:
             result.relative_to(home)
         except ValueError:
-            fail(
-                f"no input file -> expected path under home dir, got {result}"
-            )
+            fail(f"no input file -> expected path under home dir, got {result}")
         else:
             ok("no input file -> path under home dir (Downloads or similar)")
 
@@ -89,6 +88,7 @@ def check_html_layout() -> None:
 # Test get_default_output_dir (file_utils.py)
 # ---------------------------------------------------------------------------
 
+
 def check_file_utils() -> None:
     from shared.file_utils import get_default_output_dir
 
@@ -101,9 +101,7 @@ def check_file_utils() -> None:
         # input_path provided -> return its parent
         result = get_default_output_dir(str(input_file))
         if result != input_file.parent:
-            fail(
-                f"with input file, expected parent={input_file.parent}, got {result}"
-            )
+            fail(f"with input file, expected parent={input_file.parent}, got {result}")
         else:
             ok("input file provided -> returns input file's parent directory")
 
@@ -119,6 +117,7 @@ def check_file_utils() -> None:
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 def main() -> int:
     print("Checking output path priority (STANDARDS.md §26)...")
