@@ -480,7 +480,7 @@ def export_data(
         result = {
             "success": True,
             "op": "export_data",
-            "output_path": str(out.resolve()),
+            "output_path": str(out),
             "output_name": out.name,
             "format": format,
             "rows": len(df),

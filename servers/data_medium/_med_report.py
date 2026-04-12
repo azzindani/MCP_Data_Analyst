@@ -361,7 +361,6 @@ def compare_datasets(
     file_path_a: str,
     file_path_b: str,
     key_columns: list[str] = None,
-    output_path: str = "",
 ) -> dict:
     """Compare two CSVs: schema diff, row counts, value changes."""
     progress = []

@@ -852,7 +852,7 @@ def detect_anomalies(
             "anomaly_count": anomaly_count,
             "columns_scanned": len(numeric_cols),
             "per_column": per_column_summary,
-            "output_path": str(Path(out).resolve()),
+            "output_path": out,
             "output_name": Path(out).name,
             "progress": progress,
         }

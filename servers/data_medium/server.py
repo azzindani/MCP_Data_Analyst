@@ -315,10 +315,9 @@ def compare_datasets(
     file_path_a: str,
     file_path_b: str,
     key_columns: list[str] = None,
-    output_path: str = "",
 ) -> dict:
     """Compare two CSVs: schema diff, row counts, value changes."""
-    return engine.compare_datasets(file_path_a, file_path_b, key_columns, output_path)
+    return engine.compare_datasets(file_path_a, file_path_b, key_columns)
 
 
 def main() -> None:

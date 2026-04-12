@@ -8,15 +8,17 @@ Best-practice rules enforced here:
   - Plotly charts sized by their CSS container (autosize=true, no height in layout)
   - Viewport meta, scroll-behavior, box-sizing applied globally
   - Mobile-first breakpoints — sidebar collapses at 48 rem (~768 px)
-  - Default output target is ~/Downloads; falls back to input file directory
+  - Default output target is input file's directory; falls back to ~/Downloads
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
+from shared.file_utils import resolve_path
+
 # ---------------------------------------------------------------------------
-# Output path — Downloads-first
+# Output path — input-file-first
 # ---------------------------------------------------------------------------
 
 
@@ -34,7 +36,7 @@ def get_output_path(
       3. ~/Downloads/<stem>_<suffix>.<ext>  (pure generation, no input file)
     """
     if output_path:
-        return Path(output_path).resolve()
+        return resolve_path(output_path)
     if input_path is not None:
         return input_path.parent / f"{input_path.stem}_{stem_suffix}.{ext}"
     downloads = Path.home() / "Downloads"
