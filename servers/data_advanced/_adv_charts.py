@@ -344,6 +344,7 @@ def generate_multi_chart(
                 "token_estimate": 20,
             }
 
+        chart_type = {"bar": "multi_bar", "line": "multi_line"}.get(chart_type, chart_type)
         valid_types = {"multi_bar", "multi_line"}
         if chart_type not in valid_types:
             return {
