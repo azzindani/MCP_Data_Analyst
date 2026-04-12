@@ -12,18 +12,34 @@ for _p in (str(_ROOT), _HERE):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import html as _html
+import json
+
 import pandas as pd
 from _adv_helpers import (
+    _BACK_TO_TOP_HTML,
+    _BACK_TO_TOP_JS,
+    _COLLAPSIBLE_SECTIONS_JS,
+    _COPY_CLIPBOARD_JS,
+    _KPI_COUNTER_JS,
+    _SCROLL_SPY_JS,
+    _SIDEBAR_JS,
+    _SORTABLE_TABLES_JS,
+    PLOTLY_CFG_JS,
+    VIEWPORT_META,
     _dtype_label,
     _open_file,
-    _token_estimate,
     _read_csv,
+    _token_estimate,
+    css_report,
     css_vars,
     device_mode_js,
-    VIEWPORT_META,
     fail,
+    get_output_path,
+    get_plotlyjs_script,
     ok,
 )
+
 from shared.file_utils import resolve_path
 
 logger = logging.getLogger(__name__)
@@ -39,8 +55,8 @@ def run_eda(
     progress = []
     try:
         try:
-            import plotly.graph_objects as go  # noqa: F401
             import plotly.express as px  # noqa: F401
+            import plotly.graph_objects as go  # noqa: F401
             from plotly.subplots import make_subplots  # noqa: F401
         except ImportError:
             return {
@@ -68,12 +84,9 @@ def run_eda(
         cat_cols = [
             c
             for c in df.columns
-            if not pd.api.types.is_numeric_dtype(df[c])
-            and not pd.api.types.is_datetime64_any_dtype(df[c])
+            if not pd.api.types.is_numeric_dtype(df[c]) and not pd.api.types.is_datetime64_any_dtype(df[c])
         ]
-        datetime_cols = [
-            c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])
-        ]
+        datetime_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])]
 
         column_summaries = []
         for c in df.columns:
@@ -129,17 +142,15 @@ def run_eda(
                     }
                 )
 
+        outlier_cols.sort(key=lambda o: o["outlier_count"], reverse=True)
+
         null_penalty = sum(s["null_pct"] for s in column_summaries) / max(cols, 1)
         dup_count = int(df.duplicated().sum())
         dup_penalty = dup_count / rows * 100 if rows > 0 else 0
         outlier_penalty = sum(o["outlier_pct"] for o in outlier_cols) / max(cols, 1)
-        quality_score = max(
-            0, round(100 - null_penalty - dup_penalty * 0.5 - outlier_penalty * 0.3)
-        )
+        quality_score = max(0, round(100 - null_penalty - dup_penalty * 0.5 - outlier_penalty * 0.3))
 
-        alerts = _compute_alerts(
-            df, numeric_cols, cat_cols, corr_pairs, rows, dup_count
-        )
+        alerts = _compute_alerts(df, numeric_cols, cat_cols, corr_pairs, rows, dup_count)
 
         spearman_matrix = None
         if len(numeric_cols) >= 2:
@@ -148,9 +159,7 @@ def run_eda(
         for s in column_summaries:
             if s["column"] in numeric_cols:
                 s["zero_count"] = int((df[s["column"]] == 0).sum())
-                s["zero_pct"] = (
-                    round(s["zero_count"] / rows * 100, 2) if rows > 0 else 0
-                )
+                s["zero_pct"] = round(s["zero_count"] / rows * 100, 2) if rows > 0 else 0
 
         html_content = _build_eda_html(
             df,
@@ -170,11 +179,7 @@ def run_eda(
             theme,
         )
 
-        if output_path:
-            out = Path(output_path)
-        else:
-            out = path.parent / f"{path.stem}_eda.html"
-
+        out = get_output_path(output_path, path, "eda", "html")
         out.write_text(html_content, encoding="utf-8")
         size_kb = round(out.stat().st_size / 1024)
 
@@ -201,11 +206,7 @@ def run_eda(
             "categorical_columns": len(cat_cols),
             "datetime_columns": len(datetime_cols),
             "duplicate_rows": dup_count,
-            "null_summary": {
-                s["column"]: s["null_count"]
-                for s in column_summaries
-                if s["null_count"] > 0
-            },
+            "null_summary": {s["column"]: s["null_count"] for s in column_summaries if s["null_count"] > 0},
             "top_correlations": corr_pairs[:5],
             "outlier_columns": outlier_cols,
             "column_summaries": column_summaries,
@@ -347,13 +348,7 @@ def _alerts_html(al):
         return '<div class="alert-panel"><div class="alert-item info"><span class="alert-badge info">OK</span> No data quality alerts detected.</div></div>'
     items = []
     for a in al:
-        badge_cls = (
-            "error"
-            if a["sev"] == "error"
-            else "warning"
-            if a["sev"] == "warning"
-            else "info"
-        )
+        badge_cls = "error" if a["sev"] == "error" else "warning" if a["sev"] == "warning" else "info"
         items.append(
             f'<div class="alert-item {badge_cls}"><span class="alert-badge {badge_cls}">{a["type"]}</span> {a["msg"]}</div>'
         )
@@ -378,12 +373,8 @@ def _build_eda_html(
     theme,
 ):
     vars_css = css_vars(theme)
-    score_cls = (
-        "good" if quality_score >= 80 else "warn" if quality_score >= 60 else "bad"
-    )
-    missing_by_col = {
-        s["column"]: s["null_count"] for s in column_summaries if s["null_count"] > 0
-    }
+    score_cls = "good" if quality_score >= 80 else "warn" if quality_score >= 60 else "bad"
+    missing_by_col = {s["column"]: s["null_count"] for s in column_summaries if s["null_count"] > 0}
 
     if theme == "dark":
         _plot_bg = "#161b22"
@@ -404,18 +395,18 @@ def _build_eda_html(
         corr_z = corr.values.tolist()
         corr_x = list(corr.columns)
         corr_json = f"""
-<div class="chart-container" id="corr-chart" style="min-height:480px"></div>
+<div class="chart-box"><div id="corr-chart" class="chart-div heatmap"></div></div>
 <script>
 (function(){{
-  var z={corr_z};var x={corr_x};
+  var z={corr_z};var x={json.dumps(corr_x)};
   var dark=(typeof window!=='undefined')&&window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches;
   var bg=dark?'#161b22':'{_plot_bg}';var fc=dark?'#c9d1d9':'{_font_color}';
   var data=[{{z:z,x:x,y:x,type:'heatmap',colorscale:'RdBu',zmid:0,
     text:z.map(function(r){{return r.map(function(v){{return v.toFixed(2);}});}}),
     texttemplate:'%{{text}}',textfont:{{size:11}}}}];
   var layout={{paper_bgcolor:bg,plot_bgcolor:bg,font:{{color:fc}},
-    margin:{{l:120,r:20,t:20,b:120}},height:480,autosize:false}};
-  Plotly.newPlot('corr-chart',data,layout,{{responsive:true,displayModeBar:true,scrollZoom:true}});
+    margin:{{l:120,r:20,t:20,b:120}},autosize:true}};
+  Plotly.newPlot('corr-chart',data,layout,{PLOTLY_CFG_JS});
 }})();
 </script>"""
 
@@ -424,19 +415,19 @@ def _build_eda_html(
         sp_z = spearman_matrix.values.tolist()
         sp_x = spearman_matrix.columns.tolist()
         spearman_json = f"""
-<h3 style="color:var(--accent);font-size:15px;margin:20px 0 8px">Spearman Rank Correlation</h3>
-<div class="chart-container" id="sp-corr-chart" style="min-height:480px"></div>
+<h3 style="color:var(--accent);margin:1.25rem 0 .5rem">Spearman Rank Correlation</h3>
+<div class="chart-box"><div id="sp-corr-chart" class="chart-div heatmap"></div></div>
 <script>
 (function(){{
-  var z={sp_z};var x={sp_x};
+  var z={sp_z};var x={json.dumps(sp_x)};
   var dark=(typeof window!=='undefined')&&window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches;
   var bg=dark?'#161b22':'{_plot_bg}';var fc=dark?'#c9d1d9':'{_font_color}';
   var data=[{{z:z,x:x,y:x,type:'heatmap',colorscale:'RdBu',zmid:0,
     text:z.map(function(r){{return r.map(function(v){{return v.toFixed(2);}});}}),
     texttemplate:'%{{text}}',textfont:{{size:11}}}}];
   var layout={{paper_bgcolor:bg,plot_bgcolor:bg,font:{{color:fc}},
-    margin:{{l:120,r:20,t:20,b:120}},height:480,autosize:false}};
-  Plotly.newPlot('sp-corr-chart',data,layout,{{responsive:true,displayModeBar:true,scrollZoom:true}});
+    margin:{{l:120,r:20,t:20,b:120}},autosize:true}};
+  Plotly.newPlot('sp-corr-chart',data,layout,{PLOTLY_CFG_JS});
 }})();
 </script>"""
 
@@ -448,18 +439,12 @@ def _build_eda_html(
         if "mean" in s:
             stats_str = f"μ={s['mean']}, σ={s['std']}, [{s['min']}–{s['max']}]"
         elif "top_values" in s:
-            stats_str = "Top: " + ", ".join(
-                f"{k}:{v}" for k, v in list(s["top_values"].items())[:3]
-            )
+            stats_str = "Top: " + ", ".join(f"{k}:{v}" for k, v in list(s["top_values"].items())[:3])
         else:
             stats_str = "—"
-        zero_cell = (
-            f"{s.get('zero_count', '')} ({s.get('zero_pct', '')}%)"
-            if "zero_count" in s
-            else "—"
-        )
+        zero_cell = f"{s.get('zero_count', '')} ({s.get('zero_pct', '')}%)" if "zero_count" in s else "—"
         col_rows.append(
-            f'<tr><td><b>{s["column"]}</b></td><td><span class="badge">{s["dtype"]}</span></td>'
+            f'<tr><td><b>{_html.escape(s["column"])}</b></td><td><span class="badge">{s["dtype"]}</span></td>'
             f'<td class="{cls}">{nc_}</td><td class="{cls}">{np_}%</td>'
             f"<td>{zero_cell}</td>"
             f'<td>{s["unique_count"]}</td><td class="stats-cell">{stats_str}</td></tr>'
@@ -470,16 +455,16 @@ def _build_eda_html(
     for s in column_summaries:
         if s["null_pct"] > 50:
             insights.append(
-                f'<li class="bad"><b>{s["column"]}</b>: {s["null_pct"]}% null — consider dropping</li>'
+                f'<li class="bad"><b>{_html.escape(s["column"])}</b>: {s["null_pct"]}% null — consider dropping</li>'
             )
         elif s["null_pct"] > 10:
             insights.append(
-                f'<li class="warn"><b>{s["column"]}</b>: {s["null_pct"]}% null — consider imputation</li>'
+                f'<li class="warn"><b>{_html.escape(s["column"])}</b>: {s["null_pct"]}% null — consider imputation</li>'
             )
     for p in corr_pairs[:5]:
         if abs(p["correlation"]) > 0.8:
             insights.append(
-                f"<li><b>{p['col_a']}</b> ↔ <b>{p['col_b']}</b>: r={p['correlation']:+.3f} (very strong)</li>"
+                f"<li><b>{_html.escape(p['col_a'])}</b> ↔ <b>{_html.escape(p['col_b'])}</b>: r={p['correlation']:+.3f} (very strong)</li>"
             )
     for s in column_summaries:
         if "std" in s and s.get("std", 0) > 0:
@@ -493,16 +478,14 @@ def _build_eda_html(
                     f'<li class="warn"><b>{s["column"]}</b>: skewness={skew_val} — consider log transform</li>'
                 )
     if dup_count > 0:
-        insights.append(
-            f'<li class="warn">{dup_count:,} duplicate rows detected — use drop_duplicates</li>'
-        )
+        insights.append(f'<li class="warn">{dup_count:,} duplicate rows detected — use drop_duplicates</li>')
     if not insights:
         insights.append('<li class="good">No major data quality issues detected.</li>')
     insights_html = "\n".join(insights)
 
     outlier_rows = (
         "".join(
-            f'<tr><td><b>{o["column"]}</b></td><td class="warn">{o["outlier_count"]}</td>'
+            f'<tr><td><b>{_html.escape(o["column"])}</b></td><td class="warn">{o["outlier_count"]}</td>'
             f"<td>{o['outlier_pct']}%</td><td>[{o['lower_limit']} – {o['upper_limit']}]</td></tr>"
             for o in outlier_cols
         )
@@ -521,20 +504,12 @@ def _build_eda_html(
             if abs(p["correlation"]) > 0.5
             else "Weak"
         )
-        cls = (
-            "good"
-            if abs(p["correlation"]) > 0.7
-            else "warn"
-            if abs(p["correlation"]) > 0.5
-            else ""
-        )
-        corr_rows += f'<tr class="{cls}"><td>{p["col_a"]}</td><td>{p["col_b"]}</td><td>{p["correlation"]:+.4f}</td><td>{s_str}</td></tr>'
+        cls = "good" if abs(p["correlation"]) > 0.7 else "warn" if abs(p["correlation"]) > 0.5 else ""
+        corr_rows += f'<tr class="{cls}"><td>{_html.escape(p["col_a"])}</td><td>{_html.escape(p["col_b"])}</td><td>{p["correlation"]:+.4f}</td><td>{s_str}</td></tr>'
 
-    plotly_script = '<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>'
+    plotly_script = get_plotlyjs_script()
 
-    missing_section = _build_missing_section(
-        df, missing_by_col, rows, accent_color, _plot_bg, _font_color
-    )
+    missing_section = _build_missing_section(df, missing_by_col, rows, accent_color, _plot_bg, _font_color)
     corr_section = ""
     if corr_pairs:
         corr_section = f'<div id="correlations" class="section"><h2>Correlations</h2>{corr_json}{spearman_json}<table><tr><th>Variable A</th><th>Variable B</th><th>r</th><th>Strength</th></tr>{corr_rows}</table></div>'
@@ -544,10 +519,10 @@ def _build_eda_html(
 
     sample_rows_df = df.head(5)
     sample_cols_list = list(sample_rows_df.columns)
-    sample_header = "".join(f"<th>{c}</th>" for c in sample_cols_list)
+    sample_header = "".join(f"<th>{_html.escape(str(c))}</th>" for c in sample_cols_list)
     sample_body = ""
     for _, row in sample_rows_df.iterrows():
-        cells = "".join(f"<td>{str(v)[:50]}</td>" for v in row.values)
+        cells = "".join(f'<td title="{_html.escape(str(v))}">{_html.escape(str(v)[:50])}</td>' for v in row.values)
         sample_body += f"<tr>{cells}</tr>"
     sample_html = f"""<div id="sample" class="section">
   <h2>Data Sample (first 5 rows)</h2>
@@ -556,7 +531,9 @@ def _build_eda_html(
   </div>
 </div>"""
 
-    alerts_section = f'<div id="alerts" class="section"><h2>&#9888; Alerts ({len(alerts)})</h2>{_alerts_html(alerts)}</div>'
+    alerts_section = (
+        f'<div id="alerts" class="section"><h2>&#9888; Alerts ({len(alerts)})</h2>{_alerts_html(alerts)}</div>'
+    )
 
     css_block = _eda_css(vars_css)
     dev_js = device_mode_js() if theme == "device" else ""
@@ -565,13 +542,16 @@ def _build_eda_html(
 <html lang="en"><head>
 <meta charset="utf-8">
 {VIEWPORT_META}
-<title>EDA Report — {path.name}</title>
+<title>EDA Report — {_html.escape(path.name)}</title>
 {plotly_script}
 <style>
 {css_block}
 </style></head><body>
+<button id="sb-toggle" aria-label="Open navigation">&#9776;</button>
+<div id="sb-overlay"></div>
+{_BACK_TO_TOP_HTML}
 <div class="sidebar">
-  <div class="sidebar-hdr"><h2>EDA Report</h2><p class="meta">{path.name}</p><p class="meta">{rows:,} rows × {cols} cols</p></div>
+  <div class="sidebar-hdr"><h2>EDA Report</h2><p class="meta" title="{_html.escape(str(path))}">{_html.escape(path.name)} <button class="btn-print" data-copy="{_html.escape(str(path))}">&#x29C7;</button></p><p class="meta">{rows:,} rows \u00d7 {cols} cols</p><button class="btn-print" onclick="window.print()">&#x2399; Print</button></div>
   <div class="nav">
     <div class="st">Sections</div>
     <a href="#alerts">Alerts ({len(alerts)})</a>
@@ -589,22 +569,22 @@ def _build_eda_html(
   <div id="overview" class="section">
     <h2>Dataset Overview</h2>
     <div class="cards">
-      <div class="card good"><div class="num">{rows:,}</div><div class="lbl">Rows</div></div>
-      <div class="card"><div class="num">{cols}</div><div class="lbl">Columns</div></div>
-      <div class="card"><div class="num">{len(numeric_cols)}</div><div class="lbl">Numeric</div></div>
-      <div class="card"><div class="num">{len(cat_cols)}</div><div class="lbl">Categorical</div></div>
-      <div class="card"><div class="num">{len(datetime_cols)}</div><div class="lbl">Datetime</div></div>
-      <div class="card {score_cls}"><div class="num">{quality_score}</div><div class="lbl">Quality Score</div></div>
-      <div class="card {"warn" if dup_count > 0 else "good"}"><div class="num">{dup_count:,}</div><div class="lbl">Duplicates</div></div>
+      <div class="card good"><div class="num" data-val="{rows}" data-fmt="int">{rows:,}</div><div class="lbl">Rows</div></div>
+      <div class="card"><div class="num" data-val="{cols}" data-fmt="int">{cols}</div><div class="lbl">Columns</div></div>
+      <div class="card"><div class="num" data-val="{len(numeric_cols)}" data-fmt="int">{len(numeric_cols)}</div><div class="lbl">Numeric</div></div>
+      <div class="card"><div class="num" data-val="{len(cat_cols)}" data-fmt="int">{len(cat_cols)}</div><div class="lbl">Categorical</div></div>
+      <div class="card"><div class="num" data-val="{len(datetime_cols)}" data-fmt="int">{len(datetime_cols)}</div><div class="lbl">Datetime</div></div>
+      <div class="card {score_cls}"><div class="num" data-val="{quality_score}" data-fmt="int">{quality_score}</div><div class="lbl">Quality Score</div></div>
+      <div class="card {"warn" if dup_count > 0 else "good"}"><div class="num" data-val="{dup_count}" data-fmt="int">{dup_count:,}</div><div class="lbl">Duplicates</div></div>
     </div>
   </div>
   {sample_html}
   <div id="columns" class="section">
     <h2>Column Summary</h2>
-    <div style="overflow-x:auto">
+    <div class="tbl-wrap">
       <table>
-        <tr><th>Column</th><th>Type</th><th>Nulls</th><th>Null %</th><th>Zeros</th><th>Unique</th><th>Stats</th></tr>
-        {col_rows_html}
+        <tr><th data-sort>Column</th><th data-sort>Type</th><th data-sort>Nulls</th><th data-sort>Null %</th><th data-sort>Zeros</th><th data-sort>Unique</th><th>Stats</th></tr>
+        <tbody>{col_rows_html}</tbody>
       </table>
     </div>
   </div>
@@ -622,16 +602,21 @@ def _build_eda_html(
   </div>
 </div>
 {dev_js}
+{_SIDEBAR_JS}
+{_SCROLL_SPY_JS}
+{_SORTABLE_TABLES_JS}
+{_COLLAPSIBLE_SECTIONS_JS}
+{_KPI_COUNTER_JS}
+{_COPY_CLIPBOARD_JS}
+{_BACK_TO_TOP_JS}
 </body></html>"""
 
 
-def _build_missing_section(
-    df, missing_by_col, rows, accent_color, _plot_bg, _font_color
-):
+def _build_missing_section(df, missing_by_col, rows, accent_color, _plot_bg, _font_color):
     if not missing_by_col:
         return ""
     missing_rows = "".join(
-        f"<tr><td><b>{c}</b></td><td>{cnt}</td><td>{round(cnt / rows * 100, 1)}%</td>"
+        f'<tr><td title="{_html.escape(c)}"><b>{_html.escape(c)}</b></td><td>{cnt}</td><td>{round(cnt / rows * 100, 1)}%</td>'
         f'<td><div class="mbar"><div class="mbar-fill" style="width:{round(cnt / rows * 100, 1)}%"></div></div></td></tr>'
         for c, cnt in sorted(missing_by_col.items(), key=lambda x: -x[1])
     )
@@ -643,13 +628,13 @@ def _build_missing_section(
         miss_sample = miss_sample.reset_index(drop=True)
     miss_z = miss_sample.values.tolist()
     miss_y = list(range(len(miss_sample)))
-    miss_matrix_html = f"""<div class="chart-container" id="miss-matrix-wrap">
-  <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">White = present, colored = missing. Sampled {len(miss_sample)} rows.</p>
-  <div id="miss-matrix" style="height:{min(400, max(200, len(miss_sample)))}px"></div>
+    miss_matrix_html = f"""<div class="chart-box">
+  <p class="chart-note">White = present, coloured = missing. Sampled {len(miss_sample)} rows.</p>
+  <div id="miss-matrix" class="chart-div heatmap"></div>
 </div>
 <script>
 (function(){{
-  var z={miss_z};var x={miss_cols};var y={miss_y};
+  var z={miss_z};var x={json.dumps(miss_cols)};var y={json.dumps(miss_y)};
   var data=[{{z:z,x:x,y:y,type:'heatmap',colorscale:[['0','rgba(0,0,0,0)'],['1','{accent_color}']],
     showscale:false,hovertemplate:'Column: %{{x}}<br>Row: %{{y}}<br>Missing: %{{z}}<extra></extra>'}}];
   var layout={{paper_bgcolor:'{_plot_bg}',plot_bgcolor:'{_plot_bg}',
@@ -658,53 +643,11 @@ def _build_missing_section(
     xaxis:{{tickangle:-45,tickfont:{{size:11}}}},
     yaxis:{{title:'Row index',tickfont:{{size:10}}}}
   }};
-  Plotly.newPlot('miss-matrix',data,layout,{{responsive:true,displayModeBar:true,scrollZoom:true}});
+  Plotly.newPlot('miss-matrix',data,layout,{PLOTLY_CFG_JS});
 }})();
 </script>"""
     return f'<div id="nulls" class="section"><h2>Missing Data</h2><table><tr><th>Column</th><th>Missing</th><th>%</th><th>Visual</th></tr>{missing_rows}</table>{miss_matrix_html}</div>'
 
 
 def _eda_css(vars_css):
-    return f"""{vars_css}
-*{{box-sizing:border-box;margin:0;padding:0}}
-html{{scroll-behavior:smooth}}
-body{{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;transition:background 0.2s,color 0.2s}}
-::-webkit-scrollbar{{width:6px}}::-webkit-scrollbar-track{{background:var(--bg)}}::-webkit-scrollbar-thumb{{background:var(--border);border-radius:3px}}
-.sidebar{{width:260px;background:var(--surface);border-right:1px solid var(--border);position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:100}}
-.sidebar-hdr{{padding:20px;border-bottom:1px solid var(--border)}}
-.sidebar-hdr h2{{color:var(--accent);font-size:16px;margin-bottom:4px}}
-.sidebar-hdr .meta{{color:var(--text-muted);font-size:12px}}
-.nav{{padding:8px 0}}
-.nav a{{display:block;padding:7px 20px;color:var(--text-muted);text-decoration:none;font-size:13px;border-left:3px solid transparent;transition:all 0.15s}}
-.nav a:hover,.nav a.active{{color:var(--accent);background:rgba(88,166,255,0.06);border-left-color:var(--accent)}}
-.nav .st{{padding:14px 20px 4px;color:var(--border);font-size:10px;text-transform:uppercase;letter-spacing:1px;font-weight:600}}
-.main{{margin-left:260px;padding:32px;min-height:100vh;overflow-x:auto}}
-.section{{margin-bottom:48px}}
-.section>h2{{color:var(--accent);font-size:20px;margin-bottom:20px;padding-bottom:10px;border-bottom:2px solid var(--border);font-weight:600}}
-.cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:24px}}
-.card{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center;transition:transform 0.15s,border-color 0.15s}}
-.card:hover{{transform:translateY(-2px);border-color:var(--accent)}}
-.card .num{{font-size:28px;font-weight:700;color:var(--accent);line-height:1.2}}
-.card .lbl{{font-size:11px;color:var(--text-muted);margin-top:4px;text-transform:uppercase;letter-spacing:0.8px}}
-.card.good .num{{color:var(--green)}}.card.warn .num{{color:var(--orange)}}.card.bad .num{{color:var(--red)}}
-table{{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px;background:var(--surface);border-radius:8px;overflow:hidden}}
-th,td{{padding:10px 14px;text-align:left;border-bottom:1px solid var(--border)}}
-th{{background:rgba(88,166,255,0.08);color:var(--accent);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.5px}}
-tr:hover{{background:rgba(88,166,255,0.03)}}
-.good{{color:var(--green)}}.warn{{color:var(--orange)}}.bad{{color:var(--red)}}
-.badge{{font-size:11px;padding:2px 8px;border-radius:10px;background:var(--border);color:var(--text-muted);font-weight:500}}
-.stats-cell{{font-size:12px;color:var(--text-muted);font-family:monospace}}
-.insights{{list-style:none;padding:0}}
-.insights li{{padding:10px 14px;margin:6px 0;background:var(--surface);border-radius:8px;border-left:4px solid var(--accent);font-size:13px;line-height:1.5}}
-.insights li.warn{{border-left-color:var(--orange)}}.insights li.bad{{border-left-color:var(--red)}}.insights li.good{{border-left-color:var(--green)}}
-.mbar{{height:24px;background:var(--border);border-radius:6px;overflow:hidden;margin:4px 0}}
-.mbar-fill{{height:100%;background:linear-gradient(90deg,var(--orange),var(--red));border-radius:6px}}
-.chart-container{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin:16px 0;min-height:420px;overflow:hidden;max-width:100%}}
-.alert-panel{{border-radius:10px;overflow:hidden;margin-bottom:20px}}
-.alert-item{{padding:10px 14px;margin:3px 0;font-size:13px;border-radius:8px;display:flex;align-items:flex-start;gap:10px;background:var(--surface);border:1px solid var(--border)}}
-.alert-item.error{{border-left:4px solid var(--red)}}.alert-item.warning{{border-left:4px solid var(--orange)}}.alert-item.info{{border-left:4px solid var(--green)}}
-.alert-badge{{font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;white-space:nowrap;flex-shrink:0;margin-top:1px}}
-.alert-badge.error{{background:var(--red);color:#fff}}.alert-badge.warning{{background:var(--orange);color:#fff}}.alert-badge.info{{background:var(--green);color:#fff}}
-@media(max-width:1100px){{.sidebar{{width:220px}}.main{{margin-left:220px}}}}
-@media(max-width:768px){{.sidebar{{display:none}}.main{{margin-left:0;padding:16px}}.cards{{grid-template-columns:repeat(2,1fr)}}}}
-@media(max-width:480px){{.cards{{grid-template-columns:1fr}}th,td{{padding:8px 10px;font-size:12px}}}}"""
+    return css_report(vars_css)

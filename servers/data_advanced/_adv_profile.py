@@ -13,17 +13,33 @@ for _p in (str(_ROOT), _HERE):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import html as _html
+import json
+
 import pandas as pd
 from _adv_helpers import (
+    _BACK_TO_TOP_HTML,
+    _BACK_TO_TOP_JS,
+    _COLLAPSIBLE_SECTIONS_JS,
+    _COPY_CLIPBOARD_JS,
+    _KPI_COUNTER_JS,
+    _SCROLL_SPY_JS,
+    _SIDEBAR_JS,
+    _SORTABLE_TABLES_JS,
+    PLOTLY_CFG_JS,
     _dtype_label,
     _open_file,
-    _token_estimate,
     _read_csv,
+    _token_estimate,
+    css_report,
     css_vars,
     device_mode_js,
     fail,
+    get_output_path,
+    get_plotlyjs_script,
     ok,
 )
+
 from shared.file_utils import resolve_path
 
 logger = logging.getLogger(__name__)
@@ -68,20 +84,13 @@ def generate_auto_profile(
         cat_cols = [
             c
             for c in df.columns
-            if not pd.api.types.is_numeric_dtype(df[c])
-            and not pd.api.types.is_datetime64_any_dtype(df[c])
+            if not pd.api.types.is_numeric_dtype(df[c]) and not pd.api.types.is_datetime64_any_dtype(df[c])
         ]
-        datetime_cols = [
-            c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])
-        ]
+        datetime_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])]
 
         col_analysis = _compute_col_analysis(df, rows, numeric_cols, cat_cols)
         corr_matrix, corr_pairs = _compute_correlations(df, numeric_cols)
-        missing_by_col = {
-            c: col_analysis[c]["null_count"]
-            for c in df.columns
-            if col_analysis[c]["null_count"] > 0
-        }
+        missing_by_col = {c: col_analysis[c]["null_count"] for c in df.columns if col_analysis[c]["null_count"] > 0}
         dup_count = int(df.duplicated().sum())
         dup_pct = round(dup_count / rows * 100, 1) if rows > 0 else 0
         total_nulls = int(df.isna().sum().sum())
@@ -89,17 +98,13 @@ def generate_auto_profile(
 
         for c in numeric_cols:
             col_analysis[c]["zero_count"] = int((df[c] == 0).sum())
-            col_analysis[c]["zero_pct"] = (
-                round(col_analysis[c]["zero_count"] / rows * 100, 1) if rows > 0 else 0
-            )
+            col_analysis[c]["zero_pct"] = round(col_analysis[c]["zero_count"] / rows * 100, 1) if rows > 0 else 0
 
         spearman_matrix = None
         if len(numeric_cols) >= 2:
             spearman_matrix = df[numeric_cols].corr(method="spearman")
 
-        ap_alerts = _compute_ap_alerts(
-            df, numeric_cols, cat_cols, corr_pairs, rows, dup_count
-        )
+        ap_alerts = _compute_ap_alerts(df, numeric_cols, cat_cols, corr_pairs, rows, dup_count)
 
         _profile_vars = css_vars(theme)
         if theme == "dark":
@@ -132,14 +137,8 @@ def generate_auto_profile(
         )
         h.append(_profile_alerts_section(_ap_alerts_html(ap_alerts), ap_alerts))
         h.append(_profile_sample(df))
-        h.append(
-            _profile_missing(df, missing_by_col, rows, ap_accent, _plot_bg, _font_color)
-        )
-        h.append(
-            _profile_correlations(
-                corr_matrix, corr_pairs, spearman_matrix, _plot_bg, _font_color
-            )
-        )
+        h.append(_profile_missing(df, missing_by_col, rows, ap_accent, _plot_bg, _font_color))
+        h.append(_profile_correlations(corr_matrix, corr_pairs, spearman_matrix, _plot_bg, _font_color))
         h.append(
             _profile_insights(
                 df,
@@ -156,11 +155,7 @@ def generate_auto_profile(
         h.append(_profile_stats_table(numeric_cols, col_analysis))
         h.append(_profile_categorical(cat_cols, col_analysis, rows))
         h.append(_profile_network(corr_pairs, _plot_bg, _font_color))
-        h.append(
-            _profile_recommendations(
-                df, col_analysis, numeric_cols, cat_cols, corr_pairs
-            )
-        )
+        h.append(_profile_recommendations(df, col_analysis, numeric_cols, cat_cols, corr_pairs))
         h.append(
             _profile_variables(
                 df,
@@ -175,15 +170,18 @@ def generate_auto_profile(
         )
         if theme == "device":
             h.append(device_mode_js())
+        h.append(_SIDEBAR_JS)
+        h.append(_SCROLL_SPY_JS)
+        h.append(_SORTABLE_TABLES_JS)
+        h.append(_COLLAPSIBLE_SECTIONS_JS)
+        h.append(_KPI_COUNTER_JS)
+        h.append(_COPY_CLIPBOARD_JS)
+        h.append(_BACK_TO_TOP_JS)
         h.append("</div></body></html>")
 
         html_content = "\n".join(h)
 
-        if output_path:
-            out = Path(output_path)
-        else:
-            out = path.parent / f"{path.stem}_profile.html"
-
+        out = get_output_path(output_path, path, "profile", "html")
         out.write_text(html_content, encoding="utf-8")
         size_kb = round(out.stat().st_size / 1024)
 
@@ -209,9 +207,7 @@ def generate_auto_profile(
             "categorical_columns": len(cat_cols),
             "datetime_columns": len(datetime_cols),
             "total_nulls": total_nulls,
-            "outlier_columns": sum(
-                1 for c in numeric_cols if col_analysis[c].get("outlier_count", 0) > 0
-            ),
+            "outlier_columns": sum(1 for c in numeric_cols if col_analysis[c].get("outlier_count", 0) > 0),
             "correlation_pairs": len(corr_pairs),
             "progress": progress,
         }
@@ -262,12 +258,8 @@ def _compute_col_analysis(df, rows, numeric_cols, cat_cols):
             )
             q1, q3 = df[c].quantile(0.25), df[c].quantile(0.75)
             iqr = q3 - q1
-            info["outlier_count"] = int(
-                ((df[c] < q1 - 1.5 * iqr) | (df[c] > q3 + 1.5 * iqr)).sum()
-            )
-            info["outlier_pct"] = (
-                round(info["outlier_count"] / rows * 100, 1) if rows > 0 else 0
-            )
+            info["outlier_count"] = int(((df[c] < q1 - 1.5 * iqr) | (df[c] > q3 + 1.5 * iqr)).sum())
+            info["outlier_pct"] = round(info["outlier_count"] / rows * 100, 1) if rows > 0 else 0
         elif c in cat_cols:
             info["top_values"] = df[c].value_counts().head(10).to_dict()
             info["mode"] = str(df[c].mode().iloc[0]) if len(df[c].mode()) > 0 else ""
@@ -417,13 +409,7 @@ def _ap_alerts_html(al):
         return '<div class="alert-panel"><div class="alert-item info"><span class="alert-badge info">OK</span> No data quality alerts detected.</div></div>'
     items = []
     for a in al:
-        badge_cls = (
-            "error"
-            if a["sev"] == "error"
-            else "warning"
-            if a["sev"] == "warning"
-            else "info"
-        )
+        badge_cls = "error" if a["sev"] == "error" else "warning" if a["sev"] == "warning" else "info"
         items.append(
             f'<div class="alert-item {badge_cls}"><span class="alert-badge {badge_cls}">{a["type"]}</span> {a["msg"]}</div>'
         )
@@ -431,67 +417,29 @@ def _ap_alerts_html(al):
 
 
 def _profile_head_css(profile_vars):
-    return f"""<!DOCTYPE html><html><head><meta charset='utf-8'><meta name="viewport" content="width=device-width,initial-scale=1"><title>Data Profile</title>
-<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
-<style>
-{profile_vars}
-:root{{--sidebar-w:300px;--chart-h:420px;--heatmap-h:500px}}
-*{{box-sizing:border-box;margin:0;padding:0}}
-html{{scroll-behavior:smooth}}
-body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh}}
-::-webkit-scrollbar{{width:8px}}::-webkit-scrollbar-track{{background:var(--bg)}}::-webkit-scrollbar-thumb{{background:#30363d;border-radius:4px}}
-.sidebar{{width:var(--sidebar-w);background:var(--surface);border-right:1px solid var(--border);position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:100;display:flex;flex-direction:column}}
-.sidebar-header{{padding:24px 20px 16px;border-bottom:1px solid var(--border)}}
-.sidebar-header h2{{color:var(--accent);font-size:18px;margin-bottom:4px;font-weight:600}}
-.sidebar-header .file-name{{color:var(--text-muted);font-size:13px;margin-bottom:2px;word-break:break-all}}
-.sidebar-header .meta{{color:var(--text-muted);font-size:12px}}
-.sidebar-nav{{padding:12px 0;flex:1}}
-.sidebar-nav a{{display:block;padding:8px 20px;color:var(--text-muted);text-decoration:none;font-size:13px;border-left:3px solid transparent;transition:all 0.15s}}
-.sidebar-nav a:hover{{color:var(--accent);background:rgba(88,166,255,0.06);border-left-color:var(--accent)}}
-.sidebar-nav .st{{padding:16px 20px 6px;color:#484f58;font-size:10px;text-transform:uppercase;letter-spacing:1.2px;font-weight:600}}
-.main{{margin-left:var(--sidebar-w);padding:32px;flex:1;max-width:1400px;width:100%}}
-.section{{margin-bottom:48px}}
-.section h1{{color:var(--accent);font-size:26px;margin-bottom:24px;padding-bottom:12px;border-bottom:2px solid var(--border);font-weight:600}}
-.section h2{{color:var(--accent);font-size:20px;margin:32px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border);font-weight:600}}
-.section h3{{color:var(--text);font-size:15px;margin:12px 0 8px;font-weight:500}}
-.cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:24px}}
-.card{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px 20px;text-align:center;transition:transform 0.15s,border-color 0.15s}}
-.card:hover{{transform:translateY(-2px);border-color:var(--accent)}}
-.card .num{{font-size:30px;font-weight:700;color:var(--accent);line-height:1.2}}
-.card .label{{font-size:11px;color:var(--text-muted);margin-top:6px;text-transform:uppercase;letter-spacing:0.8px}}
-.card.good .num{{color:var(--green)}}.card.warn .num{{color:var(--orange)}}.card.bad .num{{color:var(--red)}}
-table{{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px;background:var(--surface);border-radius:8px;overflow:hidden}}
-th,td{{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border)}}
-th{{background:rgba(88,166,255,0.08);color:var(--accent);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.5px}}
-tr:hover{{background:rgba(88,166,255,0.04)}}
-.split{{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:16px 0}}
-.split-left table{{margin:0}}
-.split-right .cc{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px}}
-.cc-card{{background:var(--surface);border:1px solid var(--border);border-radius:10px;margin:16px 0;overflow:hidden;transition:border-color 0.15s}}
-.cc-card:hover{{border-color:var(--accent)}}
-.cc-hdr{{padding:14px 18px;background:rgba(88,166,255,0.04);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}}
-.cc-hdr h3{{color:var(--text);font-size:15px;margin:0;font-weight:600}}
-.badge{{font-size:11px;padding:3px 10px;border-radius:12px;background:var(--border);color:var(--text-muted);font-weight:500}}
-.cc-body{{padding:18px}}
-.insights{{list-style:none;padding:0}}
-.insights li{{padding:12px 16px;margin:6px 0;background:var(--surface);border-radius:8px;border-left:4px solid var(--accent);font-size:13px;line-height:1.5}}
-.insights li.warn{{border-left-color:var(--orange)}}.insights li.bad{{border-left-color:var(--red)}}.insights li.good{{border-left-color:var(--green)}}
-.mbar{{height:28px;background:var(--border);border-radius:6px;overflow:hidden;margin:4px 0}}
-.mbar-fill{{height:100%;background:linear-gradient(90deg,var(--orange),var(--red));border-radius:6px;transition:width 0.3s}}
-.chart-container{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin:16px 0}}
-.alert-panel{{border-radius:10px;overflow:hidden;margin-bottom:20px}}
-.alert-item{{padding:10px 14px;margin:3px 0;font-size:13px;border-radius:8px;display:flex;align-items:flex-start;gap:10px;background:var(--surface);border:1px solid var(--border)}}
-.alert-item.error{{border-left:4px solid var(--red)}}.alert-item.warning{{border-left:4px solid var(--orange)}}.alert-item.info{{border-left:4px solid var(--green)}}
-.alert-badge{{font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;white-space:nowrap;flex-shrink:0;margin-top:1px}}
-.alert-badge.error{{background:var(--red);color:#fff}}.alert-badge.warning{{background:var(--orange);color:#fff}}.alert-badge.info{{background:var(--green);color:#fff}}
-@media(max-width:1100px){{.split{{grid-template-columns:1fr}}.sidebar{{width:260px}}.main{{margin-left:260px}}}}
-@media(max-width:768px){{.sidebar{{display:none}}.main{{margin-left:0;padding:20px}}.cards{{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}}}}
-</style></head><body>"""
+    _css = css_report(profile_vars)
+    plotly_script = get_plotlyjs_script()
+    return (
+        "<!DOCTYPE html><html lang='en'><head>"
+        "<meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<title>Data Profile</title>"
+        f"{plotly_script}"
+        f"<style>{_css}</style>"
+        "</head><body>\n"
+        "<button id='sb-toggle' aria-label='Open navigation'>&#9776;</button>\n"
+        "<div id='sb-overlay'></div>\n" + _BACK_TO_TOP_HTML + "\n"
+    )
 
 
 def _profile_sidebar(path, rows, cols, df, col_analysis, ap_alerts):
     h = [
-        f'<div class="sidebar"><div class="sidebar-header"><h2>Data Profile</h2><p class="file-name">{path.name}</p><p class="meta">{rows:,} rows x {cols} columns</p></div>'
+        f'<div class="sidebar"><div class="sidebar-header"><h2>Data Profile</h2>'
+        f'<p class="file-name" title="{_html.escape(str(path))}">{_html.escape(path.name)}'
+        f' <button class="btn-print" data-copy="{_html.escape(str(path))}">&#x29C7;</button></p>'
+        f'<p class="meta">{rows:,} rows x {cols} columns</p>'
+        f'<button class="btn-print" onclick="window.print()">&#x2399; Print</button>'
+        f"</div>"
     ]
     h.append('<div class="sidebar-nav"><div class="st">Overview</div>')
     h.append('<a href="#overview">Dashboard</a>')
@@ -501,9 +449,10 @@ def _profile_sidebar(path, rows, cols, df, col_analysis, ap_alerts):
     )
     h.append(f'<div class="st">Variables ({cols})</div>')
     for c in df.columns:
-        info = col_analysis[c]
+        col_info = col_analysis[c]
+        anchor = c.replace(" ", "-")
         h.append(
-            f'<a href="#col-{c.replace(" ", "-")}">{c} <span class="badge">{info["dtype"]}</span></a>'
+            f'<a href="#col-{anchor}">{_html.escape(c)} <span class="badge">{_html.escape(str(col_info["dtype"]))}</span></a>'
         )
     h.append("</div></div>")
     return "\n".join(h)
@@ -520,28 +469,28 @@ def _profile_overview(
     dup_count,
     dup_pct,
 ):
-    h = [
-        '<div id="overview" class="section"><h1>Dataset Overview</h1><div class="cards">'
-    ]
-    for num, label, cls in [
-        (f"{rows:,}", "Rows", "good"),
-        (str(cols), "Columns", ""),
-        (str(len(numeric_cols)), "Numeric", ""),
-        (str(len(cat_cols)), "Categorical", ""),
-        (str(len(datetime_cols)), "Datetime", ""),
+    h = ['<div id="overview" class="section"><h1>Dataset Overview</h1><div class="cards">']
+    for raw_val, num, label, cls in [
+        (rows, f"{rows:,}", "Rows", "good"),
+        (cols, str(cols), "Columns", ""),
+        (len(numeric_cols), str(len(numeric_cols)), "Numeric", ""),
+        (len(cat_cols), str(len(cat_cols)), "Categorical", ""),
+        (len(datetime_cols), str(len(datetime_cols)), "Datetime", ""),
         (
+            total_nulls,
             f"{total_nulls:,}",
             f"Nulls ({null_pct}%)",
             "good" if null_pct < 5 else "warn" if null_pct < 20 else "bad",
         ),
         (
+            dup_count,
             f"{dup_count:,}",
             f"Duplicates ({dup_pct}%)",
             "good" if dup_pct < 1 else "warn",
         ),
     ]:
         h.append(
-            f'<div class="card {cls}"><div class="num">{num}</div><div class="label">{label}</div></div>'
+            f'<div class="card {cls}"><div class="num" data-val="{raw_val}" data-fmt="int">{num}</div><div class="label">{label}</div></div>'
         )
     h.append("</div></div>")
     return "\n".join(h)
@@ -553,15 +502,15 @@ def _profile_alerts_section(alerts_html, ap_alerts):
 
 def _profile_sample(df):
     cols = list(df.columns)
-    header = "".join(f"<th>{c}</th>" for c in cols)
+    header = "".join(f"<th>{_html.escape(str(c))}</th>" for c in cols)
     body = ""
     for _, row in df.head(5).iterrows():
-        cells = "".join(f"<td>{str(v)[:50]}</td>" for v in row.values)
+        cells = "".join(f'<td title="{_html.escape(str(v))}">{_html.escape(str(v)[:50])}</td>' for v in row.values)
         body += f"<tr>{cells}</tr>"
     if len(df) > 5:
         body += f'<tr><td colspan="{len(cols)}" style="text-align:center;color:var(--text-muted);font-style:italic">... {len(df) - 10:,} rows omitted ...</td></tr>'
         for _, row in df.tail(5).iterrows():
-            cells = "".join(f"<td>{str(v)[:50]}</td>" for v in row.values)
+            cells = "".join(f'<td title="{_html.escape(str(v))}">{_html.escape(str(v)[:50])}</td>' for v in row.values)
             body += f"<tr>{cells}</tr>"
     return f'<div id="sample" class="section"><h1>Data Sample</h1><div style="overflow-x:auto"><table><tr>{header}</tr>{body}</table></div></div>'
 
@@ -574,57 +523,51 @@ def _profile_missing(df, missing_by_col, rows, ap_accent, _plot_bg, _font_color)
     for c, count in sorted(missing_by_col.items(), key=lambda x: -x[1]):
         pct = round(count / rows * 100, 1)
         h.append(
-            f'<tr><td><b>{c}</b></td><td>{count:,}</td><td>{pct}%</td><td><div class="mbar"><div class="mbar-fill" style="width:{pct}%"></div></div></td></tr>'
+            f'<tr><td><b>{_html.escape(c)}</b></td><td>{count:,}</td><td>{pct}%</td><td><div class="mbar"><div class="mbar-fill" style="width:{pct}%"></div></div></td></tr>'
         )
     h.append("</table>")
     ap_miss_cols = list(missing_by_col.keys())
     ap_miss_sample = df[ap_miss_cols].isnull().astype(int)
     if len(ap_miss_sample) > 300:
-        ap_miss_sample = ap_miss_sample.sample(300, random_state=42).reset_index(
-            drop=True
-        )
+        ap_miss_sample = ap_miss_sample.sample(300, random_state=42).reset_index(drop=True)
     else:
         ap_miss_sample = ap_miss_sample.reset_index(drop=True)
     ap_miss_z = ap_miss_sample.values.tolist()
     ap_miss_y = list(range(len(ap_miss_sample)))
-    h.append(f"""<div class="chart-container">
-  <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">White = present, colored = missing. Sampled {len(ap_miss_sample)} rows.</p>
-  <div id="ap-miss-matrix" style="height:{min(400, max(200, len(ap_miss_sample)))}px"></div>
+    h.append(f"""<div class="chart-box">
+  <p class="chart-note">White = present, coloured = missing. Sampled {len(ap_miss_sample)} rows.</p>
+  <div id="ap-miss-matrix" class="chart-div heatmap"></div>
 </div>
 <script>
 (function(){{
-  var z={ap_miss_z};var x={ap_miss_cols};var y={ap_miss_y};
+  var z={ap_miss_z};var x={json.dumps(ap_miss_cols)};var y={json.dumps(ap_miss_y)};
   var data=[{{z:z,x:x,y:y,type:'heatmap',colorscale:[['0','rgba(0,0,0,0)'],['1','{ap_accent}']],
     showscale:false,hovertemplate:'Column: %{{x}}<br>Row: %{{y}}<br>Missing: %{{z}}<extra></extra>'}}];
   var layout={{paper_bgcolor:'{_plot_bg}',plot_bgcolor:'{_plot_bg}',
     font:{{color:'{_font_color}'}},margin:{{l:60,r:10,t:10,b:80}},autosize:true,
     xaxis:{{tickangle:-45,tickfont:{{size:11}}}},yaxis:{{title:'Row index',tickfont:{{size:10}}}}
   }};
-  Plotly.newPlot('ap-miss-matrix',data,layout,{{responsive:true,displayModeBar:true,scrollZoom:true}});
+  Plotly.newPlot('ap-miss-matrix',data,layout,{PLOTLY_CFG_JS});
 }})();
 </script>""")
     h.append("</div>")
     return "\n".join(h)
 
 
-def _profile_correlations(
-    corr_matrix, corr_pairs, spearman_matrix, _plot_bg, _font_color
-):
+def _profile_correlations(corr_matrix, corr_pairs, spearman_matrix, _plot_bg, _font_color):
     if not corr_pairs:
         return ""
     h = ['<div id="correlations" class="section"><h2>Correlation Analysis</h2>']
-    h.append(
-        '<div class="chart-container" style="margin:16px 0"><div id="corr-heatmap" style="height:var(--heatmap-h)"></div></div>'
-    )
+    h.append('<div class="chart-box"><div id="corr-heatmap" class="chart-div heatmap"></div></div>')
     corr_z = corr_matrix.values.tolist()
     corr_x = corr_matrix.columns.tolist()
     h.append(f"""<script>
 (function() {{
     var z = {corr_z};
-    var x = {corr_x};
+    var x = {json.dumps(corr_x)};
     var data = [{{z: z, x: x, y: x, type: 'heatmap', colorscale: 'RdBu', zmid: 0, text: z.map(function(r) {{ return r.map(function(v) {{ return v.toFixed(2); }}); }}), texttemplate: '%{{text}}', textfont: {{size: 11}}}}];
-    var layout = {{paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}', font: {{color: '{_font_color}'}}, margin: {{l: 120, r: 20, t: 20, b: 120}}, height: 500}};
-    Plotly.newPlot('corr-heatmap', data, layout, {{responsive: true, displayModeBar: true, scrollZoom: true}});
+    var layout = {{paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}', font: {{color: '{_font_color}'}}, margin: {{l: 120, r: 20, t: 20, b: 120}}, autosize: true}};
+    Plotly.newPlot('corr-heatmap', data, layout, {PLOTLY_CFG_JS});
 }})();
 </script>""")
     h.append(
@@ -640,78 +583,62 @@ def _profile_correlations(
             if abs(p["correlation"]) > 0.5
             else "Weak"
         )
-        cls = (
-            "good"
-            if abs(p["correlation"]) > 0.7
-            else "warn"
-            if abs(p["correlation"]) > 0.5
-            else ""
-        )
+        cls = "good" if abs(p["correlation"]) > 0.7 else "warn" if abs(p["correlation"]) > 0.5 else ""
         h.append(
-            f'<tr class="{cls}"><td>{p["col_a"]}</td><td>{p["col_b"]}</td><td>{p["correlation"]:+.4f}</td><td>{s}</td></tr>'
+            f'<tr class="{cls}"><td>{_html.escape(p["col_a"])}</td><td>{_html.escape(p["col_b"])}</td><td>{p["correlation"]:+.4f}</td><td>{s}</td></tr>'
         )
     h.append("</table>")
     if spearman_matrix is not None:
         sp_z = spearman_matrix.values.tolist()
         sp_x = spearman_matrix.columns.tolist()
-        h.append(f"""<h3 style="color:var(--accent);font-size:15px;margin:20px 0 8px">Spearman Rank Correlation</h3>
-<div class="chart-container" style="margin:16px 0"><div id="sp-corr-ap" style="height:var(--heatmap-h)"></div></div>
+        h.append(f"""<h3 style="color:var(--accent);margin:1.25rem 0 .5rem">Spearman Rank Correlation</h3>
+<div class="chart-box"><div id="sp-corr-ap" class="chart-div heatmap"></div></div>
 <script>
 (function() {{
-    var z = {sp_z};var x = {sp_x};
+    var z = {sp_z};var x = {json.dumps(sp_x)};
     var data = [{{z: z, x: x, y: x, type: 'heatmap', colorscale: 'RdBu', zmid: 0, text: z.map(function(r) {{ return r.map(function(v) {{ return v.toFixed(2); }}); }}), texttemplate: '%{{text}}', textfont: {{size: 11}}}}];
-    var layout = {{paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}', font: {{color: '{_font_color}'}}, margin: {{l: 120, r: 20, t: 20, b: 120}}, height: 500}};
-    Plotly.newPlot('sp-corr-ap', data, layout, {{responsive: true, displayModeBar: true, scrollZoom: true}});
+    var layout = {{paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}', font: {{color: '{_font_color}'}}, margin: {{l: 120, r: 20, t: 20, b: 120}}, autosize: true}};
+    Plotly.newPlot('sp-corr-ap', data, layout, {PLOTLY_CFG_JS});
 }})();
 </script>""")
     h.append("</div>")
     return "\n".join(h)
 
 
-def _profile_insights(
-    df, col_analysis, numeric_cols, cat_cols, corr_pairs, dup_count, dup_pct, rows
-):
-    h = [
-        '<div id="insights" class="section"><h2>Key Insights</h2><ul class="insights">'
-    ]
+def _profile_insights(df, col_analysis, numeric_cols, cat_cols, corr_pairs, dup_count, dup_pct, rows):
+    h = ['<div id="insights" class="section"><h2>Key Insights</h2><ul class="insights">']
     for c in df.columns:
         nc = col_analysis[c]["null_count"]
         if nc > 0:
             pct = col_analysis[c]["null_pct"]
             if pct > 50:
-                h.append(
-                    f'<li class="bad"><b>{c}</b>: {pct}% null values - consider dropping</li>'
-                )
+                h.append(f'<li class="bad"><b>{_html.escape(c)}</b>: {pct}% null values - consider dropping</li>')
             elif pct > 10:
-                h.append(
-                    f'<li class="warn"><b>{c}</b>: {pct}% null values - consider imputation</li>'
-                )
+                h.append(f'<li class="warn"><b>{_html.escape(c)}</b>: {pct}% null values - consider imputation</li>')
     for c in cat_cols:
         uniq = col_analysis[c]["unique"]
         if uniq > rows * 0.5 and uniq > 10:
             h.append(
-                f'<li class="warn"><b>{c}</b>: high cardinality ({uniq:,} unique) - likely an ID column</li>'
+                f'<li class="warn"><b>{_html.escape(c)}</b>: high cardinality ({uniq:,} unique) - likely an ID column</li>'
             )
     for p in corr_pairs[:5]:
         if abs(p["correlation"]) > 0.8:
             h.append(
-                f"<li><b>{p['col_a']}</b> <-> <b>{p['col_b']}</b>: r={p['correlation']:+.3f} (very strong correlation)</li>"
+                f"<li><b>{_html.escape(p['col_a'])}</b> &lt;-&gt; <b>{_html.escape(p['col_b'])}</b>: r={p['correlation']:+.3f} (very strong correlation)</li>"
             )
     for c in numeric_cols:
         skew = col_analysis[c].get("skew", 0)
         if abs(skew) > 2:
             h.append(
-                f'<li class="warn"><b>{c}</b>: highly skewed (skewness={skew:.2f}) - consider log transform</li>'
+                f'<li class="warn"><b>{_html.escape(c)}</b>: highly skewed (skewness={skew:.2f}) - consider log transform</li>'
             )
         oc = col_analysis[c].get("outlier_count", 0)
         if oc > 0:
             h.append(
-                f'<li class="warn"><b>{c}</b>: {oc:,} outliers ({col_analysis[c]["outlier_pct"]}%) detected</li>'
+                f'<li class="warn"><b>{_html.escape(c)}</b>: {oc:,} outliers ({col_analysis[c]["outlier_pct"]}%) detected</li>'
             )
     if dup_count > 0:
-        h.append(
-            f'<li class="warn"><b>{dup_count:,} duplicate rows</b> ({dup_pct}%) - consider removing</li>'
-        )
+        h.append(f'<li class="warn"><b>{dup_count:,} duplicate rows</b> ({dup_pct}%) - consider removing</li>')
     h.append("</ul></div>")
     return "\n".join(h)
 
@@ -719,7 +646,8 @@ def _profile_insights(
 def _profile_quality(df, col_analysis):
     h = ['<div id="quality" class="section"><h2>Data Quality Dashboard</h2>']
     h.append(
-        "<table><tr><th>Column</th><th>Type</th><th>Completeness</th><th>Unique %</th><th>Quality</th></tr>"
+        "<table><tr><th data-sort>Column</th><th data-sort>Type</th><th data-sort>Completeness</th>"
+        "<th data-sort>Unique %</th><th data-sort>Quality</th></tr><tbody>"
     )
     for c in df.columns:
         info = col_analysis[c]
@@ -727,12 +655,12 @@ def _profile_quality(df, col_analysis):
         unique_pct = info["unique_pct"]
         quality_score = completeness * 0.7 + min(unique_pct, 100) * 0.3
         h.append(f"""<tr>
-<td><b>{c}</b></td><td>{info["dtype"]}</td>
+<td><b>{_html.escape(c)}</b></td><td>{_html.escape(str(info["dtype"]))}</td>
 <td><div class="mbar"><div class="mbar-fill" style="width:{completeness}%;background:var(--green)"></div></div>{completeness:.1f}%</td>
 <td>{unique_pct:.1f}%</td>
 <td><span class="badge" style="background:{"var(--green)" if quality_score > 80 else "var(--orange)" if quality_score > 50 else "var(--red)"}">{quality_score:.0f}/100</span></td>
 </tr>""")
-    h.append("</table></div>")
+    h.append("</tbody></table></div>")
     return "\n".join(h)
 
 
@@ -741,35 +669,35 @@ def _profile_stats_table(numeric_cols, col_analysis):
         return ""
     h = ['<div id="stats" class="section"><h2>Summary Statistics (Numeric)</h2>']
     h.append(
-        "<table><tr><th>Column</th><th>Mean</th><th>Median</th><th>Std</th><th>Min</th><th>Q1</th><th>Q3</th><th>Max</th><th>Skew</th><th>Outliers</th></tr>"
+        "<table><tr><th data-sort>Column</th><th data-sort>Mean</th><th data-sort>Median</th>"
+        "<th data-sort>Std</th><th data-sort>Min</th><th data-sort>Q1</th><th data-sort>Q3</th>"
+        "<th data-sort>Max</th><th data-sort>Skew</th><th data-sort>Outliers</th></tr><tbody>"
     )
     for c in numeric_cols:
         info = col_analysis[c]
         h.append(f"""<tr>
-<td><b>{c}</b></td>
+<td><b>{_html.escape(c)}</b></td>
 <td>{info["mean"]:,.2f}</td><td>{info["median"]:,.2f}</td><td>{info["std"]:,.2f}</td>
 <td>{info["min"]:,.2f}</td><td>{info["q1"]:,.2f}</td><td>{info["q3"]:,.2f}</td><td>{info["max"]:,.2f}</td>
 <td>{info["skew"]:+.2f}</td>
 <td class="{"warn" if info["outlier_count"] > 0 else ""}">{info["outlier_count"]:,}</td>
 </tr>""")
-    h.append("</table></div>")
+    h.append("</tbody></table></div>")
     return "\n".join(h)
 
 
 def _profile_categorical(cat_cols, col_analysis, rows):
     if not cat_cols:
         return ""
-    h = [
-        '<div id="categorical" class="section"><h2>Categorical Distribution</h2><div class="cards">'
-    ]
+    h = ['<div id="categorical" class="section"><h2>Categorical Distribution</h2><div class="cards">']
     for c in cat_cols[:8]:
         info = col_analysis[c]
         top_val = list(info["top_values"].keys())[0] if info["top_values"] else "N/A"
         top_cnt = list(info["top_values"].values())[0] if info["top_values"] else 0
         h.append(f"""<div class="card">
-<div class="num" style="font-size:16px">{c}</div>
+<div class="num" style="font-size:16px">{_html.escape(c)}</div>
 <div class="label">{info["unique"]} unique values</div>
-<div style="margin-top:8px;font-size:12px;color:var(--text-muted)">Mode: <b>{top_val}</b> ({top_cnt:,})</div>
+<div style="margin-top:8px;font-size:12px;color:var(--text-muted)">Mode: <b>{_html.escape(str(top_val))}</b> ({top_cnt:,})</div>
 </div>""")
     h.append("</div></div>")
     return "\n".join(h)
@@ -782,9 +710,7 @@ def _profile_network(corr_pairs, _plot_bg, _font_color):
     if not strong_pairs:
         return ""
     h = ['<div id="network" class="section"><h2>Correlation Network (|r| > 0.5)</h2>']
-    nodes = list(
-        set([p["col_a"] for p in strong_pairs] + [p["col_b"] for p in strong_pairs])
-    )
+    nodes = list(set([p["col_a"] for p in strong_pairs] + [p["col_b"] for p in strong_pairs]))
     n_nodes = len(nodes)
     radius = 200
     node_positions = []
@@ -813,11 +739,11 @@ def _profile_network(corr_pairs, _plot_bg, _font_color):
                 "width": max(1, abs(p["correlation"]) * 4),
             }
         )
-    h.append(f"""<div class="chart-container" style="margin:16px 0"><div id="corr-network" style="height:500px"></div></div>
+    h.append(f"""<div class="chart-box"><div id="corr-network" class="chart-div network"></div></div>
 <script>
 (function() {{
-    var nodePos = {node_positions};
-    var edges = {edges};
+    var nodePos = {json.dumps(node_positions)};
+    var edges = {json.dumps(edges)};
     var traces = [];
     for (var i = 0; i < edges.length; i++) {{
         traces.push({{type: 'scatter', mode: 'lines',
@@ -833,51 +759,43 @@ def _profile_network(corr_pairs, _plot_bg, _font_color):
         marker: {{size: 20, color: '#58a6ff', line: {{width: 2, color: '{_plot_bg}'}}}},
         hoverinfo: 'text', showlegend: false}});
     var layout = {{paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}',
-        font: {{color: '{_font_color}'}}, height: 500, margin: {{l: 20, r: 20, t: 20, b: 20}},
+        font: {{color: '{_font_color}'}}, autosize: true, margin: {{l: 20, r: 20, t: 20, b: 20}},
         xaxis: {{visible: false, range: [-250, 250]}}, yaxis: {{visible: false, range: [-250, 250]}},
         showlegend: false}};
-    Plotly.newPlot('corr-network', traces, layout, {{responsive: true, displayModeBar: true, scrollZoom: true}});
+    Plotly.newPlot('corr-network', traces, layout, {PLOTLY_CFG_JS});
 }})();
 </script>""")
     return "\n".join(h)
 
 
 def _profile_recommendations(df, col_analysis, numeric_cols, cat_cols, corr_pairs):
-    h = [
-        '<div id="recommendations" class="section"><h2>EDA Recommendations</h2><ul class="insights">'
-    ]
+    h = ['<div id="recommendations" class="section"><h2>EDA Recommendations</h2><ul class="insights">']
     for c in df.columns:
         nc = col_analysis[c]["null_count"]
         if nc > 0:
             pct = col_analysis[c]["null_pct"]
             if c in numeric_cols:
                 if pct < 5:
-                    h.append(
-                        f'<li class="good"><b>{c}</b>: {pct}% missing - fill with median/mean</li>'
-                    )
+                    h.append(f'<li class="good"><b>{_html.escape(c)}</b>: {pct}% missing - fill with median/mean</li>')
                 elif pct < 20:
                     h.append(
-                        f'<li class="warn"><b>{c}</b>: {pct}% missing - consider KNN imputation</li>'
+                        f'<li class="warn"><b>{_html.escape(c)}</b>: {pct}% missing - consider KNN imputation</li>'
                     )
                 else:
-                    h.append(
-                        f'<li class="bad"><b>{c}</b>: {pct}% missing - consider dropping</li>'
-                    )
+                    h.append(f'<li class="bad"><b>{_html.escape(c)}</b>: {pct}% missing - consider dropping</li>')
             elif c in cat_cols:
                 if pct < 10:
                     h.append(
-                        f'<li class="good"><b>{c}</b>: {pct}% missing - fill with mode or "Unknown"</li>'
+                        f'<li class="good"><b>{_html.escape(c)}</b>: {pct}% missing - fill with mode or &ldquo;Unknown&rdquo;</li>'
                     )
                 else:
-                    h.append(
-                        f'<li class="warn"><b>{c}</b>: {pct}% missing - consider dropping</li>'
-                    )
+                    h.append(f'<li class="warn"><b>{_html.escape(c)}</b>: {pct}% missing - consider dropping</li>')
     for c in numeric_cols:
         skew = col_analysis[c].get("skew", 0)
         if abs(skew) > 1:
             transform = "log" if skew > 0 else "log(-x + max + 1)"
             h.append(
-                f'<li class="warn"><b>{c}</b>: skewed ({skew:+.2f}) - apply {transform} transform</li>'
+                f'<li class="warn"><b>{_html.escape(c)}</b>: skewed ({skew:+.2f}) - apply {_html.escape(transform)} transform</li>'
             )
     for c in numeric_cols:
         oc = col_analysis[c].get("outlier_count", 0)
@@ -885,45 +803,39 @@ def _profile_recommendations(df, col_analysis, numeric_cols, cat_cols, corr_pair
             pct = col_analysis[c]["outlier_pct"]
             if pct < 5:
                 h.append(
-                    f'<li class="good"><b>{c}</b>: {oc:,} outliers ({pct}%) - consider capping at 1.5*IQR</li>'
+                    f'<li class="good"><b>{_html.escape(c)}</b>: {oc:,} outliers ({pct}%) - consider capping at 1.5*IQR</li>'
                 )
             else:
                 h.append(
-                    f'<li class="warn"><b>{c}</b>: {oc:,} outliers ({pct}%) - investigate data quality</li>'
+                    f'<li class="warn"><b>{_html.escape(c)}</b>: {oc:,} outliers ({pct}%) - investigate data quality</li>'
                 )
     for c in cat_cols:
         uniq = col_analysis[c]["unique"]
         rows = col_analysis[c]["count"] + col_analysis[c]["null_count"]
         if uniq > rows * 0.5 and uniq > 10:
             h.append(
-                f'<li class="warn"><b>{c}</b>: high cardinality ({uniq:,} unique) - likely an ID column</li>'
+                f'<li class="warn"><b>{_html.escape(c)}</b>: high cardinality ({uniq:,} unique) - likely an ID column</li>'
             )
     for p in corr_pairs[:3]:
         if abs(p["correlation"]) > 0.8:
             h.append(
-                f'<li class="warn"><b>{p["col_a"]}</b> ↔ <b>{p["col_b"]}</b>: r={p["correlation"]:+.3f} - multicollinearity detected</li>'
+                f'<li class="warn"><b>{_html.escape(p["col_a"])}</b> ↔ <b>{_html.escape(p["col_b"])}</b>: r={p["correlation"]:+.3f} - multicollinearity detected</li>'
             )
     h.append("</ul></div>")
     return "\n".join(h)
 
 
-def _profile_variables(
-    df, col_analysis, numeric_cols, cat_cols, datetime_cols, rows, _plot_bg, _font_color
-):
+def _profile_variables(df, col_analysis, numeric_cols, cat_cols, datetime_cols, rows, _plot_bg, _font_color):
     h = ['<div class="section"><h2>Variable Analysis</h2>']
     for c in df.columns:
         info = col_analysis[c]
         anchor = c.replace(" ", "-")
         h.append(
-            f'<div id="col-{anchor}" class="cc-card"><div class="cc-hdr"><h3>{c}</h3><span class="badge">{info["dtype"]}</span></div><div class="cc-body"><div class="split"><div class="split-left"><table>'
+            f'<div id="col-{anchor}" class="cc-card"><div class="cc-hdr"><h3>{_html.escape(c)}</h3><span class="badge">{_html.escape(str(info["dtype"]))}</span></div><div class="cc-body"><div class="split"><div class="split-left"><table>'
         )
         h.append(f"<tr><td>Count</td><td>{info['count']:,}</td></tr>")
-        h.append(
-            f"<tr><td>Missing</td><td>{info['null_count']:,} ({info['null_pct']}%)</td></tr>"
-        )
-        h.append(
-            f"<tr><td>Unique</td><td>{info['unique']:,} ({info['unique_pct']}%)</td></tr>"
-        )
+        h.append(f"<tr><td>Missing</td><td>{info['null_count']:,} ({info['null_pct']}%)</td></tr>")
+        h.append(f"<tr><td>Unique</td><td>{info['unique']:,} ({info['unique_pct']}%)</td></tr>")
         if c in numeric_cols:
             for k in [
                 "mean",
@@ -937,29 +849,25 @@ def _profile_variables(
                 "kurtosis",
             ]:
                 h.append(f"<tr><td>{k.title()}</td><td>{info[k]:,.4f}</td></tr>")
-            h.append(
-                f"<tr><td>Zeros</td><td>{info.get('zero_count', 0):,} ({info.get('zero_pct', 0)}%)</td></tr>"
-            )
-            h.append(
-                f"<tr><td>Outliers</td><td>{info['outlier_count']:,} ({info['outlier_pct']}%)</td></tr>"
-            )
+            h.append(f"<tr><td>Zeros</td><td>{info.get('zero_count', 0):,} ({info.get('zero_pct', 0)}%)</td></tr>")
+            h.append(f"<tr><td>Outliers</td><td>{info['outlier_count']:,} ({info['outlier_pct']}%)</td></tr>")
         elif c in cat_cols:
             h.append(
-                f"<tr><td>Mode</td><td>{info['mode']}</td></tr></table><h4 style='margin-top:10px;color:#8b949e;font-size:12px'>Top Values</h4><table><tr><th>Value</th><th>Count</th><th>%</th><th>Bar</th></tr>"
+                f"<tr><td>Mode</td><td>{_html.escape(str(info['mode']))}</td></tr></table><h4 style='margin-top:10px;color:#8b949e;font-size:12px'>Top Values</h4><table><tr><th>Value</th><th>Count</th><th>%</th><th>Bar</th></tr>"
             )
             for val, count in info["top_values"].items():
                 pct = round(count / rows * 100, 1)
                 h.append(
-                    f'<tr><td>{val}</td><td>{count:,}</td><td>{pct}%</td><td><div class="mbar"><div class="mbar-fill" style="width:{pct}%;background:var(--accent)"></div></div></td></tr>'
+                    f'<tr><td>{_html.escape(str(val))}</td><td>{count:,}</td><td>{pct}%</td><td><div class="mbar"><div class="mbar-fill" style="width:{pct}%;background:var(--accent)"></div></div></td></tr>'
                 )
         elif c in datetime_cols:
             h.append(
                 f"<tr><td>Min Date</td><td>{df[c].min()}</td></tr><tr><td>Max Date</td><td>{df[c].max()}</td></tr><tr><td>Time Span</td><td>{df[c].max() - df[c].min()}</td></tr>"
             )
         h.append("</table></div>")
-        h.append('<div class="split-right"><div class="chart-container">')
+        h.append('<div class="split-right"><div class="chart-box">')
         chart_id = f"chart-{anchor}"
-        h.append(f'<div id="{chart_id}" style="height:var(--chart-h)"></div>')
+        h.append(f'<div id="{chart_id}" class="chart-div"></div>')
         h.append(
             _col_chart_script(
                 c,
@@ -976,9 +884,7 @@ def _profile_variables(
     return "\n".join(h)
 
 
-def _col_chart_script(
-    c, chart_id, df, numeric_cols, cat_cols, datetime_cols, _plot_bg, _font_color
-):
+def _col_chart_script(c, chart_id, df, numeric_cols, cat_cols, datetime_cols, _plot_bg, _font_color):
     if c in numeric_cols:
         clean_data = df[c].dropna().tolist()
         return f"""<script>
@@ -988,31 +894,31 @@ def _col_chart_script(
     var trace2 = {{y: d, type: 'box', marker: {{color: '#f0883e'}}, xaxis: 'x2', yaxis: 'y2'}};
     var layout = {{paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}', font: {{color: '{_font_color}'}},
         grid: {{rows: 2, columns: 1, pattern: 'independent'}},
-        height: 420, margin: {{l: 50, r: 20, t: 10, b: 30}},
+        autosize: true, margin: {{l: 50, r: 20, t: 10, b: 30}},
         yaxis: {{title: 'Count'}}, yaxis2: {{title: ''}}}};
-    Plotly.newPlot('{chart_id}', [trace1, trace2], layout, {{responsive: true, displayModeBar: true, scrollZoom: true}});
+    Plotly.newPlot('{chart_id}', [trace1, trace2], layout, {PLOTLY_CFG_JS});
 }})();
 </script>"""
     if c in cat_cols:
         tv = df[c].value_counts().head(15)
         return f"""<script>
 (function() {{
-    var data = [{{x: {tv.index.tolist()}, y: {tv.values.tolist()}, type: 'bar',
+    var data = [{{x: {json.dumps([str(v) for v in tv.index.tolist()])}, y: {tv.values.tolist()}, type: 'bar',
         marker: {{color: '#58a6ff'}}, text: {tv.values.tolist()}, textposition: 'outside'}}];
     var layout = {{paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}', font: {{color: '{_font_color}'}},
-        height: 420, margin: {{l: 50, r: 20, t: 10, b: 80}}, xaxis: {{tickangle: -45}}}};
-    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, scrollZoom: true}});
+        autosize: true, margin: {{l: 50, r: 20, t: 10, b: 80}}, xaxis: {{tickangle: -45}}}};
+    Plotly.newPlot('{chart_id}', data, layout, {PLOTLY_CFG_JS});
 }})();
 </script>"""
     if c in datetime_cols:
         ts = df[c].value_counts().sort_index()
         return f"""<script>
 (function() {{
-    var data = [{{x: {ts.index.tolist()}, y: {ts.values.tolist()}, type: 'scatter', mode: 'lines+markers',
+    var data = [{{x: {json.dumps([str(v) for v in ts.index.tolist()])}, y: {ts.values.tolist()}, type: 'scatter', mode: 'lines+markers',
         marker: {{color: '#3fb950'}}, line: {{color: '#3fb950'}}}}];
     var layout = {{paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}', font: {{color: '{_font_color}'}},
-        height: 420, margin: {{l: 50, r: 20, t: 10, b: 30}}}};
-    Plotly.newPlot('{chart_id}', data, layout, {{responsive: true, displayModeBar: true, scrollZoom: true}});
+        autosize: true, margin: {{l: 50, r: 20, t: 10, b: 30}}}};
+    Plotly.newPlot('{chart_id}', data, layout, {PLOTLY_CFG_JS});
 }})();
 </script>"""
     return ""

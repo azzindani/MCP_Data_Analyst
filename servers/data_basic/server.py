@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import sys
 import logging
+import sys
 
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
@@ -66,9 +66,7 @@ def search_columns(
     min_null_pct: float = 0.0,
 ) -> dict:
     """Find columns by criteria: has_nulls dtype has_zeros name_contains."""
-    return engine.search_columns(
-        file_path, has_nulls, has_zeros, dtype, name_contains, min_null_pct
-    )
+    return engine.search_columns(file_path, has_nulls, has_zeros, dtype, name_contains, min_null_pct)
 
 
 @mcp.tool()

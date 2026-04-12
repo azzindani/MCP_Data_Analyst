@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ def append_receipt(
                 entries = []
         entries.append(
             {
-                "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ"),
+                "ts": datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%SZ"),
                 "tool": tool,
                 "args": args,
                 "result": result,

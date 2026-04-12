@@ -13,7 +13,6 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 from shared.progress import fail, ok  # noqa: F401 — re-exported for convenience
 
-
 # ---------------------------------------------------------------------------
 # Existing ops
 # ---------------------------------------------------------------------------
@@ -37,9 +36,7 @@ def _op_clean_text(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
         affected = len(df.columns)
     if scope in ("values", "both"):
         for col in df.select_dtypes(include="object").columns:
-            df[col] = df[col].apply(
-                lambda v: v.strip().title() if isinstance(v, str) else v
-            )
+            df[col] = df[col].apply(lambda v: v.strip().title() if isinstance(v, str) else v)
             affected += 1
     return df, {"op": "clean_text", "scope": scope, "columns_affected": affected}
 
@@ -117,9 +114,7 @@ def _parse_expr(expr: str, df: pd.DataFrame) -> pd.Series:
         try:
             return pd.Series([float(token)] * len(df), index=df.index)
         except ValueError:
-            raise ValueError(
-                f"Unknown token in expr: '{token}'. Must be a column name or number."
-            )
+            raise ValueError(f"Unknown token in expr: '{token}'. Must be a column name or number.")
 
     if len(tokens) == 1:
         return resolve(tokens[0])
@@ -154,14 +149,10 @@ def _op_add_column(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     elif mode == "threshold":
         source = op["source"]
         if source not in df.columns:
-            raise ValueError(
-                f"Source column not found: {source}. Available: {list(df.columns)}"
-            )
+            raise ValueError(f"Source column not found: {source}. Available: {list(df.columns)}")
         threshold = op.get("threshold", 0)
         freq = df[source].value_counts()
-        df[name] = df[source].apply(
-            lambda v: v if freq.get(v, 0) >= threshold else "Other"
-        )
+        df[name] = df[source].apply(lambda v: v if freq.get(v, 0) >= threshold else "Other")
     else:
         raise ValueError(f"Unknown mode: {mode}")
 
@@ -304,9 +295,7 @@ def _op_normalize(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     if col not in df.columns:
         raise ValueError(f"Column not found: {col}. Available: {list(df.columns)}")
     if not pd.api.types.is_numeric_dtype(df[col]):
-        raise ValueError(
-            f"Column '{col}' is not numeric; normalize requires a numeric column."
-        )
+        raise ValueError(f"Column '{col}' is not numeric; normalize requires a numeric column.")
     method = op.get("method", "minmax")
     clean = df[col].dropna()
 
@@ -437,10 +426,7 @@ def _op_rank_column(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
 
     _valid_methods = {"average", "min", "max", "first", "dense"}
     if method not in _valid_methods:
-        raise ValueError(
-            f"Unknown rank method: '{method}'. "
-            f"Valid: {', '.join(sorted(_valid_methods))}"
-        )
+        raise ValueError(f"Unknown rank method: '{method}'. Valid: {', '.join(sorted(_valid_methods))}")
 
     df[new_col] = df[col].rank(method=method, ascending=ascending, na_option="keep")
     return df, {

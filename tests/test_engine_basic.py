@@ -6,19 +6,18 @@ import os
 import shutil
 from pathlib import Path
 
-import pytest
 import pandas as pd
+import pytest
 
 from servers.data_basic.engine import (
-    load_dataset,
-    inspect_dataset,
-    read_column_stats,
-    search_columns,
     apply_patch,
-    restore_version,
+    inspect_dataset,
+    load_dataset,
+    read_column_stats,
     read_receipt,
+    restore_version,
+    search_columns,
 )
-
 
 # ---------------------------------------------------------------------------
 # load_dataset
@@ -72,6 +71,7 @@ class TestLoadDataset:
     def test_constrained_mode_warn(self, large_csv, monkeypatch):
         monkeypatch.setenv("MCP_CONSTRAINED_MODE", "1")
         import importlib
+
         import shared.platform_utils as pu
 
         importlib.reload(pu)
@@ -232,6 +232,7 @@ class TestSearchColumns:
     def test_truncated_flag(self, large_csv, monkeypatch):
         monkeypatch.setenv("MCP_CONSTRAINED_MODE", "1")
         import importlib
+
         import shared.platform_utils as pu
 
         importlib.reload(pu)
@@ -275,17 +276,13 @@ class TestApplyPatch:
         assert len(df_after) < 7  # messy has 2 duplicate rows
 
     def test_drop_column(self, simple_csv):
-        r = apply_patch(
-            str(simple_csv), [{"op": "drop_column", "columns": ["Discount"]}]
-        )
+        r = apply_patch(str(simple_csv), [{"op": "drop_column", "columns": ["Discount"]}])
         assert r["success"] is True
         df = pd.read_csv(str(simple_csv))
         assert "Discount" not in df.columns
 
     def test_drop_column_nonexistent(self, simple_csv):
-        r = apply_patch(
-            str(simple_csv), [{"op": "drop_column", "columns": ["NoSuchCol"]}]
-        )
+        r = apply_patch(str(simple_csv), [{"op": "drop_column", "columns": ["NoSuchCol"]}])
         assert r["success"] is False
         assert "backup" in r  # snapshot still returned
 
@@ -423,9 +420,7 @@ class TestApplyPatch:
         assert r["total_entries"] >= 1
 
     def test_drop_duplicates_subset(self, messy_csv):
-        r = apply_patch(
-            str(messy_csv), [{"op": "drop_duplicates", "subset": ["State", "City"]}]
-        )
+        r = apply_patch(str(messy_csv), [{"op": "drop_duplicates", "subset": ["State", "City"]}])
         assert r["success"] is True
 
     def test_file_not_found(self, tmp_path):
@@ -525,9 +520,7 @@ class TestApplyPatchNewOps:
     def test_normalize_minmax(self, tmp_path):
         f = tmp_path / "data.csv"
         f.write_text("Value\n10\n20\n30\n40\n50\n")
-        r = apply_patch(
-            str(f), [{"op": "normalize", "column": "Value", "method": "minmax"}]
-        )
+        r = apply_patch(str(f), [{"op": "normalize", "column": "Value", "method": "minmax"}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
         assert df["Value"].min() >= 0.0
@@ -540,9 +533,7 @@ class TestApplyPatchNewOps:
     def test_normalize_zscore(self, tmp_path):
         f = tmp_path / "data.csv"
         f.write_text("Value\n10\n20\n30\n40\n50\n")
-        r = apply_patch(
-            str(f), [{"op": "normalize", "column": "Value", "method": "zscore"}]
-        )
+        r = apply_patch(str(f), [{"op": "normalize", "column": "Value", "method": "zscore"}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
         assert abs(df["Value"].mean()) < 1e-9
@@ -662,6 +653,4 @@ def test_server_docstrings_lte_80_chars():
     ]
     for fn in tool_funcs:
         doc = fn.__doc__ or ""
-        assert len(doc) <= 80, (
-            f"{fn.__name__} docstring too long ({len(doc)} chars): {doc!r}"
-        )
+        assert len(doc) <= 80, f"{fn.__name__} docstring too long ({len(doc)} chars): {doc!r}"

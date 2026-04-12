@@ -81,7 +81,7 @@ _AGG_MIN = frozenset(
 )
 
 
-def infer_agg(col: str, series: "pd.Series | None" = None) -> str:
+def infer_agg(col: str, series: pd.Series | None = None) -> str:
     """
     Infer the best aggregation function for a numeric column.
 
@@ -122,7 +122,7 @@ def agg_label(agg: str) -> str:
     return {"sum": "Total", "mean": "Avg", "max": "Max", "min": "Min"}.get(agg, "Total")
 
 
-def parse_agg_overrides(overrides: "list[str] | None") -> "dict[str, str]":
+def parse_agg_overrides(overrides: list[str] | None) -> dict[str, str]:
     """
     Parse a list of "column:agg" strings into a dict.
 

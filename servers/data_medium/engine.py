@@ -11,6 +11,13 @@ for _p in (str(_ROOT), _HERE):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+from _med_analysis import (
+    cohort_analysis,
+    correlation_analysis,
+    detect_anomalies,
+    statistical_tests,
+    time_series_analysis,
+)
 from _med_inspect import (
     analyze_text_column,
     auto_detect_schema,
@@ -20,6 +27,12 @@ from _med_inspect import (
     scan_nulls_zeros,
     validate_dataset,
 )
+from _med_report import (
+    compare_datasets,
+    cross_tabulate,
+    pivot_table,
+    value_counts,
+)
 from _med_transform import (
     compute_aggregations,
     enrich_with_geo,
@@ -27,19 +40,6 @@ from _med_transform import (
     merge_datasets,
     run_cleaning_pipeline,
     smart_impute,
-)
-from _med_analysis import (
-    cohort_analysis,
-    correlation_analysis,
-    detect_anomalies,
-    statistical_tests,
-    time_series_analysis,
-)
-from _med_report import (
-    compare_datasets,
-    cross_tabulate,
-    pivot_table,
-    value_counts,
 )
 
 __all__ = [

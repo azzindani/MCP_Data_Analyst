@@ -17,29 +17,29 @@ _HERE = str(Path(__file__).resolve().parent)
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
+from _patch_ops import (
+    _op_add_column,
+    _op_cap_outliers,
+    _op_cast_column,
+    _op_clean_text,
+    _op_date_diff,
+    _op_drop_column,
+    _op_drop_duplicates,
+    _op_extract_regex,
+    _op_fill_nulls,
+    _op_label_encode,
+    _op_normalize,
+    _op_rank_column,
+    _op_replace_values,
+    _parse_expr,
+)
+
 from shared.file_utils import resolve_path
 from shared.patch_validator import VALID_OPS, validate_ops
 from shared.platform_utils import get_max_results, get_max_rows
 from shared.progress import fail, info, ok, undo, warn
 from shared.receipt import append_receipt, read_receipt_log
 from shared.version_control import list_versions, restore, snapshot
-
-from _patch_ops import (
-    _op_drop_column,
-    _op_clean_text,
-    _op_cast_column,
-    _op_replace_values,
-    _parse_expr,
-    _op_add_column,
-    _op_cap_outliers,
-    _op_fill_nulls,
-    _op_drop_duplicates,
-    _op_normalize,
-    _op_label_encode,
-    _op_extract_regex,
-    _op_date_diff,
-    _op_rank_column,
-)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
@@ -54,9 +54,7 @@ def _token_estimate(obj) -> int:
     return len(str(obj)) // 4
 
 
-def _read_csv(
-    file_path: str, encoding: str = "utf-8", separator: str = ",", max_rows: int = 0
-) -> pd.DataFrame:
+def _read_csv(file_path: str, encoding: str = "utf-8", separator: str = ",", max_rows: int = 0) -> pd.DataFrame:
     kwargs: dict = {"encoding": encoding, "sep": separator, "low_memory": False}
     if max_rows > 0:
         kwargs["nrows"] = max_rows
@@ -128,9 +126,7 @@ def load_dataset(
             }
 
         try:
-            df = _read_csv(
-                str(path), encoding=encoding, separator=separator, max_rows=max_rows
-            )
+            df = _read_csv(str(path), encoding=encoding, separator=separator, max_rows=max_rows)
         except UnicodeDecodeError:
             return {
                 "success": False,
@@ -171,9 +167,7 @@ def load_dataset(
         unique_counts = {col: int(df[col].nunique()) for col in df.columns}
         sample = df.head(2).fillna("").to_dict(orient="records")
 
-        progress.append(
-            ok(f"Loaded {path.name}", f"{len(df):,} rows × {len(df.columns)} cols")
-        )
+        progress.append(ok(f"Loaded {path.name}", f"{len(df):,} rows × {len(df.columns)} cols"))
 
         result = {
             "success": True,
@@ -261,9 +255,7 @@ def load_geo_dataset(
 
         sample_rows = gdf.head(2).copy()
         geo_col = gdf.geometry.name
-        sample_rows[geo_col] = sample_rows[geo_col].apply(
-            lambda g: g.wkt if g is not None else None
-        )
+        sample_rows[geo_col] = sample_rows[geo_col].apply(lambda g: g.wkt if g is not None else None)
         sample = sample_rows.fillna("").to_dict(orient="records")
 
         crs = str(gdf.crs) if gdf.crs else "unknown"
@@ -325,10 +317,7 @@ def inspect_dataset(
 
         dtypes = {col: _dtype_label(df[col]) for col in df.columns}
         null_counts = {col: int(df[col].isna().sum()) for col in df.columns}
-        null_pct = {
-            col: round(null_counts[col] / rows * 100, 2) if rows > 0 else 0.0
-            for col in df.columns
-        }
+        null_pct = {col: round(null_counts[col] / rows * 100, 2) if rows > 0 else 0.0 for col in df.columns}
         unique_counts = {col: int(df[col].nunique()) for col in df.columns}
 
         numeric_cols, categorical_cols, datetime_cols = _classify_columns(df)
@@ -455,17 +444,9 @@ def read_column_stats(
             q1 = float(clean.quantile(0.25)) if len(clean) > 0 else None
             q3 = float(clean.quantile(0.75)) if len(clean) > 0 else None
             iqr = (q3 - q1) if (q1 is not None and q3 is not None) else None
-            lower_iqr = (
-                (q1 - 1.5 * iqr) if (iqr is not None and q1 is not None) else None
-            )
-            upper_iqr = (
-                (q3 + 1.5 * iqr) if (iqr is not None and q3 is not None) else None
-            )
-            outlier_iqr = (
-                int(((clean < lower_iqr) | (clean > upper_iqr)).sum())
-                if iqr is not None
-                else 0
-            )
+            lower_iqr = (q1 - 1.5 * iqr) if (iqr is not None and q1 is not None) else None
+            upper_iqr = (q3 + 1.5 * iqr) if (iqr is not None and q3 is not None) else None
+            outlier_iqr = int(((clean < lower_iqr) | (clean > upper_iqr)).sum()) if iqr is not None else 0
 
             if mean_val is not None and std_val is not None:
                 lower_std = mean_val - 3 * std_val
@@ -565,44 +546,30 @@ def search_columns(
 
         if dtype:
             if dtype == "numeric":
-                candidates = [
-                    c for c in candidates if pd.api.types.is_numeric_dtype(df[c])
-                ]
+                candidates = [c for c in candidates if pd.api.types.is_numeric_dtype(df[c])]
             elif dtype == "datetime":
-                candidates = [
-                    c for c in candidates if pd.api.types.is_datetime64_any_dtype(df[c])
-                ]
+                candidates = [c for c in candidates if pd.api.types.is_datetime64_any_dtype(df[c])]
             elif dtype == "object":
                 candidates = [
                     c
                     for c in candidates
-                    if not pd.api.types.is_numeric_dtype(df[c])
-                    and not pd.api.types.is_datetime64_any_dtype(df[c])
+                    if not pd.api.types.is_numeric_dtype(df[c]) and not pd.api.types.is_datetime64_any_dtype(df[c])
                 ]
 
         if has_nulls or min_null_pct > 0.0:
             null_c = {c: int(df[c].isna().sum()) for c in candidates}
-            null_p = {
-                c: null_c[c] / rows * 100 if rows > 0 else 0.0 for c in candidates
-            }
+            null_p = {c: null_c[c] / rows * 100 if rows > 0 else 0.0 for c in candidates}
             if has_nulls:
                 candidates = [c for c in candidates if null_c[c] > 0]
             if min_null_pct > 0.0:
                 candidates = [c for c in candidates if null_p[c] >= min_null_pct]
 
         if has_zeros:
-            candidates = [
-                c
-                for c in candidates
-                if pd.api.types.is_numeric_dtype(df[c]) and int((df[c] == 0).sum()) > 0
-            ]
+            candidates = [c for c in candidates if pd.api.types.is_numeric_dtype(df[c]) and int((df[c] == 0).sum()) > 0]
 
         # Build result counts
         null_counts = {c: int(df[c].isna().sum()) for c in candidates}
-        zero_counts = {
-            c: int((df[c] == 0).sum()) if pd.api.types.is_numeric_dtype(df[c]) else 0
-            for c in candidates
-        }
+        zero_counts = {c: int((df[c] == 0).sum()) if pd.api.types.is_numeric_dtype(df[c]) else 0 for c in candidates}
         dtypes_out = {c: _dtype_label(df[c]) for c in candidates}
 
         # Truncate
@@ -610,13 +577,9 @@ def search_columns(
         truncated = len(candidates) > max_r
         if truncated:
             candidates = candidates[:max_r]
-            progress.append(
-                warn("Results truncated", f"Showing first {max_r} matching columns")
-            )
+            progress.append(warn("Results truncated", f"Showing first {max_r} matching columns"))
 
-        progress.append(
-            ok(f"Searched {path.name}", f"{len(candidates)} column(s) matched")
-        )
+        progress.append(ok(f"Searched {path.name}", f"{len(candidates)} column(s) matched"))
 
         result = {
             "success": True,
@@ -876,9 +839,7 @@ def read_receipt(
                 )
             )
 
-        progress.append(
-            ok(f"Receipt for {path.name}", f"{len(entries)} entries returned")
-        )
+        progress.append(ok(f"Receipt for {path.name}", f"{len(entries)} entries returned"))
 
         result = {
             "success": True,

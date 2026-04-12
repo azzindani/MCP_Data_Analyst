@@ -16,22 +16,28 @@ for _p in (str(_ROOT), _HERE):
 
 import pandas as pd
 from _adv_helpers import (
-    _token_estimate,
-    _read_csv,
-    _open_file,
-    _find_geo_cols,
+    _BACK_TO_TOP_HTML,
+    _BACK_TO_TOP_JS,
+    VIEWPORT_META,
     _detect_location_mode,
+    _find_geo_cols,
+    _open_file,
+    _read_csv,
+    _token_estimate,
+    agg_label,
+    css_dashboard,
     css_vars,
     device_mode_js,
-    VIEWPORT_META,
     fail,
+    get_output_path,
+    get_plotlyjs_script,
+    infer_agg,
     info,
     ok,
-    warn,
-    infer_agg,
-    agg_label,
     parse_agg_overrides,
+    warn,
 )
+
 from shared.file_utils import resolve_path
 
 logger = logging.getLogger(__name__)
@@ -168,15 +174,9 @@ def generate_dashboard(
         dashboard_title = title if title else path.stem
 
         numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-        datetime_cols = [
-            c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])
-        ]
+        datetime_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])]
         cat_cols = [
-            c
-            for c in df.columns
-            if c not in numeric_cols
-            and c not in datetime_cols
-            and df[c].nunique() <= 100
+            c for c in df.columns if c not in numeric_cols and c not in datetime_cols and df[c].nunique() <= 100
         ]
 
         col_agg: dict[str, str] = {nc: infer_agg(nc, df[nc]) for nc in numeric_cols}
@@ -223,11 +223,7 @@ def generate_dashboard(
         embed_clean = embed_df.copy()
         for c in datetime_cols:
             if c in embed_clean.columns:
-                embed_clean[c] = (
-                    pd.to_datetime(embed_clean[c], errors="coerce")
-                    .dt.strftime("%Y-%m-%d")
-                    .fillna("")
-                )
+                embed_clean[c] = pd.to_datetime(embed_clean[c], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
         raw_json = embed_clean.to_json(orient="records", date_format="iso")
 
         sparklines = _build_sparklines(df, numeric_cols)
@@ -237,13 +233,7 @@ def generate_dashboard(
         null_pct = float(df.isnull().mean().mean() * 100)
         dup_pct = float(df.duplicated().sum() / max(len(df), 1) * 100)
         quality = max(0, round(100 - null_pct * 2 - dup_pct * 0.5))
-        qual_clr = (
-            "var(--green)"
-            if quality >= 80
-            else "var(--orange)"
-            if quality >= 60
-            else "var(--red)"
-        )
+        qual_clr = "var(--green)" if quality >= 80 else "var(--orange)" if quality >= 60 else "var(--red)"
 
         _css = css_vars(theme)
         if theme == "dark":
@@ -260,9 +250,7 @@ def generate_dashboard(
         h.append(_dash_head(_css, dashboard_title))
         h.append(_dash_header(dashboard_title, embed_df, was_sampled))
         h.append(_dash_filterbar(filter_controls, num_ranges))
-        h.append(
-            _dash_kpi_row(df, numeric_cols, sparklines, quality, qual_clr, col_agg)
-        )
+        h.append(_dash_kpi_row(df, numeric_cols, sparklines, quality, qual_clr, col_agg))
 
         spec: list[dict] = []
         h.append('<div class="sec-hdr">Charts</div><div class="cgrid">')
@@ -285,11 +273,13 @@ def generate_dashboard(
         COLORS = "['#58a6ff','#3fb950','#f0883e','#f85149','#bc8cff','#79c0ff','#7ee787','#ffa657','#ff7b72','#d2a8ff','#a5d6ff','#aff5b4','#ffd6a5','#ffabab','#e0b0ff']"
         PCFG = "{responsive:true,displayModeBar:true,scrollZoom:true}"
 
-        def _lyt(h_px: int, extra: str = "") -> str:
+        def _lyt(_h_px: int = 0, extra: str = "") -> str:
+            # Height is intentionally omitted — CSS (.cc-body / .cc-body--tall) controls it
+            # autosize:true makes Plotly fill the CSS-sized container div
             return (
                 f"{{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',"
                 f"font:{{color:'{font_c}',size:12}},"
-                f"height:{h_px},margin:{{l:55,r:20,t:10,b:65}},"
+                f"autosize:true,margin:{{l:55,r:20,t:10,b:65}},"
                 f"xaxis:{{gridcolor:'{grid_c}',tickangle:-38}},"
                 f"yaxis:{{gridcolor:'{grid_c}'}}{extra}}}"
             )
@@ -315,12 +305,7 @@ def generate_dashboard(
             for nc in numeric_cols[:7]
         )
         render_calls = "\n".join(
-            "  try{rf_"
-            + s["id"]
-            + "(d);}catch(_e){console.warn('chart "
-            + s["id"]
-            + "',_e);}"
-            for s in spec
+            "  try{rf_" + s["id"] + "(d);}catch(_e){console.warn('chart " + s["id"] + "',_e);}" for s in spec
         )
         rfns_str = "\n\n".join(rfns)
 
@@ -328,15 +313,12 @@ def generate_dashboard(
 
         if theme == "device":
             h.append(device_mode_js())
+        h.append(_BACK_TO_TOP_JS)
         h.append("</body></html>")
 
         html_content = "\n".join(h)
 
-        if output_path:
-            out = Path(output_path)
-        else:
-            out = path.parent / f"{path.stem}_dashboard.html"
-
+        out = get_output_path(output_path, path, "dashboard", "html")
         out.write_text(html_content, encoding="utf-8")
         size_kb = round(out.stat().st_size / 1024)
 
@@ -436,72 +418,21 @@ def _trend(df, col: str) -> tuple[str, str]:
 
 
 def _dash_head(_css, dashboard_title):
-    return f"""<!DOCTYPE html>
-<html lang="en"><head>
-<meta charset="utf-8">
-{VIEWPORT_META}
-<title>{dashboard_title} — Dashboard</title>
-<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
-<style>
-{_css}
-*{{box-sizing:border-box;margin:0;padding:0}}
-body{{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden}}
-::-webkit-scrollbar{{width:6px}}::-webkit-scrollbar-thumb{{background:var(--border);border-radius:3px}}
-header{{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 28px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}}
-header h1{{color:var(--accent);font-size:20px;font-weight:700;flex:1 1 auto}}
-.row-ctr{{color:var(--text-muted);font-size:12px}}
-.btn{{background:var(--bg);border:1px solid var(--border);color:var(--text-muted);border-radius:6px;padding:5px 12px;font-size:12px;cursor:pointer}}
-.btn:hover{{border-color:var(--accent);color:var(--accent)}}
-.btn-p{{background:var(--accent);color:#fff;border-color:var(--accent)}}
-.btn-p:hover{{opacity:0.88;color:#fff}}
-.filter-bar{{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 28px;display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end}}
-.fgrp{{display:flex;flex-direction:column;gap:5px}}
-.flbl{{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600}}
-.pills{{display:flex;flex-wrap:wrap;gap:4px}}
-.pill{{background:var(--bg);border:1px solid var(--border);color:var(--text-muted);border-radius:100px;padding:3px 11px;font-size:12px;cursor:pointer;transition:.12s}}
-.pill.active{{background:var(--accent);border-color:var(--accent);color:#fff}}
-.pill:hover:not(.active){{border-color:var(--accent);color:var(--text)}}
-.ddw{{position:relative}}
-.ddbtn{{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;min-width:140px;text-align:left;white-space:nowrap}}
-.ddmenu{{position:absolute;top:calc(100% + 4px);left:0;z-index:200;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;min-width:200px;max-height:280px;overflow-y:auto;box-shadow:0 8px 28px rgba(0,0,0,.35)}}
-.ddmenu.hid{{display:none}}
-.ddsrch{{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 8px;font-size:12px;margin-bottom:6px;outline:none}}
-.ddacts{{display:flex;gap:6px;margin-bottom:8px}}
-.ddacts .btn{{padding:2px 8px;font-size:11px}}
-.optlbl{{display:flex;align-items:center;gap:7px;padding:3px 4px;border-radius:4px;font-size:12px;cursor:pointer;user-select:none}}
-.optlbl:hover{{background:var(--bg)}}
-.optlbl input{{accent-color:var(--accent)}}
-.nrng{{display:flex;gap:6px;align-items:center}}
-.ninp{{width:88px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:12px;outline:none}}
-.ninp:focus{{border-color:var(--accent)}}
-.nsep{{color:var(--text-muted);font-size:13px}}
-.kpi-row{{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;padding:18px 28px}}
-.kpi-card{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px}}
-.kpi-val{{font-size:22px;font-weight:700;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-.kpi-lbl{{font-size:10px;color:var(--text-muted);margin-top:2px;text-transform:uppercase;letter-spacing:.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
-.kpi-trend{{font-size:12px;margin-top:3px;font-weight:600}}
-.kpi-spark{{height:34px;margin-top:6px;pointer-events:none}}
-.trend-up{{color:var(--green)}}.trend-down{{color:var(--red)}}.trend-flat{{color:var(--text-muted)}}
-.sec-hdr{{padding:16px 28px 4px;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600}}
-.cgrid{{padding:0 28px 28px;display:grid;grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:14px}}
-.cc{{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}}
-.cc-hdr{{display:flex;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)}}
-.cc-hdr h3{{font-size:12px;font-weight:500;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
-.exp{{background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:15px;line-height:1;padding:0 2px;flex-shrink:0}}
-.exp:hover{{color:var(--accent)}}
-.cc-body{{padding:4px}}
-.full{{grid-column:1/-1}}
-.modal{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:1000;align-items:center;justify-content:center}}
-.modal.open{{display:flex}}
-.mbox{{background:var(--surface);border:1px solid var(--border);border-radius:12px;width:92vw;max-width:1200px;height:88vh;display:flex;flex-direction:column}}
-.mhdr{{display:flex;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border)}}
-.mhdr h3{{flex:1;font-size:14px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
-.mclose{{background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;line-height:1;flex-shrink:0}}
-.mclose:hover{{color:var(--red)}}
-#mdiv{{flex:1;min-height:0}}
-@media(max-width:1100px){{.cgrid{{grid-template-columns:1fr}}}}
-@media(max-width:600px){{header,.filter-bar,.kpi-row,.cgrid,.sec-hdr{{padding-left:14px;padding-right:14px}}.kpi-row{{grid-template-columns:repeat(2,1fr)}}}}
-</style></head><body>"""
+    import html as _html
+
+    full_css = css_dashboard(_css)
+    plotly_script = get_plotlyjs_script()
+    return (
+        "<!DOCTYPE html>"
+        "<html lang='en'><head>"
+        "<meta charset='utf-8'>"
+        f"{VIEWPORT_META}"
+        f"<title>{_html.escape(dashboard_title)} \u2014 Dashboard</title>"
+        f"{plotly_script}"
+        f"<style>{full_css}</style>"
+        f"</head><body>"
+        f"{_BACK_TO_TOP_HTML}"
+    )
 
 
 def _dash_header(dashboard_title, embed_df, was_sampled):
@@ -511,6 +442,7 @@ def _dash_header(dashboard_title, embed_df, was_sampled):
   <span class="row-ctr" id="row-ctr">{len(embed_df):,} of {len(embed_df):,} rows{sampled_note}</span>
   <button class="btn" onclick="clearAll()">Clear Filters</button>
   <button class="btn btn-p" onclick="exportCSV()">&#x2193; Export CSV</button>
+  <button class="btn btn-print" onclick="window.print()">&#x2399; Print</button>
 </header>"""
 
 
@@ -527,9 +459,7 @@ def _dash_filterbar(filter_controls, num_ranges):
             h.append(f'<div class="pills" data-col="{lbl}">')
             for v in vals:
                 ve = str(v).replace('"', "&quot;").replace("'", "&#39;")
-                h.append(
-                    f'<button class="pill active" data-val="{ve}" onclick="pilClick(this)">{ve}</button>'
-                )
+                h.append(f'<button class="pill active" data-val="{ve}" onclick="pilClick(this)">{ve}</button>')
             h.append("</div>")
         else:
             opts = "".join(
@@ -614,13 +544,17 @@ def _dash_kpi_row(df, numeric_cols, sparklines, quality, qual_clr, col_agg):
 
 def _card(h, cid: str, ttl: str, full: bool, height: int) -> None:
     cls = "cc full" if full else "cc"
-    te = ttl.replace("'", "&#39;").replace('"', "&quot;")
+    # Use CSS class for height — tall (>380 px original) gets cc-body--tall
+    body_cls = "cc-body--tall" if height > 380 else "cc-body"
+    import html as _html_mod
+
+    te = _html_mod.escape(ttl)
     h.append(
         f'<div class="{cls}">'
         f'<div class="cc-hdr"><h3>{ttl}</h3>'
-        f"<button class=\"exp\" onclick=\"expand('{cid}','{te}')\">&#x2922;</button>"
-        f'</div><div class="cc-body">'
-        f'<div id="{cid}" style="height:{height}px"></div>'
+        f'<button class="exp" data-expand="{cid}" data-expand-title="{te}">&#x2922;</button>'
+        f'</div><div class="{body_cls}">'
+        f'<div id="{cid}" style="width:100%;height:100%"></div>'
         f"</div></div>"
     )
 
@@ -693,9 +627,7 @@ def _build_chart_cards(
         agg = col_agg.get(nc, "sum")
         cid = f"aghm_{_safe(cc1)}_{_safe(cc2)}"
         _card(h, cid, f"{agg_label(agg)} {nc}: {cc1} \u00d7 {cc2}", True, 460)
-        spec.append(
-            {"id": cid, "type": "agg_hm", "cc1": cc1, "cc2": cc2, "nc": nc, "agg": agg}
-        )
+        spec.append({"id": cid, "type": "agg_hm", "cc1": cc1, "cc2": cc2, "nc": nc, "agg": agg})
     if "time_series" in charts and datetime_cols and numeric_cols:
         for dc in datetime_cols[:2]:
             for nc in numeric_cols[:2]:
@@ -775,7 +707,7 @@ def _build_render_functions(
         elif t == "pie":
             cc = s["cc"]
             rfns.append(
-                f"function rf_{cid}(d){{\n  var c={{}};\n  d.forEach(function(r){{var k=String(r['{cc}']??'');c[k]=(c[k]||0)+1;}});\n  var e=Object.entries(c).sort((x,y)=>y[1]-x[1]).slice(0,15);\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:12}},height:340,margin:{{l:20,r:20,t:10,b:20}},showlegend:true,legend:{{orientation:'h',y:-0.14}}}};\n  Plotly.react('{cid}',[{{values:e.map(i=>i[1]),labels:e.map(i=>i[0]),type:'pie',hole:0.38,marker:{{colors:{COLORS}}},textinfo:'label+percent',textfont:{{size:11}},pull:e.map((_,i)=>i===0?0.04:0)}}],layout,{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
+                f"function rf_{cid}(d){{\n  var c={{}};\n  d.forEach(function(r){{var k=String(r['{cc}']??'');c[k]=(c[k]||0)+1;}});\n  var e=Object.entries(c).sort((x,y)=>y[1]-x[1]).slice(0,15);\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:12}},autosize:true,margin:{{l:20,r:20,t:10,b:20}},showlegend:true,legend:{{orientation:'h',y:-0.14}}}};\n  Plotly.react('{cid}',[{{values:e.map(i=>i[1]),labels:e.map(i=>i[0]),type:'pie',hole:0.38,marker:{{colors:{COLORS}}},textinfo:'label+percent',textfont:{{size:11}},pull:e.map((_,i)=>i===0?0.04:0)}}],layout,{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
             )
         elif t == "scatter":
             nc1, nc2 = s["nc1"], s["nc2"]
@@ -786,18 +718,22 @@ def _build_render_functions(
             cc1, cc2, nc = s["cc1"], s["cc2"], s["nc"]
             agg = s.get("agg", "sum")
             if agg == "mean":
-                inner_acc = "if(!isNaN(v)){if(!a[k2])a[k2]={};if(!a[k2][k1])a[k2][k1]={s:0,n:0};a[k2][k1].s+=v;a[k2][k1].n++;}"
+                inner_acc = (
+                    "if(!isNaN(v)){if(!a[k2])a[k2]={};if(!a[k2][k1])a[k2][k1]={s:0,n:0};a[k2][k1].s+=v;a[k2][k1].n++;}"
+                )
                 val_expr = "a[k]&&a[k][g]?a[k][g].s/a[k][g].n:0"
             elif agg == "max":
-                inner_acc = "if(!isNaN(v)){if(!a[k2])a[k2]={};a[k2][k1]=(a[k2][k1]===undefined||v>a[k2][k1])?v:a[k2][k1];}"
+                inner_acc = (
+                    "if(!isNaN(v)){if(!a[k2])a[k2]={};a[k2][k1]=(a[k2][k1]===undefined||v>a[k2][k1])?v:a[k2][k1];}"
+                )
                 val_expr = "(a[k]&&a[k][g]!==undefined)?a[k][g]:0"
             elif agg == "min":
-                inner_acc = "if(!isNaN(v)){if(!a[k2])a[k2]={};a[k2][k1]=(a[k2][k1]===undefined||v<a[k2][k1])?v:a[k2][k1];}"
+                inner_acc = (
+                    "if(!isNaN(v)){if(!a[k2])a[k2]={};a[k2][k1]=(a[k2][k1]===undefined||v<a[k2][k1])?v:a[k2][k1];}"
+                )
                 val_expr = "(a[k]&&a[k][g]!==undefined)?a[k][g]:0"
             else:
-                inner_acc = (
-                    "if(!isNaN(v)){if(!a[k2])a[k2]={};a[k2][k1]=(a[k2][k1]||0)+v;}"
-                )
+                inner_acc = "if(!isNaN(v)){if(!a[k2])a[k2]={};a[k2][k1]=(a[k2][k1]||0)+v;}"
                 val_expr = "(a[k]&&a[k][g])||0"
             rfns.append(
                 f"function rf_{cid}(d){{\n  var a={{}};\n  d.forEach(function(r){{var k1=String(r['{cc1}']??''),k2=String(r['{cc2}']??''),v=+r['{nc}'];{inner_acc}}});\n  var gs=Array.from(new Set(d.map(r=>String(r['{cc1}']??'')))).slice(0,20);\n  var ks=Object.keys(a).slice(0,10),C={COLORS};\n  var traces=ks.map(function(k,i){{return{{x:gs,y:gs.map(g=>{val_expr}),type:'bar',name:k,marker:{{color:C[i%15],opacity:0.85}}}};}});\n  var layout=Object.assign({{}},{_lyt(380)},{{barmode:'group',showlegend:true,legend:{{orientation:'h',y:-0.3}}}});\n  Plotly.react('{cid}',traces,layout,{PCFG});\n}}"
@@ -815,7 +751,7 @@ def _build_render_functions(
         elif t == "corr":
             nc_list = _json.dumps(numeric_cols[:15])
             rfns.append(
-                f"function rf_{cid}(d){{\n  var cols={nc_list},n=d.length;if(n<2)return;\n  var z=cols.map(function(r){{return cols.map(function(c){{\n    var xv=d.map(row=>+row[r]),yv=d.map(row=>+row[c]),pr=[];\n    for(var i=0;i<n;i++)if(!isNaN(xv[i])&&!isNaN(yv[i]))pr.push([xv[i],yv[i]]);\n    if(pr.length<2)return 0;\n    var mx=pr.reduce((s,p)=>s+p[0],0)/pr.length,my=pr.reduce((s,p)=>s+p[1],0)/pr.length;\n    var num=0,dx=0,dy=0;pr.forEach(p=>{{num+=(p[0]-mx)*(p[1]-my);dx+=(p[0]-mx)**2;dy+=(p[1]-my)**2;}});\n    return dx&&dy?num/Math.sqrt(dx*dy):0;\n  }});}});\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:11}},height:480,margin:{{l:120,r:20,t:10,b:120}}}};\n  Plotly.react('{cid}',[{{z:z,x:cols,y:cols,type:'heatmap',colorscale:'RdBu_r',zmid:0,zmin:-1,zmax:1,text:z.map(r=>r.map(v=>v.toFixed(2))),texttemplate:'%{{text}}',textfont:{{size:10}}}}],layout,{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
+                f"function rf_{cid}(d){{\n  var cols={nc_list},n=d.length;if(n<2)return;\n  var z=cols.map(function(r){{return cols.map(function(c){{\n    var xv=d.map(row=>+row[r]),yv=d.map(row=>+row[c]),pr=[];\n    for(var i=0;i<n;i++)if(!isNaN(xv[i])&&!isNaN(yv[i]))pr.push([xv[i],yv[i]]);\n    if(pr.length<2)return 0;\n    var mx=pr.reduce((s,p)=>s+p[0],0)/pr.length,my=pr.reduce((s,p)=>s+p[1],0)/pr.length;\n    var num=0,dx=0,dy=0;pr.forEach(p=>{{num+=(p[0]-mx)*(p[1]-my);dx+=(p[0]-mx)**2;dy+=(p[1]-my)**2;}});\n    return dx&&dy?num/Math.sqrt(dx*dy):0;\n  }});}});\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:11}},autosize:true,margin:{{l:120,r:20,t:10,b:120}}}};\n  Plotly.react('{cid}',[{{z:z,x:cols,y:cols,type:'heatmap',colorscale:'RdBu_r',zmid:0,zmin:-1,zmax:1,text:z.map(r=>r.map(v=>v.toFixed(2))),texttemplate:'%{{text}}',textfont:{{size:10}}}}],layout,{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
             )
         elif t == "agg_hm":
             cc1, cc2, nc = s["cc1"], s["cc2"], s["nc"]
@@ -833,7 +769,7 @@ def _build_render_functions(
                 inner_acc = "Rs.add(r1);Cs.add(c1);if(!a[r1])a[r1]={};a[r1][c1]=(a[r1][c1]||0)+v;"
                 z_val = "(a[r]&&a[r][c])||0"
             rfns.append(
-                f"function rf_{cid}(d){{\n  var a={{}},Rs=new Set(),Cs=new Set();\n  d.forEach(function(r){{var r1=String(r['{cc1}']??''),c1=String(r['{cc2}']??''),v=+r['{nc}'];if(!isNaN(v)){{{inner_acc}}}}});\n  var rl=Array.from(Rs).sort().slice(0,30),cl=Array.from(Cs).sort().slice(0,30);\n  var z=rl.map(function(r){{return cl.map(function(c){{return {z_val};}});}});\n  var fmt=function(v){{return v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(1)+'K':Math.round(v).toString();}};\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:11}},height:460,margin:{{l:130,r:20,t:10,b:130}}}};\n  Plotly.react('{cid}',[{{z:z,x:cl,y:rl,type:'heatmap',colorscale:'YlOrRd',text:z.map(r=>r.map(fmt)),texttemplate:'%{{text}}',textfont:{{size:9}}}}],layout,{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
+                f"function rf_{cid}(d){{\n  var a={{}},Rs=new Set(),Cs=new Set();\n  d.forEach(function(r){{var r1=String(r['{cc1}']??''),c1=String(r['{cc2}']??''),v=+r['{nc}'];if(!isNaN(v)){{{inner_acc}}}}});\n  var rl=Array.from(Rs).sort().slice(0,30),cl=Array.from(Cs).sort().slice(0,30);\n  var z=rl.map(function(r){{return cl.map(function(c){{return {z_val};}});}});\n  var fmt=function(v){{return v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(1)+'K':Math.round(v).toString();}};\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:11}},autosize:true,margin:{{l:130,r:20,t:10,b:130}}}};\n  Plotly.react('{cid}',[{{z:z,x:cl,y:rl,type:'heatmap',colorscale:'YlOrRd',text:z.map(r=>r.map(fmt)),texttemplate:'%{{text}}',textfont:{{size:9}}}}],layout,{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
             )
         elif t == "ts":
             dc, nc = s["dc"], s["nc"]
@@ -845,18 +781,14 @@ def _build_render_functions(
         elif t == "dist":
             nc = s["nc"]
             rfns.append(
-                f"function rf_{cid}(d){{\n  var vals=d.map(r=>+r['{nc}']).filter(v=>!isNaN(v));if(!vals.length)return;\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:12}},height:320,margin:{{l:50,r:20,t:10,b:30}},grid:{{rows:1,columns:2,pattern:'independent'}},xaxis:{{gridcolor:'{grid_c}'}},yaxis:{{title:'Count',gridcolor:'{grid_c}'}},xaxis2:{{gridcolor:'{grid_c}'}},yaxis2:{{gridcolor:'{grid_c}'}}}};\n  Plotly.react('{cid}',[{{x:vals,type:'histogram',nbinsx:50,marker:{{color:'#58a6ff',opacity:0.75}},xaxis:'x',yaxis:'y',name:'hist'}},{{y:vals,type:'box',marker:{{color:'#f0883e',size:3}},xaxis:'x2',yaxis:'y2',boxpoints:'outliers',name:'box'}}],layout,{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
+                f"function rf_{cid}(d){{\n  var vals=d.map(r=>+r['{nc}']).filter(v=>!isNaN(v));if(!vals.length)return;\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:12}},autosize:true,margin:{{l:50,r:20,t:10,b:30}},grid:{{rows:1,columns:2,pattern:'independent'}},xaxis:{{gridcolor:'{grid_c}'}},yaxis:{{title:'Count',gridcolor:'{grid_c}'}},xaxis2:{{gridcolor:'{grid_c}'}},yaxis2:{{gridcolor:'{grid_c}'}}}};\n  Plotly.react('{cid}',[{{x:vals,type:'histogram',nbinsx:50,marker:{{color:'#58a6ff',opacity:0.75}},xaxis:'x',yaxis:'y',name:'hist'}},{{y:vals,type:'box',marker:{{color:'#f0883e',size:3}},xaxis:'x2',yaxis:'y2',boxpoints:'outliers',name:'box'}}],layout,{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
             )
         elif t == "geo_scatter":
             lat_c, lon_c = s["lat"], s["lon"]
             val_c = s.get("val", "")
-            txt_expr = (
-                f"'{val_c}: '+String(r['{val_c}'])"
-                if val_c
-                else "lt.toFixed(4)+', '+ln.toFixed(4)"
-            )
+            txt_expr = f"'{val_c}: '+String(r['{val_c}'])" if val_c else "lt.toFixed(4)+', '+ln.toFixed(4)"
             rfns.append(
-                f"function rf_{cid}(d){{\n  var lts=[],lns=[],txts=[];\n  d.forEach(function(r){{var lt=+r['{lat_c}'],ln=+r['{lon_c}'];if(!isNaN(lt)&&!isNaN(ln)){{lts.push(lt);lns.push(ln);txts.push({txt_expr});}}}});\n  if(!lts.length)return;\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',geo:{{showland:true,landcolor:'{geo_land_c}',showocean:true,oceancolor:'{geo_ocean_c}',showcoastlines:true,coastlinecolor:'{geo_coast_c}',showcountries:true,countrycolor:'{geo_coast_c}',showframe:false,bgcolor:'{bg}',projection:{{type:'natural earth'}}}},font:{{color:'{font_c}',size:12}},height:500,margin:{{l:0,r:0,t:10,b:0}}}};\n  Plotly.react('{cid}',[{{type:'scattergeo',lat:lts,lon:lns,mode:'markers',marker:{{color:'#58a6ff',size:6,opacity:0.75,line:{{color:'rgba(255,255,255,0.25)',width:0.5}}}},text:txts,hovertemplate:'%{{text}}<extra></extra>'}}],layout,{PCFG});\n}}"
+                f"function rf_{cid}(d){{\n  var lts=[],lns=[],txts=[];\n  d.forEach(function(r){{var lt=+r['{lat_c}'],ln=+r['{lon_c}'];if(!isNaN(lt)&&!isNaN(ln)){{lts.push(lt);lns.push(ln);txts.push({txt_expr});}}}});\n  if(!lts.length)return;\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',geo:{{showland:true,landcolor:'{geo_land_c}',showocean:true,oceancolor:'{geo_ocean_c}',showcoastlines:true,coastlinecolor:'{geo_coast_c}',showcountries:true,countrycolor:'{geo_coast_c}',showframe:false,bgcolor:'{bg}',projection:{{type:'natural earth'}}}},font:{{color:'{font_c}',size:12}},autosize:true,margin:{{l:0,r:0,t:10,b:0}}}};\n  Plotly.react('{cid}',[{{type:'scattergeo',lat:lts,lon:lns,mode:'markers',marker:{{color:'#58a6ff',size:6,opacity:0.75,line:{{color:'rgba(255,255,255,0.25)',width:0.5}}}},text:txts,hovertemplate:'%{{text}}<extra></extra>'}}],layout,{PCFG});\n}}"
             )
         elif t == "geo_choro":
             loc_c, nc, mode = s["loc"], s["nc"], s["mode"]
@@ -870,17 +802,22 @@ def _build_render_functions(
             else:
                 choro_acc = f"var a={{}};\n  d.forEach(function(r){{var k=String(r['{loc_c}']??''),v=+r['{nc}'];if(k&&!isNaN(v))a[k]=(a[k]||0)+v;}});\n  var locs=Object.keys(a),vals=locs.map(k=>a[k]);"
             rfns.append(
-                f"function rf_{cid}(d){{\n  {choro_acc}\n  if(!locs.length)return;\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',geo:{{showland:true,landcolor:'{geo_land_c}',showocean:true,oceancolor:'{geo_ocean_c}',showcoastlines:true,coastlinecolor:'{geo_coast_c}',showcountries:true,countrycolor:'{geo_coast_c}',showframe:false,bgcolor:'{bg}'}},font:{{color:'{font_c}',size:12}},height:500,margin:{{l:0,r:0,t:10,b:0}},coloraxis:{{colorscale:'YlOrRd',showscale:true,colorbar:{{thickness:14,len:0.7,tickfont:{{color:'{font_c}',size:10}}}}}}}};\n  Plotly.react('{cid}',[{{type:'choropleth',locations:locs,z:vals,locationmode:'{mode}',coloraxis:'coloraxis',hovertemplate:'%{{location}}: %{{z:.2f}}<extra></extra>'}}],layout,{PCFG});\n}}"
+                f"function rf_{cid}(d){{\n  {choro_acc}\n  if(!locs.length)return;\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',geo:{{showland:true,landcolor:'{geo_land_c}',showocean:true,oceancolor:'{geo_ocean_c}',showcoastlines:true,coastlinecolor:'{geo_coast_c}',showcountries:true,countrycolor:'{geo_coast_c}',showframe:false,bgcolor:'{bg}'}},font:{{color:'{font_c}',size:12}},autosize:true,margin:{{l:0,r:0,t:10,b:0}},coloraxis:{{colorscale:'YlOrRd',showscale:true,colorbar:{{thickness:14,len:0.7,tickfont:{{color:'{font_c}',size:10}}}}}}}};\n  Plotly.react('{cid}',[{{type:'choropleth',locations:locs,z:vals,locationmode:'{mode}',coloraxis:'coloraxis',hovertemplate:'%{{location}}: %{{z:.2f}}<extra></extra>'}}],layout,{PCFG});\n}}"
             )
     return rfns
 
 
 def _dash_js(raw_json, kpi_upd, rfns_str, render_calls):
     return f"""<script>
-var _RAW={raw_json};
-var _TOTAL=_RAW.length;
-var _CF={{}};
-var _NF={{}};
+let _RAW={raw_json};
+const _TOTAL=_RAW.length;
+let _CF={{}};
+let _NF={{}};
+
+(function(){{
+  const _SAVED=sessionStorage.getItem('dash-filters');
+  if(_SAVED){{try{{const s=JSON.parse(_SAVED);if(s.cf)Object.assign(_CF,s.cf);if(s.nf)Object.assign(_NF,s.nf);}}catch(e){{}}}}
+}})();
 
 function getFilt(){{
   return _RAW.filter(function(row){{
@@ -891,8 +828,9 @@ function getFilt(){{
 }}
 
 function applyF(){{
-  var d=getFilt();
+  const d=getFilt();
   document.getElementById('row-ctr').textContent=d.length.toLocaleString()+' of '+_TOTAL.toLocaleString()+' rows';
+  sessionStorage.setItem('dash-filters',JSON.stringify({{cf:Object.fromEntries(Object.entries(_CF).map(([k,v])=>[k,v instanceof Set?Array.from(v):v])),nf:_NF}}));
   renderAll(d);
 }}
 
@@ -959,8 +897,13 @@ function exportCSV(){{
   var u=URL.createObjectURL(b);var a=document.createElement('a');a.href=u;a.download='export.csv';a.click();URL.revokeObjectURL(u);
 }}
 
+document.addEventListener('click',function(e){{
+  const btn=e.target.closest('[data-expand]');
+  if(btn)expand(btn.dataset.expand,btn.dataset.expandTitle||'');
+}});
+
 function expand(id,ttl){{
-  var src=document.getElementById(id);if(!src||!src.data)return;
+  const src=document.getElementById(id);if(!src||!src.data)return;
   document.getElementById('mttl').textContent=ttl;
   document.getElementById('modal').classList.add('open');
   Plotly.newPlot('mdiv',src.data,Object.assign({{}},src.layout,{{height:null,autosize:true}}),{{responsive:true}});

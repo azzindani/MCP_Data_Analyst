@@ -9,15 +9,15 @@ import pytest
 
 try:
     from servers.data_advanced.engine import (
-        generate_auto_profile,
-        generate_distribution_plot,
-        generate_correlation_heatmap,
-        generate_pairwise_plot,
-        generate_multi_chart,
-        generate_chart,
-        generate_dashboard,
         export_data,
         generate_3d_chart,
+        generate_auto_profile,
+        generate_chart,
+        generate_correlation_heatmap,
+        generate_dashboard,
+        generate_distribution_plot,
+        generate_multi_chart,
+        generate_pairwise_plot,
     )
 
     HAS_ADVANCED = True

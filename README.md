@@ -57,9 +57,11 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
 > **Pre-install recommended:** To avoid the 60-second LM Studio connection timeout on first launch, run this once in PowerShell before connecting:
 > ```powershell
 > $d = Join-Path $env:USERPROFILE '.mcp_servers\MCP_Data_Analyst'
-> cd "$d\servers\data_basic"; uv sync
-> cd "$d\servers\data_medium"; uv sync
-> cd "$d\servers\data_advanced"; uv sync
+> $g = Join-Path $d '.git'
+> if (!(Test-Path $g)) { if (Test-Path $d) { Remove-Item -Recurse -Force $d }; git clone https://github.com/azzindani/MCP_Data_Analyst.git $d --quiet }
+> Set-Location "$d\servers\data_basic"; uv sync
+> Set-Location "$d\servers\data_medium"; uv sync
+> Set-Location "$d\servers\data_advanced"; uv sync
 > ```
 > If you skip this step and LM Studio times out, press **Restart** in the MCP Servers panel — it will reconnect and complete the install immediately.
 
@@ -79,7 +81,7 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
         "-ExecutionPolicy",
         "Bypass",
         "-Command",
-        "$d = Join-Path $env:USERPROFILE '.mcp_servers\\MCP_Data_Analyst'; if (!(Test-Path $d)) { git clone https://github.com/azzindani/MCP_Data_Analyst.git $d } else { Set-Location $d; git pull --quiet }; Set-Location (Join-Path $d 'servers\\data_basic'); uv run python server.py"
+        "$d = Join-Path $env:USERPROFILE '.mcp_servers\\MCP_Data_Analyst'; $g = Join-Path $d '.git'; if (!(Test-Path $g)) { if (Test-Path $d) { Remove-Item -Recurse -Force $d }; git clone https://github.com/azzindani/MCP_Data_Analyst.git $d --quiet } else { Set-Location $d; git fetch origin --quiet; git reset --hard FETCH_HEAD --quiet }; Set-Location (Join-Path $d 'servers\\data_basic'); uv sync --quiet; uv run python server.py"
       ],
       "env": { "MCP_CONSTRAINED_MODE": "0" },
       "timeout": 600000
@@ -91,7 +93,7 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
         "-ExecutionPolicy",
         "Bypass",
         "-Command",
-        "$d = Join-Path $env:USERPROFILE '.mcp_servers\\MCP_Data_Analyst'; if (!(Test-Path $d)) { git clone https://github.com/azzindani/MCP_Data_Analyst.git $d } else { Set-Location $d; git pull --quiet }; Set-Location (Join-Path $d 'servers\\data_medium'); uv run python server.py"
+        "$d = Join-Path $env:USERPROFILE '.mcp_servers\\MCP_Data_Analyst'; $g = Join-Path $d '.git'; if (!(Test-Path $g)) { if (Test-Path $d) { Remove-Item -Recurse -Force $d }; git clone https://github.com/azzindani/MCP_Data_Analyst.git $d --quiet } else { Set-Location $d; git fetch origin --quiet; git reset --hard FETCH_HEAD --quiet }; Set-Location (Join-Path $d 'servers\\data_medium'); uv sync --quiet; uv run python server.py"
       ],
       "env": { "MCP_CONSTRAINED_MODE": "0" },
       "timeout": 600000
@@ -103,7 +105,7 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
         "-ExecutionPolicy",
         "Bypass",
         "-Command",
-        "$d = Join-Path $env:USERPROFILE '.mcp_servers\\MCP_Data_Analyst'; if (!(Test-Path $d)) { git clone https://github.com/azzindani/MCP_Data_Analyst.git $d } else { Set-Location $d; git pull --quiet }; Set-Location (Join-Path $d 'servers\\data_advanced'); uv run python server.py"
+        "$d = Join-Path $env:USERPROFILE '.mcp_servers\\MCP_Data_Analyst'; $g = Join-Path $d '.git'; if (!(Test-Path $g)) { if (Test-Path $d) { Remove-Item -Recurse -Force $d }; git clone https://github.com/azzindani/MCP_Data_Analyst.git $d --quiet } else { Set-Location $d; git fetch origin --quiet; git reset --hard FETCH_HEAD --quiet }; Set-Location (Join-Path $d 'servers\\data_advanced'); uv sync --quiet; uv run python server.py"
       ],
       "env": { "MCP_CONSTRAINED_MODE": "0" },
       "timeout": 600000
@@ -114,6 +116,44 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
 
 4. Wait for the blue dot next to each server
 5. Start chatting — the model will see all 41 tools
+
+### macOS / Linux
+
+Replace the `"command"` and `"args"` in each entry with the bash equivalent:
+
+```json
+{
+  "mcpServers": {
+    "data_analyst_basic": {
+      "command": "bash",
+      "args": [
+        "-c",
+        "d=\"$HOME/.mcp_servers/MCP_Data_Analyst\"; if [ ! -d \"$d/.git\" ]; then rm -rf \"$d\"; git clone https://github.com/azzindani/MCP_Data_Analyst.git \"$d\" --quiet; else cd \"$d\" && git fetch origin --quiet && git reset --hard FETCH_HEAD --quiet; fi; cd \"$d/servers/data_basic\"; uv sync --quiet; uv run python server.py"
+      ],
+      "env": { "MCP_CONSTRAINED_MODE": "0" },
+      "timeout": 600000
+    },
+    "data_analyst_medium": {
+      "command": "bash",
+      "args": [
+        "-c",
+        "d=\"$HOME/.mcp_servers/MCP_Data_Analyst\"; if [ ! -d \"$d/.git\" ]; then rm -rf \"$d\"; git clone https://github.com/azzindani/MCP_Data_Analyst.git \"$d\" --quiet; else cd \"$d\" && git fetch origin --quiet && git reset --hard FETCH_HEAD --quiet; fi; cd \"$d/servers/data_medium\"; uv sync --quiet; uv run python server.py"
+      ],
+      "env": { "MCP_CONSTRAINED_MODE": "0" },
+      "timeout": 600000
+    },
+    "data_analyst_advanced": {
+      "command": "bash",
+      "args": [
+        "-c",
+        "d=\"$HOME/.mcp_servers/MCP_Data_Analyst\"; if [ ! -d \"$d/.git\" ]; then rm -rf \"$d\"; git clone https://github.com/azzindani/MCP_Data_Analyst.git \"$d\" --quiet; else cd \"$d\" && git fetch origin --quiet && git reset --hard FETCH_HEAD --quiet; fi; cd \"$d/servers/data_advanced\"; uv sync --quiet; uv run python server.py"
+      ],
+      "env": { "MCP_CONSTRAINED_MODE": "0" },
+      "timeout": 600000
+    }
+  }
+}
+```
 
 ## Available Tools
 

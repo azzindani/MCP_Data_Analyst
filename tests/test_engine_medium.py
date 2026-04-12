@@ -5,8 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import pytest
 import pandas as pd
+import pytest
 
 from servers.data_medium.engine import (
     analyze_text_column,
@@ -32,7 +32,6 @@ from servers.data_medium.engine import (
     validate_dataset,
     value_counts,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -238,24 +237,18 @@ class TestValidateDataset:
 
 class TestComputeAggregations:
     def test_sum_by_region(self, agg_csv):
-        r = compute_aggregations(
-            str(agg_csv), group_by=["Region"], agg_column="Revenue", agg_func="sum"
-        )
+        r = compute_aggregations(str(agg_csv), group_by=["Region"], agg_column="Revenue", agg_func="sum")
         assert r["success"] is True
         assert r["returned"] == 4
         assert r["result"][0]["Revenue"] == 18400
 
     def test_mean(self, agg_csv):
-        r = compute_aggregations(
-            str(agg_csv), group_by=["Region"], agg_column="Revenue", agg_func="mean"
-        )
+        r = compute_aggregations(str(agg_csv), group_by=["Region"], agg_column="Revenue", agg_func="mean")
         assert r["success"] is True
         assert r["result"][0]["Revenue"] == 5250.0
 
     def test_count(self, agg_csv):
-        r = compute_aggregations(
-            str(agg_csv), group_by=["Product"], agg_column="Revenue", agg_func="count"
-        )
+        r = compute_aggregations(str(agg_csv), group_by=["Product"], agg_column="Revenue", agg_func="count")
         assert r["success"] is True
         assert r["result"][0]["Revenue"] == 5
 
@@ -279,22 +272,16 @@ class TestComputeAggregations:
         assert r["returned"] == 9
 
     def test_invalid_agg_func(self, agg_csv):
-        r = compute_aggregations(
-            str(agg_csv), group_by=["Region"], agg_column="Revenue", agg_func="median"
-        )
+        r = compute_aggregations(str(agg_csv), group_by=["Region"], agg_column="Revenue", agg_func="median")
         assert r["success"] is False
         assert "hint" in r
 
     def test_missing_groupby_column(self, agg_csv):
-        r = compute_aggregations(
-            str(agg_csv), group_by=["NonExistent"], agg_column="Revenue", agg_func="sum"
-        )
+        r = compute_aggregations(str(agg_csv), group_by=["NonExistent"], agg_column="Revenue", agg_func="sum")
         assert r["success"] is False
 
     def test_missing_agg_column(self, agg_csv):
-        r = compute_aggregations(
-            str(agg_csv), group_by=["Region"], agg_column="NonExistent", agg_func="sum"
-        )
+        r = compute_aggregations(str(agg_csv), group_by=["Region"], agg_column="NonExistent", agg_func="sum")
         assert r["success"] is False
 
 
@@ -318,9 +305,7 @@ class TestEnrichWithGeo:
         assert r["matched"] == 3
 
     def test_full_enrichment(self, geo_csv, geo_json):
-        r = enrich_with_geo(
-            str(geo_csv), str(geo_json), join_column="State", geo_join_column="name"
-        )
+        r = enrich_with_geo(str(geo_csv), str(geo_json), join_column="State", geo_join_column="name")
         if not r["success"]:
             pytest.skip(f"geopandas not installed: {r['error']}")
         assert r["success"] is True
@@ -462,9 +447,7 @@ class TestFullWorkflow:
         assert r["score"] > 90
 
         # 5. Aggregate
-        r = compute_aggregations(
-            str(workflow_csv), group_by=["Region"], agg_column="Revenue", agg_func="sum"
-        )
+        r = compute_aggregations(str(workflow_csv), group_by=["Region"], agg_column="Revenue", agg_func="sum")
         assert r["success"] is True
         assert r["returned"] == 4
 
@@ -561,9 +544,7 @@ class TestCorrelationAnalysis:
         assert "top_pairs" in r
         assert "matrix" in r
         assert len(r["top_pairs"]) >= 1
-        assert all(
-            "col_a" in p and "col_b" in p and "correlation" in p for p in r["top_pairs"]
-        )
+        assert all("col_a" in p and "col_b" in p and "correlation" in p for p in r["top_pairs"])
 
     def test_pearson_method(self, numeric_csv):
         r = correlation_analysis(str(numeric_csv), method="pearson")
@@ -581,9 +562,7 @@ class TestCorrelationAnalysis:
 
     def test_html_export(self, numeric_csv, tmp_path):
         out = tmp_path / "corr.html"
-        r = correlation_analysis(
-            str(numeric_csv), output_path=str(out), open_after=False
-        )
+        r = correlation_analysis(str(numeric_csv), output_path=str(out), open_after=False)
         assert r["success"] is True
         assert out.exists()
         assert "output_name" in r
@@ -600,9 +579,7 @@ class TestCorrelationAnalysis:
 
 class TestCrossTabulate:
     def test_basic_count(self, cat_csv):
-        r = cross_tabulate(
-            str(cat_csv), row_column="Region", col_column="Product", open_after=False
-        )
+        r = cross_tabulate(str(cat_csv), row_column="Region", col_column="Product", open_after=False)
         assert r["success"] is True
         assert "table" in r
         assert r["agg_func"] == "count"
@@ -642,16 +619,12 @@ class TestCrossTabulate:
         assert "output_name" in r
 
     def test_column_not_found(self, cat_csv):
-        r = cross_tabulate(
-            str(cat_csv), row_column="Missing", col_column="Product", open_after=False
-        )
+        r = cross_tabulate(str(cat_csv), row_column="Missing", col_column="Product", open_after=False)
         assert r["success"] is False
         assert "hint" in r
 
     def test_file_not_found(self, tmp_path):
-        r = cross_tabulate(
-            str(tmp_path / "missing.csv"), row_column="A", col_column="B"
-        )
+        r = cross_tabulate(str(tmp_path / "missing.csv"), row_column="A", col_column="B")
         assert r["success"] is False
 
 
@@ -662,17 +635,13 @@ class TestCrossTabulate:
 
 class TestPivotTable:
     def test_basic(self, cat_csv):
-        r = pivot_table(
-            str(cat_csv), index=["Region"], values=["Revenue"], agg_func="sum"
-        )
+        r = pivot_table(str(cat_csv), index=["Region"], values=["Revenue"], agg_func="sum")
         assert r["success"] is True
         assert "result" in r
         assert r["returned"] >= 1
 
     def test_with_columns(self, cat_csv):
-        r = pivot_table(
-            str(cat_csv), index=["Region"], columns=["Product"], values=["Revenue"]
-        )
+        r = pivot_table(str(cat_csv), index=["Region"], columns=["Product"], values=["Revenue"])
         assert r["success"] is True
 
     def test_missing_index_col(self, cat_csv):
@@ -705,9 +674,7 @@ class TestValueCounts:
         assert "Product" in r["results"]
 
     def test_no_pct(self, cat_csv):
-        r = value_counts(
-            str(cat_csv), columns=["Region"], include_pct=False, open_after=False
-        )
+        r = value_counts(str(cat_csv), columns=["Region"], include_pct=False, open_after=False)
         assert r["success"] is True
         assert "pct" not in r["results"]["Region"][0]
 
@@ -717,9 +684,7 @@ class TestValueCounts:
 
     def test_html_export(self, cat_csv, tmp_path):
         out = tmp_path / "vc.html"
-        r = value_counts(
-            str(cat_csv), columns=["Region"], output_path=str(out), open_after=False
-        )
+        r = value_counts(str(cat_csv), columns=["Region"], output_path=str(out), open_after=False)
         assert r["success"] is True
         assert out.exists()
         assert "output_name" in r
@@ -823,9 +788,7 @@ class TestSampleData:
 
     def test_save_output(self, cat_csv, tmp_path):
         out = tmp_path / "sample_out.csv"
-        r = sample_data(
-            str(cat_csv), method="head", n=3, output_path=str(out), open_after=False
-        )
+        r = sample_data(str(cat_csv), method="head", n=3, output_path=str(out), open_after=False)
         assert r["success"] is True
         assert out.exists()
 
@@ -948,9 +911,7 @@ class TestMergeDatasets:
         assert r["success"] is True
 
     def test_invalid_join_type(self, cat_csv, right_csv):
-        r = merge_datasets(
-            str(cat_csv), str(right_csv), how="invalid", open_after=False
-        )
+        r = merge_datasets(str(cat_csv), str(right_csv), how="invalid", open_after=False)
         assert r["success"] is False
 
     def test_left_col_not_found(self, cat_csv, right_csv):
@@ -964,9 +925,7 @@ class TestMergeDatasets:
         assert r["success"] is False
 
     def test_file_not_found(self, tmp_path, right_csv):
-        r = merge_datasets(
-            str(tmp_path / "missing.csv"), str(right_csv), open_after=False
-        )
+        r = merge_datasets(str(tmp_path / "missing.csv"), str(right_csv), open_after=False)
         assert r["success"] is False
 
 
@@ -977,9 +936,7 @@ class TestMergeDatasets:
 
 class TestFeatureEngineering:
     def test_text_length(self, cat_csv):
-        r = feature_engineering(
-            str(cat_csv), features=["text_length"], open_after=False
-        )
+        r = feature_engineering(str(cat_csv), features=["text_length"], open_after=False)
         assert r["success"] is True
         assert any("_len" in c for c in r["new_columns"])
 
@@ -995,17 +952,13 @@ class TestFeatureEngineering:
 
     def test_dry_run(self, cat_csv):
         before = Path(str(cat_csv)).read_text()
-        r = feature_engineering(
-            str(cat_csv), features=["bins"], dry_run=True, open_after=False
-        )
+        r = feature_engineering(str(cat_csv), features=["bins"], dry_run=True, open_after=False)
         assert r["success"] is True
         assert r["dry_run"] is True
         assert Path(str(cat_csv)).read_text() == before
 
     def test_invalid_feature(self, cat_csv):
-        r = feature_engineering(
-            str(cat_csv), features=["invalid_feature"], open_after=False
-        )
+        r = feature_engineering(str(cat_csv), features=["invalid_feature"], open_after=False)
         assert r["success"] is False
 
     def test_file_not_found(self, tmp_path):
@@ -1020,9 +973,7 @@ class TestFeatureEngineering:
 
 class TestStatisticalTests:
     def test_ttest_two_columns(self, numeric_csv):
-        r = statistical_tests(
-            str(numeric_csv), test_type="ttest", column_a="Revenue", column_b="Units"
-        )
+        r = statistical_tests(str(numeric_csv), test_type="ttest", column_a="Revenue", column_b="Units")
         assert r["success"] is True
         assert "p_value" in r
         assert "significant" in r
@@ -1038,16 +989,12 @@ class TestStatisticalTests:
         assert "statistic" in r
 
     def test_chi_square(self, cat_csv):
-        r = statistical_tests(
-            str(cat_csv), test_type="chi_square", column_a="Region", column_b="Product"
-        )
+        r = statistical_tests(str(cat_csv), test_type="chi_square", column_a="Region", column_b="Product")
         assert r["success"] is True
         assert "degrees_of_freedom" in r
 
     def test_anova(self, cat_csv):
-        r = statistical_tests(
-            str(cat_csv), test_type="anova", column_a="Revenue", group_column="Region"
-        )
+        r = statistical_tests(str(cat_csv), test_type="anova", column_a="Revenue", group_column="Region")
         assert r["success"] is True
         assert "groups" in r
 
@@ -1093,15 +1040,11 @@ class TestTimeSeriesAnalysis:
         assert "Revenue" in r["trend"]
 
     def test_auto_detect_date(self, date_csv):
-        r = time_series_analysis(
-            str(date_csv), value_columns=["Revenue"], open_after=False
-        )
+        r = time_series_analysis(str(date_csv), value_columns=["Revenue"], open_after=False)
         assert r["success"] is True
 
     def test_period_quarterly(self, date_csv):
-        r = time_series_analysis(
-            str(date_csv), date_column="Date", period="Q", open_after=False
-        )
+        r = time_series_analysis(str(date_csv), date_column="Date", period="Q", open_after=False)
         assert r["success"] is True
         assert r["period"] == "Q"
 

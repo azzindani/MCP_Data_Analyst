@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import sys
 import logging
+import sys
 from pathlib import Path
 
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
@@ -41,9 +41,7 @@ def generate_distribution_plot(
     theme: str = "dark",
 ) -> dict:
     """Histogram + box plot for numeric columns. Opens HTML file."""
-    return engine.generate_distribution_plot(
-        file_path, columns, output_path, open_after, theme
-    )
+    return engine.generate_distribution_plot(file_path, columns, output_path, open_after, theme)
 
 
 @mcp.tool()
@@ -177,9 +175,7 @@ def generate_correlation_heatmap(
     theme: str = "dark",
 ) -> dict:
     """Interactive correlation heatmap for numeric columns. Opens HTML."""
-    return engine.generate_correlation_heatmap(
-        file_path, method, output_path, open_after, theme
-    )
+    return engine.generate_correlation_heatmap(file_path, method, output_path, open_after, theme)
 
 
 @mcp.tool()
@@ -192,9 +188,7 @@ def generate_pairwise_plot(
     theme: str = "dark",
 ) -> dict:
     """Pairwise scatter + histogram matrix for numeric columns. Opens HTML."""
-    return engine.generate_pairwise_plot(
-        file_path, columns, max_cols, output_path, open_after, theme
-    )
+    return engine.generate_pairwise_plot(file_path, columns, max_cols, output_path, open_after, theme)
 
 
 @mcp.tool()
@@ -218,9 +212,7 @@ def export_data(
     open_after: bool = True,
 ) -> dict:
     """Export dataset to CSV, Excel, or JSON format."""
-    return engine.export_data(
-        file_path, output_path, format, encoding, separator, open_after
-    )
+    return engine.export_data(file_path, output_path, format, encoding, separator, open_after)
 
 
 @mcp.tool()

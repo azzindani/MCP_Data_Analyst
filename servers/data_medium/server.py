@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import sys
 import logging
+import sys
 from pathlib import Path
 
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
@@ -33,9 +33,7 @@ def check_outliers(
     theme: str = "dark",
 ) -> dict:
     """Scan numeric columns for outliers. method: iqr std both."""
-    return engine.check_outliers(
-        file_path, columns, method, th1, th3, output_path, open_after, theme
-    )
+    return engine.check_outliers(file_path, columns, method, th1, th3, output_path, open_after, theme)
 
 
 @mcp.tool()
@@ -48,9 +46,7 @@ def scan_nulls_zeros(
     theme: str = "dark",
 ) -> dict:
     """Scan all columns for nulls and zeros. Returns counts and pcts."""
-    return engine.scan_nulls_zeros(
-        file_path, include_zeros, min_count, output_path, open_after, theme
-    )
+    return engine.scan_nulls_zeros(file_path, include_zeros, min_count, output_path, open_after, theme)
 
 
 @mcp.tool()
@@ -63,9 +59,7 @@ def enrich_with_geo(
     dry_run: bool = False,
 ) -> dict:
     """Merge dataset with geo data on a location key. Saves result."""
-    return engine.enrich_with_geo(
-        file_path, geo_file_path, join_column, geo_join_column, output_path, dry_run
-    )
+    return engine.enrich_with_geo(file_path, geo_file_path, join_column, geo_join_column, output_path, dry_run)
 
 
 @mcp.tool()
@@ -76,9 +70,7 @@ def validate_dataset(
     check_duplicates: bool = True,
 ) -> dict:
     """Validate dataset quality: types nulls duplicates ranges. Report."""
-    return engine.validate_dataset(
-        file_path, expected_dtypes, max_null_pct, check_duplicates
-    )
+    return engine.validate_dataset(file_path, expected_dtypes, max_null_pct, check_duplicates)
 
 
 @mcp.tool()
@@ -91,9 +83,7 @@ def compute_aggregations(
     top_n: int = 0,
 ) -> dict:
     """Group by columns and aggregate. agg: sum mean count min max."""
-    return engine.compute_aggregations(
-        file_path, group_by, agg_column, agg_func, sort_desc, top_n
-    )
+    return engine.compute_aggregations(file_path, group_by, agg_column, agg_func, sort_desc, top_n)
 
 
 @mcp.tool()
@@ -116,9 +106,7 @@ def correlation_analysis(
     theme: str = "dark",
 ) -> dict:
     """Correlation matrix + top N strongest pairs for numeric columns."""
-    return engine.correlation_analysis(
-        file_path, method, top_n, output_path, open_after, theme
-    )
+    return engine.correlation_analysis(file_path, method, top_n, output_path, open_after, theme)
 
 
 @mcp.tool()
@@ -171,9 +159,7 @@ def value_counts(
     theme: str = "dark",
 ) -> dict:
     """Frequency tables with percentages for categorical columns."""
-    return engine.value_counts(
-        file_path, columns, top_n, include_pct, output_path, open_after, theme
-    )
+    return engine.value_counts(file_path, columns, top_n, include_pct, output_path, open_after, theme)
 
 
 @mcp.tool()
@@ -198,9 +184,7 @@ def sample_data(
     open_after: bool = True,
 ) -> dict:
     """Sample rows from dataset. methods: random head tail."""
-    return engine.sample_data(
-        file_path, method, n, random_state, output_path, open_after
-    )
+    return engine.sample_data(file_path, method, n, random_state, output_path, open_after)
 
 
 @mcp.tool()
@@ -257,9 +241,7 @@ def feature_engineering(
     open_after: bool = True,
 ) -> dict:
     """Auto-create features: date parts, numeric bins, text length, one-hot encoding."""
-    return engine.feature_engineering(
-        file_path, features, output_path, dry_run, open_after
-    )
+    return engine.feature_engineering(file_path, features, output_path, dry_run, open_after)
 
 
 @mcp.tool()
@@ -271,9 +253,7 @@ def statistical_tests(
     group_column: str = "",
 ) -> dict:
     """Auto-select and run statistical tests: t-test, ANOVA, chi-square, correlation."""
-    return engine.statistical_tests(
-        file_path, test_type, column_a, column_b, group_column
-    )
+    return engine.statistical_tests(file_path, test_type, column_a, column_b, group_column)
 
 
 @mcp.tool()
@@ -287,9 +267,7 @@ def time_series_analysis(
     theme: str = "dark",
 ) -> dict:
     """Auto-detect date column, compute trend, seasonality, rolling stats."""
-    return engine.time_series_analysis(
-        file_path, date_column, value_columns, period, output_path, open_after, theme
-    )
+    return engine.time_series_analysis(file_path, date_column, value_columns, period, output_path, open_after, theme)
 
 
 @mcp.tool()

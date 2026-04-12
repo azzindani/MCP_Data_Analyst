@@ -18,6 +18,7 @@ import pandas as pd
 try:
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
+
     from shared.html_theme import plotly_template
 
     _PLOTLY_AVAILABLE = True
@@ -32,6 +33,7 @@ from _med_helpers import (
     _save_chart,
     _token_estimate,
 )
+
 from shared.file_utils import resolve_path
 from shared.platform_utils import get_max_results, get_max_rows
 from shared.progress import fail, info, ok, warn
@@ -158,16 +160,12 @@ def check_outliers(
                 template=plotly_template(theme),
                 height=450,
             )
-            abs_p, fname = _save_chart(
-                fig, output_path, "outliers", path, open_after, theme
-            )
+            abs_p, fname = _save_chart(fig, output_path, "outliers", path, open_after, theme)
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))
         elif not _PLOTLY_AVAILABLE:
-            progress.append(
-                warn("plotly not installed", "pip install plotly to enable HTML export")
-            )
+            progress.append(warn("plotly not installed", "pip install plotly to enable HTML export"))
 
         result["token_estimate"] = _token_estimate(result)
         return result
@@ -228,9 +226,7 @@ def scan_nulls_zeros(
                 null_c += int(null_like)
                 null_p = round(null_c / total_rows * 100, 2) if total_rows > 0 else 0.0
 
-            flagged = null_c >= min_count or (
-                zero_c is not None and zero_c >= min_count
-            )
+            flagged = null_c >= min_count or (zero_c is not None and zero_c >= min_count)
             if not flagged:
                 continue
 
@@ -250,14 +246,10 @@ def scan_nulls_zeros(
                 else:
                     suggested[col] = "apply_patch op=fill_nulls strategy=mode"
             if zero_c is not None and zero_c > 0:
-                suggested[col] = (
-                    "apply_patch op=fill_nulls fill_zeros=true strategy=mean"
-                )
+                suggested[col] = "apply_patch op=fill_nulls fill_zeros=true strategy=mean"
 
         clean_count = len(df.columns) - len(results)
-        progress.append(
-            ok(f"Scanned {path.name}", f"{clean_count} clean, {len(results)} flagged")
-        )
+        progress.append(ok(f"Scanned {path.name}", f"{clean_count} clean, {len(results)} flagged"))
 
         result: dict = {
             "success": True,
@@ -271,7 +263,9 @@ def scan_nulls_zeros(
         }
 
         if _PLOTLY_AVAILABLE and results:
-            cols = list(results.keys())
+            # Sort by null count descending so highest is at top of the h-bar chart
+            sorted_cols = sorted(results.keys(), key=lambda c: results[c]["null_count"])
+            cols = sorted_cols
             null_vals = [results[c]["null_count"] for c in cols]
             zero_vals = [results[c]["zero_count"] or 0 for c in cols]
             fig = go.Figure()
@@ -301,16 +295,12 @@ def scan_nulls_zeros(
                 template=plotly_template(theme),
                 height=max(300, len(cols) * 30 + 100),
             )
-            abs_p, fname = _save_chart(
-                fig, output_path, "nulls_zeros", path, open_after, theme
-            )
+            abs_p, fname = _save_chart(fig, output_path, "nulls_zeros", path, open_after, theme)
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))
         elif not _PLOTLY_AVAILABLE:
-            progress.append(
-                warn("plotly not installed", "pip install plotly to enable HTML export")
-            )
+            progress.append(warn("plotly not installed", "pip install plotly to enable HTML export"))
 
         result["token_estimate"] = _token_estimate(result)
         return result
@@ -497,9 +487,7 @@ def auto_detect_schema(
                     parsed = pd.to_datetime(s.dropna().head(50), errors="raise")
                     if len(parsed) > 0:
                         info_entry["inferred_type"] = "datetime"
-                        info_entry["suggestion"] = (
-                            f"cast_column col={col} dtype=datetime"
-                        )
+                        info_entry["suggestion"] = f"cast_column col={col} dtype=datetime"
                         suggestions.append(info_entry["suggestion"])
                 except Exception:
                     pass
@@ -515,9 +503,7 @@ def auto_detect_schema(
                     unique_ratio = s.nunique() / max(len(s.dropna()), 1)
                     if s.nunique() == len(s.dropna()) and s.nunique() > 10:
                         info_entry["inferred_type"] = "id"
-                        info_entry["suggestion"] = (
-                            f"drop_column col={col} (likely ID, low analytical value)"
-                        )
+                        info_entry["suggestion"] = f"drop_column col={col} (likely ID, low analytical value)"
                     elif unique_ratio < 0.05:
                         info_entry["inferred_type"] = "category"
                     else:
@@ -537,9 +523,7 @@ def auto_detect_schema(
 
             column_info[col] = info_entry
 
-        progress.append(
-            ok(f"Schema detected for {path.name}", f"{len(column_info)} columns")
-        )
+        progress.append(ok(f"Schema detected for {path.name}", f"{len(column_info)} columns"))
 
         result = {
             "success": True,
@@ -593,9 +577,7 @@ def _apply_condition(df: pd.DataFrame, cond: dict) -> pd.Series:
         return s.isna()
     if op == "not_null":
         return s.notna()
-    raise ValueError(
-        f"Unknown op '{op}'. Valid: equals not_equals contains gt gte lt lte is_null not_null"
-    )
+    raise ValueError(f"Unknown op '{op}'. Valid: equals not_equals contains gt gte lt lte is_null not_null")
 
 
 # ---------------------------------------------------------------------------
@@ -681,9 +663,7 @@ def filter_rows(
             result=f"kept {rows_after}/{rows_before} rows",
             backup=backup,
         )
-        progress.append(
-            ok(f"Filtered {path.name}", f"{rows_after}/{rows_before} rows kept")
-        )
+        progress.append(ok(f"Filtered {path.name}", f"{rows_after}/{rows_before} rows kept"))
 
         result = {
             "success": True,
@@ -872,25 +852,15 @@ def analyze_text_column(
         number_re = re.compile(r"^\d+\.?\d*$")
 
         patterns = {
-            "emails": int(
-                non_null.astype(str).apply(lambda x: bool(email_re.search(x))).sum()
-            ),
-            "urls": int(
-                non_null.astype(str).apply(lambda x: bool(url_re.search(x))).sum()
-            ),
-            "phone_numbers": int(
-                non_null.astype(str).apply(lambda x: bool(phone_re.search(x))).sum()
-            ),
-            "pure_numbers": int(
-                non_null.astype(str).apply(lambda x: bool(number_re.match(x))).sum()
-            ),
+            "emails": int(non_null.astype(str).apply(lambda x: bool(email_re.search(x))).sum()),
+            "urls": int(non_null.astype(str).apply(lambda x: bool(url_re.search(x))).sum()),
+            "phone_numbers": int(non_null.astype(str).apply(lambda x: bool(phone_re.search(x))).sum()),
+            "pure_numbers": int(non_null.astype(str).apply(lambda x: bool(number_re.match(x))).sum()),
         }
 
         sample = non_null.head(3).tolist()
 
-        progress.append(
-            ok(f"Analyzed text column '{column}'", f"{len(non_null)} non-null values")
-        )
+        progress.append(ok(f"Analyzed text column '{column}'", f"{len(non_null)} non-null values"))
 
         result = {
             "success": True,

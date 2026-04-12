@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 
 
@@ -10,7 +10,7 @@ def snapshot(file_path: str) -> str:
     path = Path(file_path)
     versions_dir = path.parent / ".mcp_versions"
     versions_dir.mkdir(exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S-%fZ")
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%S-%fZ")
     backup_name = f"{path.stem}_{timestamp}.bak"
     backup_path = versions_dir / backup_name
     shutil.copy2(str(path), str(backup_path))

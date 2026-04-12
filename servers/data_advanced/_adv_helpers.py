@@ -13,15 +13,35 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 import pandas as pd
+
+from shared.column_utils import agg_label, infer_agg, parse_agg_overrides  # noqa: F401
+from shared.html_layout import (  # noqa: F401  (re-exported for sub-modules)
+    PLOTLY_CFG_JS,
+    css_dashboard,
+    css_report,
+    get_output_path,
+    get_plotlyjs_script,
+    plotly_layout_base,
+)
 from shared.html_theme import (
+    _BACK_TO_TOP_HTML,
+    _BACK_TO_TOP_JS,
+    _COLLAPSIBLE_SECTIONS_JS,
+    _COPY_CLIPBOARD_JS,
+    _KPI_COUNTER_JS,
+    _SCROLL_SPY_JS,
+    _SIDEBAR_JS,
+    _SORTABLE_TABLES_JS,
+    VIEWPORT_META,
+    calc_chart_height,
     css_vars,
     device_mode_js,
     plotly_template,
+)
+from shared.html_theme import (
     save_chart as _html_save_chart,
-    VIEWPORT_META,
 )
 from shared.progress import fail, info, ok, warn
-from shared.column_utils import infer_agg, agg_label, parse_agg_overrides  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -67,9 +87,7 @@ def _save_chart(
     theme: str = "dark",
 ) -> tuple[str, str]:
     """Save plotly figure to themed responsive HTML."""
-    return _html_save_chart(
-        fig, output_path, stem_suffix, input_path, theme, open_after, _open_file
-    )
+    return _html_save_chart(fig, output_path, stem_suffix, input_path, theme, open_after, _open_file)
 
 
 def _dtype_label(series: pd.Series) -> str:

@@ -16,7 +16,8 @@ import pandas as pd
 
 try:
     import plotly.graph_objects as go
-    from shared.html_theme import plotly_template
+
+    from shared.html_theme import calc_chart_height, plotly_template
 
     _PLOTLY_AVAILABLE = True
 except ImportError:
@@ -28,10 +29,11 @@ from _med_helpers import (
     _save_chart,
     _token_estimate,
 )
+
+from shared.column_utils import infer_agg
 from shared.file_utils import resolve_path
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
-from shared.column_utils import infer_agg
 
 logger = logging.getLogger(__name__)
 
@@ -100,15 +102,11 @@ def correlation_analysis(
         top_pairs = pairs[: max(1, top_n)]
 
         matrix = {
-            col: {
-                c: round(float(v), 4) if pd.notna(v) else None for c, v in row.items()
-            }
+            col: {c: round(float(v), 4) if pd.notna(v) else None for c, v in row.items()}
             for col, row in corr.to_dict().items()
         }
 
-        progress.append(
-            ok(f"Correlation for {path.name}", f"method={method}, {len(cols)} columns")
-        )
+        progress.append(ok(f"Correlation for {path.name}", f"method={method}, {len(cols)} columns"))
 
         result: dict = {
             "success": True,
@@ -121,10 +119,7 @@ def correlation_analysis(
         }
 
         if _PLOTLY_AVAILABLE:
-            z = [
-                [matrix[r][c] if matrix[r][c] is not None else 0.0 for c in cols]
-                for r in cols
-            ]
+            z = [[matrix[r][c] if matrix[r][c] is not None else 0.0 for c in cols] for r in cols]
             fig = go.Figure(
                 go.Heatmap(
                     z=z,
@@ -132,26 +127,21 @@ def correlation_analysis(
                     y=cols,
                     colorscale="RdBu",
                     zmid=0,
-                    text=[
-                        [f"{v:.2f}" if v is not None else "" for v in row] for row in z
-                    ],
+                    text=[[f"{v:.2f}" if v is not None else "" for v in row] for row in z],
                     texttemplate="%{text}",
                 )
             )
             fig.update_layout(
                 title=f"Correlation Heatmap — {path.name} ({method})",
                 template=plotly_template(theme),
+                height=calc_chart_height(len(cols), mode="heatmap"),
             )
-            abs_p, fname = _save_chart(
-                fig, output_path, "correlation", path, open_after, theme
-            )
+            abs_p, fname = _save_chart(fig, output_path, "correlation", path, open_after, theme)
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))
         else:
-            progress.append(
-                warn("plotly not installed", "pip install plotly to enable HTML export")
-            )
+            progress.append(warn("plotly not installed", "pip install plotly to enable HTML export"))
 
         result["token_estimate"] = _token_estimate(result)
         return result
@@ -275,9 +265,7 @@ def statistical_tests(
                     "progress": [fail("Invalid ANOVA params", "")],
                     "token_estimate": 20,
                 }
-            groups_data = [
-                grp[column_a].dropna().values for _, grp in df.groupby(group_column)
-            ]
+            groups_data = [grp[column_a].dropna().values for _, grp in df.groupby(group_column)]
             stat, pval = scipy_stats.f_oneway(*groups_data)
             test_result = {
                 "test": "One-Way ANOVA",
@@ -310,9 +298,7 @@ def statistical_tests(
                 "degrees_of_freedom": int(dof),
                 "significant": float(pval) < 0.05,
                 "interpretation": (
-                    "Significant association (p<0.05)"
-                    if float(pval) < 0.05
-                    else "No significant association (p≥0.05)"
+                    "Significant association (p<0.05)" if float(pval) < 0.05 else "No significant association (p≥0.05)"
                 ),
             }
 
@@ -350,9 +336,7 @@ def statistical_tests(
                 "token_estimate": 20,
             }
 
-        progress.append(
-            ok(f"Statistical test on {path.name}", test_result.get("test", test_type))
-        )
+        progress.append(ok(f"Statistical test on {path.name}", test_result.get("test", test_type)))
 
         result = {
             "success": True,
@@ -417,9 +401,7 @@ def time_series_analysis(
         df = _read_csv(str(path))
 
         if not date_column:
-            date_cols = [
-                c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])
-            ]
+            date_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])]
             if not date_cols:
                 for col in df.columns:
                     if _is_string_col(df[col]):
@@ -445,9 +427,7 @@ def time_series_analysis(
         df = df.dropna(subset=[date_column])
 
         if not value_columns:
-            value_columns = [
-                c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])
-            ][:5]
+            value_columns = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])][:5]
 
         missing_vals = [c for c in value_columns if c not in df.columns]
         if missing_vals:
@@ -474,9 +454,7 @@ def time_series_analysis(
             else:
                 resampled_parts.append(_rs.sum())
         resampled = (
-            pd.concat(resampled_parts, axis=1)
-            if resampled_parts
-            else df[value_columns].resample(resample_period).sum()
+            pd.concat(resampled_parts, axis=1) if resampled_parts else df[value_columns].resample(resample_period).sum()
         )
 
         rolling_7 = resampled.rolling(window=7, min_periods=1).mean()  # noqa: F841
@@ -497,11 +475,7 @@ def time_series_analysis(
                     trend_data[col] = {
                         "slope": round(float(slope), 4),
                         "r_squared": round(float(r_val**2), 4),
-                        "direction": "up"
-                        if slope > 0
-                        else "down"
-                        if slope < 0
-                        else "flat",
+                        "direction": "up" if slope > 0 else "down" if slope < 0 else "flat",
                     }
         except ImportError:
             pass
@@ -523,9 +497,7 @@ def time_series_analysis(
             # Generate next 3 periods' date index
             try:
                 last_idx = ts.index[-1]
-                future_idx = pd.date_range(
-                    start=last_idx, periods=forecast_periods + 1, freq=resample_period
-                )[1:]
+                future_idx = pd.date_range(start=last_idx, periods=forecast_periods + 1, freq=resample_period)[1:]
                 # Forecast: all 3 periods equal to last smoothed value
                 fcast = [round(smoothed, 4)] * forecast_periods
                 forecast_values_map[col] = fcast
@@ -585,17 +557,14 @@ def time_series_analysis(
                 title=f"Time Series — {path.name} (period={period})",
                 xaxis_title=date_column,
                 template=plotly_template(theme),
+                height=calc_chart_height(len(value_columns), mode="subplot"),
             )
-            abs_p, fname = _save_chart(
-                fig, output_path, "time_series", path, open_after, theme
-            )
+            abs_p, fname = _save_chart(fig, output_path, "time_series", path, open_after, theme)
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))
         else:
-            progress.append(
-                warn("plotly not installed", "pip install plotly to enable HTML export")
-            )
+            progress.append(warn("plotly not installed", "pip install plotly to enable HTML export"))
 
         result["token_estimate"] = _token_estimate(result)
         return result
@@ -640,9 +609,7 @@ def cohort_analysis(
         df = _read_csv(str(path))
 
         if not date_column:
-            date_cols = [
-                c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])
-            ]
+            date_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])]
             if not date_cols:
                 for col in df.columns:
                     if _is_string_col(df[col]):
@@ -668,9 +635,7 @@ def cohort_analysis(
         df = df.dropna(subset=[date_column])
 
         if not cohort_column:
-            cat_cols = [
-                c for c in df.columns if _is_string_col(df[c]) and df[c].nunique() < 50
-            ]
+            cat_cols = [c for c in df.columns if _is_string_col(df[c]) and df[c].nunique() < 50]
             if cat_cols:
                 cohort_column = cat_cols[0]
                 progress.append(info("Auto-detected cohort column", cohort_column))
@@ -709,9 +674,7 @@ def cohort_analysis(
         pivot_trunc = pivot.head(max_r)
 
         matrix = {
-            str(idx): {
-                str(col): int(v) if hasattr(v, "item") else v for col, v in row.items()
-            }
+            str(idx): {str(col): int(v) if hasattr(v, "item") else v for col, v in row.items()}
             for idx, row in pivot_trunc.to_dict(orient="index").items()
         }
 
@@ -757,17 +720,14 @@ def cohort_analysis(
                 xaxis_title="Period",
                 yaxis_title=cohort_column,
                 template=plotly_template(theme),
+                height=calc_chart_height(len(row_keys), mode="heatmap"),
             )
-            abs_p, fname = _save_chart(
-                fig, output_path, "cohort", path, open_after, theme
-            )
+            abs_p, fname = _save_chart(fig, output_path, "cohort", path, open_after, theme)
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))
         else:
-            progress.append(
-                warn("plotly not installed", "pip install plotly to enable HTML export")
-            )
+            progress.append(warn("plotly not installed", "pip install plotly to enable HTML export"))
 
         result["token_estimate"] = _token_estimate(result)
         return result
@@ -866,11 +826,7 @@ def detect_anomalies(
 
             per_column_summary[col] = col_summary
 
-        flag_cols = [
-            c
-            for c in result_df.columns
-            if c.endswith("_iqr_flag") or c.endswith("_zscore_flag")
-        ]
+        flag_cols = [c for c in result_df.columns if c.endswith("_iqr_flag") or c.endswith("_zscore_flag")]
         if flag_cols:
             result_df["_anomaly_score"] = result_df[flag_cols].sum(axis=1)
         else:
@@ -878,11 +834,7 @@ def detect_anomalies(
 
         anomaly_count = int((result_df["_anomaly_score"] > 0).sum())
 
-        out = (
-            output_path
-            if output_path
-            else str(path.parent / f"{path.stem}_anomalies.csv")
-        )
+        out = output_path if output_path else str(path.parent / f"{path.stem}_anomalies.csv")
         result_df.to_csv(out, index=False)
 
         progress.append(

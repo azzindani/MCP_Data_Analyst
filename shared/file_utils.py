@@ -6,12 +6,21 @@ import tempfile
 from pathlib import Path
 
 
-def resolve_path(file_path: str) -> Path:
-    """Return absolute Path; raises FileNotFoundError if not found."""
-    path = Path(file_path)
-    if not path.is_absolute():
-        path = Path.cwd() / path
+def resolve_path(file_path: str, allowed_extensions: tuple[str, ...] = ()) -> Path:
+    """Return resolved absolute Path; raises ValueError for bad extension."""
+    path = Path(file_path).resolve()
+    if allowed_extensions and path.suffix.lower() not in allowed_extensions:
+        raise ValueError(f"Extension {path.suffix!r} not allowed. Allowed: {allowed_extensions}")
     return path
+
+
+def get_default_output_dir(input_path: str | None = None) -> Path:
+    """Return default output dir: ~/Downloads if it exists, else input file's parent."""
+    if input_path:
+        p = Path(input_path).resolve()
+        if p.parent.exists():
+            return p.parent
+    return Path.home() / "Downloads"
 
 
 def atomic_write(target: Path, content: bytes) -> None:

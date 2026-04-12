@@ -44,24 +44,18 @@ def validate_ops(ops: list[dict]) -> list[str]:
             continue
 
         if op_name not in VALID_OPS:
-            errors.append(
-                f"{prefix}: unknown op '{op_name}'. "
-                f"Valid ops: {', '.join(sorted(VALID_OPS))}"
-            )
+            errors.append(f"{prefix}: unknown op '{op_name}'. Valid ops: {', '.join(sorted(VALID_OPS))}")
             continue
 
         if op_name == "drop_column":
             if "columns" not in op or not isinstance(op["columns"], list):
-                errors.append(
-                    f"{prefix} (drop_column): 'columns' must be a list of strings"
-                )
+                errors.append(f"{prefix} (drop_column): 'columns' must be a list of strings")
 
         elif op_name == "clean_text":
             scope = op.get("scope", "both")
             if scope not in _CLEAN_SCOPES:
                 errors.append(
-                    f"{prefix} (clean_text): invalid scope '{scope}'. "
-                    f"Valid: {', '.join(sorted(_CLEAN_SCOPES))}"
+                    f"{prefix} (clean_text): invalid scope '{scope}'. Valid: {', '.join(sorted(_CLEAN_SCOPES))}"
                 )
 
         elif op_name == "cast_column":
@@ -70,8 +64,7 @@ def validate_ops(ops: list[dict]) -> list[str]:
             dtype = op.get("dtype")
             if dtype not in _CAST_DTYPES:
                 errors.append(
-                    f"{prefix} (cast_column): invalid dtype '{dtype}'. "
-                    f"Valid: {', '.join(sorted(_CAST_DTYPES))}"
+                    f"{prefix} (cast_column): invalid dtype '{dtype}'. Valid: {', '.join(sorted(_CAST_DTYPES))}"
                 )
 
         elif op_name == "replace_values":
@@ -85,16 +78,11 @@ def validate_ops(ops: list[dict]) -> list[str]:
                 errors.append(f"{prefix} (add_column): missing 'name'")
             mode = op.get("mode", "math")
             if mode not in _ADD_MODES:
-                errors.append(
-                    f"{prefix} (add_column): invalid mode '{mode}'. "
-                    f"Valid: {', '.join(sorted(_ADD_MODES))}"
-                )
+                errors.append(f"{prefix} (add_column): invalid mode '{mode}'. Valid: {', '.join(sorted(_ADD_MODES))}")
             if mode == "math" and "expr" not in op:
                 errors.append(f"{prefix} (add_column): math mode requires 'expr'")
             if mode == "threshold" and "source" not in op:
-                errors.append(
-                    f"{prefix} (add_column): threshold mode requires 'source'"
-                )
+                errors.append(f"{prefix} (add_column): threshold mode requires 'source'")
 
         elif op_name == "cap_outliers":
             if "column" not in op:
@@ -102,8 +90,7 @@ def validate_ops(ops: list[dict]) -> list[str]:
             method = op.get("method", "iqr")
             if method not in _CAP_METHODS:
                 errors.append(
-                    f"{prefix} (cap_outliers): invalid method '{method}'. "
-                    f"Valid: {', '.join(sorted(_CAP_METHODS))}"
+                    f"{prefix} (cap_outliers): invalid method '{method}'. Valid: {', '.join(sorted(_CAP_METHODS))}"
                 )
 
         elif op_name == "fill_nulls":
@@ -121,10 +108,7 @@ def validate_ops(ops: list[dict]) -> list[str]:
                 errors.append(f"{prefix} (normalize): missing 'column'")
             method = op.get("method", "minmax")
             if method not in {"minmax", "zscore"}:
-                errors.append(
-                    f"{prefix} (normalize): invalid method '{method}'. "
-                    f"Valid: minmax, zscore"
-                )
+                errors.append(f"{prefix} (normalize): invalid method '{method}'. Valid: minmax, zscore")
 
         elif op_name == "label_encode":
             if "column" not in op:
@@ -147,10 +131,7 @@ def validate_ops(ops: list[dict]) -> list[str]:
                 errors.append(f"{prefix} (date_diff): missing 'new_column'")
             unit = op.get("unit", "days")
             if unit not in {"days", "months", "years"}:
-                errors.append(
-                    f"{prefix} (date_diff): invalid unit '{unit}'. "
-                    f"Valid: days, months, years"
-                )
+                errors.append(f"{prefix} (date_diff): invalid unit '{unit}'. Valid: days, months, years")
 
         elif op_name == "rank_column":
             if "column" not in op:
@@ -158,8 +139,7 @@ def validate_ops(ops: list[dict]) -> list[str]:
             method = op.get("method", "dense")
             if method not in {"average", "min", "max", "first", "dense"}:
                 errors.append(
-                    f"{prefix} (rank_column): invalid method '{method}'. "
-                    f"Valid: average, min, max, first, dense"
+                    f"{prefix} (rank_column): invalid method '{method}'. Valid: average, min, max, first, dense"
                 )
 
     return errors

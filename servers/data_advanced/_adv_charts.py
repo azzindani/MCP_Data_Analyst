@@ -14,14 +14,16 @@ for _p in (str(_ROOT), _HERE):
 
 import pandas as pd
 from _adv_helpers import (
-    _token_estimate,
-    _read_csv,
     _open_file,
+    _read_csv,
     _save_chart,
+    _token_estimate,
+    calc_chart_height,
     fail,
     ok,
     plotly_template,
 )
+
 from shared.file_utils import resolve_path
 
 logger = logging.getLogger(__name__)
@@ -80,8 +82,7 @@ def generate_distribution_plot(
         fig = make_subplots(
             rows=n,
             cols=2,
-            subplot_titles=[f"{c} — Histogram" for c in cols_to_plot]
-            + [f"{c} — Box Plot" for c in cols_to_plot],
+            subplot_titles=[f"{c} — Histogram" for c in cols_to_plot] + [f"{c} — Box Plot" for c in cols_to_plot],
             vertical_spacing=0.3 / n,
         )
 
@@ -104,9 +105,7 @@ def generate_distribution_plot(
             showlegend=False,
         )
 
-        abs_p, fname = _save_chart(
-            fig, output_path, "distributions", path, open_after, theme
-        )
+        abs_p, fname = _save_chart(fig, output_path, "distributions", path, open_after, theme)
         progress.append(ok("Distribution plots saved", f"{fname} — {n} columns"))
 
         result = {
@@ -188,12 +187,8 @@ def generate_correlation_heatmap(
             height=300 + 50 * len(numeric_cols),
         )
 
-        abs_p, fname = _save_chart(
-            fig, output_path, "correlation_heatmap", path, open_after, theme
-        )
-        progress.append(
-            ok("Correlation heatmap saved", f"{fname} — {len(numeric_cols)} columns")
-        )
+        abs_p, fname = _save_chart(fig, output_path, "correlation_heatmap", path, open_after, theme)
+        progress.append(ok("Correlation heatmap saved", f"{fname} — {len(numeric_cols)} columns"))
 
         result = {
             "success": True,
@@ -282,14 +277,13 @@ def generate_pairwise_plot(
             title=f"Pairwise Plot: {', '.join(cols_to_plot)}",
             template=plotly_template(theme),
         )
-        fig.update_layout(autosize=True)
+        fig.update_layout(
+            autosize=True,
+            height=calc_chart_height(len(cols_to_plot), mode="subplot"),
+        )
 
-        abs_p, fname = _save_chart(
-            fig, output_path, "pairwise", path, open_after, theme
-        )
-        progress.append(
-            ok("Pairwise plot saved", f"{fname} — {len(cols_to_plot)} columns")
-        )
+        abs_p, fname = _save_chart(fig, output_path, "pairwise", path, open_after, theme)
+        progress.append(ok("Pairwise plot saved", f"{fname} — {len(cols_to_plot)} columns"))
 
         result = {
             "success": True,
@@ -370,16 +364,12 @@ def generate_multi_chart(
                 "token_estimate": 30,
             }
 
-        chart_title = (
-            title if title else f"Multi-{chart_type.replace('_', ' ').title()}"
-        )
+        chart_title = title if title else f"Multi-{chart_type.replace('_', ' ').title()}"
         fig = go.Figure()
 
         if chart_type == "multi_bar":
             if category_column:
-                grouped = df.groupby(category_column, as_index=False)[
-                    value_columns
-                ].agg(agg_func)
+                grouped = df.groupby(category_column, as_index=False)[value_columns].agg(agg_func)
                 x_vals = grouped[category_column]
             else:
                 x_vals = range(len(df))
@@ -393,9 +383,7 @@ def generate_multi_chart(
             grouped = df.groupby("period", as_index=False)[value_columns].agg(agg_func)
             x_vals = grouped["period"]
             for vc in value_columns:
-                fig.add_trace(
-                    go.Scatter(x=x_vals, y=grouped[vc], name=vc, mode="lines+markers")
-                )
+                fig.add_trace(go.Scatter(x=x_vals, y=grouped[vc], name=vc, mode="lines+markers"))
 
         fig.update_layout(
             title=chart_title,
@@ -404,14 +392,11 @@ def generate_multi_chart(
             yaxis_title=agg_func.title(),
             legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
             margin=dict(l=20, r=20, t=40, b=20),
+            height=calc_chart_height(len(value_columns), mode="subplot"),
         )
 
-        abs_p, fname = _save_chart(
-            fig, output_path, f"multi_{chart_type}", path, open_after, theme
-        )
-        progress.append(
-            ok("Multi-chart saved", f"{fname} - {len(value_columns)} metrics")
-        )
+        abs_p, fname = _save_chart(fig, output_path, f"multi_{chart_type}", path, open_after, theme)
+        progress.append(ok("Multi-chart saved", f"{fname} - {len(value_columns)} metrics"))
 
         result = {
             "success": True,
@@ -490,9 +475,7 @@ def export_data(
                 _open_file(out)
 
         size_kb = round(out.stat().st_size / 1024)
-        progress.append(
-            ok("Data exported", f"{out.name} ({size_kb:,} KB, {len(df)} rows)")
-        )
+        progress.append(ok("Data exported", f"{out.name} ({size_kb:,} KB, {len(df)} rows)"))
 
         result = {
             "success": True,

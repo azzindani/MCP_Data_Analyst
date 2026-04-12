@@ -20,14 +20,12 @@ def _token_estimate(obj) -> int:
     return len(str(obj)) // 4
 
 
-def _is_string_col(series: "pd.Series") -> bool:
+def _is_string_col(series: pd.Series) -> bool:
     """Return True for object and pandas 3.x StringDtype columns."""
     return series.dtype == object or isinstance(series.dtype, pd.StringDtype)
 
 
-def _read_csv(
-    file_path: str, encoding: str = "utf-8", separator: str = ",", max_rows: int = 0
-) -> pd.DataFrame:
+def _read_csv(file_path: str, encoding: str = "utf-8", separator: str = ",", max_rows: int = 0) -> pd.DataFrame:
     kwargs: dict = {"encoding": encoding, "sep": separator, "low_memory": False}
     if max_rows > 0:
         kwargs["nrows"] = max_rows
@@ -69,6 +67,4 @@ def _save_chart(
     theme: str = "dark",
 ) -> tuple[str, str]:
     """Save plotly figure to themed responsive HTML."""
-    return _html_save_chart(
-        fig, output_path, stem_suffix, input_path, theme, open_after, _open_file
-    )
+    return _html_save_chart(fig, output_path, stem_suffix, input_path, theme, open_after, _open_file)

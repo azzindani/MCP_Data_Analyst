@@ -17,7 +17,8 @@ import pandas as pd
 try:
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
-    from shared.html_theme import plotly_template
+
+    from shared.html_theme import calc_chart_height, plotly_template
 
     _PLOTLY_AVAILABLE = True
 except ImportError:
@@ -29,6 +30,7 @@ from _med_helpers import (
     _save_chart,
     _token_estimate,
 )
+
 from shared.file_utils import resolve_path
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, ok, warn
@@ -96,10 +98,7 @@ def cross_tabulate(
             ct = pd.crosstab(df[row_column], df[col_column], normalize=norm)
 
         table = {
-            str(row_idx): {
-                str(c): (round(float(v), 4) if pd.notna(v) else None)
-                for c, v in row.items()
-            }
+            str(row_idx): {str(c): (round(float(v), 4) if pd.notna(v) else None) for c, v in row.items()}
             for row_idx, row in ct.to_dict(orient="index").items()
         }
 
@@ -111,9 +110,7 @@ def cross_tabulate(
             table = {k: table[k] for k in keys}
             progress.append(warn("Results truncated", f"Showing first {max_r} rows"))
 
-        progress.append(
-            ok(f"Cross-tabulated {path.name}", f"{row_column} × {col_column}")
-        )
+        progress.append(ok(f"Cross-tabulated {path.name}", f"{row_column} × {col_column}"))
 
         result: dict = {
             "success": True,
@@ -140,10 +137,7 @@ def cross_tabulate(
                     x=col_keys,
                     y=row_keys,
                     colorscale="Blues",
-                    text=[
-                        [f"{v:.2f}" if isinstance(v, float) else str(v) for v in row]
-                        for row in z
-                    ],
+                    text=[[f"{v:.2f}" if isinstance(v, float) else str(v) for v in row] for row in z],
                     texttemplate="%{text}",
                 )
             )
@@ -152,17 +146,14 @@ def cross_tabulate(
                 xaxis_title=col_column,
                 yaxis_title=row_column,
                 template=plotly_template(theme),
+                height=calc_chart_height(len(row_keys), mode="heatmap"),
             )
-            abs_p, fname = _save_chart(
-                fig, output_path, "crosstab", path, open_after, theme
-            )
+            abs_p, fname = _save_chart(fig, output_path, "crosstab", path, open_after, theme)
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))
         else:
-            progress.append(
-                warn("plotly not installed", "pip install plotly to enable HTML export")
-            )
+            progress.append(warn("plotly not installed", "pip install plotly to enable HTML export"))
 
         result["token_estimate"] = _token_estimate(result)
         return result
@@ -225,9 +216,7 @@ def pivot_table(
         )
 
         if isinstance(pt.columns, pd.MultiIndex):
-            pt.columns = [
-                "_".join(str(c) for c in col).strip("_") for col in pt.columns
-            ]
+            pt.columns = ["_".join(str(c) for c in col).strip("_") for col in pt.columns]
 
         pt = pt.reset_index()
         max_r = get_max_rows()
@@ -308,13 +297,10 @@ def value_counts(
             total = len(df)
             if include_pct:
                 results[col] = [
-                    {"value": str(v), "count": int(c), "pct": round(c / total * 100, 2)}
-                    for v, c in vc.items()
+                    {"value": str(v), "count": int(c), "pct": round(c / total * 100, 2)} for v, c in vc.items()
                 ]
             else:
-                results[col] = [
-                    {"value": str(v), "count": int(c)} for v, c in vc.items()
-                ]
+                results[col] = [{"value": str(v), "count": int(c)} for v, c in vc.items()]
 
         progress.append(ok(f"Value counts for {path.name}", f"{len(columns)} columns"))
 
@@ -332,12 +318,11 @@ def value_counts(
             fig = make_subplots(rows=1, cols=n_cols, subplot_titles=columns)
             for i, col in enumerate(columns):
                 entries = results[col]
-                vals = [e["value"] for e in entries]
-                counts = [e["count"] for e in entries]
+                # value_counts() is descending; reverse so highest is at top of h-bar
+                vals = [e["value"] for e in reversed(entries)]
+                counts = [e["count"] for e in reversed(entries)]
                 fig.add_trace(
-                    go.Bar(
-                        x=counts, y=vals, orientation="h", name=col, showlegend=False
-                    ),
+                    go.Bar(x=counts, y=vals, orientation="h", name=col, showlegend=False),
                     row=1,
                     col=i + 1,
                 )
@@ -346,16 +331,12 @@ def value_counts(
                 template=plotly_template(theme),
                 height=400,
             )
-            abs_p, fname = _save_chart(
-                fig, output_path, "value_counts", path, open_after, theme
-            )
+            abs_p, fname = _save_chart(fig, output_path, "value_counts", path, open_after, theme)
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))
         else:
-            progress.append(
-                warn("plotly not installed", "pip install plotly to enable HTML export")
-            )
+            progress.append(warn("plotly not installed", "pip install plotly to enable HTML export"))
 
         result["token_estimate"] = _token_estimate(result)
         return result
@@ -429,17 +410,11 @@ def compare_datasets(
                     "null_count_b": null_b,
                     "change": null_b - null_a,
                 }
-            if pd.api.types.is_numeric_dtype(
-                df_a[col]
-            ) and pd.api.types.is_numeric_dtype(df_b[col]):
+            if pd.api.types.is_numeric_dtype(df_a[col]) and pd.api.types.is_numeric_dtype(df_b[col]):
                 mean_a = float(df_a[col].mean()) if rows_a > 0 else 0.0
                 mean_b = float(df_b[col].mean()) if rows_b > 0 else 0.0
                 if abs(mean_a - mean_b) > 1e-9:
-                    pct_chg = (
-                        round((mean_b - mean_a) / mean_a * 100, 2)
-                        if mean_a != 0
-                        else None
-                    )
+                    pct_chg = round((mean_b - mean_a) / mean_a * 100, 2) if mean_a != 0 else None
                     mean_diff[col] = {
                         "mean_a": round(mean_a, 4),
                         "mean_b": round(mean_b, 4),

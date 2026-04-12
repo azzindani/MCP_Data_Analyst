@@ -7,13 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from shared.progress import ok, fail, info, warn, undo
-from shared.platform_utils import get_max_rows, get_max_columns, get_max_results
-from shared.file_utils import resolve_path, atomic_write_text
-from shared.version_control import snapshot, restore, list_versions
+from shared.file_utils import atomic_write_text, get_default_output_dir, resolve_path
 from shared.patch_validator import validate_ops
+from shared.platform_utils import get_max_columns, get_max_results, get_max_rows
+from shared.progress import fail, info, ok, undo, warn
 from shared.receipt import append_receipt, read_receipt_log
-
+from shared.version_control import list_versions, restore, snapshot
 
 # ---------------------------------------------------------------------------
 # progress helpers
@@ -59,6 +58,7 @@ def test_undo():
 def test_get_max_rows_normal(monkeypatch):
     monkeypatch.delenv("MCP_CONSTRAINED_MODE", raising=False)
     import importlib
+
     import shared.platform_utils as pu
 
     importlib.reload(pu)
@@ -86,7 +86,7 @@ def test_resolve_path_absolute(tmp_path):
     p = tmp_path / "test.csv"
     p.write_text("a,b\n1,2")
     resolved = resolve_path(str(p))
-    assert resolved == p
+    assert resolved == p.resolve()
 
 
 def test_resolve_path_relative(tmp_path, monkeypatch):
@@ -95,6 +95,41 @@ def test_resolve_path_relative(tmp_path, monkeypatch):
     p.write_text("a")
     resolved = resolve_path("rel.csv")
     assert resolved.is_absolute()
+
+
+def test_resolve_path_normalizes_dotdot(tmp_path):
+    # resolve() collapses .. so the returned path never contains traversal components
+    p = tmp_path / "sub" / ".." / "test.csv"
+    (tmp_path / "test.csv").write_text("a")
+    resolved = resolve_path(str(p))
+    assert ".." not in resolved.parts
+
+
+def test_resolve_path_allowed_extensions_ok(tmp_path):
+    p = tmp_path / "data.csv"
+    p.write_text("a")
+    resolved = resolve_path(str(p), allowed_extensions=(".csv", ".json"))
+    assert resolved == p.resolve()
+
+
+def test_resolve_path_allowed_extensions_rejected(tmp_path):
+    p = tmp_path / "data.exe"
+    p.write_text("x")
+    with pytest.raises(ValueError, match="not allowed"):
+        resolve_path(str(p), allowed_extensions=(".csv",))
+
+
+def test_get_default_output_dir_with_input(tmp_path):
+    p = tmp_path / "data.csv"
+    p.write_text("a")
+    out = get_default_output_dir(str(p))
+    assert out == tmp_path
+
+
+def test_get_default_output_dir_no_input():
+    out = get_default_output_dir()
+    # Either ~/Downloads exists or we fall back — result is always a Path
+    assert isinstance(out, Path)
 
 
 def test_atomic_write_text(tmp_path):
