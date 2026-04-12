@@ -132,7 +132,7 @@ def enrich_with_geo(
             return result
 
         backup = snapshot(str(path))
-        out = output_path if output_path else str(path)
+        out = str(Path(output_path).resolve()) if output_path else str(path)
         merged.to_csv(out, index=False)
 
         append_receipt(
@@ -496,7 +496,7 @@ def smart_impute(
             elif strategy == "ffill":
                 df[col] = df[col].ffill()
 
-        out = Path(output_path) if output_path else path
+        out = Path(output_path).resolve() if output_path else path
         df.to_csv(str(out), index=False)
 
         if open_after:
@@ -645,7 +645,7 @@ def merge_datasets(
             return result
 
         backup = snapshot(str(path))
-        out = Path(output_path) if output_path else path
+        out = Path(output_path).resolve() if output_path else path
         merged.to_csv(str(out), index=False)
 
         if open_after:
@@ -783,7 +783,7 @@ def feature_engineering(
             return result
 
         backup = snapshot(str(path))
-        out = Path(output_path) if output_path else path
+        out = Path(output_path).resolve() if output_path else path
         df.to_csv(str(out), index=False)
 
         if open_after:
