@@ -650,7 +650,7 @@ def filter_rows(
             return result
 
         backup = snapshot(str(path))
-        out = Path(output_path).resolve() if output_path else path
+        out = resolve_path(output_path) if output_path else path
         filtered.to_csv(str(out), index=False)
 
         if open_after:
@@ -740,7 +740,7 @@ def sample_data(
         records = sample.head(max_r).fillna("").to_dict(orient="records")
 
         if output_path:
-            out = Path(output_path).resolve()
+            out = resolve_path(output_path)
             sample.to_csv(str(out), index=False)
             if open_after:
                 _open_file(out)

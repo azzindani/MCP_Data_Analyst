@@ -456,7 +456,7 @@ def export_data(
             }
 
         if output_path:
-            out = Path(output_path).resolve()
+            out = resolve_path(output_path)
         else:
             ext_map = {"csv": ".csv", "json": ".json", "excel": ".xlsx"}
             out = path.parent / f"{path.stem}_export{ext_map[format]}"

@@ -834,7 +834,7 @@ def detect_anomalies(
 
         anomaly_count = int((result_df["_anomaly_score"] > 0).sum())
 
-        out = str(Path(output_path).resolve()) if output_path else str(path.parent / f"{path.stem}_anomalies.csv")
+        out = str(resolve_path(output_path)) if output_path else str(path.parent / f"{path.stem}_anomalies.csv")
         result_df.to_csv(out, index=False)
 
         progress.append(
