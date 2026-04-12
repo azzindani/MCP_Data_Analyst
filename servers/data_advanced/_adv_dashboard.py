@@ -35,6 +35,7 @@ from _adv_helpers import (
     info,
     ok,
     parse_agg_overrides,
+    theme_plot_colors,
     warn,
 )
 
@@ -236,14 +237,11 @@ def generate_dashboard(
         qual_clr = "var(--green)" if quality >= 80 else "var(--orange)" if quality >= 60 else "var(--red)"
 
         _css = css_vars(theme)
+        bg, font_c, _ = theme_plot_colors(theme)
+        grid_c = "rgba(255,255,255,0.07)" if theme == "dark" else "rgba(0,0,0,0.07)"
         if theme == "dark":
-            bg, font_c, grid_c = "#161b22", "#c9d1d9", "rgba(255,255,255,0.07)"
             geo_land_c, geo_ocean_c, geo_coast_c = "#1a2332", "#0d1117", "#3d4f60"
-        elif theme == "light":
-            bg, font_c, grid_c = "#ffffff", "#1f2328", "rgba(0,0,0,0.07)"
-            geo_land_c, geo_ocean_c, geo_coast_c = "#e8ede6", "#c8ddef", "#aabbc8"
         else:
-            bg, font_c, grid_c = "#f6f8fa", "#1f2328", "rgba(0,0,0,0.07)"
             geo_land_c, geo_ocean_c, geo_coast_c = "#e8ede6", "#c8ddef", "#aabbc8"
 
         h: list[str] = []

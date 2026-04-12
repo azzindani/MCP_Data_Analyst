@@ -37,6 +37,7 @@ from shared.html_theme import (
     css_vars,
     device_mode_js,
     plotly_template,
+    theme_plot_colors,  # noqa: F401  (re-exported for sub-modules)
 )
 from shared.html_theme import (
     save_chart as _html_save_chart,

@@ -38,6 +38,7 @@ from _adv_helpers import (
     get_output_path,
     get_plotlyjs_script,
     ok,
+    theme_plot_colors,
 )
 
 from shared.file_utils import resolve_path
@@ -107,16 +108,7 @@ def generate_auto_profile(
         ap_alerts = _compute_ap_alerts(df, numeric_cols, cat_cols, corr_pairs, rows, dup_count)
 
         _profile_vars = css_vars(theme)
-        if theme == "dark":
-            _plot_bg = "#161b22"
-            _font_color = "#c9d1d9"
-        elif theme == "light":
-            _plot_bg = "#f6f8fa"
-            _font_color = "#1f2328"
-        else:
-            _plot_bg = "#f6f8fa"
-            _font_color = "#1f2328"
-        ap_accent = "#58a6ff" if theme in ("dark", "device") else "#0969da"
+        _plot_bg, _font_color, ap_accent = theme_plot_colors(theme)
 
         h = []
         h.append(_profile_head_css(_profile_vars))

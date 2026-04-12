@@ -38,6 +38,7 @@ from _adv_helpers import (
     get_output_path,
     get_plotlyjs_script,
     ok,
+    theme_plot_colors,
 )
 
 from shared.file_utils import resolve_path
@@ -376,18 +377,16 @@ def _build_eda_html(
     score_cls = "good" if quality_score >= 80 else "warn" if quality_score >= 60 else "bad"
     missing_by_col = {s["column"]: s["null_count"] for s in column_summaries if s["null_count"] > 0}
 
-    if theme == "dark":
-        _plot_bg = "#161b22"
-        _font_color = "#c9d1d9"
-        accent_color = "#58a6ff"
-    elif theme == "light":
-        _plot_bg = "#f6f8fa"
-        _font_color = "#1f2328"
-        accent_color = "#0969da"
+    _plot_bg, _font_color, accent_color = theme_plot_colors(theme)
+
+    # For device theme, colours are resolved at runtime via matchMedia.
+    # For dark/light themes, embed static values so the theme is always honoured.
+    if theme == "device":
+        _bg_init = "var dark=window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches;var bg=dark?'#161b22':'#f6f8fa';var fc=dark?'#c9d1d9':'#1f2328';"
+        _bg_ref, _fc_ref = "bg", "fc"
     else:
-        _plot_bg = "#f6f8fa"
-        _font_color = "#1f2328"
-        accent_color = "#58a6ff"
+        _bg_init = ""
+        _bg_ref, _fc_ref = f"'{_plot_bg}'", f"'{_font_color}'"
 
     corr_json = ""
     if len(numeric_cols) >= 2:
@@ -399,12 +398,11 @@ def _build_eda_html(
 <script>
 (function(){{
   var z={corr_z};var x={json.dumps(corr_x)};
-  var dark=(typeof window!=='undefined')&&window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches;
-  var bg=dark?'#161b22':'{_plot_bg}';var fc=dark?'#c9d1d9':'{_font_color}';
+  {_bg_init}
   var data=[{{z:z,x:x,y:x,type:'heatmap',colorscale:'RdBu',zmid:0,
     text:z.map(function(r){{return r.map(function(v){{return v.toFixed(2);}});}}),
     texttemplate:'%{{text}}',textfont:{{size:11}}}}];
-  var layout={{paper_bgcolor:bg,plot_bgcolor:bg,font:{{color:fc}},
+  var layout={{paper_bgcolor:{_bg_ref},plot_bgcolor:{_bg_ref},font:{{color:{_fc_ref}}},
     margin:{{l:120,r:20,t:20,b:120}},autosize:true}};
   Plotly.newPlot('corr-chart',data,layout,{PLOTLY_CFG_JS});
 }})();
@@ -420,12 +418,11 @@ def _build_eda_html(
 <script>
 (function(){{
   var z={sp_z};var x={json.dumps(sp_x)};
-  var dark=(typeof window!=='undefined')&&window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches;
-  var bg=dark?'#161b22':'{_plot_bg}';var fc=dark?'#c9d1d9':'{_font_color}';
+  {_bg_init}
   var data=[{{z:z,x:x,y:x,type:'heatmap',colorscale:'RdBu',zmid:0,
     text:z.map(function(r){{return r.map(function(v){{return v.toFixed(2);}});}}),
     texttemplate:'%{{text}}',textfont:{{size:11}}}}];
-  var layout={{paper_bgcolor:bg,plot_bgcolor:bg,font:{{color:fc}},
+  var layout={{paper_bgcolor:{_bg_ref},plot_bgcolor:{_bg_ref},font:{{color:{_fc_ref}}},
     margin:{{l:120,r:20,t:20,b:120}},autosize:true}};
   Plotly.newPlot('sp-corr-chart',data,layout,{PLOTLY_CFG_JS});
 }})();
