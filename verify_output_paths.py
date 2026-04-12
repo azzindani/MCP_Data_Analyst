@@ -98,10 +98,10 @@ def check_file_utils() -> None:
         input_file = Path(tmp) / "data.csv"
         input_file.touch()
 
-        # input_path provided -> return its parent
+        # input_path provided -> return its parent (resolve both to handle macOS /var -> /private/var)
         result = get_default_output_dir(str(input_file))
-        if result != input_file.parent:
-            fail(f"with input file, expected parent={input_file.parent}, got {result}")
+        if result.resolve() != input_file.parent.resolve():
+            fail(f"with input file, expected parent={input_file.parent.resolve()}, got {result}")
         else:
             ok("input file provided -> returns input file's parent directory")
 
