@@ -13,6 +13,7 @@ if str(_ROOT) not in sys.path:
 
 import pandas as pd
 
+from shared.column_utils import is_numeric_col  # noqa: F401
 from shared.html_theme import save_chart as _html_save_chart
 
 

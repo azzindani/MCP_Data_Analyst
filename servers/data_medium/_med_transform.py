@@ -19,6 +19,7 @@ from _med_helpers import (
     _open_file,
     _read_csv,
     _token_estimate,
+    is_numeric_col,
 )
 
 from shared.file_utils import resolve_path
@@ -751,7 +752,7 @@ def feature_engineering(
                 new_columns.append(new_col)
 
         if "bins" in requested:
-            num_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c]) and c not in new_columns]
+            num_cols = [c for c in df.columns if is_numeric_col(df[c]) and c not in new_columns]
             for col in num_cols[:5]:
                 try:
                     new_col = f"{col}_bin"

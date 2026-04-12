@@ -37,6 +37,7 @@ from _adv_helpers import (
     fail,
     get_output_path,
     get_plotlyjs_script,
+    is_numeric_col,
     ok,
     theme_plot_colors,
 )
@@ -81,11 +82,11 @@ def run_eda(
         df = _read_csv(str(path))
         rows, cols = df.shape
 
-        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+        numeric_cols = [c for c in df.columns if is_numeric_col(df[c])]
         cat_cols = [
             c
             for c in df.columns
-            if not pd.api.types.is_numeric_dtype(df[c]) and not pd.api.types.is_datetime64_any_dtype(df[c])
+            if not is_numeric_col(df[c]) and not pd.api.types.is_datetime64_any_dtype(df[c])
         ]
         datetime_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])]
 

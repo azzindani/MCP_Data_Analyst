@@ -14,7 +14,7 @@ if str(_ROOT) not in sys.path:
 
 import pandas as pd
 
-from shared.column_utils import agg_label, infer_agg, parse_agg_overrides  # noqa: F401
+from shared.column_utils import agg_label, infer_agg, is_numeric_col, parse_agg_overrides  # noqa: F401
 from shared.html_layout import (  # noqa: F401  (re-exported for sub-modules)
     PLOTLY_CFG_JS,
     css_dashboard,

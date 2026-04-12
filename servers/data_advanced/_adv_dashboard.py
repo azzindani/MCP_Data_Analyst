@@ -33,6 +33,7 @@ from _adv_helpers import (
     get_plotlyjs_script,
     infer_agg,
     info,
+    is_numeric_col,
     ok,
     parse_agg_overrides,
     theme_plot_colors,
@@ -174,7 +175,7 @@ def generate_dashboard(
         df = _read_csv(str(path))
         dashboard_title = title if title else path.stem
 
-        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+        numeric_cols = [c for c in df.columns if is_numeric_col(df[c])]
         datetime_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])]
         cat_cols = [
             c for c in df.columns if c not in numeric_cols and c not in datetime_cols and df[c].nunique() <= 100

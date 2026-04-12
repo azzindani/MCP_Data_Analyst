@@ -32,6 +32,7 @@ from _med_helpers import (
     _read_csv,
     _save_chart,
     _token_estimate,
+    is_numeric_col,
 )
 
 from shared.file_utils import resolve_path
@@ -71,7 +72,7 @@ def check_outliers(
             }
 
         df = _read_csv(str(path))
-        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+        numeric_cols = [c for c in df.columns if is_numeric_col(df[c])]
 
         if columns is not None:
             missing = [c for c in columns if c not in df.columns]

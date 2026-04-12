@@ -22,6 +22,7 @@ from _adv_helpers import (
     calc_chart_height,
     fail,
     info,
+    is_numeric_col,
     ok,
     plotly_template,
 )
@@ -373,7 +374,7 @@ def _dispatch_chart(
             template=tmpl,
         )
     if chart_type == "parallel_coords":
-        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])][:10]
+        numeric_cols = [c for c in df.columns if is_numeric_col(df[c])][:10]
         color_col = value_column if value_column in numeric_cols else (numeric_cols[0] if numeric_cols else None)
         return px.parallel_coordinates(
             df[numeric_cols].dropna(),
@@ -469,7 +470,7 @@ def generate_geo_map(
             return {
                 "success": False,
                 "error": f"value_column '{value_column}' not found.",
-                "hint": f"Available numeric columns: {[c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]}",
+                "hint": f"Available numeric columns: {[c for c in df.columns if is_numeric_col(df[c])]}",
                 "progress": [fail("Column not found", value_column)],
                 "token_estimate": 20,
             }

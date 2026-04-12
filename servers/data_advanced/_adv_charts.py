@@ -20,6 +20,7 @@ from _adv_helpers import (
     _token_estimate,
     calc_chart_height,
     fail,
+    is_numeric_col,
     ok,
     plotly_template,
 )
@@ -62,7 +63,7 @@ def generate_distribution_plot(
             }
 
         df = _read_csv(str(path))
-        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+        numeric_cols = [c for c in df.columns if is_numeric_col(df[c])]
 
         if columns:
             cols_to_plot = [c for c in columns if c in numeric_cols]
@@ -163,7 +164,7 @@ def generate_correlation_heatmap(
             }
 
         df = _read_csv(str(path))
-        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+        numeric_cols = [c for c in df.columns if is_numeric_col(df[c])]
 
         if len(numeric_cols) < 2:
             return {
@@ -246,7 +247,7 @@ def generate_pairwise_plot(
             }
 
         df = _read_csv(str(path))
-        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+        numeric_cols = [c for c in df.columns if is_numeric_col(df[c])]
 
         if columns:
             cols_to_plot = [c for c in columns if c in numeric_cols]

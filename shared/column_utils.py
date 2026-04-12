@@ -81,6 +81,15 @@ _AGG_MIN = frozenset(
 )
 
 
+def is_numeric_col(series: pd.Series) -> bool:
+    """True for numeric columns excluding boolean dtype.
+
+    pd.api.types.is_numeric_dtype returns True for bool, which causes
+    numpy boolean subtract errors in corr/std/skew/quantile operations.
+    """
+    return pd.api.types.is_numeric_dtype(series) and not pd.api.types.is_bool_dtype(series)
+
+
 def infer_agg(col: str, series: pd.Series | None = None) -> str:
     """
     Infer the best aggregation function for a numeric column.

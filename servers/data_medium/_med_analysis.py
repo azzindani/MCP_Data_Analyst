@@ -30,7 +30,7 @@ from _med_helpers import (
     _token_estimate,
 )
 
-from shared.column_utils import infer_agg
+from shared.column_utils import infer_agg, is_numeric_col
 from shared.file_utils import resolve_path
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
@@ -427,7 +427,7 @@ def time_series_analysis(
         df = df.dropna(subset=[date_column])
 
         if not value_columns:
-            value_columns = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])][:5]
+            value_columns = [c for c in df.columns if is_numeric_col(df[c])][:5]
 
         missing_vals = [c for c in value_columns if c not in df.columns]
         if missing_vals:
@@ -646,7 +646,7 @@ def cohort_analysis(
             progress.append(info("Using date-based cohort", "year-month"))
 
         if not value_column:
-            num_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+            num_cols = [c for c in df.columns if is_numeric_col(df[c])]
             if num_cols:
                 value_column = num_cols[0]
 
@@ -779,7 +779,7 @@ def detect_anomalies(
             }
 
         df = _read_csv(str(path))
-        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+        numeric_cols = [c for c in df.columns if is_numeric_col(df[c])]
 
         if columns is not None:
             missing = [c for c in columns if c not in df.columns]
