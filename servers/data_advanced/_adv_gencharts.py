@@ -527,7 +527,19 @@ def generate_geo_map(
                     "token_estimate": 20,
                 }
 
-            loc_mode = location_mode or _detect_location_mode(df, loc_col)
+            _LOC_MODE_ALIASES = {
+                "state": "USA-states",
+                "usa-states": "USA-states",
+                "usa_states": "USA-states",
+                "iso3": "ISO-3",
+                "iso-3": "ISO-3",
+                "country": "country names",
+                "country names": "country names",
+                "countries": "country names",
+            }
+            loc_mode = _LOC_MODE_ALIASES.get(
+                (location_mode or "").lower(), location_mode or None
+            ) or _detect_location_mode(df, loc_col)
 
             if value_column:
                 agg_col = value_column
