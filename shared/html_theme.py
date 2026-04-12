@@ -400,8 +400,7 @@ def save_chart(
     open_func,  # _open_file callable from the calling engine
 ) -> tuple[str, str]:
     """Save Plotly fig as themed responsive HTML. Returns (abs_path, filename)."""
-    tmpl = plotly_template(theme)
-    fig.update_layout(template=tmpl, autosize=True)
+    apply_fig_theme(fig, theme)
 
     out = get_output_path(output_path, input_path, stem_suffix, "html")
 
