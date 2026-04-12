@@ -22,7 +22,7 @@ from pathlib import Path
 
 def get_output_path(
     output_path: str,
-    input_path: Path,
+    input_path: Path | None,
     stem_suffix: str,
     ext: str = "html",
 ) -> Path:
@@ -30,14 +30,15 @@ def get_output_path(
 
     Priority:
       1. Explicit output_path argument if given
-      2. ~/Downloads/<stem>_<suffix>.<ext>  (if directory exists)
-      3. Same directory as input file
+      2. Same directory as input file (when input_path is provided)
+      3. ~/Downloads/<stem>_<suffix>.<ext>  (pure generation, no input file)
     """
     if output_path:
         return Path(output_path).resolve()
+    if input_path is not None:
+        return input_path.parent / f"{input_path.stem}_{stem_suffix}.{ext}"
     downloads = Path.home() / "Downloads"
-    base_dir = downloads if downloads.is_dir() else input_path.parent
-    return base_dir / f"{input_path.stem}_{stem_suffix}.{ext}"
+    return downloads / f"{stem_suffix}.{ext}"
 
 
 # ---------------------------------------------------------------------------

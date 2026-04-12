@@ -43,6 +43,9 @@ jobs:
       - name: Verify tool docstrings
         run: uv run python verify_tool_docstrings.py
 
+      - name: Verify output path priority
+        run: uv run python verify_output_paths.py
+
       # ── Tests ──
       - name: Run tests
         run: uv run python -m pytest tests/ -q --tb=short

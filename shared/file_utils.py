@@ -15,7 +15,7 @@ def resolve_path(file_path: str, allowed_extensions: tuple[str, ...] = ()) -> Pa
 
 
 def get_default_output_dir(input_path: str | None = None) -> Path:
-    """Return default output dir: ~/Downloads if it exists, else input file's parent."""
+    """Return default output dir: input file's parent if provided, else ~/Downloads."""
     if input_path:
         p = Path(input_path).resolve()
         if p.parent.exists():
