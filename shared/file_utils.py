@@ -5,6 +5,8 @@ import shutil
 import tempfile
 from pathlib import Path
 
+import pandas as pd
+
 
 def resolve_path(file_path: str, allowed_extensions: tuple[str, ...] = ()) -> Path:
     """Return resolved absolute Path; raises ValueError for bad extension."""
@@ -21,6 +23,41 @@ def get_default_output_dir(input_path: str | None = None) -> Path:
         if p.parent.exists():
             return p.parent
     return Path.home() / "Downloads"
+
+
+_ENCODING_FALLBACKS = ("utf-8-sig", "cp1252", "latin-1")
+
+
+def read_csv(
+    file_path: str,
+    encoding: str = "utf-8",
+    separator: str = ",",
+    max_rows: int = 0,
+) -> pd.DataFrame:
+    """Read CSV with automatic encoding fallback.
+
+    Tries the specified encoding first. On failure walks through
+    utf-8-sig (BOM), cp1252 (Windows/Excel), then latin-1 (never fails).
+    """
+    kwargs: dict = {"sep": separator, "low_memory": False}
+    if max_rows > 0:
+        kwargs["nrows"] = max_rows
+
+    try:
+        return pd.read_csv(file_path, encoding=encoding, **kwargs)
+    except UnicodeDecodeError:
+        pass
+
+    for enc in _ENCODING_FALLBACKS:
+        if enc == encoding:
+            continue
+        try:
+            return pd.read_csv(file_path, encoding=enc, **kwargs)
+        except UnicodeDecodeError:
+            continue
+
+    # latin-1 accepts every byte value — should never reach here
+    return pd.read_csv(file_path, encoding="latin-1", **kwargs)
 
 
 def atomic_write(target: Path, content: bytes) -> None:

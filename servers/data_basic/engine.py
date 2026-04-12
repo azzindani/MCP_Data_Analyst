@@ -54,11 +54,7 @@ def _token_estimate(obj) -> int:
     return len(str(obj)) // 4
 
 
-def _read_csv(file_path: str, encoding: str = "utf-8", separator: str = ",", max_rows: int = 0) -> pd.DataFrame:
-    kwargs: dict = {"encoding": encoding, "sep": separator, "low_memory": False}
-    if max_rows > 0:
-        kwargs["nrows"] = max_rows
-    return pd.read_csv(file_path, **kwargs)
+from shared.file_utils import read_csv as _read_csv  # noqa: E402
 
 
 def _dtype_label(series: pd.Series) -> str:
