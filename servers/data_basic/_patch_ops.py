@@ -61,14 +61,12 @@ def _op_cast_column(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
 
     if dtype == "int":
         converted = pd.to_numeric(df[col], errors="coerce")
-        failed = int(converted.isna().sum() - df[col].isna().sum())
-        failed = max(0, failed)
+        failed = max(0, int(converted.isna().sum()) - int(df[col].isna().sum()))
         df[col] = converted.astype("Int64")
         to_dtype = "Int64"
     elif dtype == "float":
         converted = pd.to_numeric(df[col], errors="coerce")
-        failed = int(converted.isna().sum() - df[col].isna().sum())
-        failed = max(0, failed)
+        failed = max(0, int(converted.isna().sum()) - int(df[col].isna().sum()))
         df[col] = converted
         to_dtype = "float64"
     elif dtype == "str":
@@ -76,8 +74,7 @@ def _op_cast_column(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
         to_dtype = "object"
     elif dtype == "datetime":
         converted = pd.to_datetime(df[col], errors="coerce")
-        failed = int(converted.isna().sum() - df[col].isna().sum())
-        failed = max(0, failed)
+        failed = max(0, int(converted.isna().sum()) - int(df[col].isna().sum()))
         df[col] = converted
         to_dtype = "datetime64[ns]"
     else:
