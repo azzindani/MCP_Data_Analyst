@@ -84,9 +84,7 @@ def run_eda(
 
         numeric_cols = [c for c in df.columns if is_numeric_col(df[c])]
         cat_cols = [
-            c
-            for c in df.columns
-            if not is_numeric_col(df[c]) and not pd.api.types.is_datetime64_any_dtype(df[c])
+            c for c in df.columns if not is_numeric_col(df[c]) and not pd.api.types.is_datetime64_any_dtype(df[c])
         ]
         datetime_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])]
 
