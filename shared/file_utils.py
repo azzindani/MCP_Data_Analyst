@@ -61,11 +61,15 @@ def read_csv(
         return pd.read_csv(file_path, encoding="latin-1", **kw)
 
     try:
-        return _try_encs({})
+        df = _try_encs({})
     except Exception as exc:
         if "tokeniz" in str(exc).lower() or "field" in str(exc).lower():
-            return _try_encs({"on_bad_lines": "skip"})
-        raise
+            df = _try_encs({"on_bad_lines": "skip"})
+        else:
+            raise
+
+    df.columns = df.columns.str.strip()
+    return df
 
 
 def atomic_write(target: Path, content: bytes) -> None:
