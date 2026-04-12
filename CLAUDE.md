@@ -438,6 +438,51 @@ Use this checklist when adding any new tool.
 
 ---
 
+## Mandatory Pre-Commit Workflow
+
+After every code change, always run these three steps in order before committing:
+
+### 1. Format
+
+```bash
+uv run ruff format servers/ shared/ tests/ --exclude "**/.venv/**"
+```
+
+### 2. Lint
+
+```bash
+uv run ruff check servers/ shared/ tests/ --exclude "**/.venv/**"
+```
+
+Fix any lint errors before proceeding. Never skip or suppress lint errors.
+
+### 3. Test
+
+```bash
+uv run pytest tests/ -q --tb=short
+```
+
+All tests must pass. If a test fails in isolation but passes when run alone
+(flaky timing test), note it — do not skip or mark it as expected failure.
+
+### 4. Commit and push immediately
+
+Once all three pass, commit and push right away — do not batch changes across
+multiple sessions:
+
+```bash
+git add <changed files>
+git commit -m "<message>
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
+git push
+```
+
+Never leave uncommitted changes after completing a task. Never commit without
+running format, lint, and tests first.
+
+---
+
 ## Cross-Platform Rules
 
 - Use `pathlib.Path` everywhere — never string concatenation for paths
