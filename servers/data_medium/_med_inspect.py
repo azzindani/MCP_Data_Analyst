@@ -139,11 +139,13 @@ def check_outliers(
         result: dict = {
             "success": True,
             "op": "check_outliers",
+            "file_path": str(path),
             "method": method,
             "scanned_columns": len(results),
             "columns_with_outliers": cols_with_outliers,
             "results": results,
             "truncated": truncated,
+            "hint": "Call apply_patch() with op=cap_outliers or run_cleaning_pipeline() to act on findings.",
             "progress": progress,
         }
 
@@ -255,11 +257,13 @@ def scan_nulls_zeros(
         result: dict = {
             "success": True,
             "op": "scan_nulls_zeros",
+            "file_path": str(path),
             "total_rows": total_rows,
             "clean_columns": clean_count,
             "flagged_columns": len(results),
             "results": results,
             "suggested_actions": suggested,
+            "hint": "Call apply_patch() or run_cleaning_pipeline() to act on findings.",
             "progress": progress,
         }
 
@@ -428,12 +432,14 @@ def validate_dataset(
         result = {
             "success": True,
             "op": "validate_dataset",
+            "file_path": str(path),
             "passed": passed,
             "score": score,
             "issues": issues,
             "dtype_mismatches": dtype_mismatches,
             "duplicate_count": dup_count,
             "null_summary": null_summary,
+            "hint": "Call apply_patch() or run_cleaning_pipeline() to act on findings.",
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -529,10 +535,12 @@ def auto_detect_schema(
         result = {
             "success": True,
             "op": "auto_detect_schema",
+            "file_path": str(path),
             "file": path.name,
             "rows_sampled": min(max_rows, len(df)),
             "columns": column_info,
             "suggestions": suggestions,
+            "hint": "Call apply_patch() or run_cleaning_pipeline() to act on findings.",
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -642,6 +650,7 @@ def filter_rows(
                 "success": True,
                 "dry_run": True,
                 "op": "filter_rows",
+                "file_path": str(path),
                 "rows_before": rows_before,
                 "rows_after": rows_after,
                 "rows_removed": rows_before - rows_after,
@@ -669,11 +678,13 @@ def filter_rows(
         result = {
             "success": True,
             "op": "filter_rows",
+            "file_path": str(path),
             "rows_before": rows_before,
             "rows_after": rows_after,
             "rows_removed": rows_before - rows_after,
             "output_file": out.name,
             "backup": backup,
+            "hint": "Call inspect_dataset() or read_column_stats() to verify the changes.",
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -752,12 +763,14 @@ def sample_data(
         result = {
             "success": True,
             "op": "sample_data",
+            "file_path": str(path),
             "method": method,
             "total_rows": len(df),
             "sampled": n,
             "returned": len(records),
             "truncated": truncated,
             "sample": records,
+            "hint": "Call apply_patch() or run_cleaning_pipeline() to act on findings.",
             "progress": progress,
         }
         if output_path:
@@ -866,6 +879,7 @@ def analyze_text_column(
         result = {
             "success": True,
             "op": "analyze_text_column",
+            "file_path": str(path),
             "column": column,
             "total_count": len(s),
             "null_count": null_count,
@@ -875,6 +889,7 @@ def analyze_text_column(
             "word_freq": word_freq,
             "patterns": patterns,
             "sample": sample,
+            "hint": "Call apply_patch() or run_cleaning_pipeline() to act on findings.",
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)

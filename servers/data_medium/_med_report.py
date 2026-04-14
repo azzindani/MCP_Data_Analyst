@@ -115,6 +115,7 @@ def cross_tabulate(
         result: dict = {
             "success": True,
             "op": "cross_tabulate",
+            "file_path": str(path),
             "row_column": row_column,
             "col_column": col_column,
             "agg_func": agg_func if values_column else "count",
@@ -124,6 +125,7 @@ def cross_tabulate(
             "returned": rows_returned,
             "table": table,
             "truncated": truncated,
+            "hint": "Use a more targeted call with specific row_column or col_column filters.",
             "progress": progress,
         }
 
@@ -230,6 +232,7 @@ def pivot_table(
         result = {
             "success": True,
             "op": "pivot_table",
+            "file_path": str(path),
             "index": index,
             "columns": columns,
             "values": values,
@@ -307,6 +310,7 @@ def value_counts(
         result: dict = {
             "success": True,
             "op": "value_counts",
+            "file_path": str(path),
             "columns": columns,
             "top_n": top_n,
             "results": results,
@@ -433,6 +437,8 @@ def compare_datasets(
         result = {
             "success": True,
             "op": "compare_datasets",
+            "file_path_a": str(path_a),
+            "file_path_b": str(path_b),
             "file_a": path_a.name,
             "file_b": path_b.name,
             "rows_a": rows_a,

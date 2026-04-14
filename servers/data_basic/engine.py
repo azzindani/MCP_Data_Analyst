@@ -1,4 +1,25 @@
-"""Tier 1 engine — all domain logic. Zero MCP imports."""
+"""Tier 1 engine — all domain logic. Zero MCP imports.
+
+Ring-2 layer in the 3-ring onion model.
+
+Lateral ring-2 peers (I/O infrastructure, same layer):
+  shared/file_utils.py       — path resolution, CSV reading, atomic writes
+  shared/version_control.py  — snapshot / restore (CoW)
+  shared/receipt.py          — operation receipt log
+  shared/platform_utils.py   — environment-driven size limits
+
+Ring-1 dependencies (pure utilities, inner layer):
+  shared/progress.py         — ok/fail/info/warn/undo helpers (no I/O)
+  shared/patch_validator.py  — op-array validation (no I/O)
+  shared/column_utils.py     — column inference helpers (no I/O)
+
+Ring-3 caller (outermost MCP boundary):
+  server.py                  — thin FastMCP wrapper; one-line tool bodies only
+
+Accepted trade-off (§8 Config):
+  get_max_rows() / get_max_results() are called here (ring-2) rather than
+  being injected from server.py (ring-3) to preserve the one-line server rule.
+"""
 
 from __future__ import annotations
 
@@ -80,6 +101,160 @@ def _classify_columns(df: pd.DataFrame) -> tuple[list[str], list[str], list[str]
 
 
 # ---------------------------------------------------------------------------
+# Ring-1 pure helpers — called after I/O; no I/O themselves
+# ---------------------------------------------------------------------------
+
+
+def _profile_df(df: pd.DataFrame) -> dict:
+    """Pure: schema profile from a loaded DataFrame. No I/O."""
+    return {
+        "dtypes": {col: _dtype_label(df[col]) for col in df.columns},
+        "null_counts": {col: int(df[col].isna().sum()) for col in df.columns},
+        "unique_counts": {col: int(df[col].nunique()) for col in df.columns},
+        "sample": df.head(2).fillna("").to_dict(orient="records"),
+    }
+
+
+def _inspect_df(df: pd.DataFrame) -> dict:
+    """Pure: full inspection stats from a DataFrame. No I/O."""
+    rows = len(df)
+    cols = len(df.columns)
+    dtypes = {col: _dtype_label(df[col]) for col in df.columns}
+    null_counts = {col: int(df[col].isna().sum()) for col in df.columns}
+    null_pct = {col: round(null_counts[col] / rows * 100, 2) if rows > 0 else 0.0 for col in df.columns}
+    unique_counts = {col: int(df[col].nunique()) for col in df.columns}
+    numeric_cols, categorical_cols, datetime_cols = _classify_columns(df)
+    return {
+        "rows": rows,
+        "columns": cols,
+        "column_names": list(df.columns),
+        "dtypes": dtypes,
+        "null_counts": null_counts,
+        "null_pct": null_pct,
+        "unique_counts": unique_counts,
+        "numeric_columns": numeric_cols,
+        "categorical_columns": categorical_cols,
+        "datetime_columns": datetime_cols,
+    }
+
+
+def _stats_for_series(series: pd.Series, column: str) -> dict:
+    """Pure: dtype-appropriate stats dict for a Series. No I/O."""
+    dtype = _dtype_label(series)
+    count = int(series.count())
+    null_count = int(series.isna().sum())
+    null_pct = round(null_count / len(series) * 100, 2) if len(series) > 0 else 0.0
+
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return {
+            "column": column,
+            "dtype": dtype,
+            "count": count,
+            "null_count": null_count,
+            "null_pct": null_pct,
+            "min": str(series.min()),
+            "max": str(series.max()),
+        }
+
+    if pd.api.types.is_numeric_dtype(series):
+        clean = series.dropna()
+        mean_val = float(clean.mean()) if len(clean) > 0 else None
+        median_val = float(clean.median()) if len(clean) > 0 else None
+        std_val = float(clean.std()) if len(clean) > 1 else None
+        min_val = float(clean.min()) if len(clean) > 0 else None
+        max_val = float(clean.max()) if len(clean) > 0 else None
+        zero_count = int((series == 0).sum())
+        q1 = float(clean.quantile(0.25)) if len(clean) > 0 else None
+        q3 = float(clean.quantile(0.75)) if len(clean) > 0 else None
+        iqr = (q3 - q1) if (q1 is not None and q3 is not None) else None
+        lower_iqr = (q1 - 1.5 * iqr) if (iqr is not None and q1 is not None) else None
+        upper_iqr = (q3 + 1.5 * iqr) if (iqr is not None and q3 is not None) else None
+        outlier_iqr = int(((clean < lower_iqr) | (clean > upper_iqr)).sum()) if iqr is not None else 0
+        if mean_val is not None and std_val is not None:
+            lower_std = mean_val - 3 * std_val
+            upper_std = mean_val + 3 * std_val
+            outlier_std = int(((clean < lower_std) | (clean > upper_std)).sum())
+        else:
+            outlier_std = 0
+        return {
+            "column": column,
+            "dtype": dtype,
+            "count": count,
+            "null_count": null_count,
+            "null_pct": null_pct,
+            "zero_count": zero_count,
+            "mean": round(mean_val, 4) if mean_val is not None else None,
+            "median": round(median_val, 4) if median_val is not None else None,
+            "std": round(std_val, 4) if std_val is not None else None,
+            "min": round(min_val, 4) if min_val is not None else None,
+            "max": round(max_val, 4) if max_val is not None else None,
+            "q1": round(q1, 4) if q1 is not None else None,
+            "q3": round(q3, 4) if q3 is not None else None,
+            "iqr": round(iqr, 4) if iqr is not None else None,
+            "outlier_count_iqr": outlier_iqr,
+            "outlier_count_std": outlier_std,
+        }
+
+    # Categorical path
+    top_values = series.value_counts().head(10).to_dict()
+    top_values = {str(k): int(v) for k, v in top_values.items()}
+    unique_count = int(series.nunique())
+    return {
+        "column": column,
+        "dtype": dtype,
+        "count": count,
+        "null_count": null_count,
+        "null_pct": null_pct,
+        "unique_count": unique_count,
+        "top_values": top_values,
+    }
+
+
+def _search_df(
+    df: pd.DataFrame,
+    has_nulls: bool,
+    has_zeros: bool,
+    dtype: str,
+    name_contains: str,
+    min_null_pct: float,
+) -> tuple[list[str], dict, dict, dict]:
+    """Pure: filter columns by criteria. Returns (candidates, null_counts, zero_counts, dtypes). No I/O."""
+    rows = len(df)
+    candidates = list(df.columns)
+
+    if name_contains:
+        candidates = [c for c in candidates if name_contains.lower() in c.lower()]
+
+    if dtype:
+        if dtype == "numeric":
+            candidates = [c for c in candidates if pd.api.types.is_numeric_dtype(df[c])]
+        elif dtype == "datetime":
+            candidates = [c for c in candidates if pd.api.types.is_datetime64_any_dtype(df[c])]
+        elif dtype == "object":
+            candidates = [
+                c
+                for c in candidates
+                if not pd.api.types.is_numeric_dtype(df[c]) and not pd.api.types.is_datetime64_any_dtype(df[c])
+            ]
+
+    if has_nulls or min_null_pct > 0.0:
+        null_c = {c: int(df[c].isna().sum()) for c in candidates}
+        null_p = {c: null_c[c] / rows * 100 if rows > 0 else 0.0 for c in candidates}
+        if has_nulls:
+            candidates = [c for c in candidates if null_c[c] > 0]
+        if min_null_pct > 0.0:
+            candidates = [c for c in candidates if null_p[c] >= min_null_pct]
+
+    if has_zeros:
+        candidates = [c for c in candidates if pd.api.types.is_numeric_dtype(df[c]) and int((df[c] == 0).sum()) > 0]
+
+    null_counts = {c: int(df[c].isna().sum()) for c in candidates}
+    zero_counts = {c: int((df[c] == 0).sum()) if pd.api.types.is_numeric_dtype(df[c]) else 0 for c in candidates}
+    dtypes_out = {c: _dtype_label(df[c]) for c in candidates}
+    return candidates, null_counts, zero_counts, dtypes_out
+
+
+# ---------------------------------------------------------------------------
 # load_dataset
 # ---------------------------------------------------------------------------
 
@@ -158,10 +333,8 @@ def load_dataset(
                 )
             )
 
-        dtypes = {col: _dtype_label(df[col]) for col in df.columns}
-        null_counts = {col: int(df[col].isna().sum()) for col in df.columns}
-        unique_counts = {col: int(df[col].nunique()) for col in df.columns}
-        sample = df.head(2).fillna("").to_dict(orient="records")
+        # Ring-1 pure helper — no I/O
+        profile = _profile_df(df)
 
         progress.append(ok(f"Loaded {path.name}", f"{len(df):,} rows × {len(df.columns)} cols"))
 
@@ -172,10 +345,10 @@ def load_dataset(
             "file_path": str(path),
             "rows": len(df),
             "columns": len(df.columns),
-            "dtypes": dtypes,
-            "null_counts": null_counts,
-            "unique_counts": unique_counts,
-            "sample": sample,
+            "dtypes": profile["dtypes"],
+            "null_counts": profile["null_counts"],
+            "unique_counts": profile["unique_counts"],
+            "sample": profile["sample"],
             "encoding_used": encoding,
             "hint": "Call search_columns() or inspect_dataset() to explore next.",
             "progress": progress,
@@ -310,31 +483,18 @@ def inspect_dataset(
             }
 
         df = _read_csv(str(path))
-        rows = len(df)
-        cols = len(df.columns)
 
-        dtypes = {col: _dtype_label(df[col]) for col in df.columns}
-        null_counts = {col: int(df[col].isna().sum()) for col in df.columns}
-        null_pct = {col: round(null_counts[col] / rows * 100, 2) if rows > 0 else 0.0 for col in df.columns}
-        unique_counts = {col: int(df[col].nunique()) for col in df.columns}
-
-        numeric_cols, categorical_cols, datetime_cols = _classify_columns(df)
+        # Ring-1 pure helper — no I/O
+        stats = _inspect_df(df)
+        rows = stats["rows"]
+        cols = stats["columns"]
 
         result: dict = {
             "success": True,
             "op": "inspect_dataset",
             "file": path.name,
             "file_path": str(path),
-            "rows": rows,
-            "columns": cols,
-            "column_names": list(df.columns),
-            "dtypes": dtypes,
-            "null_counts": null_counts,
-            "null_pct": null_pct,
-            "unique_counts": unique_counts,
-            "numeric_columns": numeric_cols,
-            "categorical_columns": categorical_cols,
-            "datetime_columns": datetime_cols,
+            **stats,
         }
 
         if include_sample:
@@ -410,96 +570,16 @@ def read_column_stats(
             }
 
         series = df[column]
-        dtype = _dtype_label(series)
-        count = int(series.count())
-        null_count = int(series.isna().sum())
-        null_pct = round(null_count / len(series) * 100, 2) if len(series) > 0 else 0.0
+        progress.append(ok(f"Stats for {column}", _dtype_label(series)))
 
-        progress.append(ok(f"Stats for {column}", dtype))
-
-        # Datetime path
-        if pd.api.types.is_datetime64_any_dtype(series):
-            result = {
-                "success": True,
-                "op": "read_column_stats",
-                "file_path": str(path),
-                "column": column,
-                "dtype": dtype,
-                "count": count,
-                "null_count": null_count,
-                "null_pct": null_pct,
-                "min": str(series.min()),
-                "max": str(series.max()),
-                "progress": progress,
-            }
-            result["token_estimate"] = _token_estimate(result)
-            return result
-
-        # Numeric path
-        if pd.api.types.is_numeric_dtype(series):
-            clean = series.dropna()
-            mean_val = float(clean.mean()) if len(clean) > 0 else None
-            median_val = float(clean.median()) if len(clean) > 0 else None
-            std_val = float(clean.std()) if len(clean) > 1 else None
-            min_val = float(clean.min()) if len(clean) > 0 else None
-            max_val = float(clean.max()) if len(clean) > 0 else None
-            zero_count = int((series == 0).sum())
-
-            q1 = float(clean.quantile(0.25)) if len(clean) > 0 else None
-            q3 = float(clean.quantile(0.75)) if len(clean) > 0 else None
-            iqr = (q3 - q1) if (q1 is not None and q3 is not None) else None
-            lower_iqr = (q1 - 1.5 * iqr) if (iqr is not None and q1 is not None) else None
-            upper_iqr = (q3 + 1.5 * iqr) if (iqr is not None and q3 is not None) else None
-            outlier_iqr = int(((clean < lower_iqr) | (clean > upper_iqr)).sum()) if iqr is not None else 0
-
-            if mean_val is not None and std_val is not None:
-                lower_std = mean_val - 3 * std_val
-                upper_std = mean_val + 3 * std_val
-                outlier_std = int(((clean < lower_std) | (clean > upper_std)).sum())
-            else:
-                outlier_std = 0
-
-            result = {
-                "success": True,
-                "op": "read_column_stats",
-                "file_path": str(path),
-                "column": column,
-                "dtype": dtype,
-                "count": count,
-                "null_count": null_count,
-                "null_pct": null_pct,
-                "zero_count": zero_count,
-                "mean": round(mean_val, 4) if mean_val is not None else None,
-                "median": round(median_val, 4) if median_val is not None else None,
-                "std": round(std_val, 4) if std_val is not None else None,
-                "min": round(min_val, 4) if min_val is not None else None,
-                "max": round(max_val, 4) if max_val is not None else None,
-                "q1": round(q1, 4) if q1 is not None else None,
-                "q3": round(q3, 4) if q3 is not None else None,
-                "iqr": round(iqr, 4) if iqr is not None else None,
-                "outlier_count_iqr": outlier_iqr,
-                "outlier_count_std": outlier_std,
-                "progress": progress,
-            }
-            result["token_estimate"] = _token_estimate(result)
-            return result
-
-        # Categorical path
-        top_values = series.value_counts().head(10).to_dict()
-        top_values = {str(k): int(v) for k, v in top_values.items()}
-        unique_count = int(series.nunique())
+        # Ring-1 pure helper — no I/O
+        stats = _stats_for_series(series, column)
 
         result = {
             "success": True,
             "op": "read_column_stats",
             "file_path": str(path),
-            "column": column,
-            "dtype": dtype,
-            "count": count,
-            "null_count": null_count,
-            "null_pct": null_pct,
-            "unique_count": unique_count,
-            "top_values": top_values,
+            **stats,
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -543,40 +623,11 @@ def search_columns(
             }
 
         df = _read_csv(str(path))
-        rows = len(df)
-        candidates = list(df.columns)
 
-        # Apply filters
-        if name_contains:
-            candidates = [c for c in candidates if name_contains.lower() in c.lower()]
-
-        if dtype:
-            if dtype == "numeric":
-                candidates = [c for c in candidates if pd.api.types.is_numeric_dtype(df[c])]
-            elif dtype == "datetime":
-                candidates = [c for c in candidates if pd.api.types.is_datetime64_any_dtype(df[c])]
-            elif dtype == "object":
-                candidates = [
-                    c
-                    for c in candidates
-                    if not pd.api.types.is_numeric_dtype(df[c]) and not pd.api.types.is_datetime64_any_dtype(df[c])
-                ]
-
-        if has_nulls or min_null_pct > 0.0:
-            null_c = {c: int(df[c].isna().sum()) for c in candidates}
-            null_p = {c: null_c[c] / rows * 100 if rows > 0 else 0.0 for c in candidates}
-            if has_nulls:
-                candidates = [c for c in candidates if null_c[c] > 0]
-            if min_null_pct > 0.0:
-                candidates = [c for c in candidates if null_p[c] >= min_null_pct]
-
-        if has_zeros:
-            candidates = [c for c in candidates if pd.api.types.is_numeric_dtype(df[c]) and int((df[c] == 0).sum()) > 0]
-
-        # Build result counts
-        null_counts = {c: int(df[c].isna().sum()) for c in candidates}
-        zero_counts = {c: int((df[c] == 0).sum()) if pd.api.types.is_numeric_dtype(df[c]) else 0 for c in candidates}
-        dtypes_out = {c: _dtype_label(df[c]) for c in candidates}
+        # Ring-1 pure helper — no I/O
+        candidates, null_counts, zero_counts, dtypes_out = _search_df(
+            df, has_nulls, has_zeros, dtype, name_contains, min_null_pct
+        )
 
         # Truncate
         max_r = get_max_results()
@@ -643,20 +694,12 @@ _OP_HANDLERS = {
 }
 
 
-# Ring-1 pure transform — no I/O.  Called by apply_patch (ring-2 shell).
-def _apply_ops(df: pd.DataFrame, ops: list[dict]) -> tuple[pd.DataFrame, list[dict], list[dict]]:
-    """Apply ops to df. Returns (modified_df, results, op_errors). No I/O."""
-    results: list[dict] = []
-    op_errors: list[dict] = []
-    for i, op in enumerate(ops):
-        op_name = op.get("op", "")
-        handler = _OP_HANDLERS[op_name]
-        try:
-            df, op_result = handler(df, op)
-            results.append(op_result)
-        except Exception as exc:
-            op_errors.append({"op_index": i, "op": op_name, "error": str(exc)})
-    return df, results, op_errors
+# Ring-1 pure transform — no I/O, no exception catching. Raises on error.
+def _apply_op(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
+    """Apply a single op to df. Pure; raises on error. No I/O."""
+    op_name = op.get("op", "")
+    handler = _OP_HANDLERS[op_name]
+    return handler(df, op)
 
 
 def apply_patch(
@@ -692,8 +735,16 @@ def apply_patch(
         df = _read_csv(str(path))
 
         if dry_run:
-            # Run ops on a copy so column-existence errors surface here too (H4).
-            _, dry_results, dry_errors = _apply_ops(df.copy(), ops)
+            # Ring-2 shell: accumulate errors from ring-1 _apply_op raises (H4).
+            dry_df = df.copy()
+            dry_results: list[dict] = []
+            dry_errors: list[dict] = []
+            for i, op in enumerate(ops):
+                try:
+                    dry_df, op_result = _apply_op(dry_df, op)
+                    dry_results.append(op_result)
+                except Exception as exc:
+                    dry_errors.append({"op_index": i, "op": op.get("op", ""), "error": str(exc)})
             would_change = [{"op": op.get("op", ""), "params": op} for op in ops]
             result = {
                 "success": len(dry_errors) == 0,
@@ -714,13 +765,17 @@ def apply_patch(
         backup = snapshot(str(path))
         progress.append(info("Snapshot created", Path(backup).name))
 
-        # Pure transform — all op errors are accumulated, never abort early (G1/G5)
-        df, results, op_errors = _apply_ops(df, ops)
-
-        for r in results:
-            progress.append(ok(f"Applied {r.get('op', '?')}", str(r)))
-        for e in op_errors:
-            progress.append(fail(f"Op {e['op_index']} ({e['op']}) failed", e["error"]))
+        # Ring-2 shell: accumulate all op errors; ring-1 _apply_op raises on error.
+        results: list[dict] = []
+        op_errors: list[dict] = []
+        for i, op in enumerate(ops):
+            try:
+                df, op_result = _apply_op(df, op)
+                results.append(op_result)
+                progress.append(ok(f"Applied {op_result.get('op', '?')}", str(op_result)))
+            except Exception as exc:
+                op_errors.append({"op_index": i, "op": op.get("op", ""), "error": str(exc)})
+                progress.append(fail(f"Op {i} ({op.get('op', '?')}) failed", str(exc)))
 
         if op_errors:
             # Do NOT write the modified df — leave the original intact.

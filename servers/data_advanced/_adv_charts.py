@@ -112,6 +112,7 @@ def generate_distribution_plot(
         result = {
             "success": True,
             "op": "generate_distribution_plot",
+            "file_path": str(path),
             "output_path": abs_p,
             "output_name": fname,
             "columns_plotted": cols_to_plot,
@@ -194,6 +195,7 @@ def generate_correlation_heatmap(
         result = {
             "success": True,
             "op": "generate_correlation_heatmap",
+            "file_path": str(path),
             "output_path": abs_p,
             "output_name": fname,
             "columns": numeric_cols,
@@ -289,6 +291,7 @@ def generate_pairwise_plot(
         result = {
             "success": True,
             "op": "generate_pairwise_plot",
+            "file_path": str(path),
             "output_path": abs_p,
             "output_name": fname,
             "columns_plotted": cols_to_plot,

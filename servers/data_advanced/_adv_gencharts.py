@@ -223,6 +223,7 @@ def generate_chart(
         result = {
             "success": True,
             "op": "generate_chart",
+            "file_path": str(path),
             "chart_type": chart_type,
             "output_path": abs_p,
             "output_name": fname,
@@ -578,6 +579,7 @@ def generate_geo_map(
         result = {
             "success": True,
             "op": "generate_geo_map",
+            "file_path": str(path),
             "map_type": map_type,
             "output_path": abs_p,
             "output_name": fname,
@@ -736,6 +738,7 @@ def generate_3d_chart(
         result = {
             "success": True,
             "op": "generate_3d_chart",
+            "file_path": str(path),
             "chart_type": chart_type,
             "output_path": abs_p,
             "output_name": fname,

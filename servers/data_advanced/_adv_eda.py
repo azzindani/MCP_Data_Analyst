@@ -196,6 +196,7 @@ def run_eda(
         result = {
             "success": True,
             "op": "run_eda",
+            "file_path": str(path),
             "output_path": str(out.resolve()),
             "output_name": out.name,
             "report_size_kb": size_kb,

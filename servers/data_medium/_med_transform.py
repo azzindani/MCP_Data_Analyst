@@ -121,6 +121,7 @@ def enrich_with_geo(
                 "success": True,
                 "dry_run": True,
                 "op": "enrich_with_geo",
+                "file_path": str(path),
                 "rows_before": len(df),
                 "rows_after": len(merged),
                 "matched": matched,
@@ -149,6 +150,7 @@ def enrich_with_geo(
         result = {
             "success": True,
             "op": "enrich_with_geo",
+            "file_path": str(path),
             "rows_before": len(df),
             "rows_after": len(merged),
             "matched": matched,
@@ -157,6 +159,7 @@ def enrich_with_geo(
             "new_columns": new_cols,
             "output_file": Path(out).name,
             "backup": backup,
+            "hint": "Call inspect_dataset() or read_column_stats() to verify the changes.",
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -248,6 +251,7 @@ def compute_aggregations(
         result = {
             "success": True,
             "op": "compute_aggregations",
+            "file_path": str(path),
             "group_by": group_by,
             "agg_column": agg_column,
             "agg_func": agg_func,
@@ -255,6 +259,7 @@ def compute_aggregations(
             "returned": len(result_list),
             "result": result_list,
             "truncated": truncated,
+            "hint": "Call apply_patch() or run_cleaning_pipeline() to act on findings.",
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -320,6 +325,7 @@ def run_cleaning_pipeline(
                 "success": True,
                 "dry_run": True,
                 "op": "run_cleaning_pipeline",
+                "file_path": str(path),
                 "total_ops": len(ops),
                 "would_change": would_change,
                 "progress": [info("Dry run — no changes written", path.name)],
@@ -387,10 +393,12 @@ def run_cleaning_pipeline(
         result = {
             "success": True,
             "op": "run_cleaning_pipeline",
+            "file_path": str(path),
             "total_ops": len(ops),
             "applied": len(ops),
             "summary": summary,
             "backup": backup,
+            "hint": "Call inspect_dataset() or read_column_stats() to verify the changes.",
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -477,6 +485,7 @@ def smart_impute(
                 "success": True,
                 "dry_run": True,
                 "op": "smart_impute",
+                "file_path": str(path),
                 "would_change": imputation_plan,
                 "columns_to_impute": len(imputation_plan),
                 "progress": progress,
@@ -515,10 +524,12 @@ def smart_impute(
         result = {
             "success": True,
             "op": "smart_impute",
+            "file_path": str(path),
             "imputed": imputation_plan,
             "columns_imputed": len(imputation_plan),
             "output_file": out.name,
             "backup": backup,
+            "hint": "Call inspect_dataset() or read_column_stats() to verify the changes.",
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -633,6 +644,7 @@ def merge_datasets(
                 "success": True,
                 "dry_run": True,
                 "op": "merge_datasets",
+                "file_path": str(path),
                 "left_rows": len(left_df),
                 "right_rows": len(right_df),
                 "result_rows": len(merged),
@@ -669,6 +681,7 @@ def merge_datasets(
         result = {
             "success": True,
             "op": "merge_datasets",
+            "file_path": str(path),
             "left_rows": len(left_df),
             "right_rows": len(right_df),
             "result_rows": len(merged),
@@ -678,6 +691,7 @@ def merge_datasets(
             "how": how,
             "output_file": out.name,
             "backup": backup,
+            "hint": "Call inspect_dataset() or read_column_stats() to verify the changes.",
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -776,6 +790,7 @@ def feature_engineering(
                 "success": True,
                 "dry_run": True,
                 "op": "feature_engineering",
+                "file_path": str(path),
                 "would_add": new_columns,
                 "features_requested": list(requested),
                 "progress": progress,
@@ -802,11 +817,13 @@ def feature_engineering(
         result = {
             "success": True,
             "op": "feature_engineering",
+            "file_path": str(path),
             "features_applied": list(requested),
             "new_columns": new_columns,
             "columns_added": len(new_columns),
             "output_file": out.name,
             "backup": backup,
+            "hint": "Call inspect_dataset() or read_column_stats() to verify the changes.",
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
