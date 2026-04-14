@@ -1,3 +1,5 @@
+"""Ring-1 pure utility — no I/O, no side effects. Safe innermost layer."""
+
 from __future__ import annotations
 
 

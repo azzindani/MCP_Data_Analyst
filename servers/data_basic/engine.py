@@ -34,7 +34,7 @@ from _patch_ops import (
     _parse_expr,
 )
 
-from shared.file_utils import resolve_path
+from shared.file_utils import atomic_write_text, resolve_path
 from shared.patch_validator import VALID_OPS, validate_ops
 from shared.platform_utils import get_max_results, get_max_rows
 from shared.progress import fail, info, ok, undo, warn
@@ -169,6 +169,7 @@ def load_dataset(
             "success": True,
             "op": "load_dataset",
             "file": path.name,
+            "file_path": str(path),
             "rows": len(df),
             "columns": len(df.columns),
             "dtypes": dtypes,
@@ -176,6 +177,7 @@ def load_dataset(
             "unique_counts": unique_counts,
             "sample": sample,
             "encoding_used": encoding,
+            "hint": "Call search_columns() or inspect_dataset() to explore next.",
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -322,6 +324,7 @@ def inspect_dataset(
             "success": True,
             "op": "inspect_dataset",
             "file": path.name,
+            "file_path": str(path),
             "rows": rows,
             "columns": cols,
             "column_names": list(df.columns),
@@ -345,6 +348,10 @@ def inspect_dataset(
                 result["column_names"] = result["column_names"][:max_c]
                 result["truncated"] = True
                 result["total_columns"] = cols
+                result["hint"] = (
+                    f"Returned first {max_c} of {cols} columns. "
+                    "Call read_column_stats(file_path, column=<name>) for a specific column."
+                )
                 progress.append(
                     warn(
                         "Response truncated",
@@ -415,6 +422,7 @@ def read_column_stats(
             result = {
                 "success": True,
                 "op": "read_column_stats",
+                "file_path": str(path),
                 "column": column,
                 "dtype": dtype,
                 "count": count,
@@ -454,6 +462,7 @@ def read_column_stats(
             result = {
                 "success": True,
                 "op": "read_column_stats",
+                "file_path": str(path),
                 "column": column,
                 "dtype": dtype,
                 "count": count,
@@ -483,6 +492,7 @@ def read_column_stats(
         result = {
             "success": True,
             "op": "read_column_stats",
+            "file_path": str(path),
             "column": column,
             "dtype": dtype,
             "count": count,
@@ -570,16 +580,18 @@ def search_columns(
 
         # Truncate
         max_r = get_max_results()
-        truncated = len(candidates) > max_r
+        total_matched = len(candidates)
+        truncated = total_matched > max_r
         if truncated:
             candidates = candidates[:max_r]
             progress.append(warn("Results truncated", f"Showing first {max_r} matching columns"))
 
         progress.append(ok(f"Searched {path.name}", f"{len(candidates)} column(s) matched"))
 
-        result = {
+        result: dict = {
             "success": True,
             "op": "search_columns",
+            "file_path": str(path),
             "matched": len(candidates),
             "columns": candidates,
             "null_counts": {c: null_counts[c] for c in candidates},
@@ -588,6 +600,14 @@ def search_columns(
             "truncated": truncated,
             "progress": progress,
         }
+        if truncated:
+            result["total_matched"] = total_matched
+            result["hint"] = (
+                f"Returned first {max_r} of {total_matched} matches. "
+                "Refine criteria or call read_column_stats(file_path, column=<name>)."
+            )
+        else:
+            result["hint"] = "Call read_column_stats(file_path, column=<name>) to inspect each match."
         result["token_estimate"] = _token_estimate(result)
         return result
 
@@ -623,6 +643,22 @@ _OP_HANDLERS = {
 }
 
 
+# Ring-1 pure transform — no I/O.  Called by apply_patch (ring-2 shell).
+def _apply_ops(df: pd.DataFrame, ops: list[dict]) -> tuple[pd.DataFrame, list[dict], list[dict]]:
+    """Apply ops to df. Returns (modified_df, results, op_errors). No I/O."""
+    results: list[dict] = []
+    op_errors: list[dict] = []
+    for i, op in enumerate(ops):
+        op_name = op.get("op", "")
+        handler = _OP_HANDLERS[op_name]
+        try:
+            df, op_result = handler(df, op)
+            results.append(op_result)
+        except Exception as exc:
+            op_errors.append({"op_index": i, "op": op_name, "error": str(exc)})
+    return df, results, op_errors
+
+
 def apply_patch(
     file_path: str,
     ops: list[dict],
@@ -642,7 +678,7 @@ def apply_patch(
                 "token_estimate": 20,
             }
 
-        # Validate all ops before touching the file
+        # Validate op schema before touching the file
         errors = validate_ops(ops)
         if errors:
             return {
@@ -656,46 +692,53 @@ def apply_patch(
         df = _read_csv(str(path))
 
         if dry_run:
-            would_change = []
-            for op in ops:
-                op_name = op.get("op", "")
-                would_change.append({"op": op_name, "params": op})
+            # Run ops on a copy so column-existence errors surface here too (H4).
+            _, dry_results, dry_errors = _apply_ops(df.copy(), ops)
+            would_change = [{"op": op.get("op", ""), "params": op} for op in ops]
             result = {
-                "success": True,
+                "success": len(dry_errors) == 0,
                 "dry_run": True,
                 "op": "apply_patch",
+                "file_path": str(path),
                 "would_change": would_change,
+                "validated": len(dry_results),
+                "validation_errors": dry_errors,
                 "progress": [info("Dry run — no changes written", path.name)],
             }
+            if dry_errors:
+                result["hint"] = "Fix validation_errors before running without dry_run=True."
             result["token_estimate"] = _token_estimate(result)
             return result
 
-        # Take snapshot before first write
+        # Take snapshot before first write (ring-2 I/O)
         backup = snapshot(str(path))
         progress.append(info("Snapshot created", Path(backup).name))
 
-        results = []
-        for i, op in enumerate(ops):
-            op_name = op.get("op", "")
-            handler = _OP_HANDLERS[op_name]
-            try:
-                df, op_result = handler(df, op)
-                results.append(op_result)
-                progress.append(ok(f"Applied {op_name}", str(op_result)))
-            except Exception as exc:
-                progress.append(fail(f"Op {i} ({op_name}) failed", str(exc)))
-                return {
-                    "success": False,
-                    "error": f"Op {i} ({op_name}): {exc}",
-                    "hint": "Use restore_version() to undo from the backup.",
-                    "applied": i,
-                    "backup": backup,
-                    "progress": progress,
-                    "token_estimate": _token_estimate(progress),
-                }
+        # Pure transform — all op errors are accumulated, never abort early (G1/G5)
+        df, results, op_errors = _apply_ops(df, ops)
 
-        # Write result atomically
-        df.to_csv(str(path), index=False)
+        for r in results:
+            progress.append(ok(f"Applied {r.get('op', '?')}", str(r)))
+        for e in op_errors:
+            progress.append(fail(f"Op {e['op_index']} ({e['op']}) failed", e["error"]))
+
+        if op_errors:
+            # Do NOT write the modified df — leave the original intact.
+            return {
+                "success": False,
+                "error": f"{len(op_errors)} op(s) failed",
+                "op_errors": op_errors,
+                "applied": len(results),
+                "failed": len(op_errors),
+                "backup": backup,
+                "hint": ("Fix failing ops and retry. Call restore_version() if you want to reset to the snapshot."),
+                "file_path": str(path),
+                "progress": progress,
+                "token_estimate": _token_estimate(progress),
+            }
+
+        # All ops succeeded — write atomically (G6)
+        atomic_write_text(path, df.to_csv(index=False))
         progress.append(ok(f"Saved {path.name}", f"{len(ops)} op(s) applied"))
 
         append_receipt(
@@ -709,9 +752,11 @@ def apply_patch(
         result = {
             "success": True,
             "op": "apply_patch",
+            "file_path": str(path),
             "applied": len(ops),
             "results": results,
             "backup": backup,
+            "hint": ("Call read_column_stats() or inspect_dataset() to verify the changes."),
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -794,8 +839,10 @@ def restore_version(
             "success": True,
             "op": "restore_version",
             "file": path.name,
+            "file_path": str(path),
             "restored_from": backup_path,
             "available_versions": versions,
+            "hint": "Call inspect_dataset() to confirm the restored state.",
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -841,6 +888,7 @@ def read_receipt(
             "success": True,
             "op": "read_receipt",
             "file": path.name,
+            "file_path": str(path),
             "total_entries": total,
             "returned": len(entries),
             "entries": entries,
