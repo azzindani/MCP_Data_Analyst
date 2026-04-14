@@ -111,10 +111,12 @@ def correlation_analysis(
         result: dict = {
             "success": True,
             "op": "correlation_analysis",
+            "file_path": str(path),
             "method": method,
             "columns": cols,
             "top_pairs": top_pairs,
             "matrix": matrix,
+            "hint": "Call apply_patch() or run_cleaning_pipeline() to act on findings.",
             "progress": progress,
         }
 
@@ -341,8 +343,10 @@ def statistical_tests(
         result = {
             "success": True,
             "op": "statistical_tests",
+            "file_path": str(path),
             "test_type": test_type,
             **test_result,
+            "hint": "Call apply_patch() or run_cleaning_pipeline() to act on findings.",
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -524,6 +528,7 @@ def time_series_analysis(
         result: dict = {
             "success": True,
             "op": "time_series_analysis",
+            "file_path": str(path),
             "date_column": date_column,
             "value_columns": value_columns,
             "period": period,
@@ -535,6 +540,7 @@ def time_series_analysis(
             "trend": trend_data,
             "data": records,
             "truncated": truncated,
+            "hint": "Use a more targeted call with specific value_columns or a narrower date range.",
             "forecast_periods": forecast_periods,
             "forecast_values": forecast_values_map,
             "forecast_dates": forecast_dates_map,
@@ -691,6 +697,7 @@ def cohort_analysis(
         result: dict = {
             "success": True,
             "op": "cohort_analysis",
+            "file_path": str(path),
             "cohort_column": cohort_column,
             "date_column": date_column,
             "value_column": value_column or "count",
@@ -698,6 +705,7 @@ def cohort_analysis(
             "periods": len(pivot.columns),
             "matrix": matrix,
             "truncated": truncated,
+            "hint": "Use a more targeted call with a specific cohort_column or value_column.",
             "progress": progress,
         }
 
@@ -847,6 +855,7 @@ def detect_anomalies(
         result = {
             "success": True,
             "op": "detect_anomalies",
+            "file_path": str(path),
             "method": method,
             "total_rows": len(df),
             "anomaly_count": anomaly_count,
@@ -854,6 +863,7 @@ def detect_anomalies(
             "per_column": per_column_summary,
             "output_path": out,
             "output_name": Path(out).name,
+            "hint": "Call apply_patch() or run_cleaning_pipeline() to act on findings.",
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)

@@ -208,6 +208,7 @@ def generate_dashboard(
                 "success": True,
                 "dry_run": True,
                 "op": "generate_dashboard",
+                "file_path": str(path),
                 "would_generate": {
                     "title": dashboard_title,
                     "charts": charts,
@@ -336,6 +337,7 @@ def generate_dashboard(
         result = {
             "success": True,
             "op": "generate_dashboard",
+            "file_path": str(path),
             "output_path": str(out.resolve()),
             "output_name": out.name,
             "dashboard_title": dashboard_title,

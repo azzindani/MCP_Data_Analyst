@@ -189,6 +189,7 @@ def generate_auto_profile(
         result = {
             "success": True,
             "op": "generate_auto_profile",
+            "file_path": str(path),
             "output_path": str(out.resolve()),
             "output_name": out.name,
             "report_size_kb": size_kb,

@@ -1,4 +1,4 @@
-"""Column inference utilities shared across all tiers. No MCP imports."""
+"""Ring-1 pure utility — column inference across all tiers. No I/O, no MCP imports."""
 
 from __future__ import annotations
 

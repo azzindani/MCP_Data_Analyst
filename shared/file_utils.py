@@ -1,3 +1,8 @@
+"""Ring-2 infrastructure utility — performs file I/O (read_csv, atomic_write).
+NOT part of the pure innermost ring. Engine.py calls these as lateral peers,
+not as inner-layer dependencies.
+"""
+
 from __future__ import annotations
 
 import os

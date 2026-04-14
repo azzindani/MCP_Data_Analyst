@@ -1,3 +1,5 @@
+"""Ring-1 pure utility — validates op arrays with no I/O or side effects."""
+
 from __future__ import annotations
 
 VALID_OPS: frozenset[str] = frozenset(

@@ -1,3 +1,7 @@
+"""Ring-2 infrastructure utility — writes/reads the per-file receipt log (I/O).
+NOT part of the pure innermost ring. Engine.py calls these as lateral peers.
+"""
+
 from __future__ import annotations
 
 import json

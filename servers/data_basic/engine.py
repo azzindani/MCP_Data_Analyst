@@ -1,4 +1,25 @@
-"""Tier 1 engine — all domain logic. Zero MCP imports."""
+"""Tier 1 engine — all domain logic. Zero MCP imports.
+
+Ring-2 layer in the 3-ring onion model.
+
+Lateral ring-2 peers (I/O infrastructure, same layer):
+  shared/file_utils.py       — path resolution, CSV reading, atomic writes
+  shared/version_control.py  — snapshot / restore (CoW)
+  shared/receipt.py          — operation receipt log
+  shared/platform_utils.py   — environment-driven size limits
+
+Ring-1 dependencies (pure utilities, inner layer):
+  shared/progress.py         — ok/fail/info/warn/undo helpers (no I/O)
+  shared/patch_validator.py  — op-array validation (no I/O)
+  shared/column_utils.py     — column inference helpers (no I/O)
+
+Ring-3 caller (outermost MCP boundary):
+  server.py                  — thin FastMCP wrapper; one-line tool bodies only
+
+Accepted trade-off (§8 Config):
+  get_max_rows() / get_max_results() are called here (ring-2) rather than
+  being injected from server.py (ring-3) to preserve the one-line server rule.
+"""
 
 from __future__ import annotations
 
@@ -34,7 +55,7 @@ from _patch_ops import (
     _parse_expr,
 )
 
-from shared.file_utils import resolve_path
+from shared.file_utils import atomic_write_text, resolve_path
 from shared.patch_validator import VALID_OPS, validate_ops
 from shared.platform_utils import get_max_results, get_max_rows
 from shared.progress import fail, info, ok, undo, warn
@@ -77,6 +98,160 @@ def _classify_columns(df: pd.DataFrame) -> tuple[list[str], list[str], list[str]
         else:
             categorical.append(col)
     return numeric, categorical, datetime_cols
+
+
+# ---------------------------------------------------------------------------
+# Ring-1 pure helpers — called after I/O; no I/O themselves
+# ---------------------------------------------------------------------------
+
+
+def _profile_df(df: pd.DataFrame) -> dict:
+    """Pure: schema profile from a loaded DataFrame. No I/O."""
+    return {
+        "dtypes": {col: _dtype_label(df[col]) for col in df.columns},
+        "null_counts": {col: int(df[col].isna().sum()) for col in df.columns},
+        "unique_counts": {col: int(df[col].nunique()) for col in df.columns},
+        "sample": df.head(2).fillna("").to_dict(orient="records"),
+    }
+
+
+def _inspect_df(df: pd.DataFrame) -> dict:
+    """Pure: full inspection stats from a DataFrame. No I/O."""
+    rows = len(df)
+    cols = len(df.columns)
+    dtypes = {col: _dtype_label(df[col]) for col in df.columns}
+    null_counts = {col: int(df[col].isna().sum()) for col in df.columns}
+    null_pct = {col: round(null_counts[col] / rows * 100, 2) if rows > 0 else 0.0 for col in df.columns}
+    unique_counts = {col: int(df[col].nunique()) for col in df.columns}
+    numeric_cols, categorical_cols, datetime_cols = _classify_columns(df)
+    return {
+        "rows": rows,
+        "columns": cols,
+        "column_names": list(df.columns),
+        "dtypes": dtypes,
+        "null_counts": null_counts,
+        "null_pct": null_pct,
+        "unique_counts": unique_counts,
+        "numeric_columns": numeric_cols,
+        "categorical_columns": categorical_cols,
+        "datetime_columns": datetime_cols,
+    }
+
+
+def _stats_for_series(series: pd.Series, column: str) -> dict:
+    """Pure: dtype-appropriate stats dict for a Series. No I/O."""
+    dtype = _dtype_label(series)
+    count = int(series.count())
+    null_count = int(series.isna().sum())
+    null_pct = round(null_count / len(series) * 100, 2) if len(series) > 0 else 0.0
+
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return {
+            "column": column,
+            "dtype": dtype,
+            "count": count,
+            "null_count": null_count,
+            "null_pct": null_pct,
+            "min": str(series.min()),
+            "max": str(series.max()),
+        }
+
+    if pd.api.types.is_numeric_dtype(series):
+        clean = series.dropna()
+        mean_val = float(clean.mean()) if len(clean) > 0 else None
+        median_val = float(clean.median()) if len(clean) > 0 else None
+        std_val = float(clean.std()) if len(clean) > 1 else None
+        min_val = float(clean.min()) if len(clean) > 0 else None
+        max_val = float(clean.max()) if len(clean) > 0 else None
+        zero_count = int((series == 0).sum())
+        q1 = float(clean.quantile(0.25)) if len(clean) > 0 else None
+        q3 = float(clean.quantile(0.75)) if len(clean) > 0 else None
+        iqr = (q3 - q1) if (q1 is not None and q3 is not None) else None
+        lower_iqr = (q1 - 1.5 * iqr) if (iqr is not None and q1 is not None) else None
+        upper_iqr = (q3 + 1.5 * iqr) if (iqr is not None and q3 is not None) else None
+        outlier_iqr = int(((clean < lower_iqr) | (clean > upper_iqr)).sum()) if iqr is not None else 0
+        if mean_val is not None and std_val is not None:
+            lower_std = mean_val - 3 * std_val
+            upper_std = mean_val + 3 * std_val
+            outlier_std = int(((clean < lower_std) | (clean > upper_std)).sum())
+        else:
+            outlier_std = 0
+        return {
+            "column": column,
+            "dtype": dtype,
+            "count": count,
+            "null_count": null_count,
+            "null_pct": null_pct,
+            "zero_count": zero_count,
+            "mean": round(mean_val, 4) if mean_val is not None else None,
+            "median": round(median_val, 4) if median_val is not None else None,
+            "std": round(std_val, 4) if std_val is not None else None,
+            "min": round(min_val, 4) if min_val is not None else None,
+            "max": round(max_val, 4) if max_val is not None else None,
+            "q1": round(q1, 4) if q1 is not None else None,
+            "q3": round(q3, 4) if q3 is not None else None,
+            "iqr": round(iqr, 4) if iqr is not None else None,
+            "outlier_count_iqr": outlier_iqr,
+            "outlier_count_std": outlier_std,
+        }
+
+    # Categorical path
+    top_values = series.value_counts().head(10).to_dict()
+    top_values = {str(k): int(v) for k, v in top_values.items()}
+    unique_count = int(series.nunique())
+    return {
+        "column": column,
+        "dtype": dtype,
+        "count": count,
+        "null_count": null_count,
+        "null_pct": null_pct,
+        "unique_count": unique_count,
+        "top_values": top_values,
+    }
+
+
+def _search_df(
+    df: pd.DataFrame,
+    has_nulls: bool,
+    has_zeros: bool,
+    dtype: str,
+    name_contains: str,
+    min_null_pct: float,
+) -> tuple[list[str], dict, dict, dict]:
+    """Pure: filter columns by criteria. Returns (candidates, null_counts, zero_counts, dtypes). No I/O."""
+    rows = len(df)
+    candidates = list(df.columns)
+
+    if name_contains:
+        candidates = [c for c in candidates if name_contains.lower() in c.lower()]
+
+    if dtype:
+        if dtype == "numeric":
+            candidates = [c for c in candidates if pd.api.types.is_numeric_dtype(df[c])]
+        elif dtype == "datetime":
+            candidates = [c for c in candidates if pd.api.types.is_datetime64_any_dtype(df[c])]
+        elif dtype == "object":
+            candidates = [
+                c
+                for c in candidates
+                if not pd.api.types.is_numeric_dtype(df[c]) and not pd.api.types.is_datetime64_any_dtype(df[c])
+            ]
+
+    if has_nulls or min_null_pct > 0.0:
+        null_c = {c: int(df[c].isna().sum()) for c in candidates}
+        null_p = {c: null_c[c] / rows * 100 if rows > 0 else 0.0 for c in candidates}
+        if has_nulls:
+            candidates = [c for c in candidates if null_c[c] > 0]
+        if min_null_pct > 0.0:
+            candidates = [c for c in candidates if null_p[c] >= min_null_pct]
+
+    if has_zeros:
+        candidates = [c for c in candidates if pd.api.types.is_numeric_dtype(df[c]) and int((df[c] == 0).sum()) > 0]
+
+    null_counts = {c: int(df[c].isna().sum()) for c in candidates}
+    zero_counts = {c: int((df[c] == 0).sum()) if pd.api.types.is_numeric_dtype(df[c]) else 0 for c in candidates}
+    dtypes_out = {c: _dtype_label(df[c]) for c in candidates}
+    return candidates, null_counts, zero_counts, dtypes_out
 
 
 # ---------------------------------------------------------------------------
@@ -158,10 +333,8 @@ def load_dataset(
                 )
             )
 
-        dtypes = {col: _dtype_label(df[col]) for col in df.columns}
-        null_counts = {col: int(df[col].isna().sum()) for col in df.columns}
-        unique_counts = {col: int(df[col].nunique()) for col in df.columns}
-        sample = df.head(2).fillna("").to_dict(orient="records")
+        # Ring-1 pure helper — no I/O
+        profile = _profile_df(df)
 
         progress.append(ok(f"Loaded {path.name}", f"{len(df):,} rows × {len(df.columns)} cols"))
 
@@ -169,13 +342,15 @@ def load_dataset(
             "success": True,
             "op": "load_dataset",
             "file": path.name,
+            "file_path": str(path),
             "rows": len(df),
             "columns": len(df.columns),
-            "dtypes": dtypes,
-            "null_counts": null_counts,
-            "unique_counts": unique_counts,
-            "sample": sample,
+            "dtypes": profile["dtypes"],
+            "null_counts": profile["null_counts"],
+            "unique_counts": profile["unique_counts"],
+            "sample": profile["sample"],
             "encoding_used": encoding,
+            "hint": "Call search_columns() or inspect_dataset() to explore next.",
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -308,30 +483,18 @@ def inspect_dataset(
             }
 
         df = _read_csv(str(path))
-        rows = len(df)
-        cols = len(df.columns)
 
-        dtypes = {col: _dtype_label(df[col]) for col in df.columns}
-        null_counts = {col: int(df[col].isna().sum()) for col in df.columns}
-        null_pct = {col: round(null_counts[col] / rows * 100, 2) if rows > 0 else 0.0 for col in df.columns}
-        unique_counts = {col: int(df[col].nunique()) for col in df.columns}
-
-        numeric_cols, categorical_cols, datetime_cols = _classify_columns(df)
+        # Ring-1 pure helper — no I/O
+        stats = _inspect_df(df)
+        rows = stats["rows"]
+        cols = stats["columns"]
 
         result: dict = {
             "success": True,
             "op": "inspect_dataset",
             "file": path.name,
-            "rows": rows,
-            "columns": cols,
-            "column_names": list(df.columns),
-            "dtypes": dtypes,
-            "null_counts": null_counts,
-            "null_pct": null_pct,
-            "unique_counts": unique_counts,
-            "numeric_columns": numeric_cols,
-            "categorical_columns": categorical_cols,
-            "datetime_columns": datetime_cols,
+            "file_path": str(path),
+            **stats,
         }
 
         if include_sample:
@@ -345,6 +508,10 @@ def inspect_dataset(
                 result["column_names"] = result["column_names"][:max_c]
                 result["truncated"] = True
                 result["total_columns"] = cols
+                result["hint"] = (
+                    f"Returned first {max_c} of {cols} columns. "
+                    "Call read_column_stats(file_path, column=<name>) for a specific column."
+                )
                 progress.append(
                     warn(
                         "Response truncated",
@@ -403,93 +570,16 @@ def read_column_stats(
             }
 
         series = df[column]
-        dtype = _dtype_label(series)
-        count = int(series.count())
-        null_count = int(series.isna().sum())
-        null_pct = round(null_count / len(series) * 100, 2) if len(series) > 0 else 0.0
+        progress.append(ok(f"Stats for {column}", _dtype_label(series)))
 
-        progress.append(ok(f"Stats for {column}", dtype))
-
-        # Datetime path
-        if pd.api.types.is_datetime64_any_dtype(series):
-            result = {
-                "success": True,
-                "op": "read_column_stats",
-                "column": column,
-                "dtype": dtype,
-                "count": count,
-                "null_count": null_count,
-                "null_pct": null_pct,
-                "min": str(series.min()),
-                "max": str(series.max()),
-                "progress": progress,
-            }
-            result["token_estimate"] = _token_estimate(result)
-            return result
-
-        # Numeric path
-        if pd.api.types.is_numeric_dtype(series):
-            clean = series.dropna()
-            mean_val = float(clean.mean()) if len(clean) > 0 else None
-            median_val = float(clean.median()) if len(clean) > 0 else None
-            std_val = float(clean.std()) if len(clean) > 1 else None
-            min_val = float(clean.min()) if len(clean) > 0 else None
-            max_val = float(clean.max()) if len(clean) > 0 else None
-            zero_count = int((series == 0).sum())
-
-            q1 = float(clean.quantile(0.25)) if len(clean) > 0 else None
-            q3 = float(clean.quantile(0.75)) if len(clean) > 0 else None
-            iqr = (q3 - q1) if (q1 is not None and q3 is not None) else None
-            lower_iqr = (q1 - 1.5 * iqr) if (iqr is not None and q1 is not None) else None
-            upper_iqr = (q3 + 1.5 * iqr) if (iqr is not None and q3 is not None) else None
-            outlier_iqr = int(((clean < lower_iqr) | (clean > upper_iqr)).sum()) if iqr is not None else 0
-
-            if mean_val is not None and std_val is not None:
-                lower_std = mean_val - 3 * std_val
-                upper_std = mean_val + 3 * std_val
-                outlier_std = int(((clean < lower_std) | (clean > upper_std)).sum())
-            else:
-                outlier_std = 0
-
-            result = {
-                "success": True,
-                "op": "read_column_stats",
-                "column": column,
-                "dtype": dtype,
-                "count": count,
-                "null_count": null_count,
-                "null_pct": null_pct,
-                "zero_count": zero_count,
-                "mean": round(mean_val, 4) if mean_val is not None else None,
-                "median": round(median_val, 4) if median_val is not None else None,
-                "std": round(std_val, 4) if std_val is not None else None,
-                "min": round(min_val, 4) if min_val is not None else None,
-                "max": round(max_val, 4) if max_val is not None else None,
-                "q1": round(q1, 4) if q1 is not None else None,
-                "q3": round(q3, 4) if q3 is not None else None,
-                "iqr": round(iqr, 4) if iqr is not None else None,
-                "outlier_count_iqr": outlier_iqr,
-                "outlier_count_std": outlier_std,
-                "progress": progress,
-            }
-            result["token_estimate"] = _token_estimate(result)
-            return result
-
-        # Categorical path
-        top_values = series.value_counts().head(10).to_dict()
-        top_values = {str(k): int(v) for k, v in top_values.items()}
-        unique_count = int(series.nunique())
+        # Ring-1 pure helper — no I/O
+        stats = _stats_for_series(series, column)
 
         result = {
             "success": True,
             "op": "read_column_stats",
-            "column": column,
-            "dtype": dtype,
-            "count": count,
-            "null_count": null_count,
-            "null_pct": null_pct,
-            "unique_count": unique_count,
-            "top_values": top_values,
+            "file_path": str(path),
+            **stats,
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -533,53 +623,26 @@ def search_columns(
             }
 
         df = _read_csv(str(path))
-        rows = len(df)
-        candidates = list(df.columns)
 
-        # Apply filters
-        if name_contains:
-            candidates = [c for c in candidates if name_contains.lower() in c.lower()]
-
-        if dtype:
-            if dtype == "numeric":
-                candidates = [c for c in candidates if pd.api.types.is_numeric_dtype(df[c])]
-            elif dtype == "datetime":
-                candidates = [c for c in candidates if pd.api.types.is_datetime64_any_dtype(df[c])]
-            elif dtype == "object":
-                candidates = [
-                    c
-                    for c in candidates
-                    if not pd.api.types.is_numeric_dtype(df[c]) and not pd.api.types.is_datetime64_any_dtype(df[c])
-                ]
-
-        if has_nulls or min_null_pct > 0.0:
-            null_c = {c: int(df[c].isna().sum()) for c in candidates}
-            null_p = {c: null_c[c] / rows * 100 if rows > 0 else 0.0 for c in candidates}
-            if has_nulls:
-                candidates = [c for c in candidates if null_c[c] > 0]
-            if min_null_pct > 0.0:
-                candidates = [c for c in candidates if null_p[c] >= min_null_pct]
-
-        if has_zeros:
-            candidates = [c for c in candidates if pd.api.types.is_numeric_dtype(df[c]) and int((df[c] == 0).sum()) > 0]
-
-        # Build result counts
-        null_counts = {c: int(df[c].isna().sum()) for c in candidates}
-        zero_counts = {c: int((df[c] == 0).sum()) if pd.api.types.is_numeric_dtype(df[c]) else 0 for c in candidates}
-        dtypes_out = {c: _dtype_label(df[c]) for c in candidates}
+        # Ring-1 pure helper — no I/O
+        candidates, null_counts, zero_counts, dtypes_out = _search_df(
+            df, has_nulls, has_zeros, dtype, name_contains, min_null_pct
+        )
 
         # Truncate
         max_r = get_max_results()
-        truncated = len(candidates) > max_r
+        total_matched = len(candidates)
+        truncated = total_matched > max_r
         if truncated:
             candidates = candidates[:max_r]
             progress.append(warn("Results truncated", f"Showing first {max_r} matching columns"))
 
         progress.append(ok(f"Searched {path.name}", f"{len(candidates)} column(s) matched"))
 
-        result = {
+        result: dict = {
             "success": True,
             "op": "search_columns",
+            "file_path": str(path),
             "matched": len(candidates),
             "columns": candidates,
             "null_counts": {c: null_counts[c] for c in candidates},
@@ -588,6 +651,14 @@ def search_columns(
             "truncated": truncated,
             "progress": progress,
         }
+        if truncated:
+            result["total_matched"] = total_matched
+            result["hint"] = (
+                f"Returned first {max_r} of {total_matched} matches. "
+                "Refine criteria or call read_column_stats(file_path, column=<name>)."
+            )
+        else:
+            result["hint"] = "Call read_column_stats(file_path, column=<name>) to inspect each match."
         result["token_estimate"] = _token_estimate(result)
         return result
 
@@ -623,6 +694,14 @@ _OP_HANDLERS = {
 }
 
 
+# Ring-1 pure transform — no I/O, no exception catching. Raises on error.
+def _apply_op(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
+    """Apply a single op to df. Pure; raises on error. No I/O."""
+    op_name = op.get("op", "")
+    handler = _OP_HANDLERS[op_name]
+    return handler(df, op)
+
+
 def apply_patch(
     file_path: str,
     ops: list[dict],
@@ -642,7 +721,7 @@ def apply_patch(
                 "token_estimate": 20,
             }
 
-        # Validate all ops before touching the file
+        # Validate op schema before touching the file
         errors = validate_ops(ops)
         if errors:
             return {
@@ -656,46 +735,65 @@ def apply_patch(
         df = _read_csv(str(path))
 
         if dry_run:
-            would_change = []
-            for op in ops:
-                op_name = op.get("op", "")
-                would_change.append({"op": op_name, "params": op})
+            # Ring-2 shell: accumulate errors from ring-1 _apply_op raises (H4).
+            dry_df = df.copy()
+            dry_results: list[dict] = []
+            dry_errors: list[dict] = []
+            for i, op in enumerate(ops):
+                try:
+                    dry_df, op_result = _apply_op(dry_df, op)
+                    dry_results.append(op_result)
+                except Exception as exc:
+                    dry_errors.append({"op_index": i, "op": op.get("op", ""), "error": str(exc)})
+            would_change = [{"op": op.get("op", ""), "params": op} for op in ops]
             result = {
-                "success": True,
+                "success": len(dry_errors) == 0,
                 "dry_run": True,
                 "op": "apply_patch",
+                "file_path": str(path),
                 "would_change": would_change,
+                "validated": len(dry_results),
+                "validation_errors": dry_errors,
                 "progress": [info("Dry run — no changes written", path.name)],
             }
+            if dry_errors:
+                result["hint"] = "Fix validation_errors before running without dry_run=True."
             result["token_estimate"] = _token_estimate(result)
             return result
 
-        # Take snapshot before first write
+        # Take snapshot before first write (ring-2 I/O)
         backup = snapshot(str(path))
         progress.append(info("Snapshot created", Path(backup).name))
 
-        results = []
+        # Ring-2 shell: accumulate all op errors; ring-1 _apply_op raises on error.
+        results: list[dict] = []
+        op_errors: list[dict] = []
         for i, op in enumerate(ops):
-            op_name = op.get("op", "")
-            handler = _OP_HANDLERS[op_name]
             try:
-                df, op_result = handler(df, op)
+                df, op_result = _apply_op(df, op)
                 results.append(op_result)
-                progress.append(ok(f"Applied {op_name}", str(op_result)))
+                progress.append(ok(f"Applied {op_result.get('op', '?')}", str(op_result)))
             except Exception as exc:
-                progress.append(fail(f"Op {i} ({op_name}) failed", str(exc)))
-                return {
-                    "success": False,
-                    "error": f"Op {i} ({op_name}): {exc}",
-                    "hint": "Use restore_version() to undo from the backup.",
-                    "applied": i,
-                    "backup": backup,
-                    "progress": progress,
-                    "token_estimate": _token_estimate(progress),
-                }
+                op_errors.append({"op_index": i, "op": op.get("op", ""), "error": str(exc)})
+                progress.append(fail(f"Op {i} ({op.get('op', '?')}) failed", str(exc)))
 
-        # Write result atomically
-        df.to_csv(str(path), index=False)
+        if op_errors:
+            # Do NOT write the modified df — leave the original intact.
+            return {
+                "success": False,
+                "error": f"{len(op_errors)} op(s) failed",
+                "op_errors": op_errors,
+                "applied": len(results),
+                "failed": len(op_errors),
+                "backup": backup,
+                "hint": ("Fix failing ops and retry. Call restore_version() if you want to reset to the snapshot."),
+                "file_path": str(path),
+                "progress": progress,
+                "token_estimate": _token_estimate(progress),
+            }
+
+        # All ops succeeded — write atomically (G6)
+        atomic_write_text(path, df.to_csv(index=False))
         progress.append(ok(f"Saved {path.name}", f"{len(ops)} op(s) applied"))
 
         append_receipt(
@@ -709,9 +807,11 @@ def apply_patch(
         result = {
             "success": True,
             "op": "apply_patch",
+            "file_path": str(path),
             "applied": len(ops),
             "results": results,
             "backup": backup,
+            "hint": ("Call read_column_stats() or inspect_dataset() to verify the changes."),
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -794,8 +894,10 @@ def restore_version(
             "success": True,
             "op": "restore_version",
             "file": path.name,
+            "file_path": str(path),
             "restored_from": backup_path,
             "available_versions": versions,
+            "hint": "Call inspect_dataset() to confirm the restored state.",
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -841,6 +943,7 @@ def read_receipt(
             "success": True,
             "op": "read_receipt",
             "file": path.name,
+            "file_path": str(path),
             "total_entries": total,
             "returned": len(entries),
             "entries": entries,
