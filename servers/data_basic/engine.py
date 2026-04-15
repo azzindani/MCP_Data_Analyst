@@ -43,6 +43,7 @@ from _patch_ops import (
     _op_add_column,
     _op_bin_column,
     _op_binary_encode,
+    _op_boxcox_transform,
     _op_cap_outliers,
     _op_cast_column,
     _op_clean_text,
@@ -88,6 +89,7 @@ from _patch_ops import (
     _op_sqrt_transform,
     _op_str_slice,
     _op_winsorize,
+    _op_yeojohnson_transform,
     _parse_expr,
 )
 
@@ -741,6 +743,8 @@ _OP_HANDLERS = {
     # --- numeric transforms ---
     "log_transform": _op_log_transform,
     "sqrt_transform": _op_sqrt_transform,
+    "boxcox_transform": _op_boxcox_transform,
+    "yeojohnson_transform": _op_yeojohnson_transform,
     "robust_scale": _op_robust_scale,
     "winsorize": _op_winsorize,
     "bin_column": _op_bin_column,
@@ -1038,4 +1042,114 @@ def read_receipt(
             "hint": "Check file_path is absolute and the file exists.",
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# list_patch_ops — on-demand op catalog
+# ---------------------------------------------------------------------------
+
+_OP_CATALOG: dict[str, list[dict]] = {
+    "original": [
+        {"op": "drop_column", "params": "columns: list[str]"},
+        {"op": "clean_text", "params": "scope: headers|values|both"},
+        {"op": "cast_column", "params": "column, dtype: int|float|str|datetime"},
+        {"op": "replace_values", "params": "column, mapping: {old: new}"},
+        {"op": "add_column", "params": "name, mode: math|threshold, expr|source+threshold"},
+        {"op": "cap_outliers", "params": "column, method: iqr|std, threshold"},
+        {"op": "fill_nulls", "params": "column, strategy: mean|median|mode|ffill|bfill|drop|value"},
+        {"op": "drop_duplicates", "params": "keep: first|last|False"},
+        {"op": "normalize", "params": "column, method: minmax|zscore"},
+        {"op": "label_encode", "params": "column, new_column"},
+        {"op": "extract_regex", "params": "column, pattern, new_column"},
+        {"op": "date_diff", "params": "start_col, end_col, new_col, unit: days|hours|minutes"},
+        {"op": "rank_column", "params": "column, new_column, method: average|min|max|first|dense"},
+    ],
+    "filtering": [
+        {"op": "sort", "params": "by: list[str], ascending: list[bool]"},
+        {"op": "filter_isin", "params": "column, values: list"},
+        {"op": "filter_not_isin", "params": "column, values: list"},
+        {"op": "filter_between", "params": "column, min, max"},
+        {"op": "filter_date_range", "params": "column, start, end (ISO strings)"},
+        {"op": "filter_regex", "params": "column, pattern"},
+        {"op": "filter_quantile", "params": "column, min_q, max_q (0–1)"},
+        {"op": "filter_top_n", "params": "column, n, keep: top|bottom"},
+        {"op": "dedup_subset", "params": "columns: list[str], keep: first|last"},
+    ],
+    "numeric": [
+        {"op": "log_transform", "params": "column, method: log1p|log2|log10|log, new_column"},
+        {"op": "sqrt_transform", "params": "column, new_column, safe: bool"},
+        {"op": "boxcox_transform", "params": "column, new_column (requires all values > 0)"},
+        {"op": "yeojohnson_transform", "params": "column, new_column (works on negatives)"},
+        {"op": "robust_scale", "params": "column, new_column (median/IQR scale)"},
+        {"op": "winsorize", "params": "column, lower_q, upper_q (percentile bounds)"},
+        {"op": "bin_column", "params": "column, bins: int|list, labels: list, new_column"},
+        {"op": "qbin_column", "params": "column, q: int, labels: list, new_column"},
+        {"op": "clip_values", "params": "column, min, max"},
+        {"op": "round_values", "params": "column, decimals: int"},
+        {"op": "abs_values", "params": "column, new_column"},
+    ],
+    "encoding": [
+        {"op": "ordinal_encode", "params": "column, order: list[str], new_column"},
+        {"op": "binary_encode", "params": "column, threshold|value, new_column"},
+        {"op": "frequency_encode", "params": "column, new_column"},
+    ],
+    "temporal": [
+        {"op": "lag", "params": "column, periods: int, new_column"},
+        {"op": "lead", "params": "column, periods: int, new_column"},
+        {"op": "diff", "params": "column, periods: int, new_column"},
+        {"op": "pct_change", "params": "column, periods: int, new_column"},
+        {"op": "rolling_agg", "params": "column, window: int, agg: mean|std|min|max|sum, new_column"},
+        {"op": "ewm", "params": "column, span: int, new_column"},
+        {"op": "cumulative", "params": "column, agg: sum|prod|max|min, new_column"},
+    ],
+    "structural": [
+        {"op": "column_math", "params": "formula: 'col_a + col_b', new_column"},
+        {"op": "conditional_assign", "params": "new_column, conditions: list[dict], default"},
+        {"op": "split_column", "params": "column, delimiter, new_columns: list[str], drop_original"},
+        {"op": "combine_columns", "params": "columns: list[str], delimiter, new_column, drop_originals"},
+        {"op": "regex_replace", "params": "column, pattern, replacement"},
+        {"op": "str_slice", "params": "column, start, end, new_column"},
+        {"op": "concat_file", "params": "file_path, direction: rows|columns, fill_missing, add_source"},
+        {"op": "melt", "params": "id_vars: list, value_vars: list, var_name, value_name"},
+    ],
+}
+
+_VALID_CATEGORIES = frozenset(_OP_CATALOG.keys())
+
+
+def list_patch_ops(category: str = "") -> dict:
+    """Return the full apply_patch op catalog. Filter by category."""
+    try:
+        cat = category.strip().lower()
+        if cat and cat not in _VALID_CATEGORIES:
+            return {
+                "success": False,
+                "error": f"Unknown category: '{cat}'",
+                "hint": f"Valid categories: {', '.join(sorted(_VALID_CATEGORIES))}",
+                "progress": [fail("Unknown category", cat)],
+                "token_estimate": 20,
+            }
+        if cat:
+            ops = {cat: _OP_CATALOG[cat]}
+        else:
+            ops = _OP_CATALOG
+        total = sum(len(v) for v in ops.values())
+        result = {
+            "success": True,
+            "op": "list_patch_ops",
+            "category": cat or "all",
+            "total_ops": total,
+            "ops": ops,
+            "progress": [ok("Op catalog returned", f"{total} ops in {len(ops)} categories")],
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Call with no arguments to list all ops.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 10,
         }
