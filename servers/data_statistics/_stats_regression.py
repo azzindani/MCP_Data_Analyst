@@ -32,8 +32,8 @@ def regression_analysis(
     progress = []
     try:
         try:
-            import statsmodels.api as sm
-            from statsmodels.stats.outliers_influence import variance_inflation_factor
+            import statsmodels.api as sm  # type: ignore[import-untyped]
+            from statsmodels.stats.outliers_influence import variance_inflation_factor  # type: ignore[import-untyped]
         except ImportError:
             return {
                 "success": False,

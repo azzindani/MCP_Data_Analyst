@@ -99,7 +99,7 @@ def read_receipt(
 
 @mcp.tool()
 def list_patch_ops(category: str = "") -> dict:
-    """List all apply_patch ops. category: filtering numeric encoding temporal structural."""
+    """List apply_patch ops. category: filtering numeric encoding temporal structural."""
     return engine.list_patch_ops(category)
 
 

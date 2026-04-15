@@ -49,7 +49,7 @@ def _interpret_p(p: float, alpha: float) -> str:
     return f"Fail to reject H0 (p={p:.4f} ≥ α={alpha})"
 
 
-def statistical_test(
+def statistical_test(  # type: ignore[reportGeneralTypeIssues]
     file_path: str,
     test: str,
     column_a: str = "",

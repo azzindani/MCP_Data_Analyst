@@ -138,8 +138,8 @@ def period_comparison(
             if group_label:
                 comp["group"] = group_label
             for m in metrics:
-                cur_val = float(cur_row[m]) if not pd.isna(cur_row[m]) else None
-                ref_val = float(ref_row[m]) if not pd.isna(ref_row[m]) else None
+                cur_val = float(cur_row[m]) if not pd.isna(cur_row[m]) else None  # type: ignore[arg-type]
+                ref_val = float(ref_row[m]) if not pd.isna(ref_row[m]) else None  # type: ignore[arg-type]
                 if cur_val is not None and ref_val is not None and ref_val != 0:
                     delta = cur_val - ref_val
                     pct = (delta / abs(ref_val)) * 100

@@ -1133,6 +1133,126 @@ class TestTimeSeriesForecast:
 
 
 # ---------------------------------------------------------------------------
+# time_series_analysis — STL / ACF / ADF enhancements
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def long_date_csv(tmp_path) -> Path:
+    """3 years of monthly data — enough for STL (needs 2×12 = 24 periods)."""
+    import io
+
+    rows = ["Date,Revenue,Units"]
+    import datetime
+
+    start = datetime.date(2021, 1, 1)
+    import random
+
+    random.seed(42)
+    for i in range(36):
+        dt = start + datetime.timedelta(days=i * 30)
+        rev = 5000 + i * 100 + random.randint(-500, 500)
+        units = 10 + i // 3 + random.randint(-2, 2)
+        rows.append(f"{dt},{max(100, rev)},{max(1, units)}")
+    f = tmp_path / "long_ts.csv"
+    f.write_text("\n".join(rows))
+    return f
+
+
+class TestTimeSeriesADF:
+    def test_adf_present_in_result(self, long_date_csv):
+        """ADF stationarity test should appear in result for columns with enough data."""
+        r = time_series_analysis(
+            str(long_date_csv),
+            date_column="Date",
+            value_columns=["Revenue"],
+            period="M",
+            open_after=False,
+        )
+        assert r["success"] is True
+        assert "adf" in r
+        # With enough data, ADF should be computed
+        if r["adf"]:
+            adf_rev = r["adf"].get("Revenue", {})
+            assert "test_statistic" in adf_rev
+            assert "p_value" in adf_rev
+            assert "is_stationary" in adf_rev
+            assert isinstance(adf_rev["is_stationary"], bool)
+
+    def test_acf_present_in_result(self, long_date_csv):
+        """ACF and PACF values should appear in result for columns with enough data."""
+        r = time_series_analysis(
+            str(long_date_csv),
+            date_column="Date",
+            value_columns=["Revenue"],
+            period="M",
+            open_after=False,
+        )
+        assert r["success"] is True
+        assert "acf" in r
+        if r["acf"]:
+            acf_rev = r["acf"].get("Revenue", {})
+            assert "acf" in acf_rev
+            assert "pacf" in acf_rev
+            assert "lags" in acf_rev
+            assert len(acf_rev["acf"]) == len(acf_rev["lags"])
+
+    def test_stl_quarterly_data(self, tmp_path):
+        """STL decomposition on 3 years of quarterly data (period=Q → 4 seasons)."""
+        rows = ["Date,Revenue"]
+        import datetime
+
+        start = datetime.date(2020, 1, 1)
+        for i in range(16):  # 4 years of quarters
+            dt = start + datetime.timedelta(days=i * 90)
+            seasonal = 1000 if i % 4 in (2, 3) else 500
+            rows.append(f"{dt},{3000 + seasonal + i * 50}")
+        f = tmp_path / "quarterly_ts.csv"
+        f.write_text("\n".join(rows))
+
+        r = time_series_analysis(
+            str(f),
+            date_column="Date",
+            value_columns=["Revenue"],
+            period="Q",
+            open_after=False,
+        )
+        assert r["success"] is True
+        assert "stl" in r
+        if r["stl"]:
+            stl_rev = r["stl"].get("Revenue", {})
+            assert "trend" in stl_rev
+            assert "seasonal" in stl_rev
+            assert "residual" in stl_rev
+            assert "seasonal_strength" in stl_rev
+            assert "trend_strength" in stl_rev
+            assert 0.0 <= stl_rev["seasonal_strength"] <= 1.0
+            assert 0.0 <= stl_rev["trend_strength"] <= 1.0
+
+    def test_e2e_time_series_full_analysis(self, long_date_csv):
+        """E2E: full time-series pipeline — success, trend, forecast, ADF, ACF, STL."""
+        r = time_series_analysis(
+            str(long_date_csv),
+            date_column="Date",
+            value_columns=["Revenue"],
+            period="M",
+            open_after=False,
+        )
+        assert r["success"] is True
+        # Core fields
+        assert "trend" in r
+        assert "data" in r
+        assert "forecast_values" in r
+        assert "forecast_dates" in r
+        # New fields
+        assert "adf" in r
+        assert "acf" in r
+        assert "stl" in r
+        # Token budget honoured
+        assert r["token_estimate"] > 0
+
+
+# ---------------------------------------------------------------------------
 # analyze_text_column
 # ---------------------------------------------------------------------------
 

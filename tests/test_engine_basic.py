@@ -1039,3 +1039,203 @@ def test_server_docstrings_lte_80_chars():
     for fn in tool_funcs:
         doc = fn.__doc__ or ""
         assert len(doc) <= 80, f"{fn.__name__} docstring too long ({len(doc)} chars): {doc!r}"
+
+
+# ---------------------------------------------------------------------------
+# list_patch_ops
+# ---------------------------------------------------------------------------
+
+
+class TestListPatchOps:
+    def test_all_ops_returned(self):
+        from servers.data_basic.engine import list_patch_ops
+
+        r = list_patch_ops()
+        assert r["success"] is True
+        assert "ops" in r
+        assert "total_ops" in r
+        assert r["total_ops"] > 0
+
+    def test_category_filter_numeric(self):
+        from servers.data_basic.engine import list_patch_ops
+
+        r = list_patch_ops(category="numeric")
+        assert r["success"] is True
+        assert len(r["ops"]) == 1
+        assert "numeric" in r["ops"]
+
+    def test_invalid_category(self):
+        from servers.data_basic.engine import list_patch_ops
+
+        r = list_patch_ops(category="nonexistent_cat")
+        assert r["success"] is False
+        assert "hint" in r
+
+    def test_op_catalog_contains_fill_nulls(self):
+        from servers.data_basic.engine import list_patch_ops
+
+        r = list_patch_ops()
+        all_op_names = [entry["op"] for ops in r["ops"].values() for entry in ops]
+        assert "fill_nulls" in all_op_names
+
+    def test_op_catalog_contains_boxcox(self):
+        from servers.data_basic.engine import list_patch_ops
+
+        r = list_patch_ops()
+        all_op_names = [entry["op"] for ops in r["ops"].values() for entry in ops]
+        assert "boxcox_transform" in all_op_names
+
+    def test_token_estimate_present(self):
+        from servers.data_basic.engine import list_patch_ops
+
+        r = list_patch_ops()
+        assert "token_estimate" in r
+        assert r["token_estimate"] > 0
+
+
+# ---------------------------------------------------------------------------
+# boxcox_transform and yeojohnson_transform (via apply_patch)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def positive_csv(tmp_path) -> Path:
+    """CSV with strictly positive values (required for Box-Cox)."""
+    f = tmp_path / "positive.csv"
+    f.write_text("id,sales,cost\n1,100,50\n2,200,80\n3,300,120\n4,400,150\n5,500,200\n")
+    return f
+
+
+@pytest.fixture()
+def mixed_sign_csv(tmp_path) -> Path:
+    """CSV with mixed positive/negative values (for Yeo-Johnson only)."""
+    f = tmp_path / "mixed.csv"
+    f.write_text("id,score\n1,-50\n2,-10\n3,0\n4,30\n5,100\n6,200\n")
+    return f
+
+
+class TestBoxCoxTransform:
+    def test_success(self, positive_csv):
+        r = apply_patch(str(positive_csv), [{"op": "boxcox_transform", "column": "sales"}])
+        assert r["success"] is True
+        df = pd.read_csv(str(positive_csv))
+        # Column should be transformed (non-integer values)
+        assert df["sales"].dtype == float
+
+    def test_lambda_in_result(self, positive_csv):
+        r = apply_patch(str(positive_csv), [{"op": "boxcox_transform", "column": "sales"}])
+        assert r["success"] is True
+        assert "results" in r
+        ops_r = r["results"]
+        assert len(ops_r) == 1
+        assert "lambda" in ops_r[0]
+
+    def test_dry_run(self, positive_csv):
+        original = pd.read_csv(str(positive_csv))["sales"].tolist()
+        r = apply_patch(str(positive_csv), [{"op": "boxcox_transform", "column": "sales"}], dry_run=True)
+        assert r["success"] is True
+        assert r.get("dry_run") is True
+        after = pd.read_csv(str(positive_csv))["sales"].tolist()
+        assert after == original
+
+    def test_column_not_found(self, positive_csv):
+        r = apply_patch(str(positive_csv), [{"op": "boxcox_transform", "column": "nonexistent"}])
+        assert r["success"] is False
+
+    def test_non_positive_values_rejected(self, mixed_sign_csv):
+        r = apply_patch(str(mixed_sign_csv), [{"op": "boxcox_transform", "column": "score"}])
+        assert r["success"] is False
+        assert "hint" in r
+
+    def test_backup_created(self, positive_csv):
+        r = apply_patch(str(positive_csv), [{"op": "boxcox_transform", "column": "sales"}])
+        assert r["success"] is True
+        assert "backup" in r
+
+
+class TestYeoJohnsonTransform:
+    def test_success_positive(self, positive_csv):
+        r = apply_patch(str(positive_csv), [{"op": "yeojohnson_transform", "column": "sales"}])
+        assert r["success"] is True
+
+    def test_success_mixed_sign(self, mixed_sign_csv):
+        r = apply_patch(str(mixed_sign_csv), [{"op": "yeojohnson_transform", "column": "score"}])
+        assert r["success"] is True
+        df = pd.read_csv(str(mixed_sign_csv))
+        assert df["score"].dtype == float
+
+    def test_lambda_in_result(self, positive_csv):
+        r = apply_patch(str(positive_csv), [{"op": "yeojohnson_transform", "column": "sales"}])
+        assert r["success"] is True
+        assert "results" in r
+        ops_r = r["results"]
+        assert "lambda" in ops_r[0]
+
+    def test_dry_run(self, mixed_sign_csv):
+        original = pd.read_csv(str(mixed_sign_csv))["score"].tolist()
+        r = apply_patch(str(mixed_sign_csv), [{"op": "yeojohnson_transform", "column": "score"}], dry_run=True)
+        assert r["success"] is True
+        assert r.get("dry_run") is True
+        after = pd.read_csv(str(mixed_sign_csv))["score"].tolist()
+        assert after == original
+
+    def test_column_not_found(self, positive_csv):
+        r = apply_patch(str(positive_csv), [{"op": "yeojohnson_transform", "column": "noexist"}])
+        assert r["success"] is False
+
+    def test_backup_created(self, mixed_sign_csv):
+        r = apply_patch(str(mixed_sign_csv), [{"op": "yeojohnson_transform", "column": "score"}])
+        assert r["success"] is True
+        assert "backup" in r
+
+
+# ---------------------------------------------------------------------------
+# E2E: Four-Tool Pattern — locate → inspect → patch → verify
+# ---------------------------------------------------------------------------
+
+
+class TestE2EFourToolPattern:
+    def test_locate_inspect_patch_verify(self, tmp_path):
+        """Full LOCATE→INSPECT→PATCH→VERIFY cycle using nulls in revenue column."""
+        f = tmp_path / "sales.csv"
+        f.write_text("Region,Revenue,Units\nWest,5000,10\nEast,,15\nSouth,2100,5\nNorth,4800,12\nWest,,9\n")
+
+        # LOCATE — find columns with nulls
+        r_locate = search_columns(str(f), has_nulls=True)
+        assert r_locate["success"] is True
+        assert "Revenue" in r_locate["columns"]
+
+        # INSPECT — get stats on the nulled column
+        r_inspect = read_column_stats(str(f), "Revenue")
+        assert r_inspect["success"] is True
+        assert r_inspect["null_count"] == 2
+
+        # PATCH — fill nulls with median
+        r_patch = apply_patch(str(f), [{"op": "fill_nulls", "column": "Revenue", "strategy": "median"}])
+        assert r_patch["success"] is True
+        assert "backup" in r_patch
+
+        # VERIFY — confirm no nulls remain
+        r_verify = read_column_stats(str(f), "Revenue")
+        assert r_verify["success"] is True
+        assert r_verify["null_count"] == 0
+
+    def test_boxcox_e2e_locate_transform_verify(self, tmp_path):
+        """E2E: detect skewed column → boxcox transform → verify dtype changes."""
+        f = tmp_path / "skewed.csv"
+        # Create right-skewed data
+        f.write_text("id,amount\n1,1\n2,2\n3,3\n4,5\n5,8\n6,13\n7,21\n8,34\n9,55\n10,89\n")
+
+        # Inspect original
+        r_pre = read_column_stats(str(f), "amount")
+        assert r_pre["success"] is True
+        original_mean = r_pre["mean"]
+
+        # Apply Box-Cox
+        r_patch = apply_patch(str(f), [{"op": "boxcox_transform", "column": "amount"}])
+        assert r_patch["success"] is True
+
+        # Verify data changed
+        r_post = read_column_stats(str(f), "amount")
+        assert r_post["success"] is True
+        assert r_post["mean"] != original_mean
