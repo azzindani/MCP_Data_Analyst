@@ -568,6 +568,7 @@ def _apply_condition(df: pd.DataFrame, cond: dict) -> pd.Series:
     op = cond.get("op", "")
     val = cond.get("value")
     s = df[col]
+    # --- original ops ---
     if op == "equals":
         return s == val
     if op == "not_equals":
@@ -586,7 +587,53 @@ def _apply_condition(df: pd.DataFrame, cond: dict) -> pd.Series:
         return s.isna()
     if op == "not_null":
         return s.notna()
-    raise ValueError(f"Unknown op '{op}'. Valid: equals not_equals contains gt gte lt lte is_null not_null")
+    # --- new ops ---
+    if op == "isin":
+        # accept "values" key (list) or "value" key (single or list)
+        values = cond.get("values", val if isinstance(val, list) else [val])
+        return s.isin(values)
+    if op == "not_isin":
+        values = cond.get("values", val if isinstance(val, list) else [val])
+        return ~s.isin(values)
+    if op == "between":
+        min_v = cond.get("min", val)
+        max_v = cond.get("max", val)
+        return pd.to_numeric(s, errors="coerce").between(float(min_v), float(max_v))
+    if op == "date_range":
+        start = cond.get("start")
+        end = cond.get("end")
+        parsed = pd.to_datetime(s, errors="coerce")
+        mask = pd.Series([True] * len(df), index=df.index)
+        if start:
+            mask &= parsed >= pd.Timestamp(start)
+        if end:
+            mask &= parsed <= pd.Timestamp(end)
+        return mask
+    if op == "regex":
+        import re
+
+        # accept "pattern" key or fall back to "value"
+        pattern = str(cond.get("pattern", val))
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            raise ValueError(f"Invalid regex: {exc}")
+        return s.astype(str).str.contains(pattern, regex=True, na=False)
+    if op == "quantile_between":
+        min_q = cond.get("min_q", 0.0)
+        max_q = cond.get("max_q", 1.0)
+        numeric_s = pd.to_numeric(s, errors="coerce")
+        q_low = float(numeric_s.quantile(min_q))
+        q_high = float(numeric_s.quantile(max_q))
+        return numeric_s.between(q_low, q_high)
+    if op == "startswith":
+        return s.astype(str).str.startswith(str(val), na=False)
+    if op == "endswith":
+        return s.astype(str).str.endswith(str(val), na=False)
+    raise ValueError(
+        f"Unknown op '{op}'. Valid: equals not_equals contains gt gte lt lte is_null not_null "
+        "isin not_isin between date_range regex quantile_between startswith endswith"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -600,6 +647,8 @@ def filter_rows(
     output_path: str = "",
     dry_run: bool = False,
     open_after: bool = True,
+    sort_by: list[str] = None,
+    sort_ascending: list[bool] = None,
 ) -> dict:
     progress = []
     backup = None
@@ -640,7 +689,22 @@ def filter_rows(
         for cond in conditions:
             mask &= _apply_condition(df, cond)
 
-        filtered = df[mask]
+        filtered = df[mask].reset_index(drop=True)
+
+        # Apply sorting after filtering
+        if sort_by:
+            missing_sort = [c for c in sort_by if c not in filtered.columns]
+            if missing_sort:
+                return {
+                    "success": False,
+                    "error": f"sort_by columns not found: {missing_sort}",
+                    "hint": f"Available: {', '.join(filtered.columns)}",
+                    "progress": [fail("Sort column not found", str(missing_sort))],
+                    "token_estimate": 20,
+                }
+            asc = sort_ascending if sort_ascending else [True] * len(sort_by)
+            filtered = filtered.sort_values(by=sort_by, ascending=asc).reset_index(drop=True)
+
         rows_before = len(df)
         rows_after = len(filtered)
 
@@ -901,6 +965,167 @@ def analyze_text_column(
             "success": False,
             "error": str(exc),
             "hint": "Check file_path is absolute, column exists, and is a text column.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# extended_stats
+# ---------------------------------------------------------------------------
+
+
+def extended_stats(
+    file_path: str,
+    columns: list[str] = None,
+    percentiles: list[float] = None,
+    compute_ci: bool = True,
+    ci_level: float = 0.95,
+) -> dict:
+    progress = []
+    try:
+        from scipy import stats as scipy_stats
+
+        _scipy_ok = True
+    except ImportError:
+        _scipy_ok = False
+
+    try:
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+        pcts = percentiles or [5, 10, 25, 50, 75, 90, 95, 99]
+        target_cols = columns or [c for c in df.columns if is_numeric_col(df[c])]
+
+        missing = [c for c in target_cols if c not in df.columns]
+        if missing:
+            return {
+                "success": False,
+                "error": f"Columns not found: {missing}",
+                "hint": f"Available: {', '.join(df.columns)}",
+                "progress": [fail("Columns not found", str(missing))],
+                "token_estimate": 20,
+            }
+
+        stats_out: dict = {}
+        for col in target_cols:
+            series = df[col].dropna()
+            if not is_numeric_col(df[col]) or len(series) == 0:
+                continue
+
+            n = len(series)
+            mean_val = float(series.mean())
+            std_val = float(series.std())
+            median_val = float(series.median())
+
+            # Skewness & kurtosis
+            skew = float(series.skew()) if _scipy_ok else float(series.skew())
+            kurt = float(series.kurtosis())
+
+            if skew > 1:
+                skew_label = "strongly right-skewed"
+            elif skew > 0.5:
+                skew_label = "moderately right-skewed"
+            elif skew < -1:
+                skew_label = "strongly left-skewed"
+            elif skew < -0.5:
+                skew_label = "moderately left-skewed"
+            else:
+                skew_label = "approximately symmetric"
+
+            if kurt > 3:
+                kurt_label = "leptokurtic (heavy tails)"
+            elif kurt < -1:
+                kurt_label = "platykurtic (light tails)"
+            else:
+                kurt_label = "approximately normal tails"
+
+            # Percentiles
+            pct_vals = {f"p{int(p)}": round(float(series.quantile(p / 100)), 4) for p in pcts}
+
+            # Coefficient of variation
+            cv = round(std_val / mean_val, 4) if mean_val != 0 else None
+
+            # CI for the mean (t-distribution)
+            ci = None
+            if compute_ci and _scipy_ok and n >= 2:
+                sem = scipy_stats.sem(series)
+                t_crit = scipy_stats.t.ppf((1 + ci_level) / 2, df=n - 1)
+                ci = {
+                    "level": ci_level,
+                    "lower": round(mean_val - t_crit * sem, 4),
+                    "upper": round(mean_val + t_crit * sem, 4),
+                }
+
+            # MAD (median absolute deviation)
+            mad = float((series - median_val).abs().median())
+
+            # Distribution shape hint
+            if _scipy_ok:
+                try:
+                    _, p_norm = scipy_stats.shapiro(series.sample(min(n, 5000), random_state=42))
+                    shape_hint = (
+                        f"likely normal (Shapiro p>{p_norm:.2f})"
+                        if p_norm > 0.05
+                        else "non-normal (Shapiro p<0.05)"
+                    )
+                except Exception:
+                    shape_hint = "unknown"
+            else:
+                shape_hint = "install scipy for distribution test"
+
+            stats_out[col] = {
+                "n": n,
+                "null_count": int(df[col].isna().sum()),
+                "mean": round(mean_val, 4),
+                "median": round(median_val, 4),
+                "std": round(std_val, 4),
+                "variance": round(float(series.var()), 4),
+                "mad": round(mad, 4),
+                "min": round(float(series.min()), 4),
+                "max": round(float(series.max()), 4),
+                "range": round(float(series.max() - series.min()), 4),
+                "iqr": round(float(series.quantile(0.75) - series.quantile(0.25)), 4),
+                "cv": cv,
+                "skewness": round(skew, 4),
+                "skewness_label": skew_label,
+                "kurtosis": round(kurt, 4),
+                "kurtosis_label": kurt_label,
+                "percentiles": pct_vals,
+                "confidence_interval": ci,
+                "distribution_hint": shape_hint,
+            }
+
+        progress.append(ok(f"Extended stats for {path.name}", f"{len(stats_out)} numeric columns analysed"))
+
+        result = {
+            "success": True,
+            "op": "extended_stats",
+            "file_path": str(path),
+            "columns_analysed": list(stats_out.keys()),
+            "stats": stats_out,
+            "percentiles_computed": pcts,
+            "ci_level": ci_level,
+            "hint": "Use apply_patch() with log_transform or bin_column to act on distribution findings.",
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("extended_stats error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check file_path is absolute and columns are numeric.",
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }

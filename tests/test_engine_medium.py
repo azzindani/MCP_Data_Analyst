@@ -15,14 +15,17 @@ from servers.data_medium.engine import (
     cohort_analysis,
     compare_datasets,
     compute_aggregations,
+    concat_datasets,
     correlation_analysis,
     cross_tabulate,
     detect_anomalies,
     enrich_with_geo,
+    extended_stats,
     feature_engineering,
     filter_rows,
     merge_datasets,
     pivot_table,
+    resample_timeseries,
     run_cleaning_pipeline,
     sample_data,
     scan_nulls_zeros,
@@ -1268,3 +1271,538 @@ class TestCompareDatasets:
     def test_file_not_found(self, tmp_path, compare_csv_a):
         r = compare_datasets(str(compare_csv_a), str(tmp_path / "missing.csv"))
         assert r["success"] is False
+
+
+# ---------------------------------------------------------------------------
+# extended_stats
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def stats_csv(tmp_path) -> Path:
+    f = tmp_path / "stats_data.csv"
+    f.write_text(
+        "Revenue,Units,Score\n"
+        "5000,10,0.9\n"
+        "7500,15,0.7\n"
+        "2100,5,0.5\n"
+        "4800,12,0.8\n"
+        "6000,12,0.85\n"
+        "3000,7,0.6\n"
+        "2500,6,0.55\n"
+        "1800,4,0.4\n"
+        "9000,20,0.95\n"
+        "4200,9,0.65\n"
+    )
+    return f
+
+
+class TestExtendedStats:
+    def test_basic_all_columns(self, stats_csv):
+        r = extended_stats(str(stats_csv))
+        assert r["success"] is True
+        assert "stats" in r
+        assert "Revenue" in r["stats"]
+        rev = r["stats"]["Revenue"]
+        assert "mean" in rev
+        assert "median" in rev
+        assert "skewness" in rev
+        assert "kurtosis" in rev
+        assert "percentiles" in rev
+        assert "p25" in rev["percentiles"]
+        assert "p75" in rev["percentiles"]
+
+    def test_confidence_interval_present(self, stats_csv):
+        r = extended_stats(str(stats_csv), compute_ci=True)
+        assert r["success"] is True
+        rev = r["stats"]["Revenue"]
+        assert "confidence_interval" in rev
+        ci = rev["confidence_interval"]
+        assert ci["lower"] < ci["upper"]
+        assert ci["level"] == 0.95
+
+    def test_no_ci(self, stats_csv):
+        r = extended_stats(str(stats_csv), compute_ci=False)
+        assert r["success"] is True
+        assert r["stats"]["Revenue"]["confidence_interval"] is None
+
+    def test_custom_percentiles(self, stats_csv):
+        r = extended_stats(str(stats_csv), percentiles=[10, 50, 90])
+        assert r["success"] is True
+        rev = r["stats"]["Revenue"]
+        assert "p10" in rev["percentiles"]
+        assert "p50" in rev["percentiles"]
+        assert "p90" in rev["percentiles"]
+        assert "p25" not in rev["percentiles"]
+
+    def test_specific_columns(self, stats_csv):
+        r = extended_stats(str(stats_csv), columns=["Revenue"])
+        assert r["success"] is True
+        assert "Revenue" in r["stats"]
+        assert "Units" not in r["stats"]
+
+    def test_mad_and_cv_present(self, stats_csv):
+        r = extended_stats(str(stats_csv))
+        assert r["success"] is True
+        rev = r["stats"]["Revenue"]
+        assert "mad" in rev
+        assert "cv" in rev
+        assert rev["cv"] is not None
+
+    def test_skewness_label(self, stats_csv):
+        r = extended_stats(str(stats_csv))
+        assert r["success"] is True
+        assert "skewness_label" in r["stats"]["Revenue"]
+        assert "kurtosis_label" in r["stats"]["Revenue"]
+
+    def test_column_not_found(self, stats_csv):
+        r = extended_stats(str(stats_csv), columns=["NonExistent"])
+        assert r["success"] is False
+        assert "hint" in r
+
+    def test_file_not_found(self, tmp_path):
+        r = extended_stats(str(tmp_path / "missing.csv"))
+        assert r["success"] is False
+
+    def test_token_estimate(self, stats_csv):
+        r = extended_stats(str(stats_csv))
+        assert "token_estimate" in r
+        assert r["token_estimate"] > 0
+
+
+# ---------------------------------------------------------------------------
+# resample_timeseries
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def resample_csv(tmp_path) -> Path:
+    f = tmp_path / "daily_sales.csv"
+    rows = [
+        "Date,Revenue,Units,Region",
+        "2023-01-05,1000,10,West",
+        "2023-01-12,1200,12,West",
+        "2023-01-20,800,8,East",
+        "2023-02-03,1500,15,West",
+        "2023-02-14,900,9,East",
+        "2023-02-22,1100,11,West",
+        "2023-03-07,700,7,East",
+        "2023-03-18,1300,13,West",
+        "2023-03-25,1050,10,East",
+    ]
+    f.write_text("\n".join(rows) + "\n")
+    return f
+
+
+class TestResampleTimeseries:
+    def test_monthly_sum(self, resample_csv):
+        r = resample_timeseries(str(resample_csv), date_col="Date", freq="M", agg_func="sum")
+        assert r["success"] is True
+        assert r["freq"] == "M"
+        assert r["agg_func"] == "sum"
+        assert r["total_periods"] == 3  # Jan, Feb, Mar
+        assert "data" in r
+        assert "output_path" in r
+
+    def test_monthly_mean(self, resample_csv):
+        r = resample_timeseries(str(resample_csv), date_col="Date", freq="M", agg_func="mean")
+        assert r["success"] is True
+        assert r["total_periods"] == 3
+
+    def test_weekly_sum(self, resample_csv):
+        r = resample_timeseries(str(resample_csv), date_col="Date", freq="W", agg_func="sum")
+        assert r["success"] is True
+        assert r["total_periods"] >= 9  # each row is a different week
+
+    def test_specific_value_cols(self, resample_csv):
+        r = resample_timeseries(str(resample_csv), date_col="Date", freq="M", agg_func="sum", value_cols=["Revenue"])
+        assert r["success"] is True
+        assert r["value_cols"] == ["Revenue"]
+        # Only Revenue column in data
+        sample_keys = set(r["data"][0].keys())
+        assert "Revenue" in sample_keys
+        assert "Units" not in sample_keys
+
+    def test_multi_agg_func(self, resample_csv):
+        r = resample_timeseries(
+            str(resample_csv), date_col="Date", freq="M", agg_func="sum,mean", value_cols=["Revenue"]
+        )
+        assert r["success"] is True
+        # Should produce Revenue_sum and Revenue_mean columns
+        sample_keys = set(r["data"][0].keys())
+        assert "Revenue_sum" in sample_keys
+        assert "Revenue_mean" in sample_keys
+
+    def test_group_by(self, resample_csv):
+        r = resample_timeseries(str(resample_csv), date_col="Date", freq="M", agg_func="sum", group_by="Region")
+        assert r["success"] is True
+        # 3 months × 2 regions = 6 rows (some may be missing)
+        assert r["total_periods"] >= 4
+        assert r["group_by"] == "Region"
+
+    def test_dry_run(self, resample_csv):
+        r = resample_timeseries(str(resample_csv), date_col="Date", freq="M", agg_func="sum", dry_run=True)
+        assert r["success"] is True
+        assert r["dry_run"] is True
+        assert "would_produce_columns" in r
+
+    def test_output_file_created(self, resample_csv, tmp_path):
+        out = tmp_path / "resampled.csv"
+        r = resample_timeseries(str(resample_csv), date_col="Date", freq="M", agg_func="sum", output_path=str(out))
+        assert r["success"] is True
+        assert out.exists()
+
+    def test_invalid_freq(self, resample_csv):
+        r = resample_timeseries(str(resample_csv), date_col="Date", freq="X", agg_func="sum")
+        assert r["success"] is False
+        assert "hint" in r
+
+    def test_invalid_agg_func(self, resample_csv):
+        r = resample_timeseries(str(resample_csv), date_col="Date", freq="M", agg_func="invalid")
+        assert r["success"] is False
+        assert "hint" in r
+
+    def test_date_col_not_found(self, resample_csv):
+        r = resample_timeseries(str(resample_csv), date_col="NonExistent", freq="M", agg_func="sum")
+        assert r["success"] is False
+
+    def test_file_not_found(self, tmp_path):
+        r = resample_timeseries(str(tmp_path / "missing.csv"), date_col="Date", freq="M", agg_func="sum")
+        assert r["success"] is False
+
+
+# ---------------------------------------------------------------------------
+# concat_datasets
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def csv_a(tmp_path) -> Path:
+    f = tmp_path / "a.csv"
+    f.write_text("Region,Revenue\nWest,5000\nEast,7500\n")
+    return f
+
+
+@pytest.fixture()
+def csv_b(tmp_path) -> Path:
+    f = tmp_path / "b.csv"
+    f.write_text("Region,Revenue\nSouth,2100\nNorth,4800\n")
+    return f
+
+
+@pytest.fixture()
+def csv_c_extra_col(tmp_path) -> Path:
+    f = tmp_path / "c.csv"
+    f.write_text("Region,Revenue,Manager\nMidwest,3000,Alice\n")
+    return f
+
+
+@pytest.fixture()
+def csv_wide(tmp_path) -> Path:
+    f = tmp_path / "wide.csv"
+    f.write_text("Score,Grade\n90,A\n80,B\n")
+    return f
+
+
+class TestConcatDatasets:
+    def test_rows_basic(self, csv_a, csv_b):
+        r = concat_datasets([str(csv_a), str(csv_b)], direction="rows")
+        assert r["success"] is True
+        assert r["rows"] == 4
+        assert "output_path" in r
+        df = pd.read_csv(r["output_path"])
+        assert len(df) == 4
+
+    def test_rows_with_source_column(self, csv_a, csv_b):
+        r = concat_datasets([str(csv_a), str(csv_b)], direction="rows", add_source_column=True)
+        assert r["success"] is True
+        df = pd.read_csv(r["output_path"])
+        assert "__source" in df.columns
+        assert "a.csv" in df["__source"].values
+
+    def test_rows_without_source_column(self, csv_a, csv_b):
+        r = concat_datasets([str(csv_a), str(csv_b)], direction="rows", add_source_column=False)
+        assert r["success"] is True
+        df = pd.read_csv(r["output_path"])
+        assert "__source" not in df.columns
+
+    def test_rows_fill_missing_drop(self, csv_a, csv_c_extra_col):
+        r = concat_datasets(
+            [str(csv_a), str(csv_c_extra_col)], direction="rows", fill_missing="drop", add_source_column=False
+        )
+        assert r["success"] is True
+        df = pd.read_csv(r["output_path"])
+        # Only common columns (Region, Revenue) kept
+        assert "Manager" not in df.columns
+
+    def test_columns_basic(self, csv_a, csv_wide):
+        # Both have 2 rows
+        r = concat_datasets([str(csv_a), str(csv_wide)], direction="columns")
+        assert r["success"] is True
+        df = pd.read_csv(r["output_path"])
+        assert "Region" in df.columns
+        assert "Score" in df.columns
+        assert len(df) == 2
+
+    def test_columns_row_mismatch_fails(self, csv_a, csv_b):
+        # csv_a has 2 rows, csv_b has 2 rows — but write csv_b with 3 rows
+        from pathlib import Path
+
+        csv_b_path = Path(str(csv_b))
+        csv_b_path.write_text("Region,Revenue\nS,1\nN,2\nX,3\n")
+        r = concat_datasets([str(csv_a), str(csv_b_path)], direction="columns")
+        assert r["success"] is False
+        assert "hint" in r
+
+    def test_dry_run(self, csv_a, csv_b):
+        r = concat_datasets([str(csv_a), str(csv_b)], direction="rows", dry_run=True)
+        assert r["success"] is True
+        assert r["dry_run"] is True
+        assert "schemas" in r
+
+    def test_output_path(self, csv_a, csv_b, tmp_path):
+        out = tmp_path / "combined.csv"
+        r = concat_datasets([str(csv_a), str(csv_b)], direction="rows", output_path=str(out))
+        assert r["success"] is True
+        assert out.exists()
+
+    def test_too_few_files(self, csv_a):
+        r = concat_datasets([str(csv_a)])
+        assert r["success"] is False
+        assert "hint" in r
+
+    def test_invalid_direction(self, csv_a, csv_b):
+        r = concat_datasets([str(csv_a), str(csv_b)], direction="diagonal")
+        assert r["success"] is False
+
+    def test_file_not_found(self, csv_a, tmp_path):
+        r = concat_datasets([str(csv_a), str(tmp_path / "missing.csv")])
+        assert r["success"] is False
+
+
+# ---------------------------------------------------------------------------
+# statistical_tests — new non-parametric tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def twogroup_csv(tmp_path) -> Path:
+    f = tmp_path / "twogroup.csv"
+    rows = ["Score,Group"]
+    import random
+
+    random.seed(42)
+    for _ in range(20):
+        rows.append(f"{random.randint(50, 80)},A")
+    for _ in range(20):
+        rows.append(f"{random.randint(60, 90)},B")
+    f.write_text("\n".join(rows) + "\n")
+    return f
+
+
+@pytest.fixture()
+def normal_csv(tmp_path) -> Path:
+    f = tmp_path / "normal.csv"
+    import random
+
+    random.seed(0)
+    vals = [round(random.gauss(100, 10), 2) for _ in range(50)]
+    f.write_text("Value\n" + "\n".join(str(v) for v in vals) + "\n")
+    return f
+
+
+@pytest.fixture()
+def contingency_csv(tmp_path) -> Path:
+    f = tmp_path / "contingency.csv"
+    f.write_text("Treatment,Outcome\nA,Success\nA,Success\nA,Failure\nB,Success\nB,Failure\nB,Failure\n")
+    return f
+
+
+class TestStatisticalTestsExtended:
+    def test_shapiro_wilk(self, normal_csv):
+        r = statistical_tests(str(normal_csv), test_type="shapiro_wilk", column_a="Value")
+        assert r["success"] is True
+        assert "p_value" in r
+        assert "statistic" in r
+        assert "significant" in r
+        assert r["test_type"] == "shapiro_wilk"
+
+    def test_ks_test(self, normal_csv):
+        r = statistical_tests(str(normal_csv), test_type="ks", column_a="Value")
+        assert r["success"] is True
+        assert "p_value" in r
+        assert r["test_type"] == "ks"
+
+    def test_mann_whitney(self, twogroup_csv):
+        r = statistical_tests(str(twogroup_csv), test_type="mann_whitney", column_a="Score", group_column="Group")
+        assert r["success"] is True
+        assert "p_value" in r
+        assert "effect_size" in r
+        assert r["test_type"] == "mann_whitney"
+
+    def test_kruskal(self, twogroup_csv):
+        r = statistical_tests(str(twogroup_csv), test_type="kruskal", column_a="Score", group_column="Group")
+        assert r["success"] is True
+        assert "p_value" in r
+        assert r["test_type"] == "kruskal"
+
+    def test_wilcoxon(self, numeric_csv):
+        r = statistical_tests(str(numeric_csv), test_type="wilcoxon", column_a="Revenue", column_b="Units")
+        assert r["success"] is True
+        assert "p_value" in r
+        assert r["test_type"] == "wilcoxon"
+
+    def test_levene(self, twogroup_csv):
+        r = statistical_tests(str(twogroup_csv), test_type="levene", column_a="Score", group_column="Group")
+        assert r["success"] is True
+        assert "p_value" in r
+        assert r["test_type"] == "levene"
+
+    def test_fisher(self, contingency_csv):
+        r = statistical_tests(str(contingency_csv), test_type="fisher", column_a="Treatment", column_b="Outcome")
+        assert r["success"] is True
+        assert "p_value" in r
+        assert r["test_type"] == "fisher"
+
+    def test_column_not_found_nonparametric(self, twogroup_csv):
+        r = statistical_tests(str(twogroup_csv), test_type="mann_whitney", column_a="Missing", group_column="Group")
+        assert r["success"] is False
+
+    def test_file_not_found_nonparametric(self, tmp_path):
+        r = statistical_tests(str(tmp_path / "missing.csv"), test_type="shapiro_wilk", column_a="Value")
+        assert r["success"] is False
+
+
+# ---------------------------------------------------------------------------
+# filter_rows — new conditions and sort_by
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def filter_ext_csv(tmp_path) -> Path:
+    f = tmp_path / "filter_ext.csv"
+    f.write_text(
+        "Region,Revenue,Date\n"
+        "West,5000,2023-01-15\n"
+        "East,7500,2023-06-20\n"
+        "South,2100,2023-03-10\n"
+        "North,4800,2023-09-05\n"
+        "West,3000,2023-11-22\n"
+    )
+    return f
+
+
+class TestFilterRowsExtended:
+    def test_sort_by_revenue_desc(self, filter_ext_csv):
+        r = filter_rows(
+            str(filter_ext_csv),
+            conditions=[{"column": "Revenue", "op": "gt", "value": 1000}],
+            sort_by=["Revenue"],
+            sort_ascending=[False],
+            open_after=False,
+        )
+        assert r["success"] is True
+        df = pd.read_csv(str(filter_ext_csv))
+        assert df["Revenue"].iloc[0] == 7500
+
+    def test_sort_by_region_asc(self, filter_ext_csv):
+        r = filter_rows(
+            str(filter_ext_csv),
+            conditions=[{"column": "Revenue", "op": "gt", "value": 0}],
+            sort_by=["Region"],
+            sort_ascending=[True],
+            open_after=False,
+        )
+        assert r["success"] is True
+        df = pd.read_csv(str(filter_ext_csv))
+        assert df["Region"].iloc[0] == "East"  # alphabetically first
+
+    def test_isin_condition(self, filter_ext_csv):
+        r = filter_rows(
+            str(filter_ext_csv),
+            conditions=[{"column": "Region", "op": "isin", "values": ["West", "East"]}],
+            open_after=False,
+        )
+        assert r["success"] is True
+        assert r["rows_after"] == 3  # 2 West + 1 East
+
+    def test_not_isin_condition(self, filter_ext_csv):
+        r = filter_rows(
+            str(filter_ext_csv),
+            conditions=[{"column": "Region", "op": "not_isin", "values": ["West"]}],
+            open_after=False,
+        )
+        assert r["success"] is True
+        assert r["rows_after"] == 3  # East, South, North
+
+    def test_between_condition(self, filter_ext_csv):
+        r = filter_rows(
+            str(filter_ext_csv),
+            conditions=[{"column": "Revenue", "op": "between", "min": 3000, "max": 6000}],
+            open_after=False,
+        )
+        assert r["success"] is True
+        assert r["rows_after"] == 3  # 5000, 4800, 3000 (inclusive)
+
+    def test_date_range_condition(self, filter_ext_csv):
+        r = filter_rows(
+            str(filter_ext_csv),
+            conditions=[{"column": "Date", "op": "date_range", "start": "2023-01-01", "end": "2023-06-30"}],
+            open_after=False,
+        )
+        assert r["success"] is True
+        assert r["rows_after"] == 3  # Jan, Jun, Mar
+
+    def test_regex_condition(self, filter_ext_csv):
+        r = filter_rows(
+            str(filter_ext_csv),
+            conditions=[{"column": "Region", "op": "regex", "pattern": "^W"}],
+            open_after=False,
+        )
+        assert r["success"] is True
+        assert r["rows_after"] == 2  # West, West
+
+    def test_sort_column_not_found(self, filter_ext_csv):
+        r = filter_rows(
+            str(filter_ext_csv),
+            conditions=[{"column": "Revenue", "op": "gt", "value": 0}],
+            sort_by=["NonExistent"],
+            open_after=False,
+        )
+        assert r["success"] is False
+        assert "hint" in r
+
+
+# ---------------------------------------------------------------------------
+# End-to-end integration: resample → extended_stats → compare
+# ---------------------------------------------------------------------------
+
+
+class TestE2EResampleAndStats:
+    def test_resample_then_stats(self, resample_csv, tmp_path):
+        """Resample daily → monthly, then run extended_stats on the result."""
+        out = tmp_path / "monthly.csv"
+        r_resample = resample_timeseries(
+            str(resample_csv), date_col="Date", freq="M", agg_func="sum", output_path=str(out)
+        )
+        assert r_resample["success"] is True
+        assert out.exists()
+
+        r_stats = extended_stats(str(out))
+        assert r_stats["success"] is True
+        assert "Revenue" in r_stats["stats"]
+        rev = r_stats["stats"]["Revenue"]
+        assert "mean" in rev
+        assert "percentiles" in rev
+
+    def test_concat_then_aggregate(self, csv_a, csv_b, tmp_path):
+        """Concat two CSVs, then compute group aggregations on result."""
+        out = tmp_path / "combined.csv"
+        r_concat = concat_datasets([str(csv_a), str(csv_b)], direction="rows", output_path=str(out))
+        assert r_concat["success"] is True
+
+        from servers.data_medium.engine import compute_aggregations
+
+        r_agg = compute_aggregations(str(out), group_by=["Region"], agg_column="Revenue", agg_func="sum")
+        assert r_agg["success"] is True
+        assert r_agg["returned"] == 4

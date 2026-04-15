@@ -169,9 +169,11 @@ def filter_rows(
     output_path: str = "",
     dry_run: bool = False,
     open_after: bool = True,
+    sort_by: list[str] = None,
+    sort_ascending: list[bool] = None,
 ) -> dict:
     """Filter rows by conditions. ops: equals contains gt lt gte lte not_null is_null."""
-    return engine.filter_rows(file_path, conditions, output_path, dry_run, open_after)
+    return engine.filter_rows(file_path, conditions, output_path, dry_run, open_after, sort_by, sort_ascending)
 
 
 @mcp.tool()
@@ -318,6 +320,46 @@ def compare_datasets(
 ) -> dict:
     """Compare two CSVs: schema diff, row counts, value changes."""
     return engine.compare_datasets(file_path_a, file_path_b, key_columns)
+
+
+@mcp.tool()
+def extended_stats(
+    file_path: str,
+    columns: list[str] = None,
+    percentiles: list[float] = None,
+    compute_ci: bool = True,
+    ci_level: float = 0.95,
+) -> dict:
+    """Deep numeric stats: skewness kurtosis percentiles CI MAD CV distribution."""
+    return engine.extended_stats(file_path, columns, percentiles, compute_ci, ci_level)
+
+
+@mcp.tool()
+def resample_timeseries(
+    file_path: str,
+    date_col: str,
+    freq: str = "M",
+    agg_func: str = "sum",
+    value_cols: list[str] = None,
+    group_by: str = None,
+    output_path: str = "",
+    dry_run: bool = False,
+) -> dict:
+    """Resample time series by freq: D W M Q Y H. agg: sum mean count min max."""
+    return engine.resample_timeseries(file_path, date_col, freq, agg_func, value_cols, group_by, output_path, dry_run)
+
+
+@mcp.tool()
+def concat_datasets(
+    file_paths: list[str],
+    direction: str = "rows",
+    fill_missing: str = "null",
+    add_source_column: bool = True,
+    output_path: str = "",
+    dry_run: bool = False,
+) -> dict:
+    """Stack multiple CSVs vertically (rows) or horizontally (columns)."""
+    return engine.concat_datasets(file_paths, direction, fill_missing, add_source_column, output_path, dry_run)
 
 
 def main() -> None:

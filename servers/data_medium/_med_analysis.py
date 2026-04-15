@@ -222,7 +222,7 @@ def statistical_tests(
                 return {
                     "success": False,
                     "error": "Cannot auto-select test. Specify test_type.",
-                    "hint": "Valid: ttest anova chi_square correlation",
+                    "hint": "Valid: ttest anova chi_square correlation shapiro_wilk ks mann_whitney kruskal wilcoxon levene fisher",
                     "progress": [fail("Auto-select failed", "")],
                     "token_estimate": 20,
                 }
@@ -329,11 +329,189 @@ def statistical_tests(
                 ),
             }
 
+        elif test_type == "shapiro_wilk":
+            if not column_a:
+                return {
+                    "success": False,
+                    "error": "shapiro_wilk requires column_a.",
+                    "hint": "Set column_a to a numeric column.",
+                    "progress": [fail("Missing column_a", "")],
+                    "token_estimate": 20,
+                }
+            series = pd.to_numeric(df[column_a], errors="coerce").dropna()
+            stat, pval = scipy_stats.shapiro(series.sample(min(len(series), 5000), random_state=42))
+            test_result = {
+                "test": "Shapiro-Wilk normality test",
+                "statistic": round(float(stat), 4),
+                "p_value": round(float(pval), 6),
+                "significant": float(pval) < 0.05,
+                "interpretation": (
+                    f"Data in '{column_a}' is {'NOT ' if float(pval) < 0.05 else ''}normally distributed (p={'<' if float(pval) < 0.05 else '≥'}0.05)"
+                ),
+            }
+
+        elif test_type == "ks":
+            if not column_a:
+                return {
+                    "success": False,
+                    "error": "ks requires column_a.",
+                    "hint": "Set column_a to a numeric column.",
+                    "progress": [fail("Missing column_a", "")],
+                    "token_estimate": 20,
+                }
+            series = pd.to_numeric(df[column_a], errors="coerce").dropna()
+            stat, pval = scipy_stats.kstest(series, "norm", args=(float(series.mean()), float(series.std())))
+            test_result = {
+                "test": "Kolmogorov-Smirnov normality test",
+                "statistic": round(float(stat), 4),
+                "p_value": round(float(pval), 6),
+                "significant": float(pval) < 0.05,
+                "interpretation": (
+                    f"Data in '{column_a}' is {'NOT ' if float(pval) < 0.05 else ''}normally distributed (KS test)"
+                ),
+            }
+
+        elif test_type == "mann_whitney":
+            groups = df[group_column].dropna().unique() if group_column else []
+            if len(groups) == 2:
+                g1 = df[df[group_column] == groups[0]][column_a].dropna()
+                g2 = df[df[group_column] == groups[1]][column_a].dropna()
+            elif column_a and column_b:
+                g1 = pd.to_numeric(df[column_a], errors="coerce").dropna()
+                g2 = pd.to_numeric(df[column_b], errors="coerce").dropna()
+            else:
+                return {
+                    "success": False,
+                    "error": "mann_whitney requires two groups.",
+                    "hint": "Set column_a + column_b, or column_a + group_column (2 groups).",
+                    "progress": [fail("Invalid params", "")],
+                    "token_estimate": 20,
+                }
+            stat, pval = scipy_stats.mannwhitneyu(g1, g2, alternative="two-sided")
+            n1, n2 = len(g1), len(g2)
+            r_biserial = round(1 - 2 * float(stat) / (n1 * n2), 4) if n1 * n2 > 0 else None
+            effect_label = (
+                "small" if abs(r_biserial or 0) < 0.3 else "medium" if abs(r_biserial or 0) < 0.5 else "large"
+            )
+            test_result = {
+                "test": "Mann-Whitney U test",
+                "statistic": round(float(stat), 4),
+                "p_value": round(float(pval), 6),
+                "significant": float(pval) < 0.05,
+                "interpretation": "Groups differ significantly (p<0.05)"
+                if float(pval) < 0.05
+                else "No significant difference (p≥0.05)",
+                "effect_size": {"rank_biserial_r": r_biserial, "interpretation": effect_label},
+            }
+
+        elif test_type == "kruskal":
+            if not group_column or not column_a:
+                return {
+                    "success": False,
+                    "error": "kruskal requires column_a and group_column.",
+                    "hint": "Set column_a (numeric) and group_column (categorical).",
+                    "progress": [fail("Invalid params", "")],
+                    "token_estimate": 20,
+                }
+            groups_data = [grp[column_a].dropna().values for _, grp in df.groupby(group_column)]
+            stat, pval = scipy_stats.kruskal(*groups_data)
+            n_total = sum(len(g) for g in groups_data)
+            eta_sq = (
+                round((float(stat) - len(groups_data) + 1) / (n_total - len(groups_data)), 4)
+                if n_total > len(groups_data)
+                else None
+            )
+            test_result = {
+                "test": "Kruskal-Wallis test",
+                "statistic": round(float(stat), 4),
+                "p_value": round(float(pval), 6),
+                "groups": int(df[group_column].nunique()),
+                "significant": float(pval) < 0.05,
+                "interpretation": "Group distributions differ significantly (p<0.05)"
+                if float(pval) < 0.05
+                else "No significant group differences (p≥0.05)",
+                "effect_size": {"epsilon_squared": eta_sq},
+            }
+
+        elif test_type == "wilcoxon":
+            if column_a and column_b:
+                a = pd.to_numeric(df[column_a], errors="coerce").dropna()
+                b = pd.to_numeric(df[column_b], errors="coerce").dropna()
+                min_len = min(len(a), len(b))
+                stat, pval = scipy_stats.wilcoxon(a.iloc[:min_len], b.iloc[:min_len])
+            else:
+                return {
+                    "success": False,
+                    "error": "wilcoxon requires column_a and column_b (paired).",
+                    "hint": "Set both column_a and column_b to numeric columns.",
+                    "progress": [fail("Invalid params", "")],
+                    "token_estimate": 20,
+                }
+            test_result = {
+                "test": "Wilcoxon signed-rank test",
+                "statistic": round(float(stat), 4),
+                "p_value": round(float(pval), 6),
+                "significant": float(pval) < 0.05,
+                "interpretation": "Paired differences are significant (p<0.05)"
+                if float(pval) < 0.05
+                else "No significant paired difference (p≥0.05)",
+            }
+
+        elif test_type == "levene":
+            if not group_column or not column_a:
+                return {
+                    "success": False,
+                    "error": "levene requires column_a and group_column.",
+                    "hint": "Set column_a (numeric) and group_column (categorical).",
+                    "progress": [fail("Invalid params", "")],
+                    "token_estimate": 20,
+                }
+            groups_data = [grp[column_a].dropna().values for _, grp in df.groupby(group_column)]
+            stat, pval = scipy_stats.levene(*groups_data)
+            test_result = {
+                "test": "Levene's test for equal variances",
+                "statistic": round(float(stat), 4),
+                "p_value": round(float(pval), 6),
+                "significant": float(pval) < 0.05,
+                "interpretation": "Variances are NOT equal (p<0.05)"
+                if float(pval) < 0.05
+                else "Variances are equal (p≥0.05)",
+            }
+
+        elif test_type == "fisher":
+            if not column_a or not column_b:
+                return {
+                    "success": False,
+                    "error": "fisher requires column_a and column_b (2×2 table).",
+                    "hint": "Set both columns to binary/categorical.",
+                    "progress": [fail("Invalid params", "")],
+                    "token_estimate": 20,
+                }
+            ct = pd.crosstab(df[column_a], df[column_b])
+            if ct.shape != (2, 2):
+                return {
+                    "success": False,
+                    "error": f"Fisher's test requires a 2×2 table; got {ct.shape}.",
+                    "hint": "Use chi_square for larger tables.",
+                    "progress": [fail("Not 2x2", str(ct.shape))],
+                    "token_estimate": 20,
+                }
+            stat, pval = scipy_stats.fisher_exact(ct.values)
+            test_result = {
+                "test": "Fisher's exact test",
+                "odds_ratio": round(float(stat), 4),
+                "p_value": round(float(pval), 6),
+                "significant": float(pval) < 0.05,
+                "interpretation": "Significant association (p<0.05)"
+                if float(pval) < 0.05
+                else "No significant association (p≥0.05)",
+            }
+
         else:
             return {
                 "success": False,
                 "error": f"Unknown test_type: {test_type}",
-                "hint": "Valid: ttest anova chi_square correlation",
+                "hint": "Valid: ttest anova chi_square correlation shapiro_wilk ks mann_whitney kruskal wilcoxon levene fisher",
                 "progress": [fail("Invalid test type", test_type)],
                 "token_estimate": 20,
             }
