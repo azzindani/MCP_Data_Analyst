@@ -1073,9 +1073,7 @@ def extended_stats(
                 try:
                     _, p_norm = scipy_stats.shapiro(series.sample(min(n, 5000), random_state=42))
                     shape_hint = (
-                        f"likely normal (Shapiro p>{p_norm:.2f})"
-                        if p_norm > 0.05
-                        else "non-normal (Shapiro p<0.05)"
+                        f"likely normal (Shapiro p>{p_norm:.2f})" if p_norm > 0.05 else "non-normal (Shapiro p<0.05)"
                     )
                 except Exception:
                     shape_hint = "unknown"
