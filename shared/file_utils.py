@@ -14,8 +14,21 @@ import pandas as pd
 
 
 def resolve_path(file_path: str, allowed_extensions: tuple[str, ...] = ()) -> Path:
-    """Return resolved absolute Path; raises ValueError for bad extension."""
-    path = Path(file_path).resolve()
+    """Return resolved absolute Path; handles project:name/alias syntax.
+
+    If file_path starts with 'project:', delegates to project_utils.resolve_alias
+    to translate the alias into an absolute path before resolving.
+    """
+    # Lazy import to avoid circular dependency — project_utils imports file_utils
+    if file_path.startswith("project:"):
+        try:
+            from shared.project_utils import resolve_alias
+
+            path = resolve_alias(file_path)
+        except Exception as exc:
+            raise ValueError(f"Cannot resolve project alias '{file_path}': {exc}") from exc
+    else:
+        path = Path(file_path).resolve()
     if allowed_extensions and path.suffix.lower() not in allowed_extensions:
         raise ValueError(f"Extension {path.suffix!r} not allowed. Allowed: {allowed_extensions}")
     return path
@@ -77,8 +90,9 @@ def read_csv(
     return df
 
 
-def atomic_write(target: Path, content: bytes) -> None:
+def atomic_write(target: Path | str, content: bytes) -> None:
     """Write bytes to target atomically via temp file + move."""
+    target = Path(target)
     fd, tmp_path = tempfile.mkstemp(dir=target.parent)
     try:
         with os.fdopen(fd, "wb") as f:
@@ -92,6 +106,6 @@ def atomic_write(target: Path, content: bytes) -> None:
         raise
 
 
-def atomic_write_text(target: Path, content: str, encoding: str = "utf-8") -> None:
+def atomic_write_text(target: Path | str, content: str, encoding: str = "utf-8") -> None:
     """Write text to target atomically."""
     atomic_write(target, content.encode(encoding))

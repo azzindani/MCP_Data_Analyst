@@ -97,6 +97,12 @@ def read_receipt(
     return engine.read_receipt(file_path, last_n)
 
 
+@mcp.tool()
+def list_patch_ops(category: str = "") -> dict:
+    """List apply_patch ops. category: filtering numeric encoding temporal structural."""
+    return engine.list_patch_ops(category)
+
+
 def main() -> None:
     mcp.run()
 

@@ -662,6 +662,70 @@ def time_series_analysis(
         except ImportError:
             pass
 
+        # STL decomposition, ACF/PACF, ADF stationarity test
+        stl_results: dict = {}
+        acf_results: dict = {}
+        adf_results: dict = {}
+        try:
+            from statsmodels.tsa.seasonal import STL  # type: ignore[import-untyped]
+            from statsmodels.tsa.stattools import acf, adfuller, pacf  # type: ignore[import-untyped]
+
+            for col in value_columns:
+                ts = resampled[col].dropna()
+                if len(ts) < 4:
+                    continue
+
+                # ADF stationarity test
+                try:
+                    adf_out = adfuller(ts.values, autolag="AIC")
+                    adf_results[col] = {
+                        "test_statistic": round(float(adf_out[0]), 4),
+                        "p_value": round(float(adf_out[1]), 4),
+                        "is_stationary": bool(adf_out[1] < 0.05),
+                        "critical_values": {k: round(float(v), 4) for k, v in adf_out[4].items()},  # type: ignore[index]
+                    }
+                except Exception:
+                    pass
+
+                # ACF/PACF — up to 12 lags, at most n//2
+                n_lags = min(12, len(ts) // 2)
+                if n_lags >= 2:
+                    try:
+                        acf_vals = acf(ts.values, nlags=n_lags, fft=True)
+                        pacf_vals = pacf(ts.values, nlags=n_lags)
+                        acf_results[col] = {
+                            "acf": [round(float(v), 4) for v in acf_vals[1:]],
+                            "pacf": [round(float(v), 4) for v in pacf_vals[1:]],
+                            "lags": list(range(1, n_lags + 1)),
+                        }
+                    except Exception:
+                        pass
+
+                # STL decomposition — needs ≥ 2 seasonal periods
+                try:
+                    seasonal_period = {"M": 12, "Q": 4, "W": 52, "D": 7, "Y": 1}.get(period, 12)
+                    if len(ts) >= max(4, 2 * seasonal_period) and seasonal_period > 1:
+                        stl_fit = STL(ts, period=seasonal_period, robust=True).fit()
+                        resid_var = float(stl_fit.resid.var())
+                        seasonal_var = float((stl_fit.seasonal + stl_fit.resid).var())
+                        trend_var = float((stl_fit.trend + stl_fit.resid).var())
+                        stl_results[col] = {
+                            "trend": [round(float(v), 4) for v in stl_fit.trend.tolist()[-12:]],
+                            "seasonal": [round(float(v), 4) for v in stl_fit.seasonal.tolist()[-12:]],
+                            "residual": [round(float(v), 4) for v in stl_fit.resid.tolist()[-12:]],
+                            "seasonal_strength": round(
+                                float(max(0.0, 1 - resid_var / seasonal_var)) if seasonal_var else 0.0, 4
+                            ),
+                            "trend_strength": round(
+                                float(max(0.0, 1 - resid_var / trend_var)) if trend_var else 0.0, 4
+                            ),
+                        }
+                except Exception:
+                    pass
+
+        except ImportError:
+            progress.append(info("statsmodels not installed", "pip install statsmodels for STL/ACF/ADF"))
+
         # Exponential smoothing forecast (pure pandas, no statsmodels)
         alpha = 0.3
         forecast_periods = 3
@@ -716,6 +780,9 @@ def time_series_analysis(
                 "end": str(df.index.max()),
             },
             "trend": trend_data,
+            "stl": stl_results,
+            "acf": acf_results,
+            "adf": adf_results,
             "data": records,
             "truncated": truncated,
             "hint": "Use a more targeted call with specific value_columns or a narrower date range.",

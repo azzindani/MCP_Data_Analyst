@@ -31,6 +31,8 @@ VALID_OPS: frozenset[str] = frozenset(
         # numeric transforms
         "log_transform",
         "sqrt_transform",
+        "boxcox_transform",
+        "yeojohnson_transform",
         "robust_scale",
         "winsorize",
         "bin_column",

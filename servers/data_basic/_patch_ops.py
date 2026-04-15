@@ -1167,6 +1167,58 @@ def _op_concat_file(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
         raise ValueError(f"Unknown direction: '{direction}'. Valid: rows, columns")
 
 
+def _op_boxcox_transform(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
+    from scipy.stats import boxcox
+
+    col = op["column"]
+    new_col = op.get("new_column", col)
+    if col not in df.columns:
+        raise ValueError(f"Column not found: {col}. Available: {list(df.columns)}")
+    if not pd.api.types.is_numeric_dtype(df[col]):
+        raise ValueError(f"Column '{col}' must be numeric for Box-Cox transform.")
+    series = df[col].dropna()
+    if (series <= 0).any():
+        raise ValueError(
+            f"Box-Cox requires all values > 0 in '{col}'. Use log_transform(method=log1p) for zero-safe alternative."
+        )
+    transformed, lam = boxcox(series.values)
+    result = df[col].copy().astype(float)
+    result[series.index] = transformed
+    df[new_col] = result
+    return df, {
+        "op": "boxcox_transform",
+        "column": col,
+        "new_column": new_col,
+        "lambda": round(float(lam), 6),
+        "null_count": int(df[new_col].isna().sum()),
+        "hint": "Store lambda value to invert transform: scipy.special.inv_boxcox(data, lambda).",
+    }
+
+
+def _op_yeojohnson_transform(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
+    from scipy.stats import yeojohnson
+
+    col = op["column"]
+    new_col = op.get("new_column", col)
+    if col not in df.columns:
+        raise ValueError(f"Column not found: {col}. Available: {list(df.columns)}")
+    if not pd.api.types.is_numeric_dtype(df[col]):
+        raise ValueError(f"Column '{col}' must be numeric for Yeo-Johnson transform.")
+    series = df[col].dropna()
+    transformed, lam = yeojohnson(series.values)
+    result = df[col].copy().astype(float)
+    result[series.index] = transformed
+    df[new_col] = result
+    return df, {
+        "op": "yeojohnson_transform",
+        "column": col,
+        "new_column": new_col,
+        "lambda": round(float(lam), 6),
+        "null_count": int(df[new_col].isna().sum()),
+        "hint": "Works on negatives and zeros. Store lambda for inversion.",
+    }
+
+
 def _op_melt(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     id_vars = op.get("id_vars")
     value_vars = op.get("value_vars")

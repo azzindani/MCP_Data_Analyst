@@ -15,6 +15,14 @@ def snapshot(file_path: str) -> str:
     timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%S-%fZ")
     backup_name = f"{path.stem}_{timestamp}.bak"
     backup_path = versions_dir / backup_name
+    # On Windows datetime resolution can be coarser than microseconds, so two
+    # rapid snapshots may collide on the same timestamp.  Append a counter
+    # suffix until we find an unused name.
+    counter = 1
+    while backup_path.exists():
+        backup_name = f"{path.stem}_{timestamp}_{counter}.bak"
+        backup_path = versions_dir / backup_name
+        counter += 1
     # Write to a temp file in the same directory, then atomic rename so a
     # mid-copy crash cannot leave a partial .bak file.
     fd, tmp = tempfile.mkstemp(dir=versions_dir)

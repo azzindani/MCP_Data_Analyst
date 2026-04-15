@@ -4,15 +4,19 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 
 ## Features
 
-- **41 tools** across 3 tiers: basic (8), medium (22), advanced (11)
+- **84 tools** across 7 servers: project (6), basic (9), medium (25), transform (10), statistics (11), advanced (11), visual (12)
 - **LOCATE → INSPECT → PATCH → VERIFY** workflow for surgical data edits
-- **Automatic version control** — every write is snapshotted and fully restorable
+- **Automatic version control** — every write is snapshotted and fully restorable (Windows-safe: collision-proof timestamps)
 - **Operation receipt logging** — full audit trail of all modifications
 - **Constrained mode** — reduces row/result limits for lower-memory machines
+- **Project workspace management** — named aliases, saved pipeline templates, stage-tracked files
+- **51 `apply_patch` ops** — original, filtering, numeric transforms (Box-Cox, Yeo-Johnson), encoding, temporal, structural
+- **Full statistics suite** — OLS/logistic regression, 17 statistical tests, STL decomposition, ACF/PACF, ADF stationarity, MoM/QoQ/YoY period comparison
 - **ydata-profiler quality reports** — alerts panel, Spearman + Pearson correlations, missing value matrix, per-column distribution charts
-- **Interactive dashboards** — KPI sparklines, trend indicators, violin plots, geo maps, auto-detected charts
+- **Interactive dashboards** — KPI sparklines, trend indicators, violin plots, geo maps, filter controls
 - **Geo visualization** — scatter maps (lat/lon), choropleth (country/state), zero external data needed
 - **3D charts** — scatter_3d and surface plots
+- **Chart customization** — post-generate edits to titles, labels, colours, annotations on saved HTML
 - **Light / dark / device theme** — all HTML outputs accept `theme: "dark" | "light" | "device"`
 - **Mobile-responsive HTML** — viewport meta + CSS breakpoints on every report
 - **Modular architecture** — each engine split into focused sub-modules, all under 1 000 lines
@@ -109,13 +113,61 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
       ],
       "env": { "MCP_CONSTRAINED_MODE": "0" },
       "timeout": 600000
+    },
+    "data_analyst_project": {
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$d = Join-Path $env:USERPROFILE '.mcp_servers\\MCP_Data_Analyst'; $g = Join-Path $d '.git'; if (!(Test-Path $g)) { if (Test-Path $d) { Remove-Item -Recurse -Force $d }; git clone https://github.com/azzindani/MCP_Data_Analyst.git $d --quiet } else { Set-Location $d; git fetch origin --quiet; git reset --hard FETCH_HEAD --quiet }; uv sync --quiet; uv run python -m servers.data_project.server"
+      ],
+      "env": { "MCP_CONSTRAINED_MODE": "0" },
+      "timeout": 600000
+    },
+    "data_analyst_transform": {
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$d = Join-Path $env:USERPROFILE '.mcp_servers\\MCP_Data_Analyst'; $g = Join-Path $d '.git'; if (!(Test-Path $g)) { if (Test-Path $d) { Remove-Item -Recurse -Force $d }; git clone https://github.com/azzindani/MCP_Data_Analyst.git $d --quiet } else { Set-Location $d; git fetch origin --quiet; git reset --hard FETCH_HEAD --quiet }; uv sync --quiet; uv run python -m servers.data_transform.server"
+      ],
+      "env": { "MCP_CONSTRAINED_MODE": "0" },
+      "timeout": 600000
+    },
+    "data_analyst_statistics": {
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$d = Join-Path $env:USERPROFILE '.mcp_servers\\MCP_Data_Analyst'; $g = Join-Path $d '.git'; if (!(Test-Path $g)) { if (Test-Path $d) { Remove-Item -Recurse -Force $d }; git clone https://github.com/azzindani/MCP_Data_Analyst.git $d --quiet } else { Set-Location $d; git fetch origin --quiet; git reset --hard FETCH_HEAD --quiet }; uv sync --quiet; uv run python -m servers.data_statistics.server"
+      ],
+      "env": { "MCP_CONSTRAINED_MODE": "0" },
+      "timeout": 600000
+    },
+    "data_analyst_visual": {
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$d = Join-Path $env:USERPROFILE '.mcp_servers\\MCP_Data_Analyst'; $g = Join-Path $d '.git'; if (!(Test-Path $g)) { if (Test-Path $d) { Remove-Item -Recurse -Force $d }; git clone https://github.com/azzindani/MCP_Data_Analyst.git $d --quiet } else { Set-Location $d; git fetch origin --quiet; git reset --hard FETCH_HEAD --quiet }; uv sync --quiet; uv run python -m servers.data_visual.server"
+      ],
+      "env": { "MCP_CONSTRAINED_MODE": "0" },
+      "timeout": 600000
     }
   }
 }
 ```
 
 4. Wait for the blue dot next to each server
-5. Start chatting — the model will see all 41 tools
+5. Start chatting — the model will see all 84 tools
 
 ### macOS / Linux
 
@@ -150,6 +202,42 @@ Replace the `"command"` and `"args"` in each entry with the bash equivalent:
       ],
       "env": { "MCP_CONSTRAINED_MODE": "0" },
       "timeout": 600000
+    },
+    "data_analyst_project": {
+      "command": "bash",
+      "args": [
+        "-c",
+        "d=\"$HOME/.mcp_servers/MCP_Data_Analyst\"; if [ ! -d \"$d/.git\" ]; then rm -rf \"$d\"; git clone https://github.com/azzindani/MCP_Data_Analyst.git \"$d\" --quiet; else cd \"$d\" && git fetch origin --quiet && git reset --hard FETCH_HEAD --quiet; fi; cd \"$d\"; uv sync --quiet; uv run python -m servers.data_project.server"
+      ],
+      "env": { "MCP_CONSTRAINED_MODE": "0" },
+      "timeout": 600000
+    },
+    "data_analyst_transform": {
+      "command": "bash",
+      "args": [
+        "-c",
+        "d=\"$HOME/.mcp_servers/MCP_Data_Analyst\"; if [ ! -d \"$d/.git\" ]; then rm -rf \"$d\"; git clone https://github.com/azzindani/MCP_Data_Analyst.git \"$d\" --quiet; else cd \"$d\" && git fetch origin --quiet && git reset --hard FETCH_HEAD --quiet; fi; cd \"$d\"; uv sync --quiet; uv run python -m servers.data_transform.server"
+      ],
+      "env": { "MCP_CONSTRAINED_MODE": "0" },
+      "timeout": 600000
+    },
+    "data_analyst_statistics": {
+      "command": "bash",
+      "args": [
+        "-c",
+        "d=\"$HOME/.mcp_servers/MCP_Data_Analyst\"; if [ ! -d \"$d/.git\" ]; then rm -rf \"$d\"; git clone https://github.com/azzindani/MCP_Data_Analyst.git \"$d\" --quiet; else cd \"$d\" && git fetch origin --quiet && git reset --hard FETCH_HEAD --quiet; fi; cd \"$d\"; uv sync --quiet; uv run python -m servers.data_statistics.server"
+      ],
+      "env": { "MCP_CONSTRAINED_MODE": "0" },
+      "timeout": 600000
+    },
+    "data_analyst_visual": {
+      "command": "bash",
+      "args": [
+        "-c",
+        "d=\"$HOME/.mcp_servers/MCP_Data_Analyst\"; if [ ! -d \"$d/.git\" ]; then rm -rf \"$d\"; git clone https://github.com/azzindani/MCP_Data_Analyst.git \"$d\" --quiet; else cd \"$d\" && git fetch origin --quiet && git reset --hard FETCH_HEAD --quiet; fi; cd \"$d\"; uv sync --quiet; uv run python -m servers.data_visual.server"
+      ],
+      "env": { "MCP_CONSTRAINED_MODE": "0" },
+      "timeout": 600000
     }
   }
 }
@@ -157,7 +245,24 @@ Replace the `"command"` and `"args"` in each entry with the bash equivalent:
 
 ## Available Tools
 
-### Tier 1 — Basic (8 tools)
+### Tier 0 — Project (6 tools)
+
+Manage named project workspaces, file aliases, and reusable cleaning pipelines.
+
+| Tool | Purpose |
+|---|---|
+| `create_project` | Create project workspace with `data/raw`, `data/working`, `reports`, `pipelines` dirs |
+| `open_project` | Open project — returns file aliases, saved pipelines, pipeline history |
+| `register_file` | Add a CSV to the project with an alias and stage (raw/working/trial/output) |
+| `list_project_files` | List all registered files; filter by stage |
+| `save_pipeline` | Save a named list of `apply_patch` op dicts as a reusable template |
+| `run_saved_pipeline` | Execute a saved pipeline on a file alias, producing a new output alias |
+
+Files can be referenced anywhere via `project:name/alias` syntax — all tools resolve aliases automatically.
+
+---
+
+### Tier 1 — Basic (9 tools)
 
 | Tool | Purpose |
 |---|---|
@@ -166,21 +271,23 @@ Replace the `"command"` and `"args"` in each entry with the bash equivalent:
 | `inspect_dataset` | Full schema inspection: dtypes, nulls, column classification |
 | `read_column_stats` | Stats for one column: mean, median, outliers, top values |
 | `search_columns` | Find columns by criteria: has_nulls, dtype, name_contains |
-| `apply_patch` | **13 ops**: fill_nulls, drop_duplicates, clean_text, cast_column, add_column, cap_outliers, replace_values, drop_column, **normalize**, **label_encode**, **extract_regex**, **date_diff**, **rank_column** |
+| `apply_patch` | **51 ops** across 6 categories — see table below |
 | `restore_version` | Restore a file to any previous snapshot |
 | `read_receipt` | Read the operation history log for a file |
+| `list_patch_ops` | List all available `apply_patch` ops; filter by category |
 
-#### New `apply_patch` ops
+#### `apply_patch` op categories (51 ops total)
 
-| Op | Description |
+| Category | Ops |
 |---|---|
-| `normalize` | Min-max or z-score scale a numeric column (`method: "minmax"\|"zscore"`) |
-| `label_encode` | Encode categorical column to 0-based integers; returns `encoding` mapping |
-| `extract_regex` | Extract a regex capture group into a new column |
-| `date_diff` | Compute difference between two date columns in days/months/years |
-| `rank_column` | Rank rows by a numeric column (dense, min, max, average, first) |
+| **original** (13) | `fill_nulls`, `drop_duplicates`, `clean_text`, `cast_column`, `replace_values`, `add_column`, `cap_outliers`, `drop_column`, `normalize`, `label_encode`, `extract_regex`, `date_diff`, `rank_column` |
+| **filtering** (9) | `sort`, `filter_isin`, `filter_not_isin`, `filter_between`, `filter_date_range`, `filter_regex`, `filter_quantile`, `filter_top_n`, `dedup_subset` |
+| **numeric** (11) | `log_transform`, `sqrt_transform`, `boxcox_transform`, `yeojohnson_transform`, `robust_scale`, `winsorize`, `bin_column`, `qbin_column`, `clip_values`, `round_values`, `abs_values` |
+| **encoding** (3) | `ordinal_encode`, `binary_encode`, `frequency_encode` |
+| **temporal** (7) | `lag`, `lead`, `diff`, `pct_change`, `rolling_agg`, `ewm`, `cumulative` |
+| **structural** (8) | `column_math`, `conditional_assign`, `split_column`, `combine_columns`, `regex_replace`, `str_slice`, `concat_file`, `melt` |
 
-### Tier 2 — Medium (22 tools)
+### Tier 2 — Medium (25 tools)
 
 | Tool | Auto-Detect | Purpose |
 |---|---|---|
@@ -207,6 +314,9 @@ Replace the `"command"` and `"args"` in each entry with the bash equivalent:
 | `analyze_text_column` | — | Character length stats, word frequency top-N, pattern detection (email, URL, phone, number) |
 | `detect_anomalies` | Numeric | IQR + z-score row flagging — adds `_anomaly_score` column, saves annotated CSV |
 | `compare_datasets` | — | Schema diff, dtype changes, row count diff, null/mean delta between two CSVs |
+| `extended_stats` | Numeric | Deep stats: skewness, kurtosis, percentiles, CI, MAD, CV, distribution fit |
+| `resample_timeseries` | Date | Resample by freq (D/W/M/Q/Y/H) with sum/mean/count/min/max |
+| `concat_datasets` | — | Stack multiple CSVs vertically (rows) or horizontally (columns) |
 
 All chart-producing medium tools accept `theme: "dark" | "light" | "device"`, `output_path`, and `open_after`.
 
@@ -227,6 +337,64 @@ All chart-producing medium tools accept `theme: "dark" | "light" | "device"`, `o
 | `export_data` | Export to CSV, Excel, or JSON |
 
 All 11 advanced tools accept `theme: "dark" | "light" | "device"` and `open_after`.
+
+---
+
+### Tier 2 — Transform (10 tools)
+
+Focused transformation server — richer filtering, reshaping, and aggregation than the basic tier. Re-exports the most-used medium transforms so it can be loaded standalone.
+
+| Tool | Purpose |
+|---|---|
+| `filter_dataset` | Filter rows by 18 condition types (equals, isin, between, regex, date_range, quantile_between, starts_with, ends_with, …) + optional sort |
+| `reshape_dataset` | Reshape data: `pivot`, `melt`, `split_column`, `combine_columns`, `transpose` |
+| `aggregate_dataset` | Aggregate: `groupby`, `crosstab`, `value_counts`, `describe`, `window` |
+| `resample_timeseries` | Resample time series (D/W/M/Q/Y/H) |
+| `merge_datasets` | Merge two datasets with auto-detected join keys |
+| `concat_datasets` | Stack multiple CSVs vertically or horizontally |
+| `smart_impute` | Auto-impute: numeric→median, datetime→ffill, categorical→mode |
+| `run_cleaning_pipeline` | Multi-op cleaning with single snapshot + rollback |
+| `feature_engineering` | Auto-create date parts, bins, log transforms, one-hot features |
+| `enrich_with_geo` | Merge dataset with geo data on a location key |
+
+---
+
+### Tier 3 — Statistics (11 tools)
+
+| Tool | Purpose |
+|---|---|
+| `statistical_test` | 17 test types: shapiro_wilk, ks, anderson, t_test, paired_t_test, one_sample_t, anova, chi_square, fisher, mann_whitney, wilcoxon, kruskal, levene, pearson, spearman, kendall, proportion_z — includes effect sizes (Cohen's d, η², Cramér's V) |
+| `regression_analysis` | OLS or logistic regression via statsmodels — returns coefficients, p-values, R², RMSE, AIC, BIC, VIF, normality diagnostics, and insight summary |
+| `period_comparison` | MoM / QoQ / YoY comparison — returns delta, pct_change, direction per metric |
+| `time_series_analysis` | Trend + seasonality + rolling stats + exponential-smoothing forecast + **STL decomposition** + **ACF/PACF** + **ADF stationarity test** |
+| `correlation_analysis` | Correlation matrix (Pearson/Spearman/Kendall) + top N pairs |
+| `cohort_analysis` | Cohort retention matrix with auto-detected identifiers |
+| `extended_stats` | Deep stats: skewness, kurtosis, percentiles, CI, MAD, CV |
+| `check_outliers` | IQR/std outlier scan |
+| `scan_nulls_zeros` | Null/zero detection + suggested fixes |
+| `validate_dataset` | Data quality score 0–100 |
+| `auto_detect_schema` | Smart column type inference with cleaning suggestions |
+
+---
+
+### Tier 3 — Visual (12 tools)
+
+All tools from `data_advanced` plus chart post-processing.
+
+| Tool | Purpose |
+|---|---|
+| `run_eda` | Fast EDA: stats, nulls, correlations, outliers — saves HTML |
+| `generate_auto_profile` | Full column profile: per-column charts, correlation network, quality dashboard |
+| `generate_dashboard` | Interactive HTML dashboard: KPI cards, sparklines, violin plots, geo maps |
+| `generate_chart` | 13 chart types: bar, pie, line, scatter, geo, treemap, radius, time_series, sunburst, waterfall, funnel, parallel_coords, sankey |
+| `generate_geo_map` | Scatter map (lat/lon) or choropleth (country/state) — auto-detected |
+| `generate_3d_chart` | 3D scatter or surface chart |
+| `generate_distribution_plot` | Histogram + box plot for numeric columns |
+| `generate_correlation_heatmap` | Interactive Pearson/Spearman heatmap |
+| `generate_pairwise_plot` | Scatter matrix for numeric columns |
+| `generate_multi_chart` | Multi-variable bar/line chart (2+ metrics) |
+| `export_data` | Export to CSV, Excel, or JSON |
+| `customize_chart` | Post-generate edits to an existing HTML chart: title, axis labels, colour scheme, annotations, value labels, dimensions |
 
 #### New chart types in `generate_chart`
 
@@ -350,6 +518,29 @@ Analyze the time series trends in C:\data\sales.csv
 Restore C:\data\sales.csv to the previous version
 ```
 
+### Project workflow
+
+```
+Create a project called "q3_analysis", register C:\data\sales_raw.csv as alias "raw_sales",
+then save a pipeline that fills nulls in Revenue and drops duplicates
+```
+
+### Run a saved pipeline
+
+```
+Run the "clean_revenue" pipeline on the "raw_sales" alias and save the output as "clean_sales"
+```
+
+### Statistical analysis (new)
+
+```
+Run an OLS regression on C:\data\sales.csv with Revenue as the target and Units, Discount as predictors
+```
+
+```
+Compare Revenue month-over-month in C:\data\monthly.csv
+```
+
 ## Configuration
 
 ### Constrained Mode
@@ -369,7 +560,7 @@ For lower-memory machines, set `MCP_CONSTRAINED_MODE=1` in the `env` section of 
 
 **Step 1:** Remove from LM Studio
 1. Open LM Studio → Developer tab (`</>`)
-2. Delete `data_analyst_basic`, `data_analyst_medium`, `data_analyst_advanced` from MCP Servers
+2. Delete all `data_analyst_*` entries (`basic`, `medium`, `advanced`, `project`, `transform`, `statistics`, `visual`) from MCP Servers
 3. Restart LM Studio
 
 **Step 2:** Delete installed files
@@ -387,46 +578,66 @@ Or run the uninstall script:
 ```
 MCP_Data_Analyst/
 ├── servers/
-│   ├── data_basic/
-│   │   ├── server.py        ← thin MCP wrapper (zero domain logic)
-│   │   ├── engine.py        ← public API re-exports (<900 lines)
-│   │   ├── _patch_ops.py    ← all apply_patch operations
-│   │   └── pyproject.toml
-│   ├── data_medium/
+│   ├── data_project/        ← T0: project workspace management (6 tools)
 │   │   ├── server.py
-│   │   ├── engine.py        ← public API re-exports (<100 lines)
-│   │   ├── _med_helpers.py  ← shared helpers
-│   │   ├── _med_inspect.py  ← inspection + detection tools
-│   │   ├── _med_transform.py← transformation tools
-│   │   ├── _med_analysis.py ← analysis + stats tools
-│   │   ├── _med_report.py   ← reporting + aggregation tools
-│   │   └── pyproject.toml
-│   └── data_advanced/
+│   │   └── engine.py        ← create/open/register/list/save/run pipeline
+│   ├── data_basic/          ← T1: load, inspect, patch, restore (9 tools)
+│   │   ├── server.py        ← thin MCP wrapper (zero domain logic)
+│   │   ├── engine.py        ← public API + list_patch_ops
+│   │   └── _patch_ops.py    ← 51 apply_patch operations
+│   ├── data_medium/         ← T2: profiling, cleaning, aggregation (25 tools)
+│   │   ├── server.py
+│   │   ├── engine.py
+│   │   ├── _med_helpers.py
+│   │   ├── _med_inspect.py  ← outliers, nulls, validate, schema
+│   │   ├── _med_transform.py← impute, merge, feature engineering
+│   │   ├── _med_analysis.py ← correlation, time series (STL/ACF/ADF), cohort
+│   │   └── _med_report.py   ← aggregations, cross-tab, pivot
+│   ├── data_transform/      ← T2: richer filter/reshape/aggregate (10 tools)
+│   │   ├── server.py
+│   │   └── engine.py        ← filter_dataset, reshape_dataset, aggregate_dataset
+│   ├── data_statistics/     ← T3: full statistics suite (11 tools)
+│   │   ├── server.py
+│   │   ├── engine.py
+│   │   ├── _stats_tests.py  ← 17 statistical tests + effect sizes
+│   │   ├── _stats_regression.py ← OLS + logistic regression
+│   │   └── _stats_comparative.py← period comparison (MoM/QoQ/YoY)
+│   ├── data_advanced/       ← T3: EDA + dashboards + charts (11 tools)
+│   │   ├── server.py
+│   │   ├── engine.py
+│   │   ├── _adv_eda.py
+│   │   ├── _adv_profile.py
+│   │   ├── _adv_charts.py
+│   │   ├── _adv_gencharts.py← 13 chart types, geo_map, 3d_chart
+│   │   └── _adv_dashboard.py
+│   └── data_visual/         ← T3: advanced + chart customization (12 tools)
 │       ├── server.py
-│       ├── engine.py        ← public API re-exports (<50 lines)
-│       ├── _adv_helpers.py  ← shared helpers + geo detection
-│       ├── _adv_eda.py      ← run_eda
-│       ├── _adv_profile.py  ← generate_auto_profile
-│       ├── _adv_charts.py   ← distribution, correlation, pairwise, multi, export
-│       ├── _adv_gencharts.py← generate_chart (13 types), geo_map, 3d_chart
-│       ├── _adv_dashboard.py← generate_dashboard
-│       └── pyproject.toml
-├── shared/
-│   ├── version_control.py   ← snapshot() and restore()
-│   ├── patch_validator.py   ← validate op arrays
-│   ├── file_utils.py        ← path resolution, atomic writes
-│   ├── platform_utils.py    ← constrained mode, row limits
-│   ├── progress.py          ← ok/fail/info/warn helpers
-│   ├── receipt.py           ← operation receipt logging
-│   └── html_theme.py        ← CSS vars, Plotly templates, responsive HTML helpers
+│       ├── engine.py        ← re-exports data_advanced + customize_chart
+│       └── _adv_customize.py← post-generate chart editing
+├── shared/                  ← Ring-2 utilities (no MCP imports)
+│   ├── version_control.py   ← snapshot() / restore() / list_versions()
+│   ├── patch_validator.py   ← validate op arrays before apply
+│   ├── file_utils.py        ← path resolution (project: aliases), atomic writes
+│   ├── project_utils.py     ← project manifest CRUD, alias resolution
+│   ├── platform_utils.py    ← MCP_CONSTRAINED_MODE, get_max_rows()
+│   ├── progress.py          ← ok/fail/info/warn/undo helpers
+│   ├── receipt.py           ← append_receipt() / read_receipt_log()
+│   ├── html_layout.py       ← output path priority, HTML helpers
+│   └── html_theme.py        ← CSS vars, Plotly templates, responsive HTML
 ├── install/
 │   ├── run_server.bat       ← Windows launcher
 │   └── uninstall.bat        ← Windows uninstaller
 └── tests/
     ├── conftest.py
-    ├── test_engine_basic.py
-    ├── test_engine_medium.py
-    └── test_engine_advanced.py
+    ├── test_engine_basic.py     ← 124 tests (unit + e2e + four-tool pattern)
+    ├── test_engine_medium.py    ← tests including STL/ACF/ADF
+    ├── test_engine_advanced.py
+    ├── test_engine_project.py   ← 21 tests (full project workflow e2e)
+    ├── test_engine_transform.py ← 32 tests (filter/reshape/aggregate)
+    ├── test_engine_statistics.py← 39 tests (regression, stat tests, period comparison)
+    ├── test_shared.py
+    ├── verify_tool_docstrings.py← CI gate: all @mcp.tool() docstrings ≤ 80 chars
+    └── verify_output_paths.py   ← CI gate: output path priority contract
 ```
 
 ## Development
@@ -434,27 +645,35 @@ MCP_Data_Analyst/
 ### Local Testing
 
 ```bash
-# Install root dev dependencies
-uv sync --group dev
+# Install all dependencies from root (single lockfile)
+uv sync
 
-# Run tests (Windows)
-python -m pytest tests/ -v
+# Run all 484 tests
+uv run pytest tests/ -q --tb=short
 
-# Run tests (Linux/macOS CI)
-uv sync --group dev
-cd servers/data_advanced && uv sync --dev && cd ../..
-PYTHONPATH=. servers/data_advanced/.venv/bin/python -m pytest tests/ -v --tb=short
+# Run in constrained mode
+MCP_CONSTRAINED_MODE=1 uv run pytest tests/ -q --tb=short
 
-# Lint
-uvx ruff check servers/ shared/ tests/ --exclude "**/.venv/**"
+# Format → lint → type-check → verify docstrings → test (full CI sequence)
+uv run ruff format servers/ shared/ tests/ --exclude "**/.venv/**"
+uv run ruff check servers/ shared/ tests/ --exclude "**/.venv/**"
+uv run pyright servers/ shared/
+uv run python tests/verify_tool_docstrings.py
+uv run python tests/verify_output_paths.py
+uv run pytest tests/ -q --tb=short
 ```
 
-### Run a single tier server locally
+### Run a single server locally
 
 ```bash
-cd servers/data_basic
-uv sync
-uv run python server.py
+# Tier 1 — Basic (standalone, own venv)
+cd servers/data_basic && uv sync && uv run python server.py
+
+# Tier 2+ — run from repo root (shared deps via root pyproject.toml)
+uv run python -m servers.data_project.server
+uv run python -m servers.data_transform.server
+uv run python -m servers.data_statistics.server
+uv run python -m servers.data_visual.server
 ```
 
 ## License
