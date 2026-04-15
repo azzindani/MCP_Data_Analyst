@@ -1806,3 +1806,44 @@ class TestE2EResampleAndStats:
         r_agg = compute_aggregations(str(out), group_by=["Region"], agg_column="Revenue", agg_func="sum")
         assert r_agg["success"] is True
         assert r_agg["returned"] == 4
+
+
+# ---------------------------------------------------------------------------
+# Docstring length CI check
+# ---------------------------------------------------------------------------
+
+
+def test_medium_server_docstrings_lte_80_chars():
+    """All @mcp.tool() docstrings in data_medium/server.py must be ≤ 80 chars."""
+    from servers.data_medium import server
+
+    tool_funcs = [
+        server.check_outliers,
+        server.scan_nulls_zeros,
+        server.enrich_with_geo,
+        server.validate_dataset,
+        server.compute_aggregations,
+        server.run_cleaning_pipeline,
+        server.correlation_analysis,
+        server.cross_tabulate,
+        server.pivot_table,
+        server.value_counts,
+        server.filter_rows,
+        server.sample_data,
+        server.auto_detect_schema,
+        server.smart_impute,
+        server.merge_datasets,
+        server.feature_engineering,
+        server.statistical_tests,
+        server.time_series_analysis,
+        server.cohort_analysis,
+        server.analyze_text_column,
+        server.detect_anomalies,
+        server.compare_datasets,
+        server.extended_stats,
+        server.resample_timeseries,
+        server.concat_datasets,
+    ]
+    for fn in tool_funcs:
+        doc = fn.__doc__ or ""
+        assert len(doc) <= 80, f"{fn.__name__} docstring too long ({len(doc)} chars): {doc!r}"

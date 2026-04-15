@@ -16,8 +16,10 @@ try:
         generate_correlation_heatmap,
         generate_dashboard,
         generate_distribution_plot,
+        generate_geo_map,
         generate_multi_chart,
         generate_pairwise_plot,
+        run_eda,
     )
 
     HAS_ADVANCED = True
@@ -395,3 +397,200 @@ class TestGenerateChartNewTypes:
         )
         assert r["success"] is True
         assert r["chart_type"] == "sankey"
+
+
+# ---------------------------------------------------------------------------
+# run_eda
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not HAS_ADVANCED, reason="advanced deps not installed")
+class TestRunEda:
+    def test_basic(self, rich_csv):
+        r = run_eda(str(rich_csv), open_after=False)
+        assert r["success"] is True
+        assert r["rows"] == 15
+        assert r["columns"] == 7
+        assert r["numeric_columns"] >= 4
+        assert r["categorical_columns"] >= 2
+        assert r["quality_score"] >= 0
+        assert r["quality_score"] <= 100
+        assert "column_summaries" in r
+        assert len(r["column_summaries"]) == 7
+
+    def test_html_file_created(self, rich_csv):
+        r = run_eda(str(rich_csv), open_after=False)
+        assert r["success"] is True
+        out = Path(r["output_path"])
+        assert out.exists()
+        assert out.suffix == ".html"
+        html = out.read_text(encoding="utf-8")
+        assert "<!DOCTYPE html>" in html
+        assert "EDA Report" in html
+
+    def test_custom_output_path(self, rich_csv, tmp_path):
+        out = tmp_path / "my_eda.html"
+        r = run_eda(str(rich_csv), output_path=str(out), open_after=False)
+        assert r["success"] is True
+        assert out.exists()
+
+    def test_top_correlations(self, rich_csv):
+        r = run_eda(str(rich_csv), open_after=False)
+        assert r["success"] is True
+        # Revenue and Units_Sold should correlate
+        assert "top_correlations" in r
+        assert isinstance(r["top_correlations"], list)
+        if r["top_correlations"]:
+            first = r["top_correlations"][0]
+            assert "col_a" in first
+            assert "col_b" in first
+            assert "correlation" in first
+
+    def test_outlier_columns(self, rich_csv):
+        r = run_eda(str(rich_csv), open_after=False)
+        assert r["success"] is True
+        assert "outlier_columns" in r
+
+    def test_duplicate_rows_reported(self, tmp_path):
+        f = tmp_path / "dups.csv"
+        f.write_text("A,B\n1,2\n1,2\n3,4\n")
+        r = run_eda(str(f), open_after=False)
+        assert r["success"] is True
+        assert r["duplicate_rows"] == 1
+
+    def test_token_estimate(self, rich_csv):
+        r = run_eda(str(rich_csv), open_after=False)
+        assert "token_estimate" in r
+        assert r["token_estimate"] > 0
+
+    def test_file_not_found(self, tmp_path):
+        r = run_eda(str(tmp_path / "missing.csv"))
+        assert r["success"] is False
+        assert "hint" in r
+
+
+# ---------------------------------------------------------------------------
+# generate_geo_map
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def latlon_csv(tmp_path) -> Path:
+    f = tmp_path / "geo_points.csv"
+    f.write_text(
+        "City,lat,lon,Population\n"
+        "New York,40.7128,-74.0060,8336817\n"
+        "Los Angeles,34.0522,-118.2437,3979576\n"
+        "Chicago,41.8781,-87.6298,2693976\n"
+        "Houston,29.7604,-95.3698,2320268\n"
+        "Phoenix,33.4484,-112.0740,1680992\n"
+    )
+    return f
+
+
+@pytest.fixture()
+def country_csv(tmp_path) -> Path:
+    f = tmp_path / "country_data.csv"
+    f.write_text("country,Revenue\nUnited States,50000\nGermany,30000\nFrance,25000\nJapan,20000\nBrazil,15000\n")
+    return f
+
+
+@pytest.mark.skipif(not HAS_ADVANCED, reason="advanced deps not installed")
+class TestGenerateGeoMap:
+    def test_scatter_geo_explicit_cols(self, latlon_csv):
+        r = generate_geo_map(
+            str(latlon_csv),
+            lat_column="lat",
+            lon_column="lon",
+            open_after=False,
+        )
+        assert r["success"] is True
+        assert r["map_type"] == "scatter_geo"
+        out = Path(r["output_path"])
+        assert out.exists()
+        html = out.read_text(encoding="utf-8")
+        assert "Plotly.newPlot" in html
+
+    def test_scatter_geo_auto_detect(self, latlon_csv):
+        # Column names 'lat' and 'lon' are in _GEO_LAT/_GEO_LON → auto-detected
+        r = generate_geo_map(str(latlon_csv), open_after=False)
+        assert r["success"] is True
+        assert r["map_type"] == "scatter_geo"
+
+    def test_scatter_geo_with_value(self, latlon_csv):
+        r = generate_geo_map(
+            str(latlon_csv),
+            lat_column="lat",
+            lon_column="lon",
+            value_column="Population",
+            open_after=False,
+        )
+        assert r["success"] is True
+        assert r["map_type"] == "scatter_geo"
+
+    def test_choropleth_auto_detect(self, country_csv):
+        # 'country' column is in _GEO_COUNTRY → auto-detected as choropleth
+        r = generate_geo_map(str(country_csv), value_column="Revenue", open_after=False)
+        assert r["success"] is True
+        assert str(r["map_type"]).startswith("choropleth")
+
+    def test_custom_output_path(self, latlon_csv, tmp_path):
+        out = tmp_path / "map.html"
+        r = generate_geo_map(
+            str(latlon_csv),
+            lat_column="lat",
+            lon_column="lon",
+            output_path=str(out),
+            open_after=False,
+        )
+        assert r["success"] is True
+        assert out.exists()
+
+    def test_no_geo_columns_fails(self, tmp_path):
+        f = tmp_path / "nongeo.csv"
+        f.write_text("Name,Score\nAlice,90\nBob,85\n")
+        r = generate_geo_map(str(f))
+        assert r["success"] is False
+        assert "hint" in r
+
+    def test_value_column_not_found(self, latlon_csv):
+        r = generate_geo_map(
+            str(latlon_csv),
+            lat_column="lat",
+            lon_column="lon",
+            value_column="NonExistent",
+        )
+        assert r["success"] is False
+        assert "hint" in r
+
+    def test_file_not_found(self, tmp_path):
+        r = generate_geo_map(str(tmp_path / "missing.csv"))
+        assert r["success"] is False
+        assert "hint" in r
+
+
+# ---------------------------------------------------------------------------
+# Docstring length CI check
+# ---------------------------------------------------------------------------
+
+
+def test_advanced_server_docstrings_lte_80_chars():
+    """All @mcp.tool() docstrings in data_advanced/server.py must be ≤ 80 chars."""
+    from servers.data_advanced import server
+
+    tool_funcs = [
+        server.run_eda,
+        server.generate_distribution_plot,
+        server.generate_multi_chart,
+        server.generate_chart,
+        server.generate_geo_map,
+        server.generate_dashboard,
+        server.generate_correlation_heatmap,
+        server.generate_pairwise_plot,
+        server.generate_auto_profile,
+        server.export_data,
+        server.generate_3d_chart,
+    ]
+    for fn in tool_funcs:
+        doc = fn.__doc__ or ""
+        assert len(doc) <= 80, f"{fn.__name__} docstring too long ({len(doc)} chars): {doc!r}"
