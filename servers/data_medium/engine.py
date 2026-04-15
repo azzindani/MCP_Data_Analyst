@@ -22,6 +22,7 @@ from _med_inspect import (
     analyze_text_column,
     auto_detect_schema,
     check_outliers,
+    extended_stats,
     filter_rows,
     sample_data,
     scan_nulls_zeros,
@@ -35,14 +36,17 @@ from _med_report import (
 )
 from _med_transform import (
     compute_aggregations,
+    concat_datasets,
     enrich_with_geo,
     feature_engineering,
     merge_datasets,
+    resample_timeseries,
     run_cleaning_pipeline,
     smart_impute,
 )
 
 __all__ = [
+    # inspect
     "check_outliers",
     "scan_nulls_zeros",
     "validate_dataset",
@@ -50,19 +54,25 @@ __all__ = [
     "filter_rows",
     "sample_data",
     "analyze_text_column",
+    "extended_stats",
+    # analysis
     "detect_anomalies",
+    "correlation_analysis",
+    "statistical_tests",
+    "time_series_analysis",
+    "cohort_analysis",
+    # report
     "compare_datasets",
+    "cross_tabulate",
+    "pivot_table",
+    "value_counts",
+    # transform
     "enrich_with_geo",
     "compute_aggregations",
     "run_cleaning_pipeline",
     "smart_impute",
     "merge_datasets",
     "feature_engineering",
-    "correlation_analysis",
-    "statistical_tests",
-    "time_series_analysis",
-    "cohort_analysis",
-    "cross_tabulate",
-    "pivot_table",
-    "value_counts",
+    "resample_timeseries",
+    "concat_datasets",
 ]

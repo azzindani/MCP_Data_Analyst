@@ -633,6 +633,391 @@ class TestApplyPatchNewOps:
 
 
 # ---------------------------------------------------------------------------
+# apply_patch — extended ops (filtering, numeric, encoding, temporal, structural)
+# ---------------------------------------------------------------------------
+
+
+class TestApplyPatchFilterSort:
+    def test_sort_ascending(self, tmp_path):
+        f = tmp_path / "sort.csv"
+        f.write_text("Score,Name\n30,C\n10,A\n20,B\n")
+        r = apply_patch(str(f), [{"op": "sort", "by": ["Score"], "ascending": True}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert list(df["Score"]) == [10, 20, 30]
+
+    def test_sort_descending(self, tmp_path):
+        f = tmp_path / "sort.csv"
+        f.write_text("Score,Name\n30,C\n10,A\n20,B\n")
+        r = apply_patch(str(f), [{"op": "sort", "by": ["Score"], "ascending": False}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert list(df["Score"]) == [30, 20, 10]
+
+    def test_filter_isin(self, tmp_path):
+        f = tmp_path / "isin.csv"
+        f.write_text("Region,Revenue\nWest,100\nEast,200\nNorth,300\n")
+        r = apply_patch(str(f), [{"op": "filter_isin", "column": "Region", "values": ["West", "East"]}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert len(df) == 2
+        assert "North" not in df["Region"].values
+
+    def test_filter_not_isin(self, tmp_path):
+        f = tmp_path / "isin.csv"
+        f.write_text("Region,Revenue\nWest,100\nEast,200\nNorth,300\n")
+        r = apply_patch(str(f), [{"op": "filter_not_isin", "column": "Region", "values": ["West"]}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert "West" not in df["Region"].values
+        assert len(df) == 2
+
+    def test_filter_between(self, tmp_path):
+        f = tmp_path / "between.csv"
+        f.write_text("Score\n5\n15\n25\n35\n")
+        r = apply_patch(str(f), [{"op": "filter_between", "column": "Score", "min": 10, "max": 30}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert all(10 <= v <= 30 for v in df["Score"])
+
+    def test_filter_date_range(self, tmp_path):
+        f = tmp_path / "dates.csv"
+        f.write_text("Date,Value\n2023-01-01,1\n2023-06-01,2\n2024-01-01,3\n")
+        r = apply_patch(
+            str(f),
+            [{"op": "filter_date_range", "column": "Date", "start": "2023-01-01", "end": "2023-12-31"}],
+        )
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert len(df) == 2
+
+    def test_filter_regex(self, tmp_path):
+        f = tmp_path / "regex.csv"
+        f.write_text("Code\nABC123\nXYZ456\nABC789\n")
+        r = apply_patch(str(f), [{"op": "filter_regex", "column": "Code", "pattern": "^ABC"}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert len(df) == 2
+        assert all(str(v).startswith("ABC") for v in df["Code"])
+
+    def test_filter_quantile(self, tmp_path):
+        f = tmp_path / "quant.csv"
+        f.write_text("Value\n" + "\n".join(str(i) for i in range(1, 101)) + "\n")
+        r = apply_patch(str(f), [{"op": "filter_quantile", "column": "Value", "min_q": 0.25, "max_q": 0.75}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        # Should keep middle 50%
+        assert len(df) <= 52  # allow boundary inclusion
+
+    def test_filter_top_n(self, tmp_path):
+        f = tmp_path / "topn.csv"
+        f.write_text("Score\n10\n30\n20\n50\n40\n")
+        r = apply_patch(str(f), [{"op": "filter_top_n", "column": "Score", "n": 3, "keep": "top"}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert len(df) == 3
+        assert df["Score"].min() >= 20
+
+    def test_dedup_subset(self, tmp_path):
+        f = tmp_path / "dup.csv"
+        f.write_text("A,B,C\n1,x,10\n1,x,20\n2,y,30\n")
+        r = apply_patch(str(f), [{"op": "dedup_subset", "columns": ["A", "B"], "keep": "first"}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert len(df) == 2
+
+
+class TestApplyPatchNumericTransforms:
+    def test_log_transform_log1p(self, tmp_path):
+        f = tmp_path / "log.csv"
+        f.write_text("Value\n0\n9\n99\n")
+        r = apply_patch(str(f), [{"op": "log_transform", "column": "Value", "method": "log1p"}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        import math
+
+        assert abs(df["Value"].iloc[0] - math.log1p(0)) < 1e-9
+        assert abs(df["Value"].iloc[1] - math.log1p(9)) < 1e-9
+
+    def test_sqrt_transform(self, tmp_path):
+        f = tmp_path / "sqrt.csv"
+        f.write_text("Value\n4\n9\n16\n")
+        r = apply_patch(str(f), [{"op": "sqrt_transform", "column": "Value"}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert abs(df["Value"].iloc[0] - 2.0) < 1e-9
+        assert abs(df["Value"].iloc[1] - 3.0) < 1e-9
+
+    def test_robust_scale(self, tmp_path):
+        f = tmp_path / "robust.csv"
+        f.write_text("Value\n10\n20\n30\n40\n50\n")
+        r = apply_patch(str(f), [{"op": "robust_scale", "column": "Value"}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        # Median of scaled values should be ~0
+        assert abs(df["Value"].median()) < 0.01
+
+    def test_winsorize(self, tmp_path):
+        f = tmp_path / "winsor.csv"
+        f.write_text("Value\n1\n2\n3\n4\n5\n6\n7\n8\n9\n100\n")
+        r = apply_patch(str(f), [{"op": "winsorize", "column": "Value", "upper_q": 0.9}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert df["Value"].max() < 100
+
+    def test_bin_column(self, tmp_path):
+        f = tmp_path / "bin.csv"
+        f.write_text("Score\n10\n30\n50\n70\n90\n")
+        r = apply_patch(str(f), [{"op": "bin_column", "column": "Score", "bins": 3}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert "Score_bin" in df.columns
+
+    def test_qbin_column(self, tmp_path):
+        f = tmp_path / "qbin.csv"
+        f.write_text("Score\n" + "\n".join(str(i) for i in range(1, 21)) + "\n")
+        r = apply_patch(str(f), [{"op": "qbin_column", "column": "Score", "q": 4}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert "Score_qbin" in df.columns
+
+    def test_clip_values(self, tmp_path):
+        f = tmp_path / "clip.csv"
+        f.write_text("Value\n-10\n5\n50\n")
+        r = apply_patch(str(f), [{"op": "clip_values", "column": "Value", "min": 0, "max": 10}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert df["Value"].min() >= 0
+        assert df["Value"].max() <= 10
+
+    def test_round_values(self, tmp_path):
+        f = tmp_path / "round.csv"
+        f.write_text("Value\n3.14159\n2.71828\n1.41421\n")
+        r = apply_patch(str(f), [{"op": "round_values", "column": "Value", "decimals": 2}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert df["Value"].iloc[0] == pytest.approx(3.14)
+
+    def test_abs_values(self, tmp_path):
+        f = tmp_path / "abs.csv"
+        f.write_text("Value\n-5\n3\n-7\n")
+        r = apply_patch(str(f), [{"op": "abs_values", "column": "Value"}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert all(v >= 0 for v in df["Value"])
+
+
+class TestApplyPatchEncoding:
+    def test_ordinal_encode(self, tmp_path):
+        f = tmp_path / "ordinal.csv"
+        f.write_text("Size\nSmall\nMedium\nLarge\nSmall\n")
+        r = apply_patch(
+            str(f),
+            [{"op": "ordinal_encode", "column": "Size", "order": ["Small", "Medium", "Large"]}],
+        )
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert df["Size"].iloc[0] == 0  # Small → 0
+        assert df["Size"].iloc[1] == 1  # Medium → 1
+        assert df["Size"].iloc[2] == 2  # Large → 2
+
+    def test_binary_encode_categorical(self, tmp_path):
+        f = tmp_path / "binary.csv"
+        f.write_text("Flag\nyes\nno\nyes\nno\n")
+        r = apply_patch(str(f), [{"op": "binary_encode", "column": "Flag", "value": "yes"}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert "Flag_binary" in df.columns
+        assert df["Flag_binary"].iloc[0] == 1
+        assert df["Flag_binary"].iloc[1] == 0
+
+    def test_frequency_encode(self, tmp_path):
+        f = tmp_path / "freq.csv"
+        f.write_text("Color\nRed\nBlue\nRed\nGreen\nRed\n")
+        r = apply_patch(str(f), [{"op": "frequency_encode", "column": "Color"}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert "Color_freq" in df.columns
+        # Red appears 3x → should have highest freq
+        red_freq = df.loc[df["Color"] == "Red", "Color_freq"].iloc[0]
+        blue_freq = df.loc[df["Color"] == "Blue", "Color_freq"].iloc[0]
+        assert red_freq > blue_freq
+
+
+class TestApplyPatchTemporal:
+    @pytest.fixture()
+    def ts_csv(self, tmp_path):
+        f = tmp_path / "ts.csv"
+        f.write_text("Value\n10\n20\n30\n40\n50\n")
+        return f
+
+    def test_lag(self, ts_csv):
+        r = apply_patch(str(ts_csv), [{"op": "lag", "column": "Value", "periods": 1}])
+        assert r["success"] is True
+        df = pd.read_csv(str(ts_csv))
+        assert "Value_lag1" in df.columns
+        assert pd.isna(df["Value_lag1"].iloc[0])
+        assert df["Value_lag1"].iloc[1] == 10.0
+
+    def test_lead(self, ts_csv):
+        r = apply_patch(str(ts_csv), [{"op": "lead", "column": "Value", "periods": 1}])
+        assert r["success"] is True
+        df = pd.read_csv(str(ts_csv))
+        assert "Value_lead1" in df.columns
+        assert df["Value_lead1"].iloc[0] == 20.0
+
+    def test_diff(self, ts_csv):
+        r = apply_patch(str(ts_csv), [{"op": "diff", "column": "Value", "periods": 1}])
+        assert r["success"] is True
+        df = pd.read_csv(str(ts_csv))
+        assert "Value_diff1" in df.columns
+        assert df["Value_diff1"].iloc[1] == 10.0  # 20-10
+
+    def test_pct_change(self, ts_csv):
+        r = apply_patch(str(ts_csv), [{"op": "pct_change", "column": "Value", "periods": 1}])
+        assert r["success"] is True
+        df = pd.read_csv(str(ts_csv))
+        assert "Value_pct1" in df.columns
+        assert abs(df["Value_pct1"].iloc[1] - 100.0) < 0.01  # 100% change
+
+    def test_rolling_agg(self, ts_csv):
+        r = apply_patch(
+            str(ts_csv),
+            [{"op": "rolling_agg", "column": "Value", "window": 3, "agg": "sum"}],
+        )
+        assert r["success"] is True
+        df = pd.read_csv(str(ts_csv))
+        assert "Value_roll3_sum" in df.columns
+
+    def test_ewm(self, ts_csv):
+        r = apply_patch(str(ts_csv), [{"op": "ewm", "column": "Value", "span": 3}])
+        assert r["success"] is True
+        df = pd.read_csv(str(ts_csv))
+        assert "Value_ewm3" in df.columns
+
+    def test_cumulative_sum(self, ts_csv):
+        r = apply_patch(str(ts_csv), [{"op": "cumulative", "column": "Value", "agg": "sum"}])
+        assert r["success"] is True
+        df = pd.read_csv(str(ts_csv))
+        assert "Value_cumsum" in df.columns
+        assert df["Value_cumsum"].iloc[-1] == 150.0  # 10+20+30+40+50
+
+
+class TestApplyPatchStructural:
+    def test_column_math(self, tmp_path):
+        f = tmp_path / "math.csv"
+        f.write_text("A,B\n10,5\n20,4\n30,3\n")
+        r = apply_patch(str(f), [{"op": "column_math", "formula": "A * B", "target_column": "Product"}])
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert "Product" in df.columns
+        assert df["Product"].iloc[0] == 50.0
+
+    def test_conditional_assign(self, tmp_path):
+        f = tmp_path / "cond.csv"
+        f.write_text("Score\n90\n60\n40\n75\n")
+        r = apply_patch(
+            str(f),
+            [
+                {
+                    "op": "conditional_assign",
+                    "new_column": "Grade",
+                    "conditions": [
+                        {"column": "Score", "op": "gte", "value": 80, "label": "A"},
+                        {"column": "Score", "op": "gte", "value": 60, "label": "B"},
+                    ],
+                    "default": "C",
+                }
+            ],
+        )
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert "Grade" in df.columns
+        assert df["Grade"].iloc[0] == "A"
+        assert df["Grade"].iloc[1] == "B"
+        assert df["Grade"].iloc[2] == "C"
+
+    def test_split_column(self, tmp_path):
+        f = tmp_path / "split.csv"
+        f.write_text("FullName\nJohn Doe\nJane Smith\nBob Jones\n")
+        r = apply_patch(
+            str(f),
+            [{"op": "split_column", "column": "FullName", "delimiter": " ", "new_columns": ["First", "Last"]}],
+        )
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert "First" in df.columns
+        assert "Last" in df.columns
+        assert df["First"].iloc[0] == "John"
+        assert df["Last"].iloc[0] == "Doe"
+
+    def test_combine_columns(self, tmp_path):
+        f = tmp_path / "combine.csv"
+        f.write_text("First,Last\nJohn,Doe\nJane,Smith\n")
+        r = apply_patch(
+            str(f),
+            [{"op": "combine_columns", "columns": ["First", "Last"], "delimiter": " ", "new_column": "FullName"}],
+        )
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert "FullName" in df.columns
+        assert df["FullName"].iloc[0] == "John Doe"
+
+    def test_regex_replace(self, tmp_path):
+        f = tmp_path / "regex.csv"
+        f.write_text("Code\nABC-DEF\nXYZ-GHI\n")  # non-numeric so result stays string
+        r = apply_patch(
+            str(f),
+            [{"op": "regex_replace", "column": "Code", "pattern": r"-", "replacement": "_"}],
+        )
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert df["Code"].iloc[0] == "ABC_DEF"
+        assert "-" not in str(df["Code"].iloc[0])
+
+    def test_str_slice(self, tmp_path):
+        f = tmp_path / "slice.csv"
+        f.write_text("Code\nABC123\nXYZ456\n")
+        # str_slice writes to new_column (default: Code_slice), not in-place
+        r = apply_patch(
+            str(f),
+            [{"op": "str_slice", "column": "Code", "start": 0, "end": 3, "new_column": "Code_slice"}],
+        )
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert "Code_slice" in df.columns
+        assert df["Code_slice"].iloc[0] == "ABC"
+        assert df["Code_slice"].iloc[1] == "XYZ"
+
+    def test_melt(self, tmp_path):
+        f = tmp_path / "wide.csv"
+        f.write_text("ID,Q1,Q2,Q3\n1,100,200,300\n2,400,500,600\n")
+        r = apply_patch(
+            str(f),
+            [{"op": "melt", "id_vars": ["ID"], "value_vars": ["Q1", "Q2", "Q3"]}],
+        )
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        # melt converts wide to long: 2 IDs × 3 quarters = 6 rows
+        assert len(df) == 6
+        assert "variable" in df.columns
+        assert "value" in df.columns
+
+    def test_concat_file(self, tmp_path):
+        f = tmp_path / "main.csv"
+        f.write_text("A,B\n1,2\n3,4\n")
+        extra = tmp_path / "extra.csv"
+        extra.write_text("A,B\n5,6\n7,8\n")
+        r = apply_patch(
+            str(f),
+            [{"op": "concat_file", "file_path": str(extra), "direction": "rows"}],
+        )
+        assert r["success"] is True
+        df = pd.read_csv(str(f))
+        assert len(df) == 4
+
+
+# ---------------------------------------------------------------------------
 # Docstring length CI check
 # ---------------------------------------------------------------------------
 

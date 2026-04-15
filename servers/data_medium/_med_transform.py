@@ -839,3 +839,298 @@ def feature_engineering(
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
+
+
+# ---------------------------------------------------------------------------
+# resample_timeseries
+# ---------------------------------------------------------------------------
+
+_FREQ_MAP = {"M": "ME", "Q": "QE", "Y": "YE", "W": "W", "D": "D", "H": "h"}
+_VALID_FREQS = frozenset(_FREQ_MAP.keys())
+_VALID_AGGS = frozenset({"sum", "mean", "count", "min", "max", "median", "std", "first", "last"})
+
+
+def resample_timeseries(
+    file_path: str,
+    date_col: str,
+    freq: str = "M",
+    agg_func: str = "sum",
+    value_cols: list[str] = None,
+    group_by: str = None,
+    output_path: str = "",
+    dry_run: bool = False,
+) -> dict:
+    progress = []
+    try:
+        path = resolve_path(file_path)
+        if not path.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {path.name}",
+                "hint": "Check file_path is absolute and the file exists.",
+                "progress": [fail("File not found", path.name)],
+                "token_estimate": 20,
+            }
+
+        if freq not in _VALID_FREQS:
+            return {
+                "success": False,
+                "error": f"Invalid freq: {freq}",
+                "hint": f"Valid: {', '.join(sorted(_VALID_FREQS))}",
+                "progress": [fail("Invalid freq", freq)],
+                "token_estimate": 20,
+            }
+
+        agg_funcs = [a.strip() for a in agg_func.split(",")]
+        invalid_aggs = [a for a in agg_funcs if a not in _VALID_AGGS]
+        if invalid_aggs:
+            return {
+                "success": False,
+                "error": f"Invalid agg_func: {invalid_aggs}",
+                "hint": f"Valid: {', '.join(sorted(_VALID_AGGS))}",
+                "progress": [fail("Invalid agg_func", str(invalid_aggs))],
+                "token_estimate": 20,
+            }
+
+        df = _read_csv(str(path))
+
+        if date_col not in df.columns:
+            return {
+                "success": False,
+                "error": f"date_col '{date_col}' not found",
+                "hint": f"Available columns: {', '.join(df.columns)}",
+                "progress": [fail("Column not found", date_col)],
+                "token_estimate": 20,
+            }
+
+        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+        null_dates = int(df[date_col].isna().sum())
+        if null_dates > 0:
+            progress.append(warn(f"Dropped {null_dates} rows", "unparseable dates"))
+            df = df.dropna(subset=[date_col])
+
+        if not value_cols:
+            value_cols = [c for c in df.columns if is_numeric_col(df[c]) and c != date_col]
+
+        missing_vc = [c for c in value_cols if c not in df.columns]
+        if missing_vc:
+            return {
+                "success": False,
+                "error": f"value_cols not found: {missing_vc}",
+                "hint": f"Available: {', '.join(df.columns)}",
+                "progress": [fail("Columns not found", str(missing_vc))],
+                "token_estimate": 20,
+            }
+
+        pd_freq = _FREQ_MAP[freq]
+
+        def _agg_group(sub: pd.DataFrame) -> pd.DataFrame:
+            sub = sub.set_index(date_col).sort_index()
+            parts = []
+            for col in value_cols:
+                rs = sub[[col]].resample(pd_freq)
+                for af in agg_funcs:
+                    agged = getattr(rs, af)()
+                    col_label = f"{col}_{af}" if len(agg_funcs) > 1 else col
+                    agged.columns = [col_label]
+                    parts.append(agged)
+            return pd.concat(parts, axis=1) if parts else sub[value_cols].resample(pd_freq).sum()
+
+        if dry_run:
+            out_cols = [f"{c}_{af}" for c in value_cols for af in agg_funcs] if len(agg_funcs) > 1 else value_cols
+            result = {
+                "success": True,
+                "dry_run": True,
+                "op": "resample_timeseries",
+                "date_col": date_col,
+                "freq": freq,
+                "agg_func": agg_func,
+                "value_cols": value_cols,
+                "group_by": group_by,
+                "would_produce_columns": out_cols,
+                "progress": [info("Dry run — no changes written", path.name)],
+            }
+            result["token_estimate"] = _token_estimate(result)
+            return result
+
+        if group_by:
+            if group_by not in df.columns:
+                return {
+                    "success": False,
+                    "error": f"group_by column '{group_by}' not found",
+                    "hint": f"Available: {', '.join(df.columns)}",
+                    "progress": [fail("Column not found", group_by)],
+                    "token_estimate": 20,
+                }
+            parts = []
+            for grp_val, sub in df.groupby(group_by):
+                resampled = _agg_group(sub.drop(columns=[group_by]))
+                resampled[group_by] = grp_val
+                parts.append(resampled.reset_index())
+            result_df = pd.concat(parts, ignore_index=True)
+        else:
+            result_df = _agg_group(df).reset_index()
+
+        total_periods = len(result_df)
+        progress.append(ok(f"Resampled {path.name}", f"{total_periods} periods (freq={freq}, agg={agg_func})"))
+
+        out_path = (
+            str(resolve_path(output_path)) if output_path else str(path.parent / f"{path.stem}_resampled_{freq}.csv")
+        )
+        result_df.to_csv(out_path, index=False)
+
+        max_r = get_max_rows()
+        truncated = total_periods > max_r
+        sample = result_df.head(max_r).fillna("").to_dict(orient="records")
+        for rec in sample:
+            for k, v in list(rec.items()):
+                if hasattr(v, "isoformat"):
+                    rec[k] = v.isoformat()
+
+        result = {
+            "success": True,
+            "op": "resample_timeseries",
+            "file_path": str(path),
+            "date_col": date_col,
+            "freq": freq,
+            "agg_func": agg_func,
+            "value_cols": value_cols,
+            "group_by": group_by,
+            "total_periods": total_periods,
+            "truncated": truncated,
+            "data": sample,
+            "output_path": out_path,
+            "output_name": Path(out_path).name,
+            "hint": "Use filter_date_range patch op or pass value_cols to narrow the result.",
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("resample_timeseries error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Ensure date_col is parseable as datetime and value_cols are numeric.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# concat_datasets
+# ---------------------------------------------------------------------------
+
+
+def concat_datasets(
+    file_paths: list[str],
+    direction: str = "rows",
+    fill_missing: str = "null",
+    add_source_column: bool = True,
+    output_path: str = "",
+    dry_run: bool = False,
+) -> dict:
+    progress = []
+    try:
+        if not file_paths or len(file_paths) < 2:
+            return {
+                "success": False,
+                "error": "At least 2 file_paths required.",
+                "hint": "Pass a list of 2+ absolute CSV file paths.",
+                "progress": [fail("Too few files", str(file_paths))],
+                "token_estimate": 20,
+            }
+
+        if direction not in ("rows", "columns"):
+            return {
+                "success": False,
+                "error": f"Invalid direction: {direction}",
+                "hint": "Valid: rows, columns",
+                "progress": [fail("Invalid direction", direction)],
+                "token_estimate": 20,
+            }
+
+        paths = []
+        for fp in file_paths:
+            p = resolve_path(fp)
+            if not p.exists():
+                return {
+                    "success": False,
+                    "error": f"File not found: {p.name}",
+                    "hint": f"Check path: {fp}",
+                    "progress": [fail("File not found", p.name)],
+                    "token_estimate": 20,
+                }
+            paths.append(p)
+
+        frames = [_read_csv(str(p)) for p in paths]
+
+        if dry_run:
+            schemas = [{"file": p.name, "rows": len(fr), "columns": list(fr.columns)} for p, fr in zip(paths, frames)]
+            result = {
+                "success": True,
+                "dry_run": True,
+                "op": "concat_datasets",
+                "direction": direction,
+                "files": [p.name for p in paths],
+                "schemas": schemas,
+                "progress": [info("Dry run — no changes written", "")],
+            }
+            result["token_estimate"] = _token_estimate(result)
+            return result
+
+        if direction == "rows":
+            if add_source_column:
+                for p, fr in zip(paths, frames):
+                    fr["__source"] = p.name
+            if fill_missing == "drop":
+                common = list(set.intersection(*(set(fr.columns) for fr in frames)))
+                frames = [fr[common] for fr in frames]
+            result_df = pd.concat(frames, ignore_index=True)
+            detail = f"{len(result_df)} rows from {len(paths)} files"
+        else:
+            row_counts = [len(fr) for fr in frames]
+            if len(set(row_counts)) > 1:
+                return {
+                    "success": False,
+                    "error": f"Column concat requires equal row counts. Got: {row_counts}",
+                    "hint": "Use direction='rows' or ensure all files have the same number of rows.",
+                    "progress": [fail("Row count mismatch", str(row_counts))],
+                    "token_estimate": 20,
+                }
+            result_df = pd.concat([fr.reset_index(drop=True) for fr in frames], axis=1)
+            detail = f"{len(result_df.columns)} total columns from {len(paths)} files"
+
+        progress.append(ok(f"Concatenated {len(paths)} files", detail))
+
+        first_path = paths[0]
+        out_path = (
+            str(resolve_path(output_path)) if output_path else str(first_path.parent / f"{first_path.stem}_concat.csv")
+        )
+        result_df.to_csv(out_path, index=False)
+
+        result = {
+            "success": True,
+            "op": "concat_datasets",
+            "direction": direction,
+            "files": [p.name for p in paths],
+            "rows": len(result_df),
+            "columns": len(result_df.columns),
+            "output_path": out_path,
+            "output_name": Path(out_path).name,
+            "hint": "Use inspect_dataset() on the output to verify the result.",
+            "progress": progress,
+        }
+        result["token_estimate"] = _token_estimate(result)
+        return result
+
+    except Exception as exc:
+        logger.exception("concat_datasets error")
+        return {
+            "success": False,
+            "error": str(exc),
+            "hint": "Check all file_paths are absolute and point to valid CSVs.",
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
