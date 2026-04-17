@@ -6,11 +6,6 @@ import logging
 import sys
 from pathlib import Path
 
-_ROOT = Path(__file__).resolve().parents[2]
-for _p in (str(_ROOT),):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
 from shared.progress import fail, info, ok, warn  # noqa: F401
 from shared.project_utils import (
     create_manifest,
@@ -24,6 +19,11 @@ from shared.project_utils import (
     save_manifest,
     save_pipeline as _save_pipeline_util,
 )
+
+_ROOT = Path(__file__).resolve().parents[2]
+for _p in (str(_ROOT),):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
