@@ -233,9 +233,12 @@ class TestRunWorkspacePipeline:
         ops = [{"op": "drop_nulls"}]
         save_workspace_pipeline("run_ws", "pipe", ops, base_dir=str(ws_base))
         r = run_workspace_pipeline(
-            "run_ws", "pipe",
-            input_alias="raw", output_alias="clean",
-            dry_run=True, base_dir=str(ws_base),
+            "run_ws",
+            "pipe",
+            input_alias="raw",
+            output_alias="clean",
+            dry_run=True,
+            base_dir=str(ws_base),
         )
         assert r["success"] is True
         assert r["dry_run"] is True
@@ -248,9 +251,12 @@ class TestRunWorkspacePipeline:
         ops = [{"op": "drop_nulls"}]
         save_workspace_pipeline("dry_ws", "p", ops, base_dir=str(ws_base))
         r = run_workspace_pipeline(
-            "dry_ws", "p",
-            input_alias="raw", output_alias="out",
-            dry_run=True, base_dir=str(ws_base),
+            "dry_ws",
+            "p",
+            input_alias="raw",
+            output_alias="out",
+            dry_run=True,
+            base_dir=str(ws_base),
         )
         # dry_run does NOT attach context+handover (server condition: not dry_run)
         assert "context" not in r
@@ -260,8 +266,10 @@ class TestRunWorkspacePipeline:
         create_workspace("np_ws", base_dir=str(ws_base))
         register_workspace_file("np_ws", str(sample_csv), alias="raw", base_dir=str(ws_base))
         r = run_workspace_pipeline(
-            "np_ws", "ghost_pipe",
-            input_alias="raw", output_alias="out",
+            "np_ws",
+            "ghost_pipe",
+            input_alias="raw",
+            output_alias="out",
             base_dir=str(ws_base),
         )
         assert r["success"] is False
@@ -288,9 +296,12 @@ class TestE2EWorkspaceServer:
         assert r3["success"] is True
 
         r4 = run_workspace_pipeline(
-            "e2e", "clean",
-            input_alias="raw_sales", output_alias="cleaned",
-            dry_run=True, base_dir=str(ws_base),
+            "e2e",
+            "clean",
+            input_alias="raw_sales",
+            output_alias="cleaned",
+            dry_run=True,
+            base_dir=str(ws_base),
         )
         assert r4["success"] is True
         assert r4["dry_run"] is True
