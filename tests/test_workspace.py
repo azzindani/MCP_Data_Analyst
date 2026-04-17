@@ -7,6 +7,13 @@ from pathlib import Path
 
 import pytest
 
+from shared.handover import (
+    DOMAIN_SERVERS,
+    STEP_TOOLS,
+    WORKFLOW_STEPS,
+    make_context,
+    make_handover,
+)
 from shared.workspace_utils import (
     _ALIAS_PREFIX,
     _LEGACY_ALIAS_PREFIX,
@@ -25,13 +32,6 @@ from shared.workspace_utils import (
     resolve_alias,
     save_manifest,
     save_pipeline,
-)
-from shared.handover import (
-    DOMAIN_SERVERS,
-    STEP_TOOLS,
-    WORKFLOW_STEPS,
-    make_context,
-    make_handover,
 )
 
 
