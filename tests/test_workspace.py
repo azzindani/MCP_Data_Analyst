@@ -152,7 +152,7 @@ def test_ws_load_manifest_workspace_json(monkeypatch, tmp_path):
     assert "mydata" in m["files"]
 
 
-def test_ws_load_manifest_legacy_project_json(monkeypatch, tmp_path):  
+def test_ws_load_manifest_legacy_project_json(monkeypatch, tmp_path):
     monkeypatch.setenv("MCP_WORKSPACE_DIR", str(tmp_path))
     csv = tmp_path / "data.csv"
     csv.write_text("a,b\n1,2\n")
