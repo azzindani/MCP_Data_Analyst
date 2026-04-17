@@ -16,6 +16,7 @@ SERVER_FILES = [
     Path("servers/data_medium/server.py"),
     Path("servers/data_advanced/server.py"),
     Path("servers/data_project/server.py"),
+    Path("servers/data_workspace/server.py"),
     Path("servers/data_transform/server.py"),
     Path("servers/data_statistics/server.py"),
     Path("servers/data_visual/server.py"),
