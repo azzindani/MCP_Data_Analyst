@@ -1,7 +1,5 @@
 """Tests for servers/data_workspace/server.py — context + handover verification."""
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest
