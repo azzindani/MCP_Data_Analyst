@@ -182,7 +182,13 @@ def run_workspace_pipeline(
 ) -> dict:
     """Execute saved pipeline on input alias -> new output alias."""
     result = engine.run_saved_pipeline(
-        workspace_name, pipeline_name, input_alias, output_alias, output_stage, base_dir, dry_run,
+        workspace_name,
+        pipeline_name,
+        input_alias,
+        output_alias,
+        output_stage,
+        base_dir,
+        dry_run,
     )
     if result.get("success") and not dry_run:
         out_path = result.get("output_path", "")
