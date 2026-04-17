@@ -5,13 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from shared.handover import (
-    DOMAIN_SERVERS,
-    STEP_TOOLS,
-    WORKFLOW_STEPS,
-    make_context,
-    make_handover,
-)
+from shared.handover import DOMAIN_SERVERS, STEP_TOOLS, WORKFLOW_STEPS, make_context, make_handover
 from shared.workspace_utils import (
     _ALIAS_PREFIX,
     _LEGACY_ALIAS_PREFIX,
@@ -158,7 +152,7 @@ def test_ws_load_manifest_workspace_json(monkeypatch, tmp_path):
     assert "mydata" in m["files"]
 
 
-def test_ws_load_manifest_legacy_project_json(monkeypatch, tmp_path):
+def test_ws_load_manifest_legacy_project_json(monkeypatch, tmp_path):  
     monkeypatch.setenv("MCP_WORKSPACE_DIR", str(tmp_path))
     csv = tmp_path / "data.csv"
     csv.write_text("a,b\n1,2\n")
