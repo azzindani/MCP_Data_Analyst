@@ -40,10 +40,18 @@ def create_workspace(
         result["handover"] = make_handover(
             "COLLECT",
             [
-                {"tool": "load_dataset", "server": "data_basic", "domain": "data",
-                 "reason": "load a CSV into this workspace"},
-                {"tool": "register_workspace_file", "server": "data_workspace",
-                 "domain": "data", "reason": "register an existing file"},
+                {
+                    "tool": "load_dataset",
+                    "server": "data_basic",
+                    "domain": "data",
+                    "reason": "load a CSV into this workspace",
+                },
+                {
+                    "tool": "register_workspace_file",
+                    "server": "data_workspace",
+                    "domain": "data",
+                    "reason": "register an existing file",
+                },
             ],
             carry_forward={"workspace_name": name, "base_dir": base_dir},
         )
@@ -58,7 +66,7 @@ def open_workspace(
     """Open workspace. Returns aliases, pipeline history, active file."""
     result = engine.open_project(name, base_dir)
     if result.get("success"):
-        file_count = len(result.get("files", {}))
+        file_count = result.get("file_count", 0)
         result["context"] = make_context(
             "open_workspace",
             f"Opened workspace '{name}'. {file_count} registered file(s).",
@@ -66,10 +74,18 @@ def open_workspace(
         result["handover"] = make_handover(
             "COLLECT",
             [
-                {"tool": "inspect_dataset", "server": "data_basic", "domain": "data",
-                 "reason": "inspect a registered file"},
-                {"tool": "filter_dataset", "server": "data_transform", "domain": "data",
-                 "reason": "filter a registered file"},
+                {
+                    "tool": "inspect_dataset",
+                    "server": "data_basic",
+                    "domain": "data",
+                    "reason": "inspect a registered file",
+                },
+                {
+                    "tool": "filter_dataset",
+                    "server": "data_transform",
+                    "domain": "data",
+                    "reason": "filter a registered file",
+                },
             ],
             carry_forward={"workspace_name": name},
         )
@@ -96,10 +112,18 @@ def register_workspace_file(
         result["handover"] = make_handover(
             "COLLECT",
             [
-                {"tool": "inspect_dataset", "server": "data_basic", "domain": "data",
-                 "reason": "inspect the registered file"},
-                {"tool": "auto_detect_schema", "server": "data_statistics", "domain": "data",
-                 "reason": "validate schema before processing"},
+                {
+                    "tool": "inspect_dataset",
+                    "server": "data_basic",
+                    "domain": "data",
+                    "reason": "inspect the registered file",
+                },
+                {
+                    "tool": "auto_detect_schema",
+                    "server": "data_statistics",
+                    "domain": "data",
+                    "reason": "validate schema before processing",
+                },
             ],
             carry_forward={"file_path": f"workspace:{workspace_name}/{alias}"},
         )
@@ -134,8 +158,12 @@ def save_workspace_pipeline(
         result["handover"] = make_handover(
             "PREPARE",
             [
-                {"tool": "run_workspace_pipeline", "server": "data_workspace",
-                 "domain": "data", "reason": "execute the saved pipeline"},
+                {
+                    "tool": "run_workspace_pipeline",
+                    "server": "data_workspace",
+                    "domain": "data",
+                    "reason": "execute the saved pipeline",
+                },
             ],
             carry_forward={"workspace_name": workspace_name, "pipeline_name": pipeline_name},
         )
@@ -161,17 +189,23 @@ def run_workspace_pipeline(
         result["context"] = make_context(
             "run_workspace_pipeline",
             f"Pipeline '{pipeline_name}': '{input_alias}' -> '{output_alias}' in '{workspace_name}'.",
-            artifacts=[{"type": "csv", "path": out_path, "alias": output_alias, "role": "output"}]
-            if out_path
-            else [],
+            artifacts=[{"type": "csv", "path": out_path, "alias": output_alias, "role": "output"}] if out_path else [],
         )
         result["handover"] = make_handover(
             "CLEAN",
             [
-                {"tool": "inspect_dataset", "server": "data_basic", "domain": "data",
-                 "reason": "verify output quality"},
-                {"tool": "run_preprocessing", "server": "ml_medium", "domain": "ml",
-                 "reason": "hand off to ML for preprocessing"},
+                {
+                    "tool": "inspect_dataset",
+                    "server": "data_basic",
+                    "domain": "data",
+                    "reason": "verify output quality",
+                },
+                {
+                    "tool": "run_preprocessing",
+                    "server": "ml_medium",
+                    "domain": "ml",
+                    "reason": "hand off to ML for preprocessing",
+                },
             ],
             carry_forward={"file_path": f"workspace:{workspace_name}/{output_alias}"},
         )
