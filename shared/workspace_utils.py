@@ -69,7 +69,7 @@ def load_manifest(workspace_name: str, base_dir: str = "") -> dict:
     for filename in (_MANIFEST_FILENAME, _LEGACY_MANIFEST):
         path = ws_dir / filename
         if path.exists():
-            with path.open("r", encoding="utf-8") as f:
+            with path.open(encoding="utf-8") as f:
                 return json.load(f)
     raise FileNotFoundError(
         f"Workspace '{workspace_name}' not found. "
@@ -138,7 +138,7 @@ def register_file(
         stored_path = str(path)
 
     try:
-        row_count = sum(1 for _ in path.open("r", encoding="utf-8")) - 1
+        row_count = sum(1 for _ in path.open(encoding="utf-8")) - 1
     except Exception:
         row_count = -1
 
@@ -255,7 +255,7 @@ def load_pipeline(
             f"Pipeline '{pipeline_name}' not found in workspace '{workspace_name}'. "
             f"Available: {available}"
         )
-    with pipeline_path.open("r", encoding="utf-8") as f:
+    with pipeline_path.open(encoding="utf-8") as f:
         return json.load(f)
 
 
