@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from shared.handover import DOMAIN_SERVERS, STEP_TOOLS, WORKFLOW_STEPS, make_context, make_handover
+from shared.handover import DOMAIN_SERVERS, make_context, make_handover, STEP_TOOLS, WORKFLOW_STEPS
 from shared.workspace_utils import (
     _ALIAS_PREFIX,
     _LEGACY_ALIAS_PREFIX,
