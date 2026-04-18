@@ -320,6 +320,29 @@ def run_cleaning_pipeline(
                 "token_estimate": 20,
             }
 
+        handler_map = {
+            "drop_column": _op_drop_column,
+            "clean_text": _op_clean_text,
+            "cast_column": _op_cast_column,
+            "replace_values": _op_replace_values,
+            "add_column": _op_add_column,
+            "cap_outliers": _op_cap_outliers,
+            "fill_nulls": _op_fill_nulls,
+            "drop_duplicates": _op_drop_duplicates,
+        }
+
+        # Validate all ops before touching the file or creating a snapshot
+        unknown_ops = [op.get("op", "") for op in ops if op.get("op", "") not in handler_map]
+        if unknown_ops:
+            return {
+                "success": False,
+                "error": f"Unknown op(s): {unknown_ops}",
+                "hint": f"Valid ops: {', '.join(sorted(handler_map.keys()))}",
+                "applied": 0,
+                "progress": [fail("Unknown op(s)", str(unknown_ops))],
+                "token_estimate": 20,
+            }
+
         df = _read_csv(str(path))
 
         if dry_run:
@@ -345,28 +368,7 @@ def run_cleaning_pipeline(
         summary = []
         for i, op in enumerate(ops):
             op_name = op.get("op", "")
-            handler_map = {
-                "drop_column": _op_drop_column,
-                "clean_text": _op_clean_text,
-                "cast_column": _op_cast_column,
-                "replace_values": _op_replace_values,
-                "add_column": _op_add_column,
-                "cap_outliers": _op_cap_outliers,
-                "fill_nulls": _op_fill_nulls,
-                "drop_duplicates": _op_drop_duplicates,
-            }
-            handler = handler_map.get(op_name)
-            if handler is None:
-                progress.append(fail(f"Unknown op: {op_name}", ""))
-                return {
-                    "success": False,
-                    "error": f"Unknown op: {op_name}",
-                    "hint": f"Valid ops: {', '.join(sorted(handler_map.keys()))}",
-                    "applied": i,
-                    "backup": backup,
-                    "progress": progress,
-                    "token_estimate": _token_estimate(progress),
-                }
+            handler = handler_map[op_name]
             try:
                 df, op_result = handler(df, op)
                 summary.append(op_result)
