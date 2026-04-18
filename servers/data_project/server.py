@@ -1,4 +1,4 @@
-"""T0 data_project MCP server — thin wrapper only. Zero domain logic."""
+"""T0 data_workspace MCP server — thin wrapper only. Zero domain logic."""
 
 from __future__ import annotations
 
@@ -18,66 +18,55 @@ except ImportError:
         sys.path.insert(0, _root)
     import engine
 
-mcp = FastMCP("data_project")
+mcp = FastMCP("data_workspace")
 
 
 @mcp.tool()
-def create_project(
-    name: str,
-    description: str = "",
-    base_dir: str = "",
-) -> dict:
-    """Create project workspace. Sets up data/working/trial/report dirs."""
-    return engine.create_project(name, description, base_dir)
+def create_workspace(name: str, description: str = "", base_dir: str = "") -> dict:
+    """Create workspace with data/working/trial/report dirs."""
+    return engine.create_workspace(name, description, base_dir)
 
 
 @mcp.tool()
-def open_project(
-    name: str,
-    base_dir: str = "",
-) -> dict:
-    """Open project. Returns file aliases, pipeline history, active file."""
-    return engine.open_project(name, base_dir)
+def open_workspace(name: str, base_dir: str = "") -> dict:
+    """Open workspace. Returns file aliases, pipeline history, active file."""
+    return engine.open_workspace(name, base_dir)
 
 
 @mcp.tool()
-def register_file(
-    project_name: str,
+def register_workspace_file(
+    workspace_name: str,
     file_path: str,
     alias: str,
     stage: str = "raw",
     set_active: bool = False,
     base_dir: str = "",
 ) -> dict:
-    """Add file to project with alias. stage: raw working trial output."""
-    return engine.register_file(project_name, file_path, alias, stage, set_active, base_dir)
+    """Add file to workspace with alias. stage: raw working trial output."""
+    return engine.register_workspace_file(workspace_name, file_path, alias, stage, set_active, base_dir)
 
 
 @mcp.tool()
-def list_project_files(
-    project_name: str,
-    stage: str = "",
-    base_dir: str = "",
-) -> dict:
-    """List all project files with alias, stage, size, row count."""
-    return engine.list_project_files(project_name, stage, base_dir)
+def list_workspace_files(workspace_name: str, stage: str = "", base_dir: str = "") -> dict:
+    """List all workspace files with alias, stage, size, row count."""
+    return engine.list_workspace_files(workspace_name, stage, base_dir)
 
 
 @mcp.tool()
-def save_pipeline(
-    project_name: str,
+def save_workspace_pipeline(
+    workspace_name: str,
     pipeline_name: str,
     ops: list[dict],
     description: str = "",
     base_dir: str = "",
 ) -> dict:
     """Save named pipeline template. ops: list of apply_patch op dicts."""
-    return engine.save_pipeline(project_name, pipeline_name, ops, description, base_dir)
+    return engine.save_workspace_pipeline(workspace_name, pipeline_name, ops, description, base_dir)
 
 
 @mcp.tool()
-def run_saved_pipeline(
-    project_name: str,
+def run_workspace_pipeline(
+    workspace_name: str,
     pipeline_name: str,
     input_alias: str,
     output_alias: str,
@@ -86,8 +75,8 @@ def run_saved_pipeline(
     dry_run: bool = False,
 ) -> dict:
     """Execute saved pipeline on file alias. Creates new output alias."""
-    return engine.run_saved_pipeline(
-        project_name,
+    return engine.run_workspace_pipeline(
+        workspace_name,
         pipeline_name,
         input_alias,
         output_alias,

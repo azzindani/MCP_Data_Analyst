@@ -1,4 +1,4 @@
-"""T0 data_project engine — all project management logic. Zero MCP imports."""
+"""T0 data_project engine — workspace management logic. Zero MCP imports."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import logging
 import sys
 from pathlib import Path
 
+from shared.handover import make_context, make_handover
 from shared.progress import fail, info, ok, warn  # noqa: F401
 from shared.project_utils import (
     create_manifest,
@@ -43,40 +44,62 @@ def _manifest_exists(project_dir: Path) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# create_project
+# create_workspace
 # ---------------------------------------------------------------------------
 
 
-def create_project(name: str, description: str = "", base_dir: str = "") -> dict:
-    """Create project workspace with standard directories and manifest."""
+def create_workspace(name: str, description: str = "", base_dir: str = "") -> dict:
+    """Create workspace with standard directories and manifest."""
     progress = []
     try:
         project_dir = get_project_dir(name, base_dir)
         if _manifest_exists(project_dir):
             return {
                 "success": False,
-                "error": f"Project '{name}' already exists at {project_dir}",
-                "hint": "Use open_project() to load an existing project.",
-                "progress": [fail("Project exists", name)],
+                "error": f"Workspace '{name}' already exists at {project_dir}",
+                "hint": "Use open_workspace() to load an existing workspace.",
+                "progress": [fail("Workspace exists", name)],
                 "token_estimate": 20,
             }
         dirs = create_project_dirs(name, base_dir)
         manifest = create_manifest(name, description, base_dir)
-        progress.append(ok(f"Created project '{name}'", str(project_dir)))
+        progress.append(ok(f"Created workspace '{name}'", str(project_dir)))
         progress.append(info("Directories", "data/raw  data/working  data/trials  reports  pipelines"))
         result = {
             "success": True,
-            "op": "create_project",
+            "op": "create_workspace",
             "name": name,
             "project_dir": str(project_dir),
             "directories": dirs,
             "manifest": manifest,
             "progress": progress,
         }
+        result["context"] = make_context(
+            "create_workspace",
+            f"Created workspace '{name}' with standard directory structure.",
+        )
+        result["handover"] = make_handover(
+            "COLLECT",
+            [
+                {
+                    "tool": "load_dataset",
+                    "server": "data_basic",
+                    "domain": "data",
+                    "reason": "load a CSV into this workspace",
+                },
+                {
+                    "tool": "register_workspace_file",
+                    "server": "data_workspace",
+                    "domain": "data",
+                    "reason": "register an existing file",
+                },
+            ],
+            carry_forward={"workspace_name": name, "base_dir": base_dir},
+        )
         result["token_estimate"] = _token_estimate(result)
         return result
     except Exception as exc:
-        logger.exception("create_project error")
+        logger.exception("create_workspace error")
         return {
             "success": False,
             "error": str(exc),
@@ -87,12 +110,12 @@ def create_project(name: str, description: str = "", base_dir: str = "") -> dict
 
 
 # ---------------------------------------------------------------------------
-# open_project
+# open_workspace
 # ---------------------------------------------------------------------------
 
 
-def open_project(name: str, base_dir: str = "") -> dict:
-    """Open project: returns aliases, pipeline history, active file."""
+def open_workspace(name: str, base_dir: str = "") -> dict:
+    """Open workspace: returns aliases, pipeline history, active file."""
     progress = []
     try:
         manifest = load_manifest(name, base_dir)
@@ -107,10 +130,10 @@ def open_project(name: str, base_dir: str = "") -> dict:
         }
         history = manifest.get("pipeline_history", [])[-10:]
         pipelines = list(manifest.get("pipelines", {}).keys())
-        progress.append(ok(f"Opened project '{name}'", f"{len(aliases)} files registered"))
+        progress.append(ok(f"Opened workspace '{name}'", f"{len(aliases)} files registered"))
         result = {
             "success": True,
-            "op": "open_project",
+            "op": "open_workspace",
             "name": name,
             "description": manifest.get("description", ""),
             "created": manifest.get("created", ""),
@@ -121,53 +144,76 @@ def open_project(name: str, base_dir: str = "") -> dict:
             "recent_history": history,
             "progress": progress,
         }
+        file_count = len(aliases)
+        result["context"] = make_context(
+            "open_workspace",
+            f"Opened workspace '{name}'. {file_count} registered file(s).",
+        )
+        result["handover"] = make_handover(
+            "COLLECT",
+            [
+                {
+                    "tool": "inspect_dataset",
+                    "server": "data_basic",
+                    "domain": "data",
+                    "reason": "inspect a registered file",
+                },
+                {
+                    "tool": "filter_dataset",
+                    "server": "data_transform",
+                    "domain": "data",
+                    "reason": "filter a registered file",
+                },
+            ],
+            carry_forward={"workspace_name": name},
+        )
         result["token_estimate"] = _token_estimate(result)
         return result
     except FileNotFoundError as exc:
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Use create_project() to create a new project first.",
-            "progress": [fail("Project not found", name)],
+            "hint": "Use create_workspace() to create a new workspace first.",
+            "progress": [fail("Workspace not found", name)],
             "token_estimate": 20,
         }
     except Exception as exc:
-        logger.exception("open_project error")
+        logger.exception("open_workspace error")
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check that base_dir matches the one used when creating the project.",
+            "hint": "Check that base_dir matches the one used when creating the workspace.",
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
 
 
 # ---------------------------------------------------------------------------
-# register_file
+# register_workspace_file
 # ---------------------------------------------------------------------------
 
 
-def register_file(
-    project_name: str,
+def register_workspace_file(
+    workspace_name: str,
     file_path: str,
     alias: str,
     stage: str = "raw",
     set_active: bool = False,
     base_dir: str = "",
 ) -> dict:
-    """Add file to project manifest with alias. stage: raw working trial output."""
+    """Add file to workspace manifest with alias. stage: raw working trial output."""
     progress = []
     try:
-        manifest = _register_file_util(project_name, file_path, alias, stage, base_dir)
+        manifest = _register_file_util(workspace_name, file_path, alias, stage, base_dir)
         if set_active:
             manifest["active_file"] = alias
-            save_manifest(manifest, project_name, base_dir)
+            save_manifest(manifest, workspace_name, base_dir)
         file_info = manifest["files"][alias]
         progress.append(ok(f"Registered '{alias}'", f"stage={stage}  rows={file_info.get('rows', '?')}"))
         result = {
             "success": True,
-            "op": "register_file",
-            "project": project_name,
+            "op": "register_workspace_file",
+            "project": workspace_name,
             "alias": alias,
             "stage": stage,
             "file_info": file_info,
@@ -175,6 +221,29 @@ def register_file(
             "total_files": len(manifest.get("files", {})),
             "progress": progress,
         }
+        result["context"] = make_context(
+            "register_workspace_file",
+            f"Registered '{Path(file_path).name}' as '{alias}' (stage={stage}) in '{workspace_name}'.",
+            artifacts=[{"type": "csv", "path": file_path, "alias": alias, "role": "registered"}],
+        )
+        result["handover"] = make_handover(
+            "COLLECT",
+            [
+                {
+                    "tool": "inspect_dataset",
+                    "server": "data_basic",
+                    "domain": "data",
+                    "reason": "inspect the registered file",
+                },
+                {
+                    "tool": "auto_detect_schema",
+                    "server": "data_statistics",
+                    "domain": "data",
+                    "reason": "validate schema before processing",
+                },
+            ],
+            carry_forward={"file_path": f"workspace:{workspace_name}/{alias}"},
+        )
         result["token_estimate"] = _token_estimate(result)
         return result
     except FileNotFoundError as exc:
@@ -186,7 +255,7 @@ def register_file(
             "token_estimate": 20,
         }
     except Exception as exc:
-        logger.exception("register_file error")
+        logger.exception("register_workspace_file error")
         return {
             "success": False,
             "error": str(exc),
@@ -197,15 +266,15 @@ def register_file(
 
 
 # ---------------------------------------------------------------------------
-# list_project_files
+# list_workspace_files
 # ---------------------------------------------------------------------------
 
 
-def list_project_files(project_name: str, stage: str = "", base_dir: str = "") -> dict:
-    """List all project files with alias, stage, size, row count."""
+def list_workspace_files(workspace_name: str, stage: str = "", base_dir: str = "") -> dict:
+    """List all workspace files with alias, stage, size, row count."""
     progress = []
     try:
-        manifest = load_manifest(project_name, base_dir)
+        manifest = load_manifest(workspace_name, base_dir)
         files = manifest.get("files", {})
         rows_list = []
         for alias, info_ in files.items():
@@ -221,11 +290,11 @@ def list_project_files(project_name: str, stage: str = "", base_dir: str = "") -
                     "registered": info_.get("registered", ""),
                 }
             )
-        progress.append(ok(f"Listed files for '{project_name}'", f"{len(rows_list)} files"))
+        progress.append(ok(f"Listed files for '{workspace_name}'", f"{len(rows_list)} files"))
         result = {
             "success": True,
-            "op": "list_project_files",
-            "project": project_name,
+            "op": "list_workspace_files",
+            "project": workspace_name,
             "filter_stage": stage or "all",
             "active_file": manifest.get("active_file"),
             "count": len(rows_list),
@@ -239,28 +308,28 @@ def list_project_files(project_name: str, stage: str = "", base_dir: str = "") -
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Use create_project() first, then register_file() to add files.",
-            "progress": [fail("Project not found", project_name)],
+            "hint": "Use create_workspace() first, then register_workspace_file() to add files.",
+            "progress": [fail("Workspace not found", workspace_name)],
             "token_estimate": 20,
         }
     except Exception as exc:
-        logger.exception("list_project_files error")
+        logger.exception("list_workspace_files error")
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check project_name and base_dir.",
+            "hint": "Check workspace_name and base_dir.",
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
 
 
 # ---------------------------------------------------------------------------
-# save_pipeline
+# save_workspace_pipeline
 # ---------------------------------------------------------------------------
 
 
-def save_pipeline(
-    project_name: str,
+def save_workspace_pipeline(
+    workspace_name: str,
     pipeline_name: str,
     ops: list[dict],
     description: str = "",
@@ -269,22 +338,38 @@ def save_pipeline(
     """Save named pipeline template (list of apply_patch op dicts)."""
     progress = []
     try:
-        record = _save_pipeline_util(project_name, pipeline_name, ops, description, base_dir)
+        record = _save_pipeline_util(workspace_name, pipeline_name, ops, description, base_dir)
         progress.append(ok(f"Saved pipeline '{pipeline_name}'", f"{len(ops)} ops"))
         result = {
             "success": True,
-            "op": "save_pipeline",
-            "project": project_name,
+            "op": "save_workspace_pipeline",
+            "project": workspace_name,
             "pipeline_name": pipeline_name,
             "op_count": len(ops),
             "description": description,
             "created": record.get("created", ""),
             "progress": progress,
         }
+        result["context"] = make_context(
+            "save_workspace_pipeline",
+            f"Saved pipeline '{pipeline_name}' ({len(ops)} ops) in workspace '{workspace_name}'.",
+        )
+        result["handover"] = make_handover(
+            "PREPARE",
+            [
+                {
+                    "tool": "run_workspace_pipeline",
+                    "server": "data_workspace",
+                    "domain": "data",
+                    "reason": "execute the saved pipeline",
+                },
+            ],
+            carry_forward={"workspace_name": workspace_name, "pipeline_name": pipeline_name},
+        )
         result["token_estimate"] = _token_estimate(result)
         return result
     except Exception as exc:
-        logger.exception("save_pipeline error")
+        logger.exception("save_workspace_pipeline error")
         return {
             "success": False,
             "error": str(exc),
@@ -295,12 +380,12 @@ def save_pipeline(
 
 
 # ---------------------------------------------------------------------------
-# run_saved_pipeline
+# run_workspace_pipeline
 # ---------------------------------------------------------------------------
 
 
-def run_saved_pipeline(
-    project_name: str,
+def run_workspace_pipeline(
+    workspace_name: str,
     pipeline_name: str,
     input_alias: str,
     output_alias: str,
@@ -311,19 +396,19 @@ def run_saved_pipeline(
     """Execute saved pipeline on file alias. Produces new output alias."""
     progress = []
     try:
-        record = load_pipeline(project_name, pipeline_name, base_dir)
+        record = load_pipeline(workspace_name, pipeline_name, base_dir)
         ops = record.get("ops", [])
         if not ops:
             return {
                 "success": False,
                 "error": f"Pipeline '{pipeline_name}' has no ops.",
-                "hint": "Use save_pipeline() to define ops before running.",
+                "hint": "Use save_workspace_pipeline() to define ops before running.",
                 "progress": [fail("Empty pipeline", pipeline_name)],
                 "token_estimate": 20,
             }
 
         # Resolve input alias — support both workspace: and project: prefix
-        input_alias_str = f"workspace:{project_name}/{input_alias}"
+        input_alias_str = f"workspace:{workspace_name}/{input_alias}"
         input_path = resolve_alias(input_alias_str, base_dir)
         if not input_path.exists():
             return {
@@ -334,8 +419,8 @@ def run_saved_pipeline(
                 "token_estimate": 20,
             }
 
-        manifest = load_manifest(project_name, base_dir)
-        project_dir = get_project_dir(project_name, base_dir)
+        manifest = load_manifest(workspace_name, base_dir)
+        project_dir = get_project_dir(workspace_name, base_dir)
         stage_dir = {
             "working": project_dir / "data" / "working",
             "trial": project_dir / "data" / "trials",
@@ -349,7 +434,7 @@ def run_saved_pipeline(
             result = {
                 "success": True,
                 "dry_run": True,
-                "op": "run_saved_pipeline",
+                "op": "run_workspace_pipeline",
                 "pipeline_name": pipeline_name,
                 "input_alias": input_alias,
                 "output_alias": output_alias,
@@ -392,15 +477,15 @@ def run_saved_pipeline(
         shutil.copy2(str(input_path), str(output_path))
         _basic_engine.apply_patch(str(output_path), ops, dry_run=False)
 
-        _register_file_util(project_name, str(output_path), output_alias, output_stage, base_dir)
-        log_pipeline_run(project_name, pipeline_name, input_alias, output_alias, base_dir)
+        _register_file_util(workspace_name, str(output_path), output_alias, output_stage, base_dir)
+        log_pipeline_run(workspace_name, pipeline_name, input_alias, output_alias, base_dir)
 
         progress.append(ok(f"Ran pipeline '{pipeline_name}'", f"{len(ops)} ops applied"))
         progress.append(ok(f"Output registered as '{output_alias}'", Path(output_path).name))
 
         result = {
             "success": True,
-            "op": "run_saved_pipeline",
+            "op": "run_workspace_pipeline",
             "pipeline_name": pipeline_name,
             "input_alias": input_alias,
             "output_alias": output_alias,
@@ -409,6 +494,30 @@ def run_saved_pipeline(
             "backup": patch_result.get("backup", ""),
             "progress": progress,
         }
+        out_path = str(output_path)
+        result["context"] = make_context(
+            "run_workspace_pipeline",
+            f"Pipeline '{pipeline_name}': '{input_alias}' -> '{output_alias}' in '{workspace_name}'.",
+            artifacts=[{"type": "csv", "path": out_path, "alias": output_alias, "role": "output"}],
+        )
+        result["handover"] = make_handover(
+            "CLEAN",
+            [
+                {
+                    "tool": "inspect_dataset",
+                    "server": "data_basic",
+                    "domain": "data",
+                    "reason": "verify output quality",
+                },
+                {
+                    "tool": "run_preprocessing",
+                    "server": "ml_medium",
+                    "domain": "ml",
+                    "reason": "hand off to ML for preprocessing",
+                },
+            ],
+            carry_forward={"file_path": f"workspace:{workspace_name}/{output_alias}"},
+        )
         result["token_estimate"] = _token_estimate(result)
         return result
 
@@ -416,26 +525,26 @@ def run_saved_pipeline(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Use list_project_files() to check registered aliases.",
+            "hint": "Use list_workspace_files() to check registered aliases.",
             "progress": [fail("Not found", str(exc))],
             "token_estimate": 20,
         }
     except Exception as exc:
-        logger.exception("run_saved_pipeline error")
+        logger.exception("run_workspace_pipeline error")
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check pipeline_name, input_alias, and project configuration.",
+            "hint": "Check pipeline_name, input_alias, and workspace configuration.",
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
 
 
 __all__ = [
-    "create_project",
-    "open_project",
-    "register_file",
-    "list_project_files",
-    "save_pipeline",
-    "run_saved_pipeline",
+    "create_workspace",
+    "open_workspace",
+    "register_workspace_file",
+    "list_workspace_files",
+    "save_workspace_pipeline",
+    "run_workspace_pipeline",
 ]
