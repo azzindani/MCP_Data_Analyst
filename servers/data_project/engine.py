@@ -6,12 +6,7 @@ import logging
 import sys
 from pathlib import Path
 
-_ROOT = Path(__file__).resolve().parents[2]
-for _p in (str(_ROOT),):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
-from shared.progress import fail, info, ok, warn
+from shared.progress import fail, info, ok, warn  # noqa: F401
 from shared.project_utils import (
     create_manifest,
     create_project_dirs,
@@ -19,15 +14,16 @@ from shared.project_utils import (
     load_manifest,
     load_pipeline,
     log_pipeline_run,
+    register_file as _register_file_util,
     resolve_alias,
     save_manifest,
-)
-from shared.project_utils import (
-    register_file as _register_file_util,
-)
-from shared.project_utils import (
     save_pipeline as _save_pipeline_util,
 )
+
+_ROOT = Path(__file__).resolve().parents[2]
+for _p in (str(_ROOT),):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
@@ -35,6 +31,11 @@ logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
 def _token_estimate(obj: object) -> int:
     return len(str(obj)) // 4
+
+
+def _manifest_exists(project_dir: Path) -> bool:
+    """Return True if any manifest file (workspace.json or project.json) exists."""
+    return (project_dir / "workspace.json").exists() or (project_dir / "project.json").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -47,7 +48,7 @@ def create_project(name: str, description: str = "", base_dir: str = "") -> dict
     progress = []
     try:
         project_dir = get_project_dir(name, base_dir)
-        if (project_dir / "project.json").exists():
+        if _manifest_exists(project_dir):
             return {
                 "success": False,
                 "error": f"Project '{name}' already exists at {project_dir}",
@@ -306,7 +307,6 @@ def run_saved_pipeline(
     """Execute saved pipeline on file alias. Produces new output alias."""
     progress = []
     try:
-        # Load pipeline ops
         record = load_pipeline(project_name, pipeline_name, base_dir)
         ops = record.get("ops", [])
         if not ops:
@@ -318,8 +318,8 @@ def run_saved_pipeline(
                 "token_estimate": 20,
             }
 
-        # Resolve input alias to absolute path
-        input_alias_str = f"project:{project_name}/{input_alias}"
+        # Resolve input alias — support both workspace: and project: prefix
+        input_alias_str = f"workspace:{project_name}/{input_alias}"
         input_path = resolve_alias(input_alias_str, base_dir)
         if not input_path.exists():
             return {
@@ -330,7 +330,6 @@ def run_saved_pipeline(
                 "token_estimate": 20,
             }
 
-        # Determine output path (inside project working dir)
         manifest = load_manifest(project_name, base_dir)
         project_dir = get_project_dir(project_name, base_dir)
         stage_dir = {
@@ -358,10 +357,7 @@ def run_saved_pipeline(
             result["token_estimate"] = _token_estimate(result)
             return result
 
-        # Delegate to data_basic apply_patch — import engine dynamically
-        # to avoid circular imports when data_project is standalone
         try:
-            # Try to import data_basic engine
             _basic_root = str(Path(__file__).resolve().parents[1] / "data_basic")
             if _basic_root not in sys.path:
                 sys.path.insert(0, _basic_root)
@@ -387,14 +383,11 @@ def run_saved_pipeline(
                 "token_estimate": 20,
             }
 
-        # Copy result to output path
         import shutil
 
         shutil.copy2(str(input_path), str(output_path))
-        # Re-apply to output_path to keep input intact
         _basic_engine.apply_patch(str(output_path), ops, dry_run=False)
 
-        # Register output alias
         _register_file_util(project_name, str(output_path), output_alias, output_stage, base_dir)
         log_pipeline_run(project_name, pipeline_name, input_alias, output_alias, base_dir)
 

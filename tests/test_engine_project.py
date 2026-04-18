@@ -62,7 +62,8 @@ class TestCreateProject:
     def test_creates_manifest(self, project_base):
         r = create_project("demo3", base_dir=str(project_base))
         assert r["success"] is True
-        manifest_path = Path(r["project_dir"]) / "project.json"
+        # create_manifest writes workspace.json (workspace_utils canonical form)
+        manifest_path = Path(r["project_dir"]) / "workspace.json"
         assert manifest_path.exists()
 
     def test_duplicate_project_fails(self, project_base):
@@ -226,7 +227,7 @@ class TestRunSavedPipeline:
 
 
 # ---------------------------------------------------------------------------
-# E2E: full project workflow — create → register → save pipeline → run → verify
+# E2E: full project workflow — create -> register -> save pipeline -> run -> verify
 # ---------------------------------------------------------------------------
 
 

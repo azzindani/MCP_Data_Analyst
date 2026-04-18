@@ -14,15 +14,14 @@ import pandas as pd
 
 
 def resolve_path(file_path: str, allowed_extensions: tuple[str, ...] = ()) -> Path:
-    """Return resolved absolute Path; handles project:name/alias syntax.
+    """Return resolved absolute Path; handles workspace:name/alias and project:name/alias.
 
-    If file_path starts with 'project:', delegates to project_utils.resolve_alias
-    to translate the alias into an absolute path before resolving.
+    Delegates alias resolution to workspace_utils.resolve_alias which supports
+    both workspace: (new) and project: (legacy) prefix formats.
     """
-    # Lazy import to avoid circular dependency — project_utils imports file_utils
-    if file_path.startswith("project:"):
+    if file_path.startswith("workspace:") or file_path.startswith("project:"):
         try:
-            from shared.project_utils import resolve_alias
+            from shared.workspace_utils import resolve_alias
 
             path = resolve_alias(file_path)
         except Exception as exc:
