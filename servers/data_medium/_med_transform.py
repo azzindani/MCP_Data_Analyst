@@ -332,6 +332,22 @@ def run_cleaning_pipeline(
         }
 
         # Validate all ops before touching the file or creating a snapshot
+        for i, op in enumerate(ops):
+            op_name = op.get("op", "")
+            if not isinstance(op_name, str):
+                return {
+                    "success": False,
+                    "error": f"Op {i}: 'op' must be a string, got {type(op_name).__name__}",
+                    "hint": (
+                        f'Each item must be {{"op": "<name>", ...}}. '
+                        f"Valid ops: {', '.join(sorted(handler_map.keys()))}. "
+                        f'Example: {{"op": "cast_column", "column": "Zonal Winds", "dtype": "float"}}'
+                    ),
+                    "applied": 0,
+                    "progress": [fail(f"Op {i}: 'op' must be a string", str(op))],
+                    "token_estimate": 20,
+                }
+
         unknown_ops = [op.get("op", "") for op in ops if op.get("op", "") not in handler_map]
         if unknown_ops:
             return {
