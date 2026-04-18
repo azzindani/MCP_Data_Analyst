@@ -612,14 +612,13 @@ uv run pytest tests/ -q --tb=short
 ### Run a single server locally
 
 ```bash
-# Tier 1 — Basic (standalone, own venv)
+# Each server has its own venv — cd in, sync, then run server.py directly
 cd servers/data_basic && uv sync && uv run python server.py
-
-# Tier 2+ — run from repo root (shared deps via root pyproject.toml)
-uv run python -m servers.data_workspace.server
-uv run python -m servers.data_transform.server
-uv run python -m servers.data_statistics.server
-uv run python -m servers.data_visual.server
+cd servers/data_medium && uv sync && uv run python server.py
+cd servers/data_workspace && uv sync && uv run python server.py
+cd servers/data_transform && uv sync && uv run python server.py
+cd servers/data_statistics && uv sync && uv run python server.py
+cd servers/data_visual && uv sync && uv run python server.py
 ```
 
 ## License
