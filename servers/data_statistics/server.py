@@ -61,7 +61,7 @@ def check_outliers(
     th1: float = 0.25,
     th3: float = 0.75,
     output_path: str = "",
-    open_after: bool = False,
+    open_after: bool = True,
     theme: str = "dark",
 ) -> dict:
     """Scan for outliers + anomalies. method: iqr std both. Flags anomalous rows."""
@@ -74,7 +74,7 @@ def scan_nulls_zeros(
     include_zeros: bool = True,
     min_count: int = 1,
     output_path: str = "",
-    open_after: bool = False,
+    open_after: bool = True,
     theme: str = "dark",
 ) -> dict:
     """Scan all columns for nulls and zeros. Returns counts, pcts, patterns."""
@@ -87,7 +87,7 @@ def correlation_analysis(
     method: str = "pearson",
     top_n: int = 10,
     output_path: str = "",
-    open_after: bool = False,
+    open_after: bool = True,
     theme: str = "dark",
 ) -> dict:
     """Correlation matrix + top pairs. method: pearson spearman kendall."""
@@ -144,7 +144,7 @@ def time_series_analysis(
     value_columns: list[str] = None,
     period: str = "M",
     output_path: str = "",
-    open_after: bool = False,
+    open_after: bool = True,
     theme: str = "dark",
 ) -> dict:
     """Auto-detect dates, compute trend seasonality rolling stats. Saves HTML."""
@@ -182,7 +182,7 @@ def cohort_analysis(
     date_column: str = "",
     value_column: str = "",
     output_path: str = "",
-    open_after: bool = False,
+    open_after: bool = True,
     theme: str = "dark",
 ) -> dict:
     """Cohort retention matrix. Auto-detect cohort + date + value columns."""

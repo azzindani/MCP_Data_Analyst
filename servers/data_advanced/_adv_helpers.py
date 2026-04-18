@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import subprocess
 import sys
-import webbrowser
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -57,17 +56,16 @@ from shared.file_utils import read_csv as _read_csv  # noqa: E402
 def _open_file(path: Path) -> None:
     """Open file in default browser/app."""
     try:
-        webbrowser.open(f"file://{path.resolve()}")
+        if sys.platform == "win32":
+            import os
+
+            os.startfile(str(path.resolve()))
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(path.resolve())])
+        else:
+            subprocess.Popen(["xdg-open", str(path.resolve())])
     except Exception:
-        try:
-            if sys.platform == "win32":
-                subprocess.Popen(["start", str(path.resolve())], shell=True)
-            elif sys.platform == "darwin":
-                subprocess.Popen(["open", str(path.resolve())])
-            else:
-                subprocess.Popen(["xdg-open", str(path.resolve())])
-        except Exception:
-            pass
+        pass
 
 
 def _save_chart(

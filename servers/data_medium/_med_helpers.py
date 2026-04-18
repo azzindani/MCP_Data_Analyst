@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import subprocess
 import sys
-import webbrowser
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -42,17 +41,16 @@ def _dtype_label(series: pd.Series) -> str:
 def _open_file(path: Path) -> None:
     """Open file in default system app. Silently ignored on failure."""
     try:
-        webbrowser.open(f"file://{path.resolve()}")
+        if sys.platform == "win32":
+            import os
+
+            os.startfile(str(path.resolve()))
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(path.resolve())])
+        else:
+            subprocess.Popen(["xdg-open", str(path.resolve())])
     except Exception:
-        try:
-            if sys.platform == "win32":
-                subprocess.Popen(["start", str(path.resolve())], shell=True)
-            elif sys.platform == "darwin":
-                subprocess.Popen(["open", str(path.resolve())])
-            else:
-                subprocess.Popen(["xdg-open", str(path.resolve())])
-        except Exception:
-            pass
+        pass
 
 
 def _save_chart(

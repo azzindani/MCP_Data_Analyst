@@ -148,7 +148,7 @@ def merge_datasets(
     how: str = "left",
     output_path: str = "",
     dry_run: bool = False,
-    open_after: bool = False,
+    open_after: bool = True,
 ) -> dict:
     """Merge two datasets. how: inner left right outer. Auto-detect join keys."""
     return engine.merge_datasets(file_path, right_file_path, left_on, right_on, how, output_path, dry_run, open_after)
@@ -173,7 +173,7 @@ def smart_impute(
     columns: list[str] = None,
     output_path: str = "",
     dry_run: bool = False,
-    open_after: bool = False,
+    open_after: bool = True,
 ) -> dict:
     """Smart impute missing values using column-type-appropriate strategies."""
     return engine.smart_impute(file_path, columns, output_path, dry_run, open_after)
@@ -195,7 +195,7 @@ def feature_engineering(
     features: list[str] = None,
     output_path: str = "",
     dry_run: bool = False,
-    open_after: bool = False,
+    open_after: bool = True,
 ) -> dict:
     """Auto-create features: date parts, numeric bins, text length, one-hot."""
     return engine.feature_engineering(file_path, features, output_path, dry_run, open_after)

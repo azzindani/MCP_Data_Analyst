@@ -25,7 +25,7 @@ mcp = FastMCP("data_visual")
 def run_eda(
     file_path: str,
     output_path: str = "",
-    open_after: bool = False,
+    open_after: bool = True,
     theme: str = "dark",
 ) -> dict:
     """Fast EDA summary. Stats, nulls, correlations, outliers. Saves HTML."""
@@ -36,7 +36,7 @@ def run_eda(
 def generate_auto_profile(
     file_path: str,
     output_path: str = "",
-    open_after: bool = False,
+    open_after: bool = True,
     theme: str = "dark",
 ) -> dict:
     """Full column profile: stats charts correlations outliers insights."""
@@ -48,7 +48,7 @@ def generate_distribution_plot(
     file_path: str,
     columns: list[str] = None,
     output_path: str = "",
-    open_after: bool = False,
+    open_after: bool = True,
     theme: str = "dark",
 ) -> dict:
     """Histogram + box plot for numeric columns. Saves HTML."""
@@ -60,7 +60,7 @@ def generate_correlation_heatmap(
     file_path: str,
     method: str = "pearson",
     output_path: str = "",
-    open_after: bool = False,
+    open_after: bool = True,
     theme: str = "dark",
 ) -> dict:
     """Interactive correlation heatmap for numeric columns. Saves HTML."""
@@ -73,7 +73,7 @@ def generate_pairwise_plot(
     columns: list[str] = None,
     max_cols: int = 6,
     output_path: str = "",
-    open_after: bool = False,
+    open_after: bool = True,
     theme: str = "dark",
 ) -> dict:
     """Pairwise scatter + histogram matrix for numeric columns. Saves HTML."""
@@ -90,7 +90,7 @@ def generate_multi_chart(
     agg_func: str = "sum",
     output_path: str = "",
     title: str = "",
-    open_after: bool = False,
+    open_after: bool = True,
     theme: str = "dark",
 ) -> dict:
     """Multi-variable bar/line chart. Compares 2+ metrics. Saves HTML."""
@@ -124,7 +124,7 @@ def generate_chart(
     output_path: str = "",
     title: str = "",
     theme: str = "dark",
-    open_after: bool = False,
+    open_after: bool = True,
 ) -> dict:
     """Generate chart. type: bar pie line scatter geo treemap radius time_series."""
     return engine.generate_chart(
@@ -158,7 +158,7 @@ def generate_geo_map(
     title: str = "",
     output_path: str = "",
     theme: str = "dark",
-    open_after: bool = False,
+    open_after: bool = True,
 ) -> dict:
     """Geo map: scatter (lat/lon) or choropleth (country/state). Auto-detects."""
     return engine.generate_geo_map(
@@ -187,7 +187,7 @@ def generate_3d_chart(
     title: str = "",
     output_path: str = "",
     theme: str = "dark",
-    open_after: bool = False,
+    open_after: bool = True,
 ) -> dict:
     """3D scatter or surface chart. type: scatter_3d surface. Saves HTML."""
     return engine.generate_3d_chart(
@@ -214,7 +214,7 @@ def generate_dashboard(
     geo_file_path: str = "",
     theme: str = "dark",
     dry_run: bool = False,
-    open_after: bool = False,
+    open_after: bool = True,
 ) -> dict:
     """Interactive HTML dashboard with auto-detected charts. Saves HTML."""
     return engine.generate_dashboard(
@@ -237,7 +237,7 @@ def export_data(
     format: str = "csv",
     encoding: str = "utf-8",
     separator: str = ",",
-    open_after: bool = False,
+    open_after: bool = True,
 ) -> dict:
     """Export dataset to CSV, Excel, or JSON format."""
     return engine.export_data(file_path, output_path, format, encoding, separator, open_after)

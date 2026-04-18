@@ -43,7 +43,7 @@ def cross_tabulate(
     agg_func: str = "count",
     normalize: str = "",
     output_path: str = "",
-    open_after: bool = False,
+    open_after: bool = True,
     theme: str = "dark",
 ) -> dict:
     """Contingency table between two categorical columns."""
@@ -80,7 +80,7 @@ def value_counts(
     top_n: int = 20,
     include_pct: bool = True,
     output_path: str = "",
-    open_after: bool = False,
+    open_after: bool = True,
     theme: str = "dark",
 ) -> dict:
     """Frequency tables with percentages for categorical columns."""
@@ -93,7 +93,7 @@ def filter_rows(
     conditions: list[dict],
     output_path: str = "",
     dry_run: bool = False,
-    open_after: bool = False,
+    open_after: bool = True,
     sort_by: list[str] = None,
     sort_ascending: list[bool] = None,
 ) -> dict:
@@ -108,7 +108,7 @@ def sample_data(
     n: int = 100,
     random_state: int = 42,
     output_path: str = "",
-    open_after: bool = False,
+    open_after: bool = True,
 ) -> dict:
     """Sample rows from dataset. methods: random head tail."""
     return engine.sample_data(file_path, method, n, random_state, output_path, open_after)
