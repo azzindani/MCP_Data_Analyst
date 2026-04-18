@@ -1,4 +1,4 @@
-"""T0 data_workspace MCP server — thin wrapper only. Zero domain logic."""
+"""T0 data_project MCP server — thin wrapper only. Zero domain logic."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ except ImportError:
         sys.path.insert(0, _root)
     import engine
 
-mcp = FastMCP("data_workspace")
+mcp = FastMCP("data_project")
 
 
 @mcp.tool()

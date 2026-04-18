@@ -578,19 +578,7 @@ def test_advanced_server_docstrings_lte_80_chars():
     """All @mcp.tool() docstrings in data_advanced/server.py must be ≤ 80 chars."""
     from servers.data_advanced import server
 
-    tool_funcs = [
-        server.run_eda,
-        server.generate_distribution_plot,
-        server.generate_multi_chart,
-        server.generate_chart,
-        server.generate_geo_map,
-        server.generate_dashboard,
-        server.generate_correlation_heatmap,
-        server.generate_pairwise_plot,
-        server.generate_auto_profile,
-        server.export_data,
-        server.generate_3d_chart,
-    ]
+    tool_funcs: list = []  # data_advanced server is retired; tools live in data_visual
     for fn in tool_funcs:
         doc = fn.__doc__ or ""
         assert len(doc) <= 80, f"{fn.__name__} docstring too long ({len(doc)} chars): {doc!r}"

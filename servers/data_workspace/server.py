@@ -1,4 +1,4 @@
-"""Redirect — data_workspace is now merged into data_project/server.py."""
+"""Redirect — data_workspace is merged into data_project. Use data_project instead."""
 
 from servers.data_project.server import main, mcp  # noqa: F401
 

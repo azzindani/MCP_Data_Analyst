@@ -4,7 +4,7 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 
 ## Features
 
-- **84 tools** across 7 servers: workspace (6), basic (9), medium (25), transform (10), statistics (11), advanced (11), visual (12)
+- **59 tools** across 6 servers: workspace (6), basic (9), medium (11), transform (10), statistics (11), visual (12)
 - **LOCATE → INSPECT → PATCH → VERIFY** workflow for surgical data edits
 - **Automatic version control** — every write is snapshotted and fully restorable (Windows-safe: collision-proof timestamps)
 - **Operation receipt logging** — full audit trail of all modifications
@@ -65,7 +65,7 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
 > if (!(Test-Path $g)) { if (Test-Path $d) { Remove-Item -Recurse -Force $d }; git clone https://github.com/azzindani/MCP_Data_Analyst.git $d --quiet }
 > Set-Location "$d\servers\data_basic"; uv sync
 > Set-Location "$d\servers\data_medium"; uv sync
-> Set-Location "$d\servers\data_advanced"; uv sync
+> Set-Location $d; uv sync
 > ```
 > If you skip this step and LM Studio times out, press **Restart** in the MCP Servers panel — it will reconnect and complete the install immediately.
 
@@ -98,18 +98,6 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
         "Bypass",
         "-Command",
         "$d = Join-Path $env:USERPROFILE '.mcp_servers\\MCP_Data_Analyst'; $g = Join-Path $d '.git'; if (!(Test-Path $g)) { if (Test-Path $d) { Remove-Item -Recurse -Force $d }; git clone https://github.com/azzindani/MCP_Data_Analyst.git $d --quiet } else { Set-Location $d; git fetch origin --quiet; git reset --hard FETCH_HEAD --quiet }; Set-Location (Join-Path $d 'servers\\data_medium'); uv sync --quiet; uv run python server.py"
-      ],
-      "env": { "MCP_CONSTRAINED_MODE": "0" },
-      "timeout": 600000
-    },
-    "data_analyst_advanced": {
-      "command": "powershell",
-      "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        "$d = Join-Path $env:USERPROFILE '.mcp_servers\\MCP_Data_Analyst'; $g = Join-Path $d '.git'; if (!(Test-Path $g)) { if (Test-Path $d) { Remove-Item -Recurse -Force $d }; git clone https://github.com/azzindani/MCP_Data_Analyst.git $d --quiet } else { Set-Location $d; git fetch origin --quiet; git reset --hard FETCH_HEAD --quiet }; Set-Location (Join-Path $d 'servers\\data_advanced'); uv sync --quiet; uv run python server.py"
       ],
       "env": { "MCP_CONSTRAINED_MODE": "0" },
       "timeout": 600000
@@ -167,7 +155,7 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
 ```
 
 4. Wait for the blue dot next to each server
-5. Start chatting — the model will see all 84 tools
+5. Start chatting — the model will see all 59 tools
 
 ### macOS / Linux
 
@@ -190,15 +178,6 @@ Replace the `"command"` and `"args"` in each entry with the bash equivalent:
       "args": [
         "-c",
         "d=\"$HOME/.mcp_servers/MCP_Data_Analyst\"; if [ ! -d \"$d/.git\" ]; then rm -rf \"$d\"; git clone https://github.com/azzindani/MCP_Data_Analyst.git \"$d\" --quiet; else cd \"$d\" && git fetch origin --quiet && git reset --hard FETCH_HEAD --quiet; fi; cd \"$d/servers/data_medium\"; uv sync --quiet; uv run python server.py"
-      ],
-      "env": { "MCP_CONSTRAINED_MODE": "0" },
-      "timeout": 600000
-    },
-    "data_analyst_advanced": {
-      "command": "bash",
-      "args": [
-        "-c",
-        "d=\"$HOME/.mcp_servers/MCP_Data_Analyst\"; if [ ! -d \"$d/.git\" ]; then rm -rf \"$d\"; git clone https://github.com/azzindani/MCP_Data_Analyst.git \"$d\" --quiet; else cd \"$d\" && git fetch origin --quiet && git reset --hard FETCH_HEAD --quiet; fi; cd \"$d/servers/data_advanced\"; uv sync --quiet; uv run python server.py"
       ],
       "env": { "MCP_CONSTRAINED_MODE": "0" },
       "timeout": 600000
@@ -287,62 +266,27 @@ Files can be referenced anywhere via `workspace:name/alias` syntax — all tools
 | **temporal** (7) | `lag`, `lead`, `diff`, `pct_change`, `rolling_agg`, `ewm`, `cumulative` |
 | **structural** (8) | `column_math`, `conditional_assign`, `split_column`, `combine_columns`, `regex_replace`, `str_slice`, `concat_file`, `melt` |
 
-### Tier 2 — Medium (25 tools)
-
-| Tool | Auto-Detect | Purpose |
-|---|---|---|
-| `check_outliers` | Numeric | IQR/std outlier scan — saves outlier box plot HTML |
-| `scan_nulls_zeros` | Type-aware | Null/zero detection + suggested fixes — saves bar chart HTML |
-| `enrich_with_geo` | — | Merge dataset with geo data on a location key |
-| `validate_dataset` | Dtype | Data quality scoring 0–100 |
-| `compute_aggregations` | — | Group-by aggregation (sum/mean/count/min/max) |
-| `run_cleaning_pipeline` | — | Multi-op cleaning with single snapshot + rollback |
-| `correlation_analysis` | Numeric | Correlation matrix + top N pairs — saves heatmap HTML |
-| `cross_tabulate` | — | Contingency tables — saves heatmap HTML |
-| `pivot_table` | — | Multi-dimensional pivot tables |
-| `value_counts` | — | Frequency tables — saves bar chart HTML |
-| `filter_rows` | — | Filter by 8 condition types (equals, contains, gt, lt, gte, lte, not_null, is_null) |
-| `sample_data` | — | Random/head/tail sampling |
-| `auto_detect_schema` | Full | Smart column type inference with cleaning suggestions |
-| `smart_impute` | Type→strategy | Auto-impute: numeric→median, datetime→ffill, categorical→mode |
-| `merge_datasets` | Join keys | Merge two datasets with auto-detect join keys and mismatch report |
-| `feature_engineering` | Date/numeric/text | Auto-create features: date parts, bins, log transforms, one-hot |
-| `statistical_tests` | Test selection | Auto-select: t-test, ANOVA, chi-square, correlation |
-| `time_series_analysis` | Date column | Auto-detect date, trend, seasonality, rolling stats — saves line chart HTML |
-| `cohort_analysis` | Cohort/date | Auto-detect cohort identifiers, build retention matrix — saves heatmap HTML |
-
-| `analyze_text_column` | — | Character length stats, word frequency top-N, pattern detection (email, URL, phone, number) |
-| `detect_anomalies` | Numeric | IQR + z-score row flagging — adds `_anomaly_score` column, saves annotated CSV |
-| `compare_datasets` | — | Schema diff, dtype changes, row count diff, null/mean delta between two CSVs |
-| `extended_stats` | Numeric | Deep stats: skewness, kurtosis, percentiles, CI, MAD, CV, distribution fit |
-| `resample_timeseries` | Date | Resample by freq (D/W/M/Q/Y/H) with sum/mean/count/min/max |
-| `concat_datasets` | — | Stack multiple CSVs vertically (rows) or horizontally (columns) |
-
-All chart-producing medium tools accept `theme: "dark" | "light" | "device"`, `output_path`, and `open_after`.
-
-### Tier 3 — Advanced (11 tools)
+### Tier 2 — Medium (11 tools)
 
 | Tool | Purpose |
 |---|---|
-| `run_eda` | EDA report: alerts panel, data sample, Pearson + Spearman correlations, missing value matrix, zero stats, outliers, insights |
-| `generate_auto_profile` | Full column profile: per-column charts, both correlation methods, alerts, missing matrix, data sample (head + tail), recommendations |
-| `generate_dashboard` | Interactive HTML dashboard: KPI sparklines + trend arrows, auto-detected charts, violin plots, geo maps, filter controls |
-| `generate_geo_map` | Geo map: auto-detects lat/lon → scatter map, or country/state column → choropleth. No external data needed |
-| `generate_3d_chart` | 3D scatter or surface chart (`type: "scatter_3d"\|"surface"`) |
-| `generate_distribution_plot` | Histogram + box plot for numeric columns |
-| `generate_correlation_heatmap` | Interactive Pearson/Spearman heatmap |
-| `generate_pairwise_plot` | Scatter matrix for numeric columns |
-| `generate_multi_chart` | Multi-variable bar/line charts (2+ metrics) |
-| `generate_chart` | **13 chart types**: bar, pie, line, scatter, geo, treemap, time_series, radius, **sunburst**, **waterfall**, **funnel**, **parallel_coords**, **sankey** |
-| `export_data` | Export to CSV, Excel, or JSON |
+| `compute_aggregations` | Group-by aggregation (sum/mean/count/min/max) |
+| `cross_tabulate` | Contingency tables — saves heatmap HTML |
+| `pivot_table` | Multi-dimensional pivot tables |
+| `value_counts` | Frequency tables — saves bar chart HTML |
+| `filter_rows` | Filter by 8 condition types (equals, contains, gt, lt, gte, lte, not_null, is_null) |
+| `sample_data` | Random/head/tail sampling |
+| `statistical_tests` | Auto-select: t-test, ANOVA, chi-square, correlation |
+| `analyze_text_column` | Character length stats, word frequency top-N, pattern detection (email, URL, phone, number) |
+| `detect_anomalies` | IQR + z-score row flagging — adds `_anomaly_score` column, saves annotated CSV |
+| `compare_datasets` | Schema diff, dtype changes, row count diff, null/mean delta between two CSVs |
+| `extended_stats` | Deep stats: skewness, kurtosis, percentiles, CI, MAD, CV, distribution fit |
 
-All 11 advanced tools accept `theme: "dark" | "light" | "device"` and `open_after`.
-
----
+Chart-producing medium tools accept `theme: "dark" | "light" | "device"`, `output_path`, and `open_after`.
 
 ### Tier 2 — Transform (10 tools)
 
-Focused transformation server — richer filtering, reshaping, and aggregation than the basic tier. Re-exports the most-used medium transforms so it can be loaded standalone.
+Focused transformation server — richer filtering, reshaping, and aggregation than the basic tier.
 
 | Tool | Purpose |
 |---|---|
@@ -378,8 +322,6 @@ Focused transformation server — richer filtering, reshaping, and aggregation t
 ---
 
 ### Tier 3 — Visual (12 tools)
-
-All tools from `data_advanced` plus chart post-processing.
 
 | Tool | Purpose |
 |---|---|
@@ -560,7 +502,7 @@ For lower-memory machines, set `MCP_CONSTRAINED_MODE=1` in the `env` section of 
 
 **Step 1:** Remove from LM Studio
 1. Open LM Studio → Developer tab (`</>`)
-2. Delete all `data_analyst_*` entries (`workspace`, `basic`, `medium`, `advanced`, `transform`, `statistics`, `visual`) from MCP Servers
+2. Delete all `data_analyst_*` entries (`workspace`, `basic`, `medium`, `transform`, `statistics`, `visual`) from MCP Servers
 3. Restart LM Studio
 
 **Step 2:** Delete installed files
@@ -585,13 +527,13 @@ MCP_Data_Analyst/
 │   │   ├── server.py        ← thin MCP wrapper (zero domain logic)
 │   │   ├── engine.py        ← public API + list_patch_ops
 │   │   └── _patch_ops.py    ← 51 apply_patch operations
-│   ├── data_medium/         ← T2: profiling, cleaning, aggregation (25 tools)
+│   ├── data_medium/         ← T2: aggregation, anomaly, text, comparison (11 tools)
 │   │   ├── server.py
 │   │   ├── engine.py
 │   │   ├── _med_helpers.py
-│   │   ├── _med_inspect.py  ← outliers, nulls, validate, schema
-│   │   ├── _med_transform.py← impute, merge, feature engineering
-│   │   ├── _med_analysis.py ← correlation, time series (STL/ACF/ADF), cohort
+│   │   ├── _med_inspect.py
+│   │   ├── _med_transform.py
+│   │   ├── _med_analysis.py
 │   │   └── _med_report.py   ← aggregations, cross-tab, pivot
 │   ├── data_transform/      ← T2: richer filter/reshape/aggregate (10 tools)
 │   │   ├── server.py
@@ -602,15 +544,14 @@ MCP_Data_Analyst/
 │   │   ├── _stats_tests.py  ← 17 statistical tests + effect sizes
 │   │   ├── _stats_regression.py ← OLS + logistic regression
 │   │   └── _stats_comparative.py← period comparison (MoM/QoQ/YoY)
-│   ├── data_advanced/       ← T3: EDA + dashboards + charts (11 tools)
-│   │   ├── server.py
+│   ├── data_advanced/       ← engine only (no active server; used by data_visual)
 │   │   ├── engine.py
 │   │   ├── _adv_eda.py
 │   │   ├── _adv_profile.py
 │   │   ├── _adv_charts.py
 │   │   ├── _adv_gencharts.py← 13 chart types, geo_map, 3d_chart
 │   │   └── _adv_dashboard.py
-│   └── data_visual/         ← T3: advanced + chart customization (12 tools)
+│   └── data_visual/         ← T3: EDA + dashboards + charts + customization (12 tools)
 │       ├── server.py
 │       ├── engine.py        ← re-exports data_advanced + customize_chart
 │       └── _adv_customize.py← post-generate chart editing
