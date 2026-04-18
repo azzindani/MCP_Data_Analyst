@@ -153,7 +153,7 @@ def generate_chart(
             else:
                 chart_df = df
         elif chart_type == "time_series":
-            df[date_column] = pd.to_datetime(df[date_column], errors="coerce")
+            df[date_column] = pd.to_datetime(df[date_column], format="mixed", dayfirst=False, errors="coerce")
             df = df.dropna(subset=[date_column])
             df["period"] = df[date_column].dt.to_period(period).astype(str)
             chart_df = df.groupby("period", as_index=False)[value_column].agg(agg_func)

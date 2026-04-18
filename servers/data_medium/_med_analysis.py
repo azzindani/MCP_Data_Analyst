@@ -23,6 +23,27 @@ try:
 except ImportError:
     _PLOTLY_AVAILABLE = False
 
+# Pre-import heavy libraries at module load so Windows Defender scans .pyc
+# files once (at server start) rather than blocking the first tool call.
+try:
+    from scipy import stats as _scipy_stats
+    from scipy.stats import linregress as _linregress
+
+    _SCIPY_OK = True
+except ImportError:
+    _scipy_stats = None  # type: ignore
+    _linregress = None  # type: ignore
+    _SCIPY_OK = False
+
+try:
+    from statsmodels.tsa.seasonal import STL  # type: ignore[import-untyped]
+    from statsmodels.tsa.stattools import acf, adfuller, pacf  # type: ignore[import-untyped]
+
+    _STATSMODELS_OK = True
+except ImportError:
+    STL = acf = adfuller = pacf = None  # type: ignore
+    _STATSMODELS_OK = False
+
 from _med_helpers import (
     _is_string_col,
     _read_csv,
@@ -172,9 +193,7 @@ def statistical_tests(
     group_column: str = "",
 ) -> dict:
     progress = []
-    try:
-        from scipy import stats as scipy_stats
-    except ImportError:
+    if not _SCIPY_OK:
         return {
             "success": False,
             "error": "scipy not installed",
@@ -182,6 +201,7 @@ def statistical_tests(
             "progress": [fail("Missing dependency", "scipy")],
             "token_estimate": 20,
         }
+    scipy_stats = _scipy_stats
 
     try:
         path = resolve_path(file_path)
@@ -654,7 +674,7 @@ def time_series_analysis(
                 "token_estimate": 20,
             }
 
-        df[date_column] = pd.to_datetime(df[date_column], errors="coerce")
+        df[date_column] = pd.to_datetime(df[date_column], format="mixed", dayfirst=False, errors="coerce")
         df = df.dropna(subset=[date_column])
 
         if not value_columns:
@@ -693,9 +713,7 @@ def time_series_analysis(
         resampled_trunc = resampled.tail(max_r)
 
         trend_data = {}
-        try:
-            from scipy.stats import linregress as _linregress
-
+        if _SCIPY_OK:
             for col in value_columns:
                 ts = resampled[col].dropna()
                 if len(ts) >= 2:
@@ -705,17 +723,12 @@ def time_series_analysis(
                         "r_squared": round(float(r_val**2), 4),
                         "direction": "up" if slope > 0 else "down" if slope < 0 else "flat",
                     }
-        except ImportError:
-            pass
 
         # STL decomposition, ACF/PACF, ADF stationarity test
         stl_results: dict = {}
         acf_results: dict = {}
         adf_results: dict = {}
-        try:
-            from statsmodels.tsa.seasonal import STL  # type: ignore[import-untyped]
-            from statsmodels.tsa.stattools import acf, adfuller, pacf  # type: ignore[import-untyped]
-
+        if _STATSMODELS_OK:
             for col in value_columns:
                 ts = resampled[col].dropna()
                 if len(ts) < 4:
@@ -765,8 +778,7 @@ def time_series_analysis(
                         }
                 except Exception:
                     pass
-
-        except ImportError:
+        else:
             progress.append(info("statsmodels not installed", "pip install statsmodels for STL/ACF/ADF"))
 
         # Exponential smoothing forecast (pure pandas, no statsmodels)
@@ -917,7 +929,7 @@ def cohort_analysis(
                 "token_estimate": 20,
             }
 
-        df[date_column] = pd.to_datetime(df[date_column], errors="coerce")
+        df[date_column] = pd.to_datetime(df[date_column], format="mixed", dayfirst=False, errors="coerce")
         df = df.dropna(subset=[date_column])
 
         if not cohort_column:

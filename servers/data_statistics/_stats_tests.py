@@ -15,7 +15,18 @@ for _p in (str(_ROOT), _MED):
 import numpy as np
 import pandas as pd
 
+from shared.file_utils import resolve_path
 from shared.progress import fail, info, ok, warn
+
+try:
+    from scipy import stats as _scipy_stats
+    from scipy.stats import tukey_hsd as _tukey_hsd
+
+    _SCIPY_OK = True
+except ImportError:
+    _scipy_stats = None  # type: ignore
+    _tukey_hsd = None  # type: ignore
+    _SCIPY_OK = False
 
 logger = logging.getLogger(__name__)
 
@@ -64,12 +75,16 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
 ) -> dict:
     """Run one of 17 statistical tests. Returns statistic, p-value, effect size."""
     progress = []
+    if not _SCIPY_OK:
+        return {
+            "success": False,
+            "error": "scipy not installed",
+            "hint": "Install scipy: uv add scipy",
+            "progress": [fail("Missing dependency", "scipy")],
+            "token_estimate": 20,
+        }
+    scipy_stats = _scipy_stats
     try:
-        from scipy import stats as scipy_stats
-
-        # Resolve path and load
-        from shared.file_utils import resolve_path
-
         path = resolve_path(file_path)
         if not path.exists():
             return {
@@ -211,8 +226,6 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
                 eta_sq = float(ss_between / ss_total) if ss_total > 0 else 0.0
                 effect_size = {"eta_squared": round(eta_sq, 4), "interpretation": _eta_sq_label(eta_sq)}
             if posthoc and p < alpha:
-                from scipy.stats import tukey_hsd
-
                 posthoc_result = {
                     "method": "Tukey HSD",
                     "note": "Use scipy.stats.tukey_hsd for full pairwise comparisons.",

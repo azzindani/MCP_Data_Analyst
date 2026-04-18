@@ -17,6 +17,24 @@ import pandas as pd
 from shared.file_utils import resolve_path
 from shared.progress import fail, info, ok, warn
 
+try:
+    import statsmodels.api as _sm  # type: ignore[import-untyped]
+    from statsmodels.stats.outliers_influence import variance_inflation_factor as _vif  # type: ignore[import-untyped]
+
+    _STATSMODELS_OK = True
+except ImportError:
+    _sm = None  # type: ignore
+    _vif = None  # type: ignore
+    _STATSMODELS_OK = False
+
+try:
+    from scipy import stats as _scipy_stats
+
+    _SCIPY_OK = True
+except ImportError:
+    _scipy_stats = None  # type: ignore
+    _SCIPY_OK = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,19 +48,17 @@ def regression_analysis(
 ) -> dict:
     """OLS or logistic regression with coefficients, p-values, R², diagnostics."""
     progress = []
+    if not _STATSMODELS_OK:
+        return {
+            "success": False,
+            "error": "statsmodels not installed",
+            "hint": "Install statsmodels: uv add statsmodels",
+            "progress": [fail("Missing dependency", "statsmodels")],
+            "token_estimate": 20,
+        }
+    sm = _sm
+    variance_inflation_factor = _vif
     try:
-        try:
-            import statsmodels.api as sm  # type: ignore[import-untyped]
-            from statsmodels.stats.outliers_influence import variance_inflation_factor  # type: ignore[import-untyped]
-        except ImportError:
-            return {
-                "success": False,
-                "error": "statsmodels not installed",
-                "hint": "Install statsmodels: uv add statsmodels",
-                "progress": [fail("Missing dependency", "statsmodels")],
-                "token_estimate": 20,
-            }
-
         path = resolve_path(file_path)
         if not path.exists():
             return {
@@ -165,9 +181,9 @@ def regression_analysis(
                 }
             )
             # Diagnostics
-            from scipy import stats as scipy_stats
-
-            _, normality_p = scipy_stats.shapiro(residuals.values[: min(5000, len(residuals))])
+            normality_p = float("nan")
+            if _SCIPY_OK:
+                _, normality_p = _scipy_stats.shapiro(residuals.values[: min(5000, len(residuals))])
             result_data["diagnostics"] = {
                 "normality_of_residuals": {
                     "test": "shapiro_wilk",

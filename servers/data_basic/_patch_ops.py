@@ -13,6 +13,16 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 from shared.progress import fail, ok  # noqa: F401 — re-exported for convenience
 
+try:
+    from scipy.stats import boxcox as _boxcox
+    from scipy.stats import yeojohnson as _yeojohnson
+
+    _SCIPY_OK = True
+except ImportError:
+    _boxcox = None  # type: ignore
+    _yeojohnson = None  # type: ignore
+    _SCIPY_OK = False
+
 # ---------------------------------------------------------------------------
 # Existing ops
 # ---------------------------------------------------------------------------
@@ -73,7 +83,7 @@ def _op_cast_column(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
         df[col] = df[col].astype(str)
         to_dtype = "object"
     elif dtype == "datetime":
-        converted = pd.to_datetime(df[col], errors="coerce")
+        converted = pd.to_datetime(df[col], format="mixed", dayfirst=False, errors="coerce")
         failed = max(0, int(converted.isna().sum()) - int(df[col].isna().sum()))
         df[col] = converted
         to_dtype = "datetime64[ns]"
@@ -391,8 +401,8 @@ def _op_date_diff(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
         if col not in df.columns:
             raise ValueError(f"Column not found: {col}. Available: {list(df.columns)}")
 
-    da = pd.to_datetime(df[col_a], errors="coerce")
-    db = pd.to_datetime(df[col_b], errors="coerce")
+    da = pd.to_datetime(df[col_a], format="mixed", dayfirst=False, errors="coerce")
+    db = pd.to_datetime(df[col_b], format="mixed", dayfirst=False, errors="coerce")
     delta_days = (da - db).dt.days
 
     if unit == "days":
@@ -496,7 +506,7 @@ def _op_filter_date_range(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dic
     end = op.get("end")
     if col not in df.columns:
         raise ValueError(f"Column not found: {col}. Available: {list(df.columns)}")
-    series = pd.to_datetime(df[col], errors="coerce")
+    series = pd.to_datetime(df[col], format="mixed", dayfirst=False, errors="coerce")
     before = len(df)
     mask = pd.Series([True] * len(df), index=df.index)
     if start:
@@ -1168,8 +1178,9 @@ def _op_concat_file(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
 
 
 def _op_boxcox_transform(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
-    from scipy.stats import boxcox
-
+    if not _SCIPY_OK:
+        raise ImportError("scipy is required for boxcox_transform. Install: uv add scipy")
+    boxcox = _boxcox
     col = op["column"]
     new_col = op.get("new_column", col)
     if col not in df.columns:
@@ -1196,8 +1207,9 @@ def _op_boxcox_transform(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict
 
 
 def _op_yeojohnson_transform(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
-    from scipy.stats import yeojohnson
-
+    if not _SCIPY_OK:
+        raise ImportError("scipy is required for yeojohnson_transform. Install: uv add scipy")
+    yeojohnson = _yeojohnson
     col = op["column"]
     new_col = op.get("new_column", col)
     if col not in df.columns:

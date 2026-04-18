@@ -904,7 +904,7 @@ def resample_timeseries(
                 "token_estimate": 20,
             }
 
-        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+        df[date_col] = pd.to_datetime(df[date_col], format="mixed", dayfirst=False, errors="coerce")
         null_dates = int(df[date_col].isna().sum())
         if null_dates > 0:
             progress.append(warn(f"Dropped {null_dates} rows", "unparseable dates"))

@@ -76,7 +76,7 @@ def period_comparison(
                 "token_estimate": 20,
             }
 
-        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+        df[date_col] = pd.to_datetime(df[date_col], format="mixed", dayfirst=False, errors="coerce")
         df = df.dropna(subset=[date_col])
 
         freq = _FREQ_MAP.get(period_unit, "ME")

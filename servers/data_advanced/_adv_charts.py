@@ -400,7 +400,7 @@ def generate_multi_chart(
             for vc in value_columns:
                 fig.add_trace(go.Bar(x=x_vals, y=grouped[vc], name=vc))
         elif chart_type == "multi_line":
-            df[date_column] = pd.to_datetime(df[date_column], errors="coerce")
+            df[date_column] = pd.to_datetime(df[date_column], format="mixed", dayfirst=False, errors="coerce")
             df = df.dropna(subset=[date_column])
             df["period"] = df[date_column].dt.to_period("M").astype(str)
             grouped = df.groupby("period")[value_columns].agg(agg_func).reset_index()

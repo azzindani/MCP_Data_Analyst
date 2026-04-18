@@ -25,6 +25,14 @@ try:
 except ImportError:
     _PLOTLY_AVAILABLE = False
 
+try:
+    from scipy import stats as _scipy_stats
+
+    _SCIPY_OK = True
+except ImportError:
+    _scipy_stats = None  # type: ignore
+    _SCIPY_OK = False
+
 from _med_helpers import (
     _dtype_label,
     _is_string_col,
@@ -984,12 +992,8 @@ def extended_stats(
     ci_level: float = 0.95,
 ) -> dict:
     progress = []
-    try:
-        from scipy import stats as scipy_stats
-
-        _scipy_ok = True
-    except ImportError:
-        _scipy_ok = False
+    _scipy_ok = _SCIPY_OK
+    scipy_stats = _scipy_stats
 
     try:
         path = resolve_path(file_path)
