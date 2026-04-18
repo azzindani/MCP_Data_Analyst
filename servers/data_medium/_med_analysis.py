@@ -713,7 +713,7 @@ def time_series_analysis(
         resampled_trunc = resampled.tail(max_r)
 
         trend_data = {}
-        if _SCIPY_OK:
+        if _SCIPY_OK and _linregress is not None:
             for col in value_columns:
                 ts = resampled[col].dropna()
                 if len(ts) >= 2:
@@ -728,7 +728,7 @@ def time_series_analysis(
         stl_results: dict = {}
         acf_results: dict = {}
         adf_results: dict = {}
-        if _STATSMODELS_OK:
+        if _STATSMODELS_OK and adfuller is not None and acf is not None and pacf is not None and STL is not None:
             for col in value_columns:
                 ts = resampled[col].dropna()
                 if len(ts) < 4:

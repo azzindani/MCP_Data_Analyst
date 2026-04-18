@@ -48,7 +48,7 @@ def regression_analysis(
 ) -> dict:
     """OLS or logistic regression with coefficients, p-values, R², diagnostics."""
     progress = []
-    if not _STATSMODELS_OK:
+    if _sm is None or _vif is None:
         return {
             "success": False,
             "error": "statsmodels not installed",

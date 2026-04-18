@@ -1178,9 +1178,8 @@ def _op_concat_file(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
 
 
 def _op_boxcox_transform(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
-    if not _SCIPY_OK:
+    if _boxcox is None:
         raise ImportError("scipy is required for boxcox_transform. Install: uv add scipy")
-    boxcox = _boxcox
     col = op["column"]
     new_col = op.get("new_column", col)
     if col not in df.columns:
@@ -1192,7 +1191,7 @@ def _op_boxcox_transform(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict
         raise ValueError(
             f"Box-Cox requires all values > 0 in '{col}'. Use log_transform(method=log1p) for zero-safe alternative."
         )
-    transformed, lam = boxcox(series.values)
+    transformed, lam = _boxcox(series.values)
     result = df[col].copy().astype(float)
     result[series.index] = transformed
     df[new_col] = result
@@ -1207,9 +1206,8 @@ def _op_boxcox_transform(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict
 
 
 def _op_yeojohnson_transform(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
-    if not _SCIPY_OK:
+    if _yeojohnson is None:
         raise ImportError("scipy is required for yeojohnson_transform. Install: uv add scipy")
-    yeojohnson = _yeojohnson
     col = op["column"]
     new_col = op.get("new_column", col)
     if col not in df.columns:
@@ -1217,7 +1215,7 @@ def _op_yeojohnson_transform(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, 
     if not pd.api.types.is_numeric_dtype(df[col]):
         raise ValueError(f"Column '{col}' must be numeric for Yeo-Johnson transform.")
     series = df[col].dropna()
-    transformed, lam = yeojohnson(series.values)
+    transformed, lam = _yeojohnson(series.values)
     result = df[col].copy().astype(float)
     result[series.index] = transformed
     df[new_col] = result
