@@ -9,9 +9,9 @@ All notable changes to this project will be documented in this file.
 ### Initial release
 
 MCP Data Analyst v0.1.0 is the first production-ready release of a local-first
-MCP server for data analytics. It provides a language model with structured,
-surgical access to CSV/tabular datasets through 84 deterministic tools across
-7 servers — without sending any data to a cloud API.
+MCP server for data analytics. It gives a language model structured, surgical
+access to CSV/tabular datasets through 59 deterministic tools across 6 servers —
+without sending any data to a cloud API.
 
 ---
 
@@ -19,12 +19,12 @@ surgical access to CSV/tabular datasets through 84 deterministic tools across
 
 | Server | Tier | Tools | Purpose |
 |---|---|---|---|
-| `data_workspace` | T0 | 6 | Workspace management — create, open, register files, save and run pipelines |
+| `data_workspace` | T0 | 6 | Workspace management — named workspaces, file aliases, pipeline templates |
 | `data_basic` | T1 | 9 | Load, inspect, patch, restore — the core four-tool loop |
-| `data_medium` | T2 | 11 | Aggregation, anomaly detection, text analysis, dataset comparison |
-| `data_transform` | T2 | 10 | Rich filtering (18 condition types), reshape, aggregation, merging |
+| `data_medium` | T2 | 11 | Aggregation, pivot, anomaly detection, text analysis, dataset comparison |
+| `data_transform` | T2 | 10 | Rich filtering (18 condition types), reshape, merge, resample |
 | `data_statistics` | T3 | 11 | Regression, 17 statistical tests, STL decomposition, MoM/QoQ/YoY |
-| `data_visual` | T3 | 12 | EDA reports, 13 chart types, geo maps, 3D charts, dashboards, customization |
+| `data_visual` | T3 | 12 | EDA, 13 chart types, geo maps, 3D charts, dashboards, chart customization |
 
 ---
 
@@ -36,26 +36,29 @@ loop. Tools are designed so the model naturally advances through each stage.
 
 #### Version control and audit trail
 - Every write tool snapshots the file before modifying it into `.mcp_versions/`
-  with Windows-safe collision-proof timestamps.
+  with collision-proof timestamps (Windows-safe).
 - Every write appends to a per-file receipt log (`*.mcp_receipt.json`) capturing
   the tool name, arguments, result, and backup path.
 - `restore_version` recovers any snapshot atomically.
 
 #### 51 `apply_patch` operations
-Six categories of in-place column transformations:
-- **Original** (13): fill nulls, cast type, rename, drop, clip, round, replace, …
-- **Filtering** (9): drop duplicates, filter by value/range/regex, …
-- **Numeric** (11): log, sqrt, normalize, standardize, Box-Cox, Yeo-Johnson, …
-- **Encoding** (3): one-hot, ordinal, label encoding
-- **Temporal** (7): parse dates, extract components, shift, …
-- **Structural** (8): melt, pivot, split/combine columns, reorder, …
+Six categories of in-place column transformations callable from a single tool:
+
+| Category | Count | Examples |
+|---|---|---|
+| Original | 13 | fill_nulls, cast_column, replace_values, cap_outliers, rank_column |
+| Filtering | 9 | sort, filter_isin, filter_between, filter_date_range, filter_quantile |
+| Numeric | 11 | log_transform, boxcox_transform, yeojohnson_transform, robust_scale, winsorize |
+| Encoding | 3 | ordinal_encode, binary_encode, frequency_encode |
+| Temporal | 7 | lag, lead, diff, pct_change, rolling_agg, ewm, cumulative |
+| Structural | 8 | column_math, conditional_assign, split_column, melt, concat_file |
 
 #### Statistics suite
 - 17 statistical tests with effect sizes (Cohen's d, η², Cramér's V):
   Shapiro-Wilk, K-S, Anderson-Darling, t-tests, ANOVA, chi-square, Fisher,
   Mann-Whitney, Wilcoxon, Kruskal-Wallis, Levene, Pearson/Spearman/Kendall,
   proportion z-test.
-- OLS and logistic regression via statsmodels.
+- OLS and logistic regression via statsmodels (coefficients, p-values, R², AIC, BIC, VIF).
 - STL decomposition, ACF/PACF, ADF stationarity test.
 - Period comparison: MoM, QoQ, YoY with optional group-by.
 
@@ -72,17 +75,16 @@ Six categories of in-place column transformations:
 
 #### Workspace management
 Named workspaces with file aliases, pipeline templates, and stage tracking
-(raw → working → trial → output). Supports `workspace:name/alias` syntax and
-the legacy `project:name/alias` prefix for backward compatibility.
+(raw → working → trial → output). Any tool accepts `workspace:name/alias` in
+place of a file path — all servers resolve aliases automatically.
 
 #### Multi-server handover protocol
 Every tool response includes a `handover` block with `workflow_step`,
 `suggested_next`, and `carry_forward` so the model can chain tools across
-servers without losing context. Cross-MCP routing hints cover data, ml, office,
-fs, and search domains.
+servers without losing context.
 
 #### Constrained mode
-Set `MCP_CONSTRAINED_MODE=1` to halve all response sizes for low-memory or
+Set `MCP_CONSTRAINED_MODE=1` to reduce all response sizes for low-memory or
 small-context-window environments (rows 100→20, search results 50→10,
 columns 50→20).
 
@@ -94,22 +96,20 @@ Every write tool accepts `dry_run: bool = False`. When `True`, it returns a
 
 ### Shared utilities
 
-`shared/` provides 12 modules consumed by all servers:
+`shared/` provides ring-2 modules (no MCP imports) consumed by all servers:
 
 | Module | Purpose |
 |---|---|
 | `version_control.py` | Atomic snapshot and restore |
 | `receipt.py` | Per-file JSON operation audit trail |
 | `patch_validator.py` | Validates op arrays before execution |
-| `workspace_utils.py` | Workspace manifest CRUD and alias resolution |
+| `project_utils.py` | Workspace manifest CRUD and alias resolution |
 | `file_utils.py` | Path resolution and atomic file writes |
 | `html_layout.py` | Output path priority, HTML helpers |
 | `html_theme.py` | CSS variables, Plotly templates, responsive meta |
-| `column_utils.py` | Column classification helpers |
 | `handover.py` | Cross-MCP handover context builder |
 | `platform_utils.py` | `MCP_CONSTRAINED_MODE` and memory-aware row limits |
 | `progress.py` | `ok` / `fail` / `info` / `warn` / `undo` status helpers |
-| `project_utils.py` | Project manifest I/O |
 
 ---
 
@@ -117,10 +117,11 @@ Every write tool accepts `dry_run: bool = False`. When `True`, it returns a
 
 | Item | Version |
 |---|---|
-| Python | 3.12.x |
+| Python | 3.12+ |
 | Package manager | uv ≥ 0.5 |
 | fastmcp | ≥ 2.0, < 3.0 |
 | pandas | ≥ 2.2 |
+| polars | ≥ 0.20 |
 | geopandas | ≥ 1.0 |
 | plotly | ≥ 5.0 |
 | scipy | ≥ 1.10 |
