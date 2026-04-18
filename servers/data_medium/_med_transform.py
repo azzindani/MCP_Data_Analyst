@@ -289,6 +289,55 @@ def compute_aggregations(
 
 
 # ---------------------------------------------------------------------------
+# run_cleaning_pipeline helpers
+# ---------------------------------------------------------------------------
+
+# Distinctive params that uniquely identify an op when "op" is omitted/malformed.
+_OP_SIGNATURES: list[tuple[frozenset[str], str]] = [
+    (frozenset({"dtype"}), "cast_column"),
+    (frozenset({"strategy"}), "fill_nulls"),
+    (frozenset({"mapping"}), "replace_values"),
+    (frozenset({"expression"}), "add_column"),
+    (frozenset({"method", "lower", "upper"}), "cap_outliers"),
+    (frozenset({"subset"}), "drop_duplicates"),
+]
+
+
+def _coerce_op(raw: dict) -> dict:
+    """Normalise a malformed op dict so 'op' is always a string.
+
+    Handles two common LLM mistakes:
+    1. {"op": {"column": "x", "dtype": "float"}, "patch": true}
+       → params nested inside "op" key; infer op name from params.
+    2. {"column": "x", "dtype": "float"}  (op key missing entirely)
+       → same inference from top-level params.
+    """
+    op_val = raw.get("op", "")
+    if isinstance(op_val, str) and op_val:
+        return raw  # already correct
+
+    # Collect candidate params: nested dict or top-level keys minus "op"/"patch"
+    if isinstance(op_val, dict):
+        params = {**op_val}
+        # merge any other top-level keys (except "op" and "patch")
+        for k, v in raw.items():
+            if k not in ("op", "patch"):
+                params.setdefault(k, v)
+    else:
+        params = {k: v for k, v in raw.items() if k not in ("op", "patch")}
+
+    # Try to infer op name from distinctive params
+    param_keys = frozenset(params.keys())
+    inferred = ""
+    for sig_keys, op_name in _OP_SIGNATURES:
+        if sig_keys & param_keys:  # any overlap with signature
+            inferred = op_name
+            break
+
+    return {"op": inferred, **params}
+
+
+# ---------------------------------------------------------------------------
 # run_cleaning_pipeline
 # ---------------------------------------------------------------------------
 
@@ -331,23 +380,10 @@ def run_cleaning_pipeline(
             "drop_duplicates": _op_drop_duplicates,
         }
 
-        # Validate all ops before touching the file or creating a snapshot
-        for i, op in enumerate(ops):
-            op_name = op.get("op", "")
-            if not isinstance(op_name, str):
-                return {
-                    "success": False,
-                    "error": f"Op {i}: 'op' must be a string, got {type(op_name).__name__}",
-                    "hint": (
-                        f'Each item must be {{"op": "<name>", ...}}. '
-                        f"Valid ops: {', '.join(sorted(handler_map.keys()))}. "
-                        f'Example: {{"op": "cast_column", "column": "Zonal Winds", "dtype": "float"}}'
-                    ),
-                    "applied": 0,
-                    "progress": [fail(f"Op {i}: 'op' must be a string", str(op))],
-                    "token_estimate": 20,
-                }
+        # Normalise ops: fix common LLM mistakes (nested params, missing op key)
+        ops = [_coerce_op(o) for o in ops]
 
+        # Validate all ops before touching the file or creating a snapshot
         unknown_ops = [op.get("op", "") for op in ops if op.get("op", "") not in handler_map]
         if unknown_ops:
             return {
