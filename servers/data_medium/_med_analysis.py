@@ -639,9 +639,6 @@ def time_series_analysis(
             pd.concat(resampled_parts, axis=1) if resampled_parts else df[value_columns].resample(resample_period).sum()
         )
 
-        rolling_7 = resampled.rolling(window=7, min_periods=1).mean()  # noqa: F841
-        rolling_30 = resampled.rolling(window=30, min_periods=1).mean()  # noqa: F841
-
         max_r = get_max_rows()
         truncated = len(resampled) > max_r
         resampled_trunc = resampled.tail(max_r)
@@ -679,29 +676,29 @@ def time_series_analysis(
                 try:
                     adf_out = adfuller(ts.values, autolag="AIC")
                     adf_results[col] = {
-                        "test_statistic": round(float(adf_out[0]), 4),
                         "p_value": round(float(adf_out[1]), 4),
                         "is_stationary": bool(adf_out[1] < 0.05),
-                        "critical_values": {k: round(float(v), 4) for k, v in adf_out[4].items()},  # type: ignore[index]
                     }
                 except Exception:
                     pass
 
-                # ACF/PACF — up to 12 lags, at most n//2
+                # ACF/PACF — report only significant lags (|acf| > 2/sqrt(n))
                 n_lags = min(12, len(ts) // 2)
                 if n_lags >= 2:
                     try:
+                        threshold = 2.0 / (len(ts) ** 0.5)
                         acf_vals = acf(ts.values, nlags=n_lags, fft=True)
                         pacf_vals = pacf(ts.values, nlags=n_lags)
+                        sig_acf = [i + 1 for i, v in enumerate(acf_vals[1:]) if abs(v) > threshold]
+                        sig_pacf = [i + 1 for i, v in enumerate(pacf_vals[1:]) if abs(v) > threshold]
                         acf_results[col] = {
-                            "acf": [round(float(v), 4) for v in acf_vals[1:]],
-                            "pacf": [round(float(v), 4) for v in pacf_vals[1:]],
-                            "lags": list(range(1, n_lags + 1)),
+                            "significant_acf_lags": sig_acf,
+                            "significant_pacf_lags": sig_pacf,
                         }
                     except Exception:
                         pass
 
-                # STL decomposition — needs ≥ 2 seasonal periods
+                # STL decomposition — report only strength metrics, not raw arrays
                 try:
                     seasonal_period = {"M": 12, "Q": 4, "W": 52, "D": 7, "Y": 1}.get(period, 12)
                     if len(ts) >= max(4, 2 * seasonal_period) and seasonal_period > 1:
@@ -710,9 +707,6 @@ def time_series_analysis(
                         seasonal_var = float((stl_fit.seasonal + stl_fit.resid).var())
                         trend_var = float((stl_fit.trend + stl_fit.resid).var())
                         stl_results[col] = {
-                            "trend": [round(float(v), 4) for v in stl_fit.trend.tolist()[-12:]],
-                            "seasonal": [round(float(v), 4) for v in stl_fit.seasonal.tolist()[-12:]],
-                            "residual": [round(float(v), 4) for v in stl_fit.resid.tolist()[-12:]],
                             "seasonal_strength": round(
                                 float(max(0.0, 1 - resid_var / seasonal_var)) if seasonal_var else 0.0, 4
                             ),
@@ -751,12 +745,6 @@ def time_series_analysis(
             except Exception:
                 pass
 
-        records = resampled_trunc.reset_index().fillna("").to_dict(orient="records")
-        for rec in records:
-            for k, v in list(rec.items()):
-                if hasattr(v, "isoformat"):
-                    rec[k] = v.isoformat()
-
         if truncated:
             progress.append(warn("Results truncated", f"Showing last {max_r} periods"))
 
@@ -783,9 +771,7 @@ def time_series_analysis(
             "stl": stl_results,
             "acf": acf_results,
             "adf": adf_results,
-            "data": records,
-            "truncated": truncated,
-            "hint": "Use a more targeted call with specific value_columns or a narrower date range.",
+            "hint": "HTML chart saved — open output_path for the full visualization.",
             "forecast_periods": forecast_periods,
             "forecast_values": forecast_values_map,
             "forecast_dates": forecast_dates_map,

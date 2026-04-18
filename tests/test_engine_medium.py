@@ -1038,7 +1038,6 @@ class TestTimeSeriesAnalysis:
             open_after=False,
         )
         assert r["success"] is True
-        assert "data" in r
         assert "trend" in r
         assert "Revenue" in r["trend"]
 
@@ -1174,7 +1173,6 @@ class TestTimeSeriesADF:
         # With enough data, ADF should be computed
         if r["adf"]:
             adf_rev = r["adf"].get("Revenue", {})
-            assert "test_statistic" in adf_rev
             assert "p_value" in adf_rev
             assert "is_stationary" in adf_rev
             assert isinstance(adf_rev["is_stationary"], bool)
@@ -1192,10 +1190,9 @@ class TestTimeSeriesADF:
         assert "acf" in r
         if r["acf"]:
             acf_rev = r["acf"].get("Revenue", {})
-            assert "acf" in acf_rev
-            assert "pacf" in acf_rev
-            assert "lags" in acf_rev
-            assert len(acf_rev["acf"]) == len(acf_rev["lags"])
+            assert "significant_acf_lags" in acf_rev
+            assert "significant_pacf_lags" in acf_rev
+            assert isinstance(acf_rev["significant_acf_lags"], list)
 
     def test_stl_quarterly_data(self, tmp_path):
         """STL decomposition on 3 years of quarterly data (period=Q → 4 seasons)."""
@@ -1221,9 +1218,6 @@ class TestTimeSeriesADF:
         assert "stl" in r
         if r["stl"]:
             stl_rev = r["stl"].get("Revenue", {})
-            assert "trend" in stl_rev
-            assert "seasonal" in stl_rev
-            assert "residual" in stl_rev
             assert "seasonal_strength" in stl_rev
             assert "trend_strength" in stl_rev
             assert 0.0 <= stl_rev["seasonal_strength"] <= 1.0
@@ -1241,7 +1235,6 @@ class TestTimeSeriesADF:
         assert r["success"] is True
         # Core fields
         assert "trend" in r
-        assert "data" in r
         assert "forecast_values" in r
         assert "forecast_dates" in r
         # New fields
