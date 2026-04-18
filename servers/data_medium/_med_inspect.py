@@ -759,7 +759,7 @@ def filter_rows(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check conditions use valid ops: equals contains gt lt gte lte is_null not_null.",
+            "hint": f"Valid ops: equals not_equals contains gt gte lt lte is_null not_null isin between date_range regex. Error: {exc}",
             "backup": backup,
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -811,9 +811,10 @@ def sample_data(
         else:
             sample = df.tail(n)
 
+        _preview_cap = 20
         max_r = get_max_rows()
-        truncated = len(sample) > max_r
-        records = sample.head(max_r).fillna("").to_dict(orient="records")
+        truncated = len(sample) > _preview_cap
+        records = sample.head(_preview_cap).fillna("").to_dict(orient="records")
 
         if output_path:
             out = resolve_path(output_path)
@@ -936,7 +937,7 @@ def analyze_text_column(
             "pure_numbers": int(non_null.astype(str).apply(lambda x: bool(number_re.match(x))).sum()),
         }
 
-        sample = non_null.head(3).tolist()
+        sample = [str(v)[:80] for v in non_null.head(2).tolist()]
 
         progress.append(ok(f"Analyzed text column '{column}'", f"{len(non_null)} non-null values"))
 
@@ -1102,7 +1103,10 @@ def extended_stats(
                 "distribution_hint": shape_hint,
             }
 
-        progress.append(ok(f"Extended stats for {path.name}", f"{len(stats_out)} numeric columns analysed"))
+        if not stats_out:
+            progress.append(warn("No numeric columns found", "Pass numeric column names via 'columns' param"))
+        else:
+            progress.append(ok(f"Extended stats for {path.name}", f"{len(stats_out)} numeric columns analysed"))
 
         result = {
             "success": True,
@@ -1112,7 +1116,9 @@ def extended_stats(
             "stats": stats_out,
             "percentiles_computed": pcts,
             "ci_level": ci_level,
-            "hint": "Use apply_patch() with log_transform or bin_column to act on distribution findings.",
+            "hint": "Use apply_patch() with log_transform or bin_column to act on distribution findings."
+            if stats_out
+            else "Call inspect_dataset() to find numeric column names, then pass them via columns param.",
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)

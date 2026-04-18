@@ -223,7 +223,8 @@ def pivot_table(
         pt = pt.reset_index()
         max_r = get_max_rows()
         truncated = len(pt) > max_r
-        records = pt.head(max_r).fillna("").to_dict(orient="records")
+        _response_cap = 10
+        records = pt.head(_response_cap).fillna("").to_dict(orient="records")
         if truncated:
             progress.append(warn("Results truncated", f"Showing first {max_r} rows"))
 
@@ -342,6 +343,8 @@ def value_counts(
         else:
             progress.append(warn("plotly not installed", "pip install plotly to enable HTML export"))
 
+        # Trim response: keep top 5 per column (HTML chart has full data)
+        result["results"] = {col: entries[:5] for col, entries in result["results"].items()}
         result["token_estimate"] = _token_estimate(result)
         return result
 

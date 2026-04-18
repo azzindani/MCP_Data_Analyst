@@ -244,7 +244,8 @@ def compute_aggregations(
             grouped = grouped.head(max_r)
             progress.append(warn("Results truncated", f"Showing first {max_r} groups"))
 
-        result_list = grouped.fillna("").to_dict(orient="records")
+        _response_cap = 20
+        result_list = grouped.head(_response_cap).fillna("").to_dict(orient="records")
 
         progress.append(ok(f"Aggregated {path.name}", f"{len(result_list)} groups returned"))
 
@@ -981,7 +982,8 @@ def resample_timeseries(
 
         max_r = get_max_rows()
         truncated = total_periods > max_r
-        sample = result_df.head(max_r).fillna("").to_dict(orient="records")
+        _preview_cap = 20
+        sample = result_df.head(_preview_cap).fillna("").to_dict(orient="records")
         for rec in sample:
             for k, v in list(rec.items()):
                 if hasattr(v, "isoformat"):

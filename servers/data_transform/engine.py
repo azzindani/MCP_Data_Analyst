@@ -497,11 +497,11 @@ def aggregate_dataset(
                 grouped = grouped.sort_values(sort_col, ascending=False)
             if top_n:
                 grouped = grouped.head(top_n)
-            max_rows = min(get_max_rows(), 200)
-            truncated = len(grouped) > max_rows
+            _response_cap = 20
+            truncated = len(grouped) > _response_cap
             result_data = {
                 "rows": len(grouped),
-                "data": grouped.head(max_rows).to_dict(orient="records"),
+                "data": grouped.head(_response_cap).fillna("").to_dict(orient="records"),
                 "truncated": truncated,
             }
             progress.append(ok("Grouped by", f"{group_by} → {len(grouped)} groups"))
