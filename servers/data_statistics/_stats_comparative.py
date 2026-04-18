@@ -14,6 +14,7 @@ for _p in (str(_ROOT),):
 import numpy as np
 import pandas as pd
 
+from shared.file_utils import read_csv as _read_csv
 from shared.file_utils import resolve_path
 from shared.progress import fail, info, ok, warn
 
@@ -52,10 +53,7 @@ def period_comparison(
                 "token_estimate": 20,
             }
 
-        try:
-            df = pd.read_csv(str(path), encoding="utf-8")
-        except UnicodeDecodeError:
-            df = pd.read_csv(str(path), encoding="latin-1")
+        df = _read_csv(str(path))
 
         if date_col not in df.columns:
             return {

@@ -15,6 +15,7 @@ for _p in (str(_ROOT), _MED):
 import numpy as np
 import pandas as pd
 
+from shared.file_utils import read_csv as _read_csv
 from shared.file_utils import resolve_path
 from shared.progress import fail, info, ok, warn
 
@@ -94,10 +95,7 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
                 "progress": [fail("File not found", path.name)],
                 "token_estimate": 20,
             }
-        try:
-            df = pd.read_csv(str(path), encoding="utf-8")
-        except UnicodeDecodeError:
-            df = pd.read_csv(str(path), encoding="latin-1")
+        df = _read_csv(str(path))
 
         if test not in _VALID_TESTS:
             return {

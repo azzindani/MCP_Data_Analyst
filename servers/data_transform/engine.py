@@ -26,6 +26,7 @@ from _med_transform import (  # type: ignore[import]
 )
 
 from shared.file_utils import atomic_write_text, resolve_path
+from shared.file_utils import read_csv as _shared_read_csv
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
@@ -40,10 +41,7 @@ def _token_estimate(obj: object) -> int:
 
 
 def _read_csv(path: str) -> pd.DataFrame:
-    try:
-        return pd.read_csv(path, encoding="utf-8")
-    except UnicodeDecodeError:
-        return pd.read_csv(path, encoding="latin-1")
+    return _shared_read_csv(path)
 
 
 # ---------------------------------------------------------------------------

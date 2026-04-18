@@ -11,6 +11,7 @@ import pandas as pd
 _ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
+from shared.file_utils import read_csv as _read_csv
 from shared.progress import fail, ok  # noqa: F401 — re-exported for convenience
 
 try:
@@ -1138,10 +1139,7 @@ def _op_concat_file(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     other_path = Path(file_path)
     if not other_path.exists():
         raise ValueError(f"File not found: {file_path}. Provide an absolute path.")
-    try:
-        other_df = pd.read_csv(other_path, encoding="utf-8")
-    except UnicodeDecodeError:
-        other_df = pd.read_csv(other_path, encoding="latin-1")
+    other_df = _read_csv(str(other_path))
     if direction == "rows":
         before = len(df)
         if add_source:
