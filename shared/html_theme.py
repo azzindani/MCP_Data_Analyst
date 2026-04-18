@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import sys
 from pathlib import Path
 
@@ -386,6 +387,28 @@ def data_table_html(rows: list[dict], max_rows: int = 50) -> str:
 
 
 # ---------------------------------------------------------------------------
+# _ensure_plotly_js — copy plotly.min.js to output dir for offline use
+# ---------------------------------------------------------------------------
+
+
+def _ensure_plotly_js(output_dir: Path) -> str:
+    """Copy plotly.min.js to output_dir once. Returns 'directory' or 'cdn' fallback."""
+    target = output_dir / "plotly.min.js"
+    if target.exists():
+        return "directory"
+    try:
+        import plotly as _plotly
+
+        src = Path(_plotly.__file__).parent / "package_data" / "plotly.min.js"
+        if src.exists():
+            shutil.copy2(str(src), str(target))
+            return "directory"
+    except Exception:
+        pass
+    return "cdn"
+
+
+# ---------------------------------------------------------------------------
 # save_chart — replaces _save_chart in both tiers
 # ---------------------------------------------------------------------------
 
@@ -404,11 +427,13 @@ def save_chart(
 
     out = get_output_path(output_path, input_path, stem_suffix, "html")
 
-    # Generate HTML with responsive config.
-    # "cdn" loads plotly.js from CDN (~100KB HTML vs 4MB inline) — avoids the
-    # per-call 3.5MB disk read + Windows Defender scan that caused 2-minute hangs.
+    # Copy plotly.min.js to the output directory once (offline-first).
+    # "directory" mode generates <script src="plotly.min.js"> instead of
+    # embedding the 3.5 MB bundle inline — tiny HTML, no internet required.
+    # Falls back to "cdn" only if the package file cannot be located.
+    include_js = _ensure_plotly_js(out.parent)
     html = fig.to_html(
-        include_plotlyjs="cdn",
+        include_plotlyjs=include_js,
         full_html=True,
         config={"responsive": True, "displayModeBar": True, "scrollZoom": True},
     )
