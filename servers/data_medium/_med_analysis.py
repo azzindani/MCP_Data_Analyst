@@ -206,6 +206,55 @@ def statistical_tests(
                     "token_estimate": 20,
                 }
 
+        if not test_type and not column_a and not column_b and not group_column:
+            # Auto-scan: normality + top correlations for all numeric cols
+            num_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])][:8]
+            normality: dict = {}
+            for col in num_cols:
+                s = pd.to_numeric(df[col], errors="coerce").dropna()
+                if len(s) >= 3:
+                    try:
+                        _st, _pv = scipy_stats.shapiro(s.sample(min(len(s), 5000), random_state=42))
+                        normality[col] = {
+                            "p_value": round(float(_pv), 4),
+                            "normal": bool(float(_pv) >= 0.05),
+                        }
+                    except Exception:
+                        pass
+            correlations: list = []
+            for i, ca in enumerate(num_cols):
+                for cb in num_cols[i + 1 :]:
+                    try:
+                        _r, _p = scipy_stats.pearsonr(
+                            df[ca].dropna().iloc[: len(df[cb].dropna())],
+                            df[cb].dropna().iloc[: len(df[ca].dropna())],
+                        )
+                        correlations.append(
+                            {
+                                "col_a": ca,
+                                "col_b": cb,
+                                "r": round(float(_r), 3),
+                                "p_value": round(float(_p), 4),
+                                "significant": bool(float(_p) < 0.05),
+                            }
+                        )
+                    except Exception:
+                        pass
+            correlations.sort(key=lambda x: abs(x["r"]), reverse=True)
+            progress.append(ok(f"Auto-scan on {path.name}", f"{len(num_cols)} numeric cols"))
+            result = {
+                "success": True,
+                "op": "statistical_tests",
+                "file_path": str(path),
+                "test_type": "auto_scan",
+                "normality": normality,
+                "top_correlations": correlations[:10],
+                "hint": "Call with test_type + column_a/column_b for a specific test.",
+                "progress": progress,
+            }
+            result["token_estimate"] = _token_estimate(result)
+            return result
+
         if not test_type:
             a_num = column_a and pd.api.types.is_numeric_dtype(df[column_a])
             b_num = column_b and pd.api.types.is_numeric_dtype(df[column_b])
