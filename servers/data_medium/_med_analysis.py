@@ -690,6 +690,14 @@ def time_series_analysis(
                 "token_estimate": 20,
             }
 
+        # Coerce value columns to numeric (handles string-typed numeric columns)
+        for vc in value_columns:
+            if not is_numeric_col(df[vc]):
+                df[vc] = pd.to_numeric(df[vc], errors="coerce")
+                non_num = int(df[vc].isna().sum())
+                if non_num:
+                    progress.append(warn(f"Coerced '{vc}' to numeric", f"{non_num} non-numeric values → NaN"))
+
         df = df.set_index(date_column).sort_index()
         col_agg_map = {c: infer_agg(c, df[c]) for c in value_columns}
         resampled_parts = []
