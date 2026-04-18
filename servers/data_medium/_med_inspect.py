@@ -573,7 +573,7 @@ def auto_detect_schema(
 def _apply_condition(df: pd.DataFrame, cond: dict) -> pd.Series:
     """Return boolean mask for a single condition dict."""
     col = cond.get("column", "")
-    op = cond.get("op", "")
+    op = cond.get("op", "") or cond.get("operator", "")
     val = cond.get("value")
     s = df[col]
     # --- original ops ---
@@ -675,7 +675,7 @@ def filter_rows(
             return {
                 "success": False,
                 "error": "At least one condition is required.",
-                "hint": "Provide conditions list with column, op, value keys.",
+                "hint": "Provide conditions list with column, op (or operator), value keys.",
                 "progress": [fail("No conditions", "")],
                 "token_estimate": 20,
             }

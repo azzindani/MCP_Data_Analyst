@@ -74,7 +74,7 @@ _FILTER_OPS = frozenset(
 
 def _apply_condition(df: pd.DataFrame, cond: dict) -> pd.Series:
     col = cond.get("column", "")
-    op = cond.get("op", "")
+    op = cond.get("op", "") or cond.get("operator", "")
     if col not in df.columns:
         raise ValueError(f"Column '{col}' not found. Available: {list(df.columns)}")
     if op not in _FILTER_OPS:
