@@ -404,9 +404,11 @@ def save_chart(
 
     out = get_output_path(output_path, input_path, stem_suffix, "html")
 
-    # Generate HTML with responsive config
+    # Generate HTML with responsive config.
+    # "cdn" loads plotly.js from CDN (~100KB HTML vs 4MB inline) — avoids the
+    # per-call 3.5MB disk read + Windows Defender scan that caused 2-minute hangs.
     html = fig.to_html(
-        include_plotlyjs=True,
+        include_plotlyjs="cdn",
         full_html=True,
         config={"responsive": True, "displayModeBar": True, "scrollZoom": True},
     )
