@@ -242,6 +242,14 @@ def compute_aggregations(
                 "token_estimate": 30,
             }
 
+        # Coerce agg_column to numeric for numeric functions; skip for count
+        numeric_funcs = {"sum", "mean", "min", "max"}
+        if agg_func in numeric_funcs:
+            df[agg_column] = pd.to_numeric(df[agg_column], errors="coerce")
+            non_numeric = int(df[agg_column].isna().sum())
+            if non_numeric:
+                progress.append(warn(f"Coerced '{agg_column}' to numeric", f"{non_numeric} non-numeric values → NaN"))
+
         grouped = df.groupby(group_by, as_index=False)[agg_column].agg(agg_func)
         if sort_desc:
             grouped = grouped.sort_values(by=agg_column, ascending=False)
