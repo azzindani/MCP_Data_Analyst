@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import importlib.util
 import logging
 import sys
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[2]
 _HERE = str(Path(__file__).resolve().parent)
-for _p in (str(_ROOT), _HERE):
+_DATA_BASIC = str(Path(__file__).resolve().parents[1] / "data_basic")
+for _p in (str(_ROOT), _HERE, _DATA_BASIC):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
@@ -21,11 +21,22 @@ from _med_helpers import (
     _token_estimate,
     is_numeric_col,
 )
+from _patch_ops import (  # type: ignore[import-not-found]
+    _op_add_column,
+    _op_cap_outliers,
+    _op_cast_column,
+    _op_clean_text,
+    _op_drop_column,
+    _op_drop_duplicates,
+    _op_fill_nulls,
+    _op_replace_values,
+)
 
 from shared.file_utils import resolve_path
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
+from shared.version_control import restore as _restore
 from shared.version_control import snapshot
 
 logger = logging.getLogger(__name__)
@@ -309,12 +320,6 @@ def run_cleaning_pipeline(
                 "token_estimate": 20,
             }
 
-        tier1_engine = Path(__file__).resolve().parents[1] / "data_basic" / "engine.py"
-
-        spec = importlib.util.spec_from_file_location("tier1_engine", str(tier1_engine))
-        t1 = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(t1)
-
         df = _read_csv(str(path))
 
         if dry_run:
@@ -341,14 +346,14 @@ def run_cleaning_pipeline(
         for i, op in enumerate(ops):
             op_name = op.get("op", "")
             handler_map = {
-                "drop_column": t1._op_drop_column,
-                "clean_text": t1._op_clean_text,
-                "cast_column": t1._op_cast_column,
-                "replace_values": t1._op_replace_values,
-                "add_column": t1._op_add_column,
-                "cap_outliers": t1._op_cap_outliers,
-                "fill_nulls": t1._op_fill_nulls,
-                "drop_duplicates": t1._op_drop_duplicates,
+                "drop_column": _op_drop_column,
+                "clean_text": _op_clean_text,
+                "cast_column": _op_cast_column,
+                "replace_values": _op_replace_values,
+                "add_column": _op_add_column,
+                "cap_outliers": _op_cap_outliers,
+                "fill_nulls": _op_fill_nulls,
+                "drop_duplicates": _op_drop_duplicates,
             }
             handler = handler_map.get(op_name)
             if handler is None:
@@ -368,7 +373,7 @@ def run_cleaning_pipeline(
                 progress.append(ok(f"Applied {op_name}", str(op_result)))
             except Exception as exc:
                 progress.append(fail(f"Op {i} ({op_name}) failed", str(exc)))
-                t1.restore(str(path), backup)
+                _restore(str(path), backup)
                 return {
                     "success": False,
                     "error": f"Op {i} ({op_name}): {exc}",

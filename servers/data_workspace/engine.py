@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import sys
 from pathlib import Path
 
@@ -26,9 +27,18 @@ from shared.project_utils import (
 )
 
 _ROOT = Path(__file__).resolve().parents[2]
-for _p in (str(_ROOT),):
+_DATA_BASIC = str(Path(__file__).resolve().parents[1] / "data_basic")
+for _p in (str(_ROOT), _DATA_BASIC):
     if _p not in sys.path:
         sys.path.insert(0, _p)
+
+try:
+    from engine import apply_patch as _apply_patch  # type: ignore[import-not-found]
+
+    _BASIC_ENGINE_OK = True
+except ImportError:
+    _apply_patch = None  # type: ignore
+    _BASIC_ENGINE_OK = False
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
@@ -446,15 +456,7 @@ def run_workspace_pipeline(
             result["token_estimate"] = _token_estimate(result)
             return result
 
-        try:
-            _basic_root = str(Path(__file__).resolve().parents[1] / "data_basic")
-            if _basic_root not in sys.path:
-                sys.path.insert(0, _basic_root)
-            import importlib
-
-            _basic_engine = importlib.import_module("engine")
-            patch_result = _basic_engine.apply_patch(str(input_path), ops, dry_run=False)
-        except ImportError:
+        if not _BASIC_ENGINE_OK or _apply_patch is None:
             return {
                 "success": False,
                 "error": "data_basic server not available for pipeline execution.",
@@ -462,6 +464,7 @@ def run_workspace_pipeline(
                 "progress": [fail("Import error", "data_basic.engine")],
                 "token_estimate": 20,
             }
+        patch_result = _apply_patch(str(input_path), ops, dry_run=False)
 
         if not patch_result.get("success"):
             return {
@@ -472,10 +475,8 @@ def run_workspace_pipeline(
                 "token_estimate": 20,
             }
 
-        import shutil
-
         shutil.copy2(str(input_path), str(output_path))
-        _basic_engine.apply_patch(str(output_path), ops, dry_run=False)
+        _apply_patch(str(output_path), ops, dry_run=False)
 
         _register_file_util(workspace_name, str(output_path), output_alias, output_stage, base_dir)
         log_pipeline_run(workspace_name, pipeline_name, input_alias, output_alias, base_dir)
