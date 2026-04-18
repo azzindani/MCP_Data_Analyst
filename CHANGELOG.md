@@ -19,13 +19,12 @@ surgical access to CSV/tabular datasets through 84 deterministic tools across
 
 | Server | Tier | Tools | Purpose |
 |---|---|---|---|
-| `data_project` | T0 | 6 | Workspace management — create, open, register files, save and run pipelines |
+| `data_workspace` | T0 | 6 | Workspace management — create, open, register files, save and run pipelines |
 | `data_basic` | T1 | 9 | Load, inspect, patch, restore — the core four-tool loop |
-| `data_medium` | T2 | 25 | Profiling, cleaning pipelines, aggregation, time series, cohort analysis |
+| `data_medium` | T2 | 11 | Aggregation, anomaly detection, text analysis, dataset comparison |
 | `data_transform` | T2 | 10 | Rich filtering (18 condition types), reshape, aggregation, merging |
 | `data_statistics` | T3 | 11 | Regression, 17 statistical tests, STL decomposition, MoM/QoQ/YoY |
-| `data_advanced` | T3 | 11 | EDA reports, 13 chart types, geo maps, 3D charts, dashboards |
-| `data_visual` | T3 | 12 | Re-exports data_advanced + post-generate chart customization |
+| `data_visual` | T3 | 12 | EDA reports, 13 chart types, geo maps, 3D charts, dashboards, customization |
 
 ---
 

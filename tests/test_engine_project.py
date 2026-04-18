@@ -1,4 +1,4 @@
-"""Tests for servers/data_project/engine.py — workspace management e2e flows."""
+"""Tests for servers/data_workspace/engine.py — workspace management e2e flows."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from servers.data_project.engine import (
+from servers.data_workspace.engine import (
     create_workspace,
     list_workspace_files,
     open_workspace,

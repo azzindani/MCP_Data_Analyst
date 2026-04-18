@@ -1,10 +1,10 @@
-"""Tests for servers/data_project/engine.py — context + handover verification."""
+"""Tests for servers/data_workspace/engine.py — context + handover verification."""
 
 from pathlib import Path
 
 import pytest
 
-from servers.data_project.engine import (
+from servers.data_workspace.engine import (
     create_workspace,
     list_workspace_files,
     open_workspace,

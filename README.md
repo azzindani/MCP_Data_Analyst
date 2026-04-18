@@ -109,7 +109,7 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
         "-ExecutionPolicy",
         "Bypass",
         "-Command",
-        "$d = Join-Path $env:USERPROFILE '.mcp_servers\\MCP_Data_Analyst'; $g = Join-Path $d '.git'; if (!(Test-Path $g)) { if (Test-Path $d) { Remove-Item -Recurse -Force $d }; git clone https://github.com/azzindani/MCP_Data_Analyst.git $d --quiet } else { Set-Location $d; git fetch origin --quiet; git reset --hard FETCH_HEAD --quiet }; uv sync --quiet; uv run python -m servers.data_project.server"
+        "$d = Join-Path $env:USERPROFILE '.mcp_servers\\MCP_Data_Analyst'; $g = Join-Path $d '.git'; if (!(Test-Path $g)) { if (Test-Path $d) { Remove-Item -Recurse -Force $d }; git clone https://github.com/azzindani/MCP_Data_Analyst.git $d --quiet } else { Set-Location $d; git fetch origin --quiet; git reset --hard FETCH_HEAD --quiet }; uv sync --quiet; uv run python -m servers.data_workspace.server"
       ],
       "env": { "MCP_CONSTRAINED_MODE": "0" },
       "timeout": 600000
@@ -186,7 +186,7 @@ Replace the `"command"` and `"args"` in each entry with the bash equivalent:
       "command": "bash",
       "args": [
         "-c",
-        "d=\"$HOME/.mcp_servers/MCP_Data_Analyst\"; if [ ! -d \"$d/.git\" ]; then rm -rf \"$d\"; git clone https://github.com/azzindani/MCP_Data_Analyst.git \"$d\" --quiet; else cd \"$d\" && git fetch origin --quiet && git reset --hard FETCH_HEAD --quiet; fi; cd \"$d\"; uv sync --quiet; uv run python -m servers.data_project.server"
+        "d=\"$HOME/.mcp_servers/MCP_Data_Analyst\"; if [ ! -d \"$d/.git\" ]; then rm -rf \"$d\"; git clone https://github.com/azzindani/MCP_Data_Analyst.git \"$d\" --quiet; else cd \"$d\" && git fetch origin --quiet && git reset --hard FETCH_HEAD --quiet; fi; cd \"$d\"; uv sync --quiet; uv run python -m servers.data_workspace.server"
       ],
       "env": { "MCP_CONSTRAINED_MODE": "0" },
       "timeout": 600000
@@ -520,7 +520,7 @@ Or run the uninstall script:
 ```
 MCP_Data_Analyst/
 ├── servers/
-│   ├── data_project/        ← T0: workspace management (6 tools)
+│   ├── data_workspace/      ← T0: workspace management (6 tools)
 │   │   ├── server.py        ← thin MCP wrapper; exposes workspace: tool names
 │   │   └── engine.py        ← create/open/register/list/save/run + context+handover
 │   ├── data_basic/          ← T1: load, inspect, patch, restore (9 tools)
@@ -544,6 +544,7 @@ MCP_Data_Analyst/
 │   │   ├── _stats_tests.py  ← 17 statistical tests + effect sizes
 │   │   ├── _stats_regression.py ← OLS + logistic regression
 │   │   └── _stats_comparative.py← period comparison (MoM/QoQ/YoY)
+│   ├── data_project/        ← redirect to data_workspace (backward compat)
 │   ├── data_advanced/       ← engine only (no active server; used by data_visual)
 │   │   ├── engine.py
 │   │   ├── _adv_eda.py
@@ -612,7 +613,7 @@ uv run pytest tests/ -q --tb=short
 cd servers/data_basic && uv sync && uv run python server.py
 
 # Tier 2+ — run from repo root (shared deps via root pyproject.toml)
-uv run python -m servers.data_project.server
+uv run python -m servers.data_workspace.server
 uv run python -m servers.data_transform.server
 uv run python -m servers.data_statistics.server
 uv run python -m servers.data_visual.server
