@@ -72,8 +72,7 @@ def load_manifest(workspace_name: str, base_dir: str = "") -> dict:
             with path.open(encoding="utf-8") as f:
                 return json.load(f)
     raise FileNotFoundError(
-        f"Workspace '{workspace_name}' not found. "
-        f"Expected manifest at: {ws_dir / _MANIFEST_FILENAME}"
+        f"Workspace '{workspace_name}' not found. Expected manifest at: {ws_dir / _MANIFEST_FILENAME}"
     )
 
 
@@ -172,18 +171,14 @@ def resolve_alias(alias_str: str, base_dir: str = "") -> Path:
     rest = alias_str[len(prefix) :]
     if "/" not in rest:
         raise ValueError(
-            f"Invalid alias format '{alias_str}'. "
-            f"Expected 'workspace:name/alias' or 'project:name/alias'."
+            f"Invalid alias format '{alias_str}'. Expected 'workspace:name/alias' or 'project:name/alias'."
         )
     workspace_name, file_alias = rest.split("/", 1)
     manifest = load_manifest(workspace_name, base_dir)
     files = manifest.get("files", {})
     if file_alias not in files:
         available = list(files.keys())
-        raise ValueError(
-            f"Alias '{file_alias}' not found in workspace '{workspace_name}'. "
-            f"Available: {available}"
-        )
+        raise ValueError(f"Alias '{file_alias}' not found in workspace '{workspace_name}'. Available: {available}")
     stored_path = files[file_alias]["path"]
     ws_dir = get_workspace_dir(workspace_name, base_dir)
     candidate = Path(stored_path)
@@ -252,8 +247,7 @@ def load_pipeline(
         manifest = load_manifest(workspace_name, base_dir)
         available = list(manifest.get("pipelines", {}).keys())
         raise FileNotFoundError(
-            f"Pipeline '{pipeline_name}' not found in workspace '{workspace_name}'. "
-            f"Available: {available}"
+            f"Pipeline '{pipeline_name}' not found in workspace '{workspace_name}'. Available: {available}"
         )
     with pipeline_path.open(encoding="utf-8") as f:
         return json.load(f)

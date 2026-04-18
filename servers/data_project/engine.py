@@ -14,9 +14,13 @@ from shared.project_utils import (
     load_manifest,
     load_pipeline,
     log_pipeline_run,
-    register_file as _register_file_util,
     resolve_alias,
     save_manifest,
+)
+from shared.project_utils import (
+    register_file as _register_file_util,
+)
+from shared.project_utils import (
     save_pipeline as _save_pipeline_util,
 )
 
