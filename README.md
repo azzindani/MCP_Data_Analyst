@@ -4,7 +4,7 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 
 ## Features
 
-- **84 tools** across 7 servers: project (6), basic (9), medium (25), transform (10), statistics (11), advanced (11), visual (12)
+- **90 tools** across 8 servers: project (6), workspace (6), basic (9), medium (25), transform (10), statistics (11), advanced (11), visual (12)
 - **LOCATE → INSPECT → PATCH → VERIFY** workflow for surgical data edits
 - **Automatic version control** — every write is snapshotted and fully restorable (Windows-safe: collision-proof timestamps)
 - **Operation receipt logging** — full audit trail of all modifications
@@ -126,6 +126,18 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
       "env": { "MCP_CONSTRAINED_MODE": "0" },
       "timeout": 600000
     },
+    "data_analyst_workspace": {
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$d = Join-Path $env:USERPROFILE '.mcp_servers\\MCP_Data_Analyst'; $g = Join-Path $d '.git'; if (!(Test-Path $g)) { if (Test-Path $d) { Remove-Item -Recurse -Force $d }; git clone https://github.com/azzindani/MCP_Data_Analyst.git $d --quiet } else { Set-Location $d; git fetch origin --quiet; git reset --hard FETCH_HEAD --quiet }; uv sync --quiet; uv run python -m servers.data_workspace.server"
+      ],
+      "env": { "MCP_CONSTRAINED_MODE": "0" },
+      "timeout": 600000
+    },
     "data_analyst_transform": {
       "command": "powershell",
       "args": [
@@ -167,7 +179,7 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
 ```
 
 4. Wait for the blue dot next to each server
-5. Start chatting — the model will see all 84 tools
+5. Start chatting — the model will see all 90 tools
 
 ### macOS / Linux
 
@@ -208,6 +220,15 @@ Replace the `"command"` and `"args"` in each entry with the bash equivalent:
       "args": [
         "-c",
         "d=\"$HOME/.mcp_servers/MCP_Data_Analyst\"; if [ ! -d \"$d/.git\" ]; then rm -rf \"$d\"; git clone https://github.com/azzindani/MCP_Data_Analyst.git \"$d\" --quiet; else cd \"$d\" && git fetch origin --quiet && git reset --hard FETCH_HEAD --quiet; fi; cd \"$d\"; uv sync --quiet; uv run python -m servers.data_project.server"
+      ],
+      "env": { "MCP_CONSTRAINED_MODE": "0" },
+      "timeout": 600000
+    },
+    "data_analyst_workspace": {
+      "command": "bash",
+      "args": [
+        "-c",
+        "d=\"$HOME/.mcp_servers/MCP_Data_Analyst\"; if [ ! -d \"$d/.git\" ]; then rm -rf \"$d\"; git clone https://github.com/azzindani/MCP_Data_Analyst.git \"$d\" --quiet; else cd \"$d\" && git fetch origin --quiet && git reset --hard FETCH_HEAD --quiet; fi; cd \"$d\"; uv sync --quiet; uv run python -m servers.data_workspace.server"
       ],
       "env": { "MCP_CONSTRAINED_MODE": "0" },
       "timeout": 600000
@@ -259,6 +280,23 @@ Manage named project workspaces, file aliases, and reusable cleaning pipelines.
 | `run_saved_pipeline` | Execute a saved pipeline on a file alias, producing a new output alias |
 
 Files can be referenced anywhere via `project:name/alias` syntax — all tools resolve aliases automatically.
+
+---
+
+### Tier 0 — Workspace (6 tools)
+
+Drop-in replacement for the Project server that adds `context` and `handover` fields to every response so the LLM can chain tools across servers without losing state.
+
+| Tool | Purpose |
+|---|---|
+| `create_workspace` | Create workspace — same as `create_project` plus `context` + `handover` |
+| `open_workspace` | Open workspace — returns aliases, pipeline history, active file, plus `context` + `handover` |
+| `register_workspace_file` | Add file with alias; `handover.carry_forward` carries `workspace:name/alias` forward |
+| `list_workspace_files` | List registered files; filter by stage |
+| `save_workspace_pipeline` | Save named pipeline; `handover` suggests `run_workspace_pipeline` next |
+| `run_workspace_pipeline` | Execute saved pipeline on input alias → output alias; attaches `context` + `handover` on success |
+
+Files can be referenced via `workspace:name/alias` syntax — all tools resolve aliases automatically.
 
 ---
 
@@ -560,7 +598,7 @@ For lower-memory machines, set `MCP_CONSTRAINED_MODE=1` in the `env` section of 
 
 **Step 1:** Remove from LM Studio
 1. Open LM Studio → Developer tab (`</>`)
-2. Delete all `data_analyst_*` entries (`basic`, `medium`, `advanced`, `project`, `transform`, `statistics`, `visual`) from MCP Servers
+2. Delete all `data_analyst_*` entries (`basic`, `medium`, `advanced`, `project`, `workspace`, `transform`, `statistics`, `visual`) from MCP Servers
 3. Restart LM Studio
 
 **Step 2:** Delete installed files
@@ -581,6 +619,9 @@ MCP_Data_Analyst/
 │   ├── data_project/        ← T0: project workspace management (6 tools)
 │   │   ├── server.py
 │   │   └── engine.py        ← create/open/register/list/save/run pipeline
+│   ├── data_workspace/      ← T0: workspace server with context+handover (6 tools)
+│   │   ├── server.py        ← thin MCP wrapper (one-line tool bodies)
+│   │   └── engine.py        ← wraps data_project engine, adds context+handover
 │   ├── data_basic/          ← T1: load, inspect, patch, restore (9 tools)
 │   │   ├── server.py        ← thin MCP wrapper (zero domain logic)
 │   │   ├── engine.py        ← public API + list_patch_ops
@@ -633,6 +674,7 @@ MCP_Data_Analyst/
     ├── test_engine_medium.py    ← tests including STL/ACF/ADF
     ├── test_engine_advanced.py
     ├── test_engine_project.py   ← 21 tests (full project workflow e2e)
+    ├── test_workspace_server.py ← 26 tests (context+handover contract)
     ├── test_engine_transform.py ← 32 tests (filter/reshape/aggregate)
     ├── test_engine_statistics.py← 39 tests (regression, stat tests, period comparison)
     ├── test_shared.py
@@ -648,7 +690,7 @@ MCP_Data_Analyst/
 # Install all dependencies from root (single lockfile)
 uv sync
 
-# Run all 484 tests
+# Run all 557 tests
 uv run pytest tests/ -q --tb=short
 
 # Run in constrained mode
@@ -671,6 +713,7 @@ cd servers/data_basic && uv sync && uv run python server.py
 
 # Tier 2+ — run from repo root (shared deps via root pyproject.toml)
 uv run python -m servers.data_project.server
+uv run python -m servers.data_workspace.server
 uv run python -m servers.data_transform.server
 uv run python -m servers.data_statistics.server
 uv run python -m servers.data_visual.server
