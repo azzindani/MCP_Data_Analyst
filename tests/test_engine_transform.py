@@ -108,7 +108,7 @@ class TestFilterDataset:
             conditions=[{"column": "Region", "op": "isin", "values": ["West", "East"]}],
         )
         assert r["success"] is True
-        df = pd.read_csv(str(sales_csv))
+        df = pd.read_csv(r["output_path"])
         assert all(df["Region"].isin(["West", "East"]))
 
     def test_between_filter(self, sales_csv):
@@ -117,7 +117,7 @@ class TestFilterDataset:
             conditions=[{"column": "Revenue", "op": "between", "min": 3000, "max": 5500}],
         )
         assert r["success"] is True
-        df = pd.read_csv(str(sales_csv))
+        df = pd.read_csv(r["output_path"])
         assert all((df["Revenue"] >= 3000) & (df["Revenue"] <= 5500))
 
     def test_contains_filter(self, sales_csv):
@@ -136,7 +136,7 @@ class TestFilterDataset:
             sort_ascending=[False],
         )
         assert r["success"] is True
-        df = pd.read_csv(str(sales_csv))
+        df = pd.read_csv(r["output_path"])
         assert df["Revenue"].iloc[0] == df["Revenue"].max()
 
     def test_date_range_filter(self, date_sales_csv):
@@ -193,7 +193,7 @@ class TestReshapeDataset:
             value_vars=["Q1", "Q2", "Q3", "Q4"],
         )
         assert r["success"] is True
-        df = pd.read_csv(str(wide_csv))
+        df = pd.read_csv(r["output_path"])
         assert len(df) == 4 * 4  # 4 regions × 4 quarters
         assert "variable" in df.columns
         assert "value" in df.columns
@@ -208,7 +208,7 @@ class TestReshapeDataset:
             drop_original=True,
         )
         assert r["success"] is True
-        df = pd.read_csv(str(full_name_csv))
+        df = pd.read_csv(r["output_path"])
         assert "FirstName" in df.columns
         assert "LastName" in df.columns
         assert df["FirstName"].iloc[0] == "Alice"
@@ -222,7 +222,7 @@ class TestReshapeDataset:
             new_column="Name_Score",
         )
         assert r["success"] is True
-        df = pd.read_csv(str(full_name_csv))
+        df = pd.read_csv(r["output_path"])
         assert "Name_Score" in df.columns
         assert df["Name_Score"].iloc[0] == "Alice Smith_95"
 
@@ -246,7 +246,7 @@ class TestReshapeDataset:
             agg_func="sum",
         )
         assert r["success"] is True
-        df = pd.read_csv(str(sales_csv))
+        df = pd.read_csv(r["output_path"])
         # Result should have Region column and one column per quarter
         assert "Region" in df.columns
 
@@ -394,7 +394,7 @@ class TestE2ETransformPipeline:
             value_name="Revenue",
         )
         assert r_reshape["success"] is True
-        df_long = pd.read_csv(str(wide))
+        df_long = pd.read_csv(r_reshape["output_path"])
         # After melt: 3 regions × 3 quarters = 9 rows
         assert len(df_long) == 9
         # Custom var_name was "Quarter" so that should be the column name

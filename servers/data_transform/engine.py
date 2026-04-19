@@ -187,7 +187,10 @@ def filter_dataset(
             result["token_estimate"] = _token_estimate(result)
             return result
 
-        out_path = resolve_path(output_path) if output_path else path
+        if output_path:
+            out_path = resolve_path(output_path)
+        else:
+            out_path = path.parent / f"{path.stem}_filtered{path.suffix}"
         backup = snapshot(str(path)) if out_path == path else None
         atomic_write_text(str(out_path), df.to_csv(index=False))
         append_receipt(
@@ -358,7 +361,10 @@ def reshape_dataset(
             result["token_estimate"] = _token_estimate(result)
             return result
 
-        out_path = resolve_path(output_path) if output_path else path
+        if output_path:
+            out_path = resolve_path(output_path)
+        else:
+            out_path = path.parent / f"{path.stem}_reshaped{path.suffix}"
         backup = snapshot(str(path)) if out_path == path else None
         atomic_write_text(str(out_path), df.to_csv(index=False))
         append_receipt(
