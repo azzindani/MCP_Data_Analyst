@@ -732,7 +732,10 @@ def filter_rows(
             return result
 
         backup = snapshot(str(path))
-        out = resolve_path(output_path) if output_path else path
+        if output_path:
+            out = resolve_path(output_path)
+        else:
+            out = path.parent / f"{path.stem}_filtered{path.suffix}"
         filtered.to_csv(str(out), index=False)
 
         if open_after:
@@ -755,6 +758,7 @@ def filter_rows(
             "rows_after": rows_after,
             "rows_removed": rows_before - rows_after,
             "output_file": out.name,
+            "output_path": str(out),
             "backup": backup,
             "hint": "Call inspect_dataset() or read_column_stats() to verify the changes.",
             "progress": progress,

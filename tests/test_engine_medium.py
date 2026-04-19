@@ -856,7 +856,7 @@ North,4800,12
         r = smart_impute(str(f), open_after=False)
         assert r["success"] is True
         assert r["columns_imputed"] >= 1
-        df = pd.read_csv(str(f))
+        df = pd.read_csv(r["output_path"])
         assert df["Revenue"].isna().sum() == 0
 
     def test_specific_columns(self, tmp_path):
@@ -892,7 +892,7 @@ class TestMergeDatasets:
         )
         assert r["success"] is True
         assert r["result_rows"] == 8
-        df = pd.read_csv(str(cat_csv))
+        df = pd.read_csv(r["output_path"])
         assert "Manager" in df.columns
 
     def test_dry_run(self, cat_csv, right_csv):
@@ -1815,7 +1815,7 @@ class TestFilterRowsExtended:
             open_after=False,
         )
         assert r["success"] is True
-        df = pd.read_csv(str(filter_ext_csv))
+        df = pd.read_csv(r["output_path"])
         assert df["Revenue"].iloc[0] == 7500
 
     def test_sort_by_region_asc(self, filter_ext_csv):
@@ -1827,7 +1827,7 @@ class TestFilterRowsExtended:
             open_after=False,
         )
         assert r["success"] is True
-        df = pd.read_csv(str(filter_ext_csv))
+        df = pd.read_csv(r["output_path"])
         assert df["Region"].iloc[0] == "East"  # alphabetically first
 
     def test_isin_condition(self, filter_ext_csv):

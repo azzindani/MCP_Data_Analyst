@@ -178,7 +178,10 @@ def customize_chart(
                 "token_estimate": 20,
             }
 
-        out_path = resolve_path(output_path) if output_path else path
+        if output_path:
+            out_path = resolve_path(output_path)
+        else:
+            out_path = path.parent / f"{path.stem}_customized{path.suffix}"
         atomic_write_text(str(out_path), html)
         progress.append(ok("Chart customized", f"{len(changes_applied)} changes applied"))
 

@@ -574,7 +574,10 @@ def smart_impute(
             elif strategy == "ffill":
                 df[col] = df[col].ffill()
 
-        out = resolve_path(output_path) if output_path else path
+        if output_path:
+            out = resolve_path(output_path)
+        else:
+            out = path.parent / f"{path.stem}_imputed{path.suffix}"
         df.to_csv(str(out), index=False)
 
         if open_after:
@@ -596,6 +599,7 @@ def smart_impute(
             "imputed": imputation_plan,
             "columns_imputed": len(imputation_plan),
             "output_file": out.name,
+            "output_path": str(out),
             "backup": backup,
             "hint": "Call inspect_dataset() or read_column_stats() to verify the changes.",
             "progress": progress,
@@ -726,7 +730,10 @@ def merge_datasets(
             return result
 
         backup = snapshot(str(path))
-        out = resolve_path(output_path) if output_path else path
+        if output_path:
+            out = resolve_path(output_path)
+        else:
+            out = path.parent / f"{path.stem}_merged{path.suffix}"
         merged.to_csv(str(out), index=False)
 
         if open_after:
@@ -758,6 +765,7 @@ def merge_datasets(
             "unmatched_right": unmatched_right,
             "how": how,
             "output_file": out.name,
+            "output_path": str(out),
             "backup": backup,
             "hint": "Call inspect_dataset() or read_column_stats() to verify the changes.",
             "progress": progress,
@@ -867,7 +875,10 @@ def feature_engineering(
             return result
 
         backup = snapshot(str(path))
-        out = resolve_path(output_path) if output_path else path
+        if output_path:
+            out = resolve_path(output_path)
+        else:
+            out = path.parent / f"{path.stem}_features{path.suffix}"
         df.to_csv(str(out), index=False)
 
         if open_after:
@@ -890,6 +901,7 @@ def feature_engineering(
             "new_columns": new_columns,
             "columns_added": len(new_columns),
             "output_file": out.name,
+            "output_path": str(out),
             "backup": backup,
             "hint": "Call inspect_dataset() or read_column_stats() to verify the changes.",
             "progress": progress,
