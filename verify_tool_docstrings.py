@@ -16,6 +16,7 @@ SERVER_DIRS = [
     "servers/data_visual",
     "servers/data_project",
     "servers/data_workspace",
+    "servers/data_ingest",
 ]
 
 
