@@ -1,8 +1,7 @@
-"""Tests for servers/data_ingest/engine.py."""
+"""Tests for servers/data_ingest/engine.py — ≥90% coverage required."""
 
 from __future__ import annotations
 
-import importlib
 from pathlib import Path
 
 import pandas as pd
@@ -28,6 +27,7 @@ from servers.data_ingest.engine import (
 
 @pytest.fixture()
 def simple_xlsx(tmp_path) -> Path:
+    """Single-sheet xlsx, 5 clean data rows."""
     import openpyxl
 
     wb = openpyxl.Workbook()
@@ -46,6 +46,7 @@ def simple_xlsx(tmp_path) -> Path:
 
 @pytest.fixture()
 def multi_sheet_xlsx(tmp_path) -> Path:
+    """Xlsx with 3 sheets: Sales, Costs, Meta."""
     import openpyxl
 
     wb = openpyxl.Workbook()
@@ -67,6 +68,7 @@ def multi_sheet_xlsx(tmp_path) -> Path:
 
 @pytest.fixture()
 def multi_table_xlsx(tmp_path) -> Path:
+    """Single sheet with 2 tables separated by a blank row."""
     import openpyxl
 
     wb = openpyxl.Workbook()
@@ -86,6 +88,7 @@ def multi_table_xlsx(tmp_path) -> Path:
 
 @pytest.fixture()
 def merged_xlsx(tmp_path) -> Path:
+    """Xlsx with a merged cell region in the header row."""
     import openpyxl
 
     wb = openpyxl.Workbook()
@@ -104,6 +107,7 @@ def merged_xlsx(tmp_path) -> Path:
 
 @pytest.fixture()
 def ods_file(tmp_path) -> Path:
+    """ODS spreadsheet with 2 data rows."""
     df = pd.DataFrame({"Name": ["Alice", "Bob"], "Score": [95, 88]})
     p = tmp_path / "test.ods"
     df.to_excel(str(p), index=False, engine="odf")
@@ -112,6 +116,7 @@ def ods_file(tmp_path) -> Path:
 
 @pytest.fixture()
 def dirty_csv(tmp_path) -> Path:
+    """CSV with padded headers, whitespace-only rows, and empty trailing rows."""
     p = tmp_path / "dirty.csv"
     p.write_text(" Name ,  Revenue , Category \n,, \nAlice,100,A\nBob,200,B\n,, \n")
     return p
@@ -119,6 +124,7 @@ def dirty_csv(tmp_path) -> Path:
 
 @pytest.fixture()
 def no_header_csv(tmp_path) -> Path:
+    """CSV where row 0 is garbage and row 1 is the real header."""
     p = tmp_path / "no_header.csv"
     p.write_text("garbage,garbage,garbage\nName,Value,Tag\nAlice,100,A\nBob,200,B\n")
     return p
@@ -126,6 +132,7 @@ def no_header_csv(tmp_path) -> Path:
 
 @pytest.fixture()
 def simple_csv(tmp_path) -> Path:
+    """Clean 2-row CSV for basic error and edge-case tests."""
     p = tmp_path / "data.csv"
     p.write_text("Name,Value,Category\nAlice,100,A\nBob,200,B\n")
     return p
@@ -178,14 +185,14 @@ class TestListSheets:
 
     def test_constrained_mode(self, multi_sheet_xlsx, monkeypatch):
         monkeypatch.setenv("MCP_CONSTRAINED_MODE", "1")
+        import importlib
+
         import shared.platform_utils as pu
 
         importlib.reload(pu)
         r = list_sheets(str(multi_sheet_xlsx))
         # 3 sheets < constrained limit of 10; should all appear
         assert r["success"] is True
-        monkeypatch.delenv("MCP_CONSTRAINED_MODE", raising=False)
-        importlib.reload(pu)
 
 
 # ---------------------------------------------------------------------------
