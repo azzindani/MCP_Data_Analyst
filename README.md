@@ -4,7 +4,7 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 
 ## Features
 
-- **59 tools** across 6 servers: workspace (6), basic (9), medium (11), transform (10), statistics (11), visual (12)
+- **69 tools** across 7 servers: workspace (6), basic (9), medium (11), transform (10), statistics (11), visual (12), ingest (10)
 - **LOCATE → INSPECT → PATCH → VERIFY** workflow for surgical data edits
 - **Automatic version control** — every write is snapshotted and fully restorable (Windows-safe: collision-proof timestamps)
 - **Operation receipt logging** — full audit trail of all modifications
@@ -69,6 +69,7 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
 > Set-Location "$d\servers\data_transform"; uv sync
 > Set-Location "$d\servers\data_statistics"; uv sync
 > Set-Location "$d\servers\data_visual"; uv sync
+> Set-Location "$d\servers\data_ingest"; uv sync
 > ```
 > If you skip this step and LM Studio times out, press **Restart** in the MCP Servers panel — it will reconnect and complete the install immediately.
 
@@ -152,13 +153,25 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
       ],
       "env": { "MCP_CONSTRAINED_MODE": "0" },
       "timeout": 600000
+    },
+    "data_analyst_ingest": {
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$d = Join-Path $env:USERPROFILE '.mcp_servers\\MCP_Data_Analyst'; $g = Join-Path $d '.git'; if (!(Test-Path $g)) { if (Test-Path $d) { Remove-Item -Recurse -Force $d }; git clone https://github.com/azzindani/MCP_Data_Analyst.git $d --quiet } else { Set-Location $d; git fetch origin --quiet; git reset --hard FETCH_HEAD --quiet }; Set-Location (Join-Path $d 'servers\\data_ingest'); uv sync --quiet; uv run python server.py"
+      ],
+      "env": { "MCP_CONSTRAINED_MODE": "0" },
+      "timeout": 600000
     }
   }
 }
 ```
 
 4. Wait for the blue dot next to each server
-5. Start chatting — the model will see all 59 tools
+5. Start chatting — the model will see all 69 tools
 
 ### macOS / Linux
 
@@ -220,12 +233,40 @@ Replace the `"command"` and `"args"` in each entry with the bash equivalent:
       ],
       "env": { "MCP_CONSTRAINED_MODE": "0" },
       "timeout": 600000
+    },
+    "data_analyst_ingest": {
+      "command": "bash",
+      "args": [
+        "-c",
+        "d=\"$HOME/.mcp_servers/MCP_Data_Analyst\"; if [ ! -d \"$d/.git\" ]; then rm -rf \"$d\"; git clone https://github.com/azzindani/MCP_Data_Analyst.git \"$d\" --quiet; else cd \"$d\" && git fetch origin --quiet && git reset --hard FETCH_HEAD --quiet; fi; cd \"$d/servers/data_ingest\"; uv sync --quiet; uv run python server.py"
+      ],
+      "env": { "MCP_CONSTRAINED_MODE": "0" },
+      "timeout": 600000
     }
   }
 }
 ```
 
 ## Available Tools
+
+### Tier — Ingest (10 tools)
+
+Parse and normalize spreadsheets before analysis. Handles multi-sheet Excel/ODS files, multiple tables on a single sheet, merged cells, and format conversion. All write tools include `dry_run` and create `.mcp_versions/` snapshots.
+
+| Tool | Purpose |
+|---|---|
+| `list_sheets` | List all sheets in an xlsx/ods file with row and col counts |
+| `extract_sheet` | Extract one sheet to CSV; `sheet` accepts name or 0-based index |
+| `extract_all_sheets` | Batch-extract every sheet to separate CSVs |
+| `detect_tables` | Detect separate tables on a single sheet (blank-row/col gap detection) |
+| `extract_table` | Extract one detected table by index to CSV |
+| `normalize_headers` | Strip whitespace, lowercase, deduplicate column names |
+| `trim_empty` | Drop fully-empty leading/trailing rows and columns |
+| `promote_header` | Make row N the header; drop rows above it |
+| `flatten_merged_cells` | Forward-fill merged cell regions in xlsx → CSV |
+| `convert_file` | Convert between xlsx / ods / csv / json / parquet |
+
+---
 
 ### Tier 0 — Workspace (6 tools)
 
@@ -505,7 +546,7 @@ For lower-memory machines, set `MCP_CONSTRAINED_MODE=1` in the `env` section of 
 
 **Step 1:** Remove from LM Studio
 1. Open LM Studio → Developer tab (`</>`)
-2. Delete all `data_analyst_*` entries (`workspace`, `basic`, `medium`, `transform`, `statistics`, `visual`) from MCP Servers
+2. Delete all `data_analyst_*` entries (`workspace`, `basic`, `medium`, `transform`, `statistics`, `visual`, `ingest`) from MCP Servers
 3. Restart LM Studio
 
 **Step 2:** Delete installed files
@@ -555,10 +596,13 @@ MCP_Data_Analyst/
 │   │   ├── _adv_charts.py
 │   │   ├── _adv_gencharts.py← 13 chart types, geo_map, 3d_chart
 │   │   └── _adv_dashboard.py
-│   └── data_visual/         ← T3: EDA + dashboards + charts + customization (12 tools)
+│   ├── data_visual/         ← T3: EDA + dashboards + charts + customization (12 tools)
+│   │   ├── server.py
+│   │   ├── engine.py        ← re-exports data_advanced + customize_chart
+│   │   └── _adv_customize.py← post-generate chart editing
+│   └── data_ingest/         ← Ingest: xlsx/ods parsing, multi-table, normalization (10 tools)
 │       ├── server.py
-│       ├── engine.py        ← re-exports data_advanced + customize_chart
-│       └── _adv_customize.py← post-generate chart editing
+│       └── engine.py        ← list_sheets, extract_*, detect_tables, normalize_*, convert_file
 ├── shared/                  ← Ring-2 utilities (no MCP imports)
 │   ├── version_control.py   ← snapshot() / restore() / list_versions()
 │   ├── patch_validator.py   ← validate op arrays before apply
@@ -581,6 +625,7 @@ MCP_Data_Analyst/
     ├── test_workspace_server.py ← 26 tests (context+handover contract)
     ├── test_engine_transform.py ← 32 tests (filter/reshape/aggregate)
     ├── test_engine_statistics.py← 39 tests (regression, stat tests, period comparison)
+    ├── test_engine_ingest.py    ← 93 tests (list/extract/detect/normalize/convert)
     ├── test_shared.py
     ├── verify_tool_docstrings.py← CI gate: all @mcp.tool() docstrings ≤ 80 chars
     └── verify_output_paths.py   ← CI gate: output path priority contract
@@ -594,7 +639,7 @@ MCP_Data_Analyst/
 # Install all dependencies from root (single lockfile)
 uv sync
 
-# Run all 561 tests
+# Run all 654 tests
 uv run pytest tests/ -q --tb=short
 
 # Run in constrained mode
@@ -619,6 +664,7 @@ cd servers/data_workspace && uv sync && uv run python server.py
 cd servers/data_transform && uv sync && uv run python server.py
 cd servers/data_statistics && uv sync && uv run python server.py
 cd servers/data_visual && uv sync && uv run python server.py
+cd servers/data_ingest && uv sync && uv run python server.py
 ```
 
 ## License

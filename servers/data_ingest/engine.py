@@ -13,7 +13,7 @@ if _ROOT not in sys.path:
 import pandas as pd
 
 from shared.file_utils import atomic_write, atomic_write_text, get_default_output_dir, resolve_path
-from shared.platform_utils import get_max_results, get_max_rows
+from shared.platform_utils import get_max_results
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
 from shared.version_control import snapshot
