@@ -1,6 +1,6 @@
 [project]
 name = "mcp-data-analyst"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local-first MCP server for data analytics"
 requires-python = "==3.12.*"
 dependencies = [
@@ -10,6 +10,9 @@ dependencies = [
     "plotly>=5.0",
     "scipy>=1.10",
     "statsmodels>=0.14",
+    "openpyxl>=3.1",
+    "odfpy>=1.4",
+    "pyarrow>=15.0",
 ]
 
 [dependency-groups]
@@ -22,6 +25,7 @@ dev = [
 
 [project.scripts]
 data-analyst-basic = "servers.data_basic.server:main"
+data-analyst-ingest = "servers.data_ingest.server:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -35,7 +39,7 @@ testpaths = ["tests"]
 addopts = "--tb=short"
 
 [tool.coverage.run]
-source = ["shared", "servers/data_basic"]
+source = ["shared", "servers/data_basic", "servers/data_ingest"]
 omit = ["tests/*"]
 
 [tool.ruff]

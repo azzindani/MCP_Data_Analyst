@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [0.2.0] — 2026-04-27
+
+### New: `data_ingest` server — spreadsheet ingestion tier (10 tools)
+
+Adds a dedicated ingestion tier for real-world spreadsheet workflows. Handles
+multi-sheet Excel/ODS files, multiple tables on a single sheet, merged cells,
+header normalization, and file format conversion.
+
+| Tool | Purpose |
+|---|---|
+| `list_sheets` | List all sheets in xlsx/ods with row and col counts |
+| `extract_sheet` | Extract one sheet to CSV; accepts name or 0-based index |
+| `extract_all_sheets` | Batch-extract every sheet to separate CSVs |
+| `detect_tables` | Blank-gap detection — finds separate tables on a single sheet |
+| `extract_table` | Extract one detected table by index to CSV |
+| `normalize_headers` | Strip whitespace, lowercase, deduplicate column names |
+| `trim_empty` | Drop fully-empty leading/trailing rows and columns |
+| `promote_header` | Make row N the header; drop rows above it |
+| `flatten_merged_cells` | Forward-fill merged cell regions in xlsx → CSV |
+| `convert_file` | Convert between xlsx / ods / csv / json / parquet |
+
+**New dependencies:** `openpyxl>=3.1`, `odfpy>=1.4`, `pyarrow>=15.0`
+
+**Tests:** 93 new tests; total 654 passing.
+
+---
+
 ## [0.1.0] — 2026-04-18
 
 ### Initial release

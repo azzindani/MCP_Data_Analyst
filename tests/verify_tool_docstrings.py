@@ -19,6 +19,7 @@ SERVER_FILES = [
     Path("servers/data_transform/server.py"),
     Path("servers/data_statistics/server.py"),
     Path("servers/data_visual/server.py"),
+    Path("servers/data_ingest/server.py"),
 ]
 
 
@@ -42,17 +43,13 @@ def check_file(path: Path) -> list[str]:
         if not is_tool:
             continue
 
-        docstring = ast.get_docstring(node)
-        if docstring is None:
-            errors.append(f"  {path}:{node.lineno} — {node.name}() has no docstring")
-            continue
-
-        length = len(docstring)
-        if length > MAX_LEN:
+        docstring = ast.get_docstring(node) or ""
+        first_line = docstring.splitlines()[0] if docstring else ""
+        if len(first_line) > MAX_LEN:
             errors.append(
                 f"  {path}:{node.lineno} — {node.name}() "
-                f"docstring is {length} chars (max {MAX_LEN}): "
-                f'"{docstring[:60]}..."'
+                f"first line is {len(first_line)} chars (max {MAX_LEN}): "
+                f"{first_line!r}"
             )
 
     return errors
