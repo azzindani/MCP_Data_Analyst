@@ -27,13 +27,20 @@ from shared.project_utils import (
 )
 
 _ROOT = Path(__file__).resolve().parents[2]
-_DATA_BASIC = str(Path(__file__).resolve().parents[1] / "data_basic")
-for _p in (str(_ROOT), _DATA_BASIC):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 try:
-    from engine import apply_patch as _apply_patch  # type: ignore[import-not-found]
+    # Package-qualified, not a bare `from engine import ...` — the unified
+    # Docker deployment runs all 7 sub-servers in ONE process, and every
+    # sub-server's own bootstrap does `from . import engine`, so a bare
+    # `import engine` here would collide with whichever sub-server's engine
+    # module last claimed the generic `engine` key in sys.modules (data_visual,
+    # right before data_workspace in unified_server.py's import order) instead
+    # of data_basic's. That produced a real "data_basic server not available"
+    # failure on every run_workspace_pipeline call in production — found via
+    # remote_smoke_test.sh, invisible in per-process local/pytest use.
+    from servers.data_basic.engine import apply_patch as _apply_patch
 
     _BASIC_ENGINE_OK = True
 except ImportError:

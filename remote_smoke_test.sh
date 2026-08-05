@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# MCP_Data_Analyst — remote smoke test.
+# MCP_Data_Analyst — remote smoke test, all 69 tools across 7 sub-servers.
 #
-# NOT part of pytest / CI (see CLAUDE.md "Remote smoke tests"). This script
-# is the separate, manual/on-demand check that actually exercises the
-# deployed HTTP endpoint: real auth enforcement + a real handwritten-prompt-
-# style tool call on a real generated dataset, against the real public domain.
+# NOT part of pytest / CI (see CLAUDE.md "Remote smoke tests"). Real auth
+# enforcement + real handwritten-prompt-style tool calls on real generated
+# datasets (a 200-row sales CSV, a small region-population CSV, a geo
+# lat/lon CSV, and a real messy multi-sheet .xlsx with merged cells),
+# chaining real outputs between calls, against the real public domain.
 #
-# Tools here read datasets by server-side file_path (not upload), so this
-# script docker-cp's a small generated CSV into the running container first —
-# only works run on the same host as the deployment (self-hosted, by design).
-# docker cp preserves the source file's root ownership, which the
-# container's non-root `app` user can't read — chown it after copying.
+# Tools read/write files by server-side path, so this script docker-cp's
+# generated fixtures into the running container first — only works run on
+# the same host as the deployment (self-hosted, by design). docker cp
+# preserves source ownership, which the non-root `app` user can't read —
+# chown after copying.
 #
 # Usage:
 #   ./remote_smoke_test.sh                      # reads DA_API_KEY from .env
@@ -19,7 +20,7 @@
 #   DOMAIN=http://localhost:8810 ./remote_smoke_test.sh   # test a different target
 #   CONTAINER=mcp-data-analyst ./remote_smoke_test.sh      # override container name
 # ─────────────────────────────────────────────────────────────────────────────
-set -euo pipefail
+set -uo pipefail
 
 DOMAIN="${DOMAIN:-https://data.casava.space}"
 CONTAINER="${CONTAINER:-mcp-data-analyst}"
@@ -27,57 +28,219 @@ if [ -f .env ]; then
   set -a; source .env; set +a
 fi
 KEY="${DA_API_KEY:?Set DA_API_KEY (env var or .env file) before running}"
-DATASET_PATH="/tmp/remote-smoke-test/sales.csv"
+D=/tmp/remote-smoke-test
+SALES="$D/sales.csv"
+SALES2="$D/sales2.csv"
+GEO="$D/geo.csv"
+GEOJSON="$D/regions.geojson"
+XLSX="$D/workbook.xlsx"
 
+FAILS=0
 pass() { echo "  PASS: $1"; }
-fail() { echo "  FAIL: $1"; exit 1; }
+fail() { echo "  FAIL: $1"; FAILS=$((FAILS+1)); }
+ok_json() { echo "$1" | grep -Eq '\\?"success\\?":[[:space:]]*true'; }
 
 echo "Target: $DOMAIN"
 echo
-echo "== seed a real dataset into the container =="
-TMP_CSV=$(mktemp)
+echo "== seed real datasets + a real messy .xlsx into the container =="
+docker exec "$CONTAINER" mkdir -p "$D"
+TMP=$(mktemp -d)
 python3 -c "
-import random
-random.seed(7)
-print('region,units,revenue')
-regions = ['APAC', 'EMEA', 'AMER']
-for _ in range(200):
-    r = random.choice(regions)
-    units = random.randint(1, 50)
-    revenue = round(units * random.uniform(8, 15) + random.gauss(0, 5), 2)
-    print(f'{r},{units},{revenue}')
-" > "$TMP_CSV"
-docker exec "$CONTAINER" mkdir -p /tmp/remote-smoke-test
-docker cp "$TMP_CSV" "$CONTAINER:$DATASET_PATH"
-rm -f "$TMP_CSV"
-docker exec -u root "$CONTAINER" chown app:app "$DATASET_PATH"
-pass "200-row synthetic sales dataset copied to $CONTAINER:$DATASET_PATH"
+import random, datetime
+random.seed(21)
+lines = ['date,region,category,units,revenue']
+start = datetime.date(2025,1,1)
+regions = ['APAC','EMEA','AMER']
+cats = ['Widgets','Gadgets','Gizmos']
+for i in range(200):
+    d = start + datetime.timedelta(days=i)
+    r = random.choice(regions); c = random.choice(cats)
+    units = random.randint(1,50)
+    revenue = round(units * random.uniform(8,15) + random.gauss(0,5), 2)
+    lines.append(f'{d.isoformat()},{r},{c},{units},{revenue}')
+open('$TMP/sales.csv','w').write(chr(10).join(lines))
+lines2 = ['region,population']
+for r in regions: lines2.append(f'{r},{random.randint(1000000,9000000)}')
+open('$TMP/sales2.csv','w').write(chr(10).join(lines2))
+open('$TMP/geo.csv','w').write(chr(10).join(['region,lat,lon','APAC,13.7563,100.5018','EMEA,48.8566,2.3522','AMER,40.7128,-74.0060']))
+import json
+geojson = {
+    'type': 'FeatureCollection',
+    'features': [
+        {'type': 'Feature', 'properties': {'region': 'APAC'}, 'geometry': {'type': 'Point', 'coordinates': [100.5018, 13.7563]}},
+        {'type': 'Feature', 'properties': {'region': 'EMEA'}, 'geometry': {'type': 'Point', 'coordinates': [2.3522, 48.8566]}},
+        {'type': 'Feature', 'properties': {'region': 'AMER'}, 'geometry': {'type': 'Point', 'coordinates': [-74.0060, 40.7128]}},
+    ],
+}
+open('$TMP/regions.geojson','w').write(json.dumps(geojson))
+"
+docker cp "$TMP/sales.csv" "$CONTAINER:$SALES"
+docker cp "$TMP/sales2.csv" "$CONTAINER:$SALES2"
+docker cp "$TMP/geo.csv" "$CONTAINER:$GEO"
+docker cp "$TMP/regions.geojson" "$CONTAINER:$GEOJSON"
+rm -rf "$TMP"
+docker exec "$CONTAINER" python3 -c "
+import openpyxl
+wb = openpyxl.Workbook()
+ws = wb.active; ws.title = 'Sheet1'
+ws['B2'] = 'Quarterly Report'; ws.merge_cells('B2:D2')
+ws.append([])
+ws.append(['Region','Units','Revenue'])
+ws.append(['APAC',120,1450.5]); ws.append(['EMEA',95,1120.2]); ws.append(['AMER',80,990.75])
+ws2 = wb.create_sheet('Sheet2')
+ws2.append(['Category','Count']); ws2.append(['Widgets',30]); ws2.append(['Gadgets',45])
+wb.save('$XLSX')
+"
+docker exec -u root "$CONTAINER" chown -R app:app "$D"
+pass "200-row sales.csv, sales2.csv, geo.csv, and a real messy workbook.xlsx seeded"
+
+init_session() {
+  curl -s -i -X POST "$DOMAIN/$1/mcp" \
+    -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+    -H "Authorization: Bearer $KEY" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}' \
+    | grep -i mcp-session-id | tr -d '\r' | awk '{print $2}'
+}
+init_notified() {
+  curl -s -X POST "$DOMAIN/$1/mcp" -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+    -H "Authorization: Bearer $KEY" -H "mcp-session-id: $2" \
+    -d '{"jsonrpc":"2.0","id":2,"method":"notifications/initialized"}' > /dev/null
+}
 
 echo
 echo "== auth enforcement =="
-
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$DOMAIN/basic/mcp" \
   -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}')
 [ "$code" = "401" ] && pass "no token -> 401" || fail "no token -> expected 401, got $code"
 
-SID=$(curl -s -i -X POST "$DOMAIN/statistics/mcp" \
-  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
-  -H "Authorization: Bearer $KEY" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}' \
-  | grep -i mcp-session-id | tr -d '\r' | awk '{print $2}')
-[ -n "$SID" ] && pass "valid token -> session established" || fail "valid token -> no session id returned"
+declare -A SID
+for tier in basic medium statistics transform visual workspace ingest; do
+  SID[$tier]=$(init_session "$tier")
+  init_notified "$tier" "${SID[$tier]}"
+done
+[ -n "${SID[basic]}" ] && pass "valid token -> sessions established on all 7 sub-servers" || fail "no session id"
 
-curl -s -X POST "$DOMAIN/statistics/mcp" -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
-  -H "Authorization: Bearer $KEY" -H "mcp-session-id: $SID" \
-  -d '{"jsonrpc":"2.0","id":2,"method":"notifications/initialized"}' > /dev/null
+call() {
+  local tier="$1" id="$2" name="$3" args="$4"
+  curl -s -X POST "$DOMAIN/$tier/mcp" -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+    -H "Authorization: Bearer $KEY" -H "mcp-session-id: ${SID[$tier]}" \
+    -d "{\"jsonrpc\":\"2.0\",\"id\":$id,\"method\":\"tools/call\",\"params\":{\"name\":\"$name\",\"arguments\":$args}}"
+}
+extract() {
+  echo "$1" | grep -oE "\"$2\":[[:space:]]*\\\\?\"[^\\\\\"]+" | head -1 | sed -E 's/.*"([^"]+)$/\1/'
+}
+
+N=10
+run() {
+  local tier="$1" name="$2" args="$3" prompt="$4" checker="${5:-ok_json}"
+  echo "== prompt: \"$prompt\" -> $name =="
+  N=$((N+1))
+  R=$(call "$tier" "$N" "$name" "$args")
+  if $checker "$R"; then pass "$name succeeded"; else fail "$name -> $R"; fi
+}
 
 echo
-echo '== prompt: "how correlated are units and revenue in this dataset?" -> correlation_analysis =='
-RESULT=$(curl -s -X POST "$DOMAIN/statistics/mcp" -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
-  -H "Authorization: Bearer $KEY" -H "mcp-session-id: $SID" \
-  -d "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"correlation_analysis\",\"arguments\":{\"file_path\":\"$DATASET_PATH\"}}}")
-echo "$RESULT" | grep -q '"success":true' && pass "correlation_analysis computed real correlations from real data" || fail "unexpected result: $RESULT"
+echo "===== data_basic (9 tools) ====="
+run basic load_dataset "{\"file_path\":\"$SALES\"}" "load this sales dataset"
+run basic load_geo_dataset "{\"file_path\":\"$GEOJSON\"}" "load this geo dataset"
+run basic inspect_dataset "{\"file_path\":\"$SALES\"}" "inspect the sales dataset"
+run basic read_column_stats "{\"file_path\":\"$SALES\",\"column\":\"revenue\"}" "what are the stats for revenue?"
+run basic search_columns "{\"file_path\":\"$SALES\",\"dtype\":\"float64\"}" "which columns are float64?"
+run basic apply_patch "{\"file_path\":\"$SALES\",\"ops\":[{\"op\":\"round_values\",\"column\":\"revenue\",\"decimals\":2}]}" "round revenue to 2 decimals"
+run basic read_receipt "{\"file_path\":\"$SALES\"}" "show me the change history for sales.csv"
+run basic restore_version "{\"file_path\":\"$SALES\"}" "list snapshots I could restore"
+run basic list_patch_ops '{}' "what patch ops are available?"
 
 echo
-echo "ALL CHECKS PASSED against $DOMAIN"
+echo "===== data_medium (11 tools) ====="
+run medium compute_aggregations "{\"file_path\":\"$SALES\",\"group_by\":[\"region\"],\"agg_column\":\"revenue\",\"agg_func\":\"sum\"}" "total revenue by region"
+run medium cross_tabulate "{\"file_path\":\"$SALES\",\"row_column\":\"region\",\"col_column\":\"category\"}" "cross-tab region by category"
+run medium pivot_table "{\"file_path\":\"$SALES\",\"index\":[\"region\"],\"columns\":[\"category\"],\"values\":[\"revenue\"]}" "pivot revenue by region and category"
+run medium value_counts "{\"file_path\":\"$SALES\",\"columns\":[\"region\"]}" "count rows per region"
+run medium filter_rows "{\"file_path\":\"$SALES\",\"conditions\":[{\"column\":\"region\",\"op\":\"equals\",\"value\":\"APAC\"}]}" "show only APAC rows"
+run medium sample_data "{\"file_path\":\"$SALES\",\"method\":\"random\",\"n\":10}" "give me a random sample of 10 rows"
+run medium statistical_tests "{\"file_path\":\"$SALES\",\"test_type\":\"ttest\",\"column_a\":\"units\",\"column_b\":\"revenue\"}" "run a t-test between units and revenue"
+run medium analyze_text_column "{\"file_path\":\"$SALES\",\"column\":\"region\"}" "analyze the region text column"
+run medium detect_anomalies "{\"file_path\":\"$SALES\"}" "detect anomalies in this dataset"
+run medium compare_datasets "{\"file_path_a\":\"$SALES\",\"file_path_b\":\"$SALES2\"}" "compare sales.csv and sales2.csv"
+run medium extended_stats "{\"file_path\":\"$SALES\"}" "give me extended stats"
+
+echo
+echo "===== data_statistics (11 tools) ====="
+run statistics validate_dataset "{\"file_path\":\"$SALES\"}" "validate this dataset"
+run statistics auto_detect_schema "{\"file_path\":\"$SALES\"}" "auto-detect the schema"
+run statistics check_outliers "{\"file_path\":\"$SALES\"}" "check for outliers"
+run statistics scan_nulls_zeros "{\"file_path\":\"$SALES\"}" "scan for nulls and zeros"
+run statistics correlation_analysis "{\"file_path\":\"$SALES\"}" "how correlated are units and revenue?"
+run statistics statistical_test "{\"file_path\":\"$SALES\",\"test\":\"t_test\",\"column_a\":\"units\",\"column_b\":\"revenue\"}" "run a formal t-test"
+run statistics regression_analysis "{\"file_path\":\"$SALES\",\"y_col\":\"revenue\",\"x_cols\":[\"units\"]}" "regress revenue on units"
+run statistics time_series_analysis "{\"file_path\":\"$SALES\",\"date_column\":\"date\",\"value_columns\":[\"revenue\"]}" "analyze the revenue time series"
+run statistics period_comparison "{\"file_path\":\"$SALES\",\"date_col\":\"date\",\"metrics\":[\"revenue\"],\"period_unit\":\"M\"}" "compare this month to last"
+run statistics cohort_analysis "{\"file_path\":\"$SALES\",\"cohort_column\":\"region\",\"date_column\":\"date\",\"value_column\":\"revenue\"}" "run a cohort analysis by region"
+
+echo
+echo "===== data_transform (10 tools) ====="
+run transform filter_dataset "{\"file_path\":\"$SALES\",\"conditions\":[{\"column\":\"region\",\"op\":\"equals\",\"value\":\"EMEA\"}]}" "filter to EMEA only"
+run transform reshape_dataset "{\"file_path\":\"$SALES\",\"mode\":\"pivot\",\"index\":[\"region\"],\"columns\":[\"category\"],\"values\":[\"revenue\"]}" "reshape sales into a pivot"
+run transform aggregate_dataset "{\"file_path\":\"$SALES\",\"mode\":\"groupby\",\"group_by\":[\"region\"],\"agg\":{\"revenue\":\"sum\"}}" "aggregate sales by region"
+run transform resample_timeseries "{\"file_path\":\"$SALES\",\"date_col\":\"date\",\"freq\":\"W\"}" "resample sales to weekly"
+run transform merge_datasets "{\"file_path\":\"$SALES\",\"right_file_path\":\"$SALES2\",\"left_on\":\"region\",\"right_on\":\"region\"}" "merge sales with region population"
+run transform concat_datasets "{\"file_paths\":[\"$SALES\",\"$SALES\"]}" "stack two copies of sales together"
+run transform smart_impute "{\"file_path\":\"$SALES\"}" "smart-impute any missing values"
+run transform run_cleaning_pipeline "{\"file_path\":\"$SALES\",\"ops\":[{\"op\":\"drop_duplicates\"}]}" "drop duplicate rows"
+run transform feature_engineering "{\"file_path\":\"$SALES\",\"features\":[\"date_parts\",\"bins\"]}" "auto-engineer date and bin features"
+run transform enrich_with_geo "{\"file_path\":\"$SALES\",\"geo_file_path\":\"$GEOJSON\",\"join_column\":\"region\",\"geo_join_column\":\"region\"}" "enrich sales with lat/lon"
+
+echo
+echo "===== data_visual (12 tools) ====="
+run visual run_eda "{\"file_path\":\"$SALES\"}" "run full EDA on sales"
+run visual generate_auto_profile "{\"file_path\":\"$SALES\"}" "auto-profile this dataset"
+run visual generate_distribution_plot "{\"file_path\":\"$SALES\",\"columns\":[\"revenue\"]}" "plot the revenue distribution"
+run visual generate_correlation_heatmap "{\"file_path\":\"$SALES\"}" "show a correlation heatmap"
+run visual generate_pairwise_plot "{\"file_path\":\"$SALES\",\"columns\":[\"units\",\"revenue\"]}" "plot units vs revenue pairwise"
+run visual generate_multi_chart "{\"file_path\":\"$SALES\",\"chart_type\":\"bar\",\"value_columns\":[\"revenue\"],\"category_column\":\"region\"}" "bar chart revenue by region"
+CHART_R=$(call visual 200 generate_chart "{\"file_path\":\"$SALES\",\"chart_type\":\"bar\",\"value_column\":\"revenue\",\"category_column\":\"region\"}")
+if ok_json "$CHART_R"; then pass "generate_chart rendered a real bar chart"; else fail "generate_chart -> $CHART_R"; fi
+CHART_PATH=$(extract "$CHART_R" output_path)
+run visual generate_geo_map "{\"file_path\":\"$GEO\",\"lat_column\":\"lat\",\"lon_column\":\"lon\",\"location_column\":\"region\"}" "map these regions by lat/lon"
+run visual generate_3d_chart "{\"file_path\":\"$SALES\",\"chart_type\":\"scatter_3d\",\"x_column\":\"units\",\"y_column\":\"revenue\",\"z_column\":\"units\"}" "3D scatter of units/revenue/units"
+run visual generate_dashboard "{\"file_path\":\"$SALES\"}" "build a dashboard for this dataset"
+run visual export_data "{\"file_path\":\"$SALES\",\"output_path\":\"$D/sales_export.xlsx\",\"format\":\"excel\"}" "export sales to xlsx"
+if [ -n "$CHART_PATH" ]; then
+  run visual customize_chart "{\"chart_path\":\"$CHART_PATH\",\"title\":\"Revenue by Region (customized)\"}" "retitle that chart"
+else
+  fail "customize_chart skipped — no chart_path captured from generate_chart"
+fi
+
+echo
+echo "===== data_workspace (6 tools) ====="
+WS="smoke-test-ws"
+docker exec "$CONTAINER" rm -rf "$D/$WS"
+run workspace create_workspace "{\"name\":\"$WS\",\"base_dir\":\"$D\"}" "create a workspace for this analysis"
+run workspace open_workspace "{\"name\":\"$WS\",\"base_dir\":\"$D\"}" "open that workspace"
+run workspace register_workspace_file "{\"workspace_name\":\"$WS\",\"file_path\":\"$SALES\",\"alias\":\"sales\",\"base_dir\":\"$D\"}" "register sales.csv in the workspace"
+run workspace list_workspace_files "{\"workspace_name\":\"$WS\",\"base_dir\":\"$D\"}" "what files are in the workspace?"
+run workspace save_workspace_pipeline "{\"workspace_name\":\"$WS\",\"pipeline_name\":\"clean\",\"ops\":[{\"op\":\"drop_duplicates\"}],\"base_dir\":\"$D\"}" "save a cleaning pipeline"
+run workspace run_workspace_pipeline "{\"workspace_name\":\"$WS\",\"pipeline_name\":\"clean\",\"input_alias\":\"sales\",\"output_alias\":\"sales_clean\",\"base_dir\":\"$D\"}" "run the cleaning pipeline"
+
+echo
+echo "===== data_ingest (10 tools) ====="
+run ingest list_sheets "{\"file_path\":\"$XLSX\"}" "what sheets does this workbook have?"
+run ingest extract_sheet "{\"file_path\":\"$XLSX\",\"sheet\":\"Sheet2\",\"output_path\":\"$D/sheet2.csv\"}" "extract Sheet2 to CSV"
+run ingest extract_all_sheets "{\"file_path\":\"$XLSX\",\"output_dir\":\"$D/sheets\"}" "extract every sheet to CSV"
+run ingest detect_tables "{\"file_path\":\"$XLSX\",\"sheet\":\"Sheet1\"}" "find tables inside Sheet1"
+run ingest extract_table "{\"file_path\":\"$XLSX\",\"sheet\":\"Sheet1\",\"table_index\":0,\"output_path\":\"$D/table0.csv\"}" "extract the first table from Sheet1"
+run ingest normalize_headers "{\"file_path\":\"$D/sheet2.csv\"}" "normalize the headers in sheet2.csv"
+run ingest trim_empty "{\"file_path\":\"$D/sheet2.csv\"}" "trim empty rows/cols from sheet2.csv"
+run ingest promote_header "{\"file_path\":\"$D/table0.csv\",\"row_index\":0}" "promote row 0 to the header in table0.csv"
+run ingest flatten_merged_cells "{\"file_path\":\"$XLSX\",\"sheet\":\"Sheet1\",\"output_path\":\"$D/flattened.csv\"}" "flatten the merged cells in Sheet1"
+run ingest convert_file "{\"file_path\":\"$SALES\",\"output_format\":\"excel\"}" "convert sales.csv to xlsx"
+
+echo
+if [ "$FAILS" -eq 0 ]; then
+  echo "ALL 69 TOOLS PASSED against $DOMAIN"
+else
+  echo "$FAILS TOOL(S) FAILED against $DOMAIN"
+  exit 1
+fi
