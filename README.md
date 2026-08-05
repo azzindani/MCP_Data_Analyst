@@ -624,6 +624,24 @@ Not for production: Quick Tunnels are unauthenticated at the transport layer.
 Set `DA_API_KEY` or `DA_TOKENS_FILE` before tunneling so `/<name>/mcp` still
 requires a bearer token even while it's publicly reachable.
 
+### Remote smoke test (`remote_smoke_test.sh`)
+
+Not part of pytest/CI — the separate, manual/on-demand check that exercises
+the real deployed HTTP endpoint: auth enforcement plus a real
+handwritten-prompt-style call for **all 69 tools** across all 7 sub-servers
+(basic, medium, statistics, transform, visual, workspace, ingest), against
+real generated fixtures (a 200-row sales CSV, a region-population CSV, a real
+GeoJSON, and a real messy multi-sheet `.xlsx` with merged cells), chaining
+real outputs between calls. This is what caught the cross-sub-server
+`sys.modules` collision breaking `run_workspace_pipeline` in the unified
+Docker deployment.
+
+```bash
+./remote_smoke_test.sh                      # reads DA_API_KEY from .env, targets data.casava.space
+DOMAIN=http://localhost:8810 ./remote_smoke_test.sh   # test a different target
+CONTAINER=mcp-data-analyst ./remote_smoke_test.sh      # override container name
+```
+
 ## Uninstall
 
 **Step 1:** Remove from LM Studio
