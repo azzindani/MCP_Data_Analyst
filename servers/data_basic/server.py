@@ -2,19 +2,44 @@
 
 from __future__ import annotations
 
+import argparse
 import logging
+import os
 import sys
+from pathlib import Path
 
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
+_root = str(Path(__file__).resolve().parents[2])
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+
 from fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+from shared.deploy_auth import build_token_verifier
 
 try:
     from . import engine
 except ImportError:
     import engine
 
-mcp = FastMCP("data_basic")
+_VERSION = "0.2.0"  # keep in sync with pyproject.toml [project].version
+
+mcp = FastMCP("data_basic", auth=build_token_verifier("DA"))
+
+
+@mcp.custom_route("/health", methods=["GET"])
+async def health(request: Request) -> JSONResponse:
+    """Liveness check. Unauthenticated."""
+    return JSONResponse({"status": "ok", "version": _VERSION})
+
+
+@mcp.custom_route("/version", methods=["GET"])
+async def version(request: Request) -> JSONResponse:
+    """Report running version. Unauthenticated."""
+    return JSONResponse({"current": _VERSION})
 
 
 @mcp.tool()
@@ -104,7 +129,16 @@ def list_patch_ops(category: str = "") -> dict:
 
 
 def main() -> None:
-    mcp.run()
+    parser = argparse.ArgumentParser(description="data_basic MCP Server")
+    parser.add_argument("--transport", choices=["stdio", "http"], default=os.environ.get("DA_BASIC_TRANSPORT", "stdio"))
+    parser.add_argument("--host", default=os.environ.get("DA_BASIC_HOST", "127.0.0.1"))
+    parser.add_argument("--port", type=int, default=int(os.environ.get("DA_BASIC_PORT", "8810")))
+    args = parser.parse_args()
+
+    if args.transport == "http":
+        mcp.run(transport="http", host=args.host, port=args.port)
+    else:
+        mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":
