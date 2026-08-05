@@ -15,6 +15,16 @@ small set of deterministic tools — without ever sending data to a cloud API.
 The reference workflow is captured in `Data_Analytic_Lookup.ipynb`. Every tool
 in this server is the MCP-callable equivalent of a cell in that notebook.
 
+**Deployment scope:** local-first is the default and the computation itself
+always runs on local CPU with no cloud dependency. On top of that, this
+server can also run in HTTP mode, self-hosted behind a reverse proxy, so it
+can be connected as a remote endpoint by AI platforms and harnesses (Claude
+Desktop, claude.ai remote MCP, other MCP clients) rather than only as a local
+stdio process — see "Transport and Deployment" below. Remote mode is opt-in,
+bearer-token authenticated, and still runs on infrastructure you control.
+This is one of six sibling `MCP_*` repos brought to this same deployment
+model.
+
 ---
 
 ## What This Is (and Is Not)
@@ -363,6 +373,55 @@ Configure in `server.py`:
 import sys, logging
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 ```
+
+---
+
+## Transport and Deployment (STANDARDS.md §30, §31)
+
+Each of the 7 sub-servers (`data_basic`, `data_medium`, `data_statistics`,
+`data_transform`, `data_visual`, `data_workspace`, `data_ingest`) still
+supports `--transport {stdio,http}` via its own `server.py::main()` for
+local/individual use (LM Studio "add one sub-server" installs) — that
+per-sub-server code is unchanged.
+
+For Docker/remote deployment — connecting this server to AI platforms and
+harnesses as a hosted endpoint, not just a local stdio process —
+`unified_server.py` (repo root) combines all 7 sub-servers into **one
+process on one port**: each sub-server's `FastMCP` instance is mounted at
+its own path (`/basic`, `/medium`, `/statistics`, `/transform`, `/visual`,
+`/workspace`, `/ingest`) inside one Starlette app via `http_app()` +
+`Mount()`, with each sub-server's session-manager lifespan explicitly
+entered through `contextlib.AsyncExitStack` (Starlette's `Mount()` does not
+auto-propagate lifespan events to sub-apps). This exists specifically to cut
+idle RAM: pandas/numpy/scipy/duckdb previously loaded seven times (~1.1 GiB
+combined) now load once (~300 MiB total).
+
+Bearer auth (`shared/deploy_auth.py`, `build_token_verifier("DA")`) is shared
+across all 7 sub-servers — one token set governs the whole repo:
+
+- `DA_TOKENS_FILE` (named tokens, JSON `{name: token}`) — highest priority
+- `DA_TOKENS` (inline `"name:token,name2:token2"`)
+- `DA_API_KEY` (single shared token)
+- unset = open mode (no auth) — localhost/private-network use only, never for
+  a publicly reachable deployment
+
+The production deployment runs `DA_API_KEY` set from a local `.env` file
+(gitignored, never committed) behind a reverse proxy; a request without a
+valid `Authorization: Bearer <token>` header is rejected with `401` before it
+reaches any tool.
+
+`Dockerfile` + `docker-compose.yml` build one image and run **one container**
+(`unified_server.py`, `DA_HOST`/`DA_PORT`, default port `8810`).
+
+### Remote smoke tests (not part of pytest / CI)
+
+Testing Standards below stays offline-only per STANDARDS.md — never spins up
+an MCP process, never touches the network. Verifying the deployed HTTP
+endpoint (auth enforcement, real tool calls against the real public domain,
+using real generated datasets) is a separate, manual/on-demand check —
+hand-authored `curl` sessions or a `remote_smoke_test.sh`, run after `docker
+compose up`, never wired into CI, never storing the live API key in the
+repo.
 
 ---
 
