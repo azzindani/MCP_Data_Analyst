@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
 # MCP_Data_Analyst — remote run + tunnel (Google Colab / any fresh Linux VM,
-# no Docker needed). Starts each sub-server directly (uv run) and opens one
-# Cloudflare Quick Tunnel per sub-server — same idea as azzindani/Folio's
-# launch.sh, and this repo's own launch_tunnel.sh (which does the same thing
-# via Docker). Use this one when Docker isn't available.
+# no Docker needed). Starts unified_server.py directly (uv run) — one
+# process serving all 7 sub-servers as separate MCP endpoints (/basic/mcp,
+# /medium/mcp, ...) — and opens a single Cloudflare Quick Tunnel to it.
+# Same idea as azzindani/Folio's launch.sh, and this repo's own
+# launch_tunnel.sh (which does the same thing via Docker). Use this one
+# when Docker isn't available.
 #
 # Usage:
 #   REPO_DIR=/content/MCP_Data_Analyst ./remote_launch.sh
@@ -17,27 +19,14 @@
 set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/content/MCP_Data_Analyst}"
+PORT="${DA_PORT:-8810}"
 LOG_DIR="/tmp/da-remote"
 mkdir -p "$LOG_DIR"
-
-# name:port:server_path triples — one per sub-server.
-SERVERS=(
-  "basic:8810:servers/data_basic/server.py"
-  "medium:8811:servers/data_medium/server.py"
-  "statistics:8812:servers/data_statistics/server.py"
-  "transform:8813:servers/data_transform/server.py"
-  "visual:8814:servers/data_visual/server.py"
-  "workspace:8815:servers/data_workspace/server.py"
-  "ingest:8816:servers/data_ingest/server.py"
-)
+SUB_SERVERS=(basic medium statistics transform visual workspace ingest)
 
 if [ "${1:-}" = "stop" ]; then
-  pkill -f "cloudflared tunnel --url http://localhost" 2>/dev/null || true
-  for entry in "${SERVERS[@]}"; do
-    path="${entry##*:}"
-    pkill -f "python $path" 2>/dev/null || true
-  done
-  echo "stopped"
+  pkill -f "cloudflared tunnel --url http://localhost:${PORT}" 2>/dev/null && echo "tunnel stopped" || echo "no tunnel running"
+  pkill -f "python unified_server.py" 2>/dev/null && echo "server stopped" || echo "no server running"
   exit 0
 fi
 
@@ -48,62 +37,39 @@ if ! command -v cloudflared &>/dev/null; then
 fi
 export PATH="${HOME}/.local/bin:${PATH}"
 
-pkill -f "cloudflared tunnel --url http://localhost" 2>/dev/null || true
-for entry in "${SERVERS[@]}"; do
-  path="${entry##*:}"
-  pkill -f "python $path" 2>/dev/null || true
-done
+pkill -f "cloudflared tunnel --url http://localhost:${PORT}" 2>/dev/null || true
+pkill -f "python unified_server.py" 2>/dev/null || true
 sleep 1
 
 cd "$REPO_DIR"
-echo "[remote_launch] starting sub-servers..."
-for entry in "${SERVERS[@]}"; do
-  name="${entry%%:*}"
-  rest="${entry#*:}"
-  port="${rest%%:*}"
-  path="${rest#*:}"
-  nohup uv run python "$path" --transport http --host 0.0.0.0 --port "$port" > "$LOG_DIR/${name}.server.log" 2>&1 &
+echo "[remote_launch] starting all 7 sub-servers (one process) on :${PORT}..."
+nohup uv run python unified_server.py --host 0.0.0.0 --port "$PORT" > "$LOG_DIR/server.log" 2>&1 &
+
+for i in $(seq 1 30); do
+  curl -fsS "http://localhost:${PORT}/health" >/dev/null 2>&1 && break
+  sleep 1
 done
 
-echo "[remote_launch] waiting for sub-servers to come up..."
-for entry in "${SERVERS[@]}"; do
-  rest="${entry#*:}"
-  port="${rest%%:*}"
-  for i in $(seq 1 30); do
-    curl -fsS "http://localhost:${port}/health" >/dev/null 2>&1 && break
-    sleep 1
+echo "[remote_launch] starting cloudflared quick tunnel..."
+: > "$LOG_DIR/tunnel.log"
+nohup cloudflared tunnel --url "http://localhost:${PORT}" > "$LOG_DIR/tunnel.log" 2>&1 &
+
+URL=""
+for i in $(seq 1 30); do
+  URL=$(grep -oP 'https://[a-z0-9\-]+\.trycloudflare\.com' "$LOG_DIR/tunnel.log" 2>/dev/null | head -1 || true)
+  [ -n "$URL" ] && break
+  sleep 1
+done
+
+if [ -n "$URL" ]; then
+  echo ""
+  for sub in "${SUB_SERVERS[@]}"; do
+    echo "  ${sub}  -> $URL/${sub}/mcp"
   done
-done
+  echo ""
+else
+  echo "Tunnel URL not found — check $LOG_DIR/tunnel.log"
+  tail -20 "$LOG_DIR/tunnel.log"
+fi
 
-echo "[remote_launch] starting cloudflared quick tunnels..."
-for entry in "${SERVERS[@]}"; do
-  name="${entry%%:*}"
-  rest="${entry#*:}"
-  port="${rest%%:*}"
-  log="$LOG_DIR/${name}.tunnel.log"
-  : > "$log"
-  nohup cloudflared tunnel --url "http://localhost:${port}" > "$log" 2>&1 &
-done
-
-echo "[remote_launch] waiting up to 30s per tunnel for a public URL..."
-declare -A URLS
-for entry in "${SERVERS[@]}"; do
-  name="${entry%%:*}"
-  log="$LOG_DIR/${name}.tunnel.log"
-  url=""
-  for i in $(seq 1 30); do
-    url=$(grep -oP 'https://[a-z0-9\-]+\.trycloudflare\.com' "$log" 2>/dev/null | head -1 || true)
-    [ -n "$url" ] && break
-    sleep 1
-  done
-  URLS[$name]="${url:-<not found, check $log>}"
-done
-
-echo ""
-echo "  remote endpoints:"
-for entry in "${SERVERS[@]}"; do
-  name="${entry%%:*}"
-  echo "    ${name}  ->  ${URLS[$name]}/mcp"
-done
-echo ""
 echo "  stop:  ./remote_launch.sh stop"

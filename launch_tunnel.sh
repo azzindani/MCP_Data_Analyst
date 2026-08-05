@@ -2,10 +2,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # MCP_Data_Analyst — remote testing protocol (Cloudflare Quick Tunnel).
 #
-# Brings the local Docker deployment up and exposes each sub-server through
-# an ephemeral *.trycloudflare.com URL — no account, no DNS, no config.
-# Same pattern as azzindani/Folio's launch.sh, adapted for a docker-compose
-# stack with N services instead of a single process.
+# Brings the local Docker deployment up and exposes it through an ephemeral
+# *.trycloudflare.com URL — no account, no DNS, no config. Same pattern as
+# azzindani/Folio's launch.sh. One process serves all 7 sub-servers as
+# separate MCP endpoints under one port — /basic/mcp, /medium/mcp, etc.
 #
 # This makes the server reachable by ANY MCP-compatible harness or AI
 # platform (Claude, ChatGPT custom connectors, LM Studio, etc.) without
@@ -24,15 +24,9 @@ set -euo pipefail
 
 # name:host_port pairs — one per sub-server. Edit for this repo's services.
 PORTS=(
-  "data-basic:8810"
-  "data-medium:8811"
-  "data-statistics:8812"
-  "data-transform:8813"
-  "data-visual:8814"
-  "data-workspace:8815"
-  "data-ingest:8816"
-
+  "data-analyst:8810"
 )
+SUB_SERVERS=(basic medium statistics transform visual workspace ingest)
 
 LOG_DIR="/tmp/da-tunnels"
 mkdir -p "$LOG_DIR"
@@ -92,16 +86,15 @@ done
 
 echo ""
 echo "  remote endpoints:"
-for entry in "${PORTS[@]}"; do
-  name="${entry%%:*}"
-  port="${entry##*:}"
-  echo "    ${name} (:${port})  ->  ${URLS[$name]}/mcp"
+url="${URLS[data-analyst]}"
+for sub in "${SUB_SERVERS[@]}"; do
+  echo "    ${sub}  ->  ${url}/${sub}/mcp"
 done
 echo ""
 echo "  health checks:"
-for entry in "${PORTS[@]}"; do
-  name="${entry%%:*}"
-  echo "    ${URLS[$name]}/health"
+echo "    ${url}/health   (aggregate)"
+for sub in "${SUB_SERVERS[@]}"; do
+  echo "    ${url}/${sub}/health"
 done
 echo ""
 echo "  stop tunnels:  ./launch_tunnel.sh stop"

@@ -1,147 +1,42 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # mcp-data-analyst — local & VPS-friendly compose stack.
 #
-# One image (see Dockerfile), one service per active sub-server, selected via
-# SERVER_MODULE. data_advanced (retired, zero tools) and data_project
-# (redirect alias of data_workspace) are intentionally not deployed here.
-# All services share one bearer-auth token set (DA_TOKENS_FILE / DA_TOKENS /
-# DA_API_KEY) since they're one logical deployment unit.
+# One image, ONE container: unified_server.py mounts all 7 active
+# sub-servers as separate MCP endpoints on one port, so pandas/numpy/scipy/
+# matplotlib load once instead of seven times. data_advanced (retired, zero
+# tools) and data_project (redirect alias of data_workspace) are
+# intentionally not deployed. All 7 share one bearer-auth token set
+# (DA_TOKENS_FILE / DA_TOKENS / DA_API_KEY) since they're one logical
+# deployment unit.
 #
 # Quick start (open mode, no auth — localhost/private network only):
 #   docker compose up -d --build
-#   curl http://localhost:8810/health   # data_basic
+#   curl http://localhost:8810/health            # aggregate
+#   curl http://localhost:8810/basic/health       # per sub-server
 #
 # With auth: cp tokens.example.json tokens.json && docker compose up -d --build
 # ─────────────────────────────────────────────────────────────────────────────
-x-da-common: &da-common
-  build:
-    context: .
-  image: ${DA_IMAGE:-mcp-data-analyst:latest}
-  restart: unless-stopped
-  environment: &da-common-env
-    DA_TOKENS_FILE: ${DA_TOKENS_FILE:-}
-    DA_TOKENS: ${DA_TOKENS:-}
-    DA_API_KEY: ${DA_API_KEY:-}
-    MCP_CONSTRAINED_MODE: ${MCP_CONSTRAINED_MODE:-0}
-  mem_limit: ${DA_MEM_LIMIT:-2g}
-  volumes:
-    - ./tokens.json:/home/app/tokens.json:ro
-
 services:
-  data-basic:
-    <<: *da-common
-    container_name: mcp-data-basic
-    ports: ["${DA_BASIC_HOST_PORT:-8810}:8810"]
+  data-analyst:
+    build:
+      context: .
+    image: ${DA_IMAGE:-mcp-data-analyst:latest}
+    container_name: mcp-data-analyst
+    restart: unless-stopped
+    ports:
+      - "${DA_HOST_PORT:-8810}:8810"
     environment:
-      <<: *da-common-env
-      SERVER_MODULE: servers/data_basic/server.py
-      DA_BASIC_TRANSPORT: http
-      DA_BASIC_HOST: 0.0.0.0
-      DA_BASIC_PORT: 8810
+      DA_HOST: 0.0.0.0
+      DA_PORT: 8810
+      DA_TOKENS_FILE: ${DA_TOKENS_FILE:-}
+      DA_TOKENS: ${DA_TOKENS:-}
+      DA_API_KEY: ${DA_API_KEY:-}
+      MCP_CONSTRAINED_MODE: ${MCP_CONSTRAINED_MODE:-0}
+    mem_limit: ${DA_MEM_LIMIT:-1g}
+    volumes:
+      - ./tokens.json:/home/app/tokens.json:ro
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ['DA_BASIC_PORT']+'/health',timeout=3)\""]
-      interval: 30s
-      timeout: 5s
-      start_period: 10s
-      retries: 3
-
-  data-medium:
-    <<: *da-common
-    container_name: mcp-data-medium
-    ports: ["${DA_MEDIUM_HOST_PORT:-8811}:8811"]
-    environment:
-      <<: *da-common-env
-      SERVER_MODULE: servers/data_medium/server.py
-      DA_MEDIUM_TRANSPORT: http
-      DA_MEDIUM_HOST: 0.0.0.0
-      DA_MEDIUM_PORT: 8811
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ['DA_MEDIUM_PORT']+'/health',timeout=3)\""]
-      interval: 30s
-      timeout: 5s
-      start_period: 10s
-      retries: 3
-
-  data-statistics:
-    <<: *da-common
-    container_name: mcp-data-statistics
-    ports: ["${DA_STATISTICS_HOST_PORT:-8812}:8812"]
-    environment:
-      <<: *da-common-env
-      SERVER_MODULE: servers/data_statistics/server.py
-      DA_STATISTICS_TRANSPORT: http
-      DA_STATISTICS_HOST: 0.0.0.0
-      DA_STATISTICS_PORT: 8812
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ['DA_STATISTICS_PORT']+'/health',timeout=3)\""]
-      interval: 30s
-      timeout: 5s
-      start_period: 10s
-      retries: 3
-
-  data-transform:
-    <<: *da-common
-    container_name: mcp-data-transform
-    ports: ["${DA_TRANSFORM_HOST_PORT:-8813}:8813"]
-    environment:
-      <<: *da-common-env
-      SERVER_MODULE: servers/data_transform/server.py
-      DA_TRANSFORM_TRANSPORT: http
-      DA_TRANSFORM_HOST: 0.0.0.0
-      DA_TRANSFORM_PORT: 8813
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ['DA_TRANSFORM_PORT']+'/health',timeout=3)\""]
-      interval: 30s
-      timeout: 5s
-      start_period: 10s
-      retries: 3
-
-  data-visual:
-    <<: *da-common
-    container_name: mcp-data-visual
-    ports: ["${DA_VISUAL_HOST_PORT:-8814}:8814"]
-    environment:
-      <<: *da-common-env
-      SERVER_MODULE: servers/data_visual/server.py
-      DA_VISUAL_TRANSPORT: http
-      DA_VISUAL_HOST: 0.0.0.0
-      DA_VISUAL_PORT: 8814
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ['DA_VISUAL_PORT']+'/health',timeout=3)\""]
-      interval: 30s
-      timeout: 5s
-      start_period: 10s
-      retries: 3
-
-  data-workspace:
-    <<: *da-common
-    container_name: mcp-data-workspace
-    ports: ["${DA_WORKSPACE_HOST_PORT:-8815}:8815"]
-    environment:
-      <<: *da-common-env
-      SERVER_MODULE: servers/data_workspace/server.py
-      DA_WORKSPACE_TRANSPORT: http
-      DA_WORKSPACE_HOST: 0.0.0.0
-      DA_WORKSPACE_PORT: 8815
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ['DA_WORKSPACE_PORT']+'/health',timeout=3)\""]
-      interval: 30s
-      timeout: 5s
-      start_period: 10s
-      retries: 3
-
-  data-ingest:
-    <<: *da-common
-    container_name: mcp-data-ingest
-    ports: ["${DA_INGEST_HOST_PORT:-8816}:8816"]
-    environment:
-      <<: *da-common-env
-      SERVER_MODULE: servers/data_ingest/server.py
-      DA_INGEST_TRANSPORT: http
-      DA_INGEST_HOST: 0.0.0.0
-      DA_INGEST_PORT: 8816
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ['DA_INGEST_PORT']+'/health',timeout=3)\""]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8810/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       start_period: 10s

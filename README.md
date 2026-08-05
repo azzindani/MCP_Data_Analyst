@@ -550,26 +550,33 @@ For lower-memory machines, set `MCP_CONSTRAINED_MODE=1` in the `env` section of 
 | **Local Docker / HTTP** | Testing, or one other machine on your LAN | HTTP | optional |
 | **VPS Docker** | Remote MCP clients (claude.ai, hosted harnesses) | HTTP | **required** |
 
-Of the 9 `servers/` dirs, 7 are deployed (each its own port): `data_basic`,
-`data_medium`, `data_statistics`, `data_transform`, `data_visual`,
-`data_workspace`, `data_ingest`. `data_advanced` is a retired stub (zero tools —
-superseded by `data_visual`) and `data_project` is a redirect alias of
-`data_workspace` (same process); neither is deployed separately. All 7 share
-one bearer-token set.
+Of the 9 `servers/` dirs, 7 are deployed: `data_basic`, `data_medium`,
+`data_statistics`, `data_transform`, `data_visual`, `data_workspace`,
+`data_ingest`. `data_advanced` is a retired stub (zero tools — superseded by
+`data_visual`) and `data_project` is a redirect alias of `data_workspace`
+(same process); neither is deployed separately.
+
+Each sub-server keeps its own stdio server for local LM Studio "add one
+sub-server" installs. For Docker/remote deployment all 7 run as separate MCP
+endpoints inside **one process** (`unified_server.py`) on **one port** —
+pandas/numpy/scipy/matplotlib load once instead of seven times (~260 MiB vs
+~1.1 GiB idle), and all 7 still share one bearer-token set.
 
 ### HTTP transport (no Docker)
 
 ```bash
-DA_BASIC_TRANSPORT=http DA_BASIC_PORT=8810 uv run python servers/data_basic/server.py
-curl http://localhost:8810/health   # {"status":"ok","version":"0.2.0"}
+uv run python unified_server.py --port 8810
+curl http://localhost:8810/health            # {"status":"ok","version":"0.2.0","sub_servers":[...]}
+curl http://localhost:8810/basic/health      # per-sub-server health
 ```
 
 ### Docker
 
 ```bash
 docker compose up -d --build
-curl http://localhost:8810/health   # data_basic
-curl http://localhost:8816/health   # data_ingest
+curl http://localhost:8810/health            # aggregate
+curl http://localhost:8810/basic/mcp         # data_basic
+curl http://localhost:8810/ingest/mcp        # data_ingest
 ```
 
 With auth (recommended for any network-reachable deploy):
@@ -579,15 +586,16 @@ cp tokens.example.json tokens.json   # edit: replace placeholders with `openssl 
 docker compose up -d --build
 ```
 
-`/mcp` requires `Authorization: Bearer <token>` once any of `DA_TOKENS_FILE` /
-`DA_TOKENS` / `DA_API_KEY` is set; `/health` and `/version` stay unauthenticated.
+`/<name>/mcp` requires `Authorization: Bearer <token>` once any of
+`DA_TOKENS_FILE` / `DA_TOKENS` / `DA_API_KEY` is set; `/health` and
+`/version` (aggregate and per-sub-server) stay unauthenticated.
 
 ### Deployment environment variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `DA_<NAME>_TRANSPORT` | `stdio` | `stdio` or `http`, per sub-server (e.g. `DA_BASIC_TRANSPORT`) |
-| `DA_<NAME>_PORT` | 8810-8816 | Port per sub-server, HTTP mode |
+| `DA_HOST` | `0.0.0.0` | Bind address for the unified server |
+| `DA_PORT` | `8810` | Port for the unified server (all 7 sub-servers) |
 | `DA_TOKENS_FILE` | unset | JSON file of named bearer tokens (`{"name": "token"}`) — highest priority, shared across all sub-servers |
 | `DA_TOKENS` | unset | Inline `"name:token,name2:token2"` |
 | `DA_API_KEY` | unset | Single shared bearer token |
@@ -595,17 +603,17 @@ docker compose up -d --build
 ### Remote testing (Cloudflare Quick Tunnel)
 
 Same idea as `azzindani/Folio`'s `launch.sh`: bring the Docker deployment up
-and expose each of the 7 sub-servers at its own ephemeral
-`*.trycloudflare.com` URL — no VPS, no DNS, no account — so they're reachable
-from any MCP-compatible harness for a quick remote smoke test.
+and expose it at an ephemeral `*.trycloudflare.com` URL — no VPS, no DNS, no
+account — so all 7 sub-servers are reachable from any MCP-compatible harness
+for a quick remote smoke test.
 
 ```bash
-./launch_tunnel.sh          # docker compose up -d --build, then tunnel all 7
-./launch_tunnel.sh stop     # tear the tunnels down (containers keep running)
+./launch_tunnel.sh          # docker compose up -d --build, then tunnel
+./launch_tunnel.sh stop     # tear the tunnel down (container keeps running)
 ```
 
 Not for production: Quick Tunnels are unauthenticated at the transport layer.
-Set `DA_API_KEY` or `DA_TOKENS_FILE` before tunneling so `/mcp` still
+Set `DA_API_KEY` or `DA_TOKENS_FILE` before tunneling so `/<name>/mcp` still
 requires a bearer token even while it's publicly reachable.
 
 ## Uninstall
