@@ -46,3 +46,6 @@ test_tier1.ipynb
 
 # Deployment secrets
 tokens.json
+
+# Deployment secrets
+.env
