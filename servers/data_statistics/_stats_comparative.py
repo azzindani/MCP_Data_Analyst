@@ -29,6 +29,8 @@ _FREQ_MAP = {
     "H": "h",
 }
 
+_VALID_PERIOD_UNITS = set(_FREQ_MAP)
+
 
 def period_comparison(
     file_path: str,
@@ -72,6 +74,16 @@ def period_comparison(
                 "hint": f"Available: {list(df.columns)}",
                 "progress": [fail("Columns not found", str(missing_metrics))],
                 "token_estimate": 20,
+            }
+
+        period_unit = period_unit.strip().upper()
+        if period_unit not in _VALID_PERIOD_UNITS:
+            return {
+                "success": False,
+                "error": f"Invalid period_unit {period_unit!r}.",
+                "hint": f"Use one of: {sorted(_VALID_PERIOD_UNITS)} (D=day, W=week, M=month, Q=quarter, Y=year, H=hour).",
+                "progress": [fail("Invalid period_unit", period_unit)],
+                "token_estimate": 25,
             }
 
         df[date_col] = pd.to_datetime(df[date_col], format="mixed", dayfirst=False, errors="coerce")

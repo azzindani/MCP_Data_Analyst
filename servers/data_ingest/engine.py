@@ -62,14 +62,11 @@ def _find_tables(ws, min_rows: int, min_cols: int) -> list[dict]:
     if max_row == 0 or max_col == 0:
         return []
 
+    # Sequential iter_rows(), not random ws.cell(row, col) access — read_only
+    # worksheets stream lazily and random cell access can stall or crawl.
     occupied = []
-    for r in range(1, max_row + 1):
-        row_occ = []
-        for c in range(1, max_col + 1):
-            cell = ws.cell(row=r, column=c)
-            val = cell.value
-            row_occ.append(val is not None and str(val).strip() != "")
-        occupied.append(row_occ)
+    for row in ws.iter_rows(min_row=1, max_row=max_row, min_col=1, max_col=max_col, values_only=True):
+        occupied.append([val is not None and str(val).strip() != "" for val in row])
 
     # Find contiguous non-empty row groups
     row_groups: list[tuple[int, int]] = []
