@@ -19,11 +19,16 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from servers.data_ingest import engine
-from shared.deploy_auth import build_token_verifier
+from shared.deploy_auth import build_oauth_bridge, build_token_verifier
 
-_VERSION = "0.2.0"  # keep in sync with pyproject.toml [project].version
+_VERSION = "0.2.1"  # keep in sync with pyproject.toml [project].version
 
-mcp = FastMCP("data_ingest", auth=build_token_verifier("DA"))
+_oauth_bridge = build_oauth_bridge(
+    "DA", state_dir=os.environ.get("DA_INGEST_OAUTH_STATE_DIR", "/tmp/data-ingest-oauth-state")
+)
+mcp = FastMCP("data_ingest", auth=build_token_verifier("DA", _oauth_bridge))
+if _oauth_bridge is not None:
+    _oauth_bridge.register_routes(mcp)
 
 
 @mcp.custom_route("/health", methods=["GET"])

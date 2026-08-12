@@ -32,9 +32,29 @@ services:
       DA_TOKENS: ${DA_TOKENS:-}
       DA_API_KEY: ${DA_API_KEY:-}
       MCP_CONSTRAINED_MODE: ${MCP_CONSTRAINED_MODE:-0}
+      # OAuth 2.0 bridge for clients that require it (e.g. claude.ai's Custom
+      # Connector) instead of a plain bearer header — see shared/oauth_bridge.py.
+      # One state dir per sub-server (each is its own claude.ai connector, at
+      # its own /basic, /medium, ... path) even though it's one process/port.
+      # Only takes effect when a token source above is set; harmless otherwise.
+      DA_BASIC_OAUTH_STATE_DIR: /home/app/.oauth-state/basic
+      DA_MEDIUM_OAUTH_STATE_DIR: /home/app/.oauth-state/medium
+      DA_STATISTICS_OAUTH_STATE_DIR: /home/app/.oauth-state/statistics
+      DA_TRANSFORM_OAUTH_STATE_DIR: /home/app/.oauth-state/transform
+      DA_VISUAL_OAUTH_STATE_DIR: /home/app/.oauth-state/visual
+      DA_WORKSPACE_OAUTH_STATE_DIR: /home/app/.oauth-state/workspace
+      DA_INGEST_OAUTH_STATE_DIR: /home/app/.oauth-state/ingest
+      DA_OAUTH_CLIENT_ID: ${DA_OAUTH_CLIENT_ID:-}
+      DA_OAUTH_CLIENT_SECRET: ${DA_OAUTH_CLIENT_SECRET:-}
     mem_limit: ${DA_MEM_LIMIT:-1g}
     volumes:
       - ./tokens.json:/home/app/tokens.json:ro
+      # Persists OAuth-issued access/refresh tokens (one subdir per
+      # sub-server) so a container restart doesn't force claude.ai to
+      # reauthorize. `mkdir -p oauth-state && chown 999:999 oauth-state`
+      # before first run — left root-owned, the container's non-root user
+      # can't write to it.
+      - ./oauth-state:/home/app/.oauth-state
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8810/health', timeout=3)"]
       interval: 30s
