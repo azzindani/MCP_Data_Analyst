@@ -90,10 +90,12 @@ def extract_table(
     table_index: int = 0,
     sheet: str = "",
     output_path: str = "",
+    min_rows: int = 2,
+    min_cols: int = 2,
     dry_run: bool = False,
 ) -> dict:
     """Extract one detected table by index to CSV."""
-    return engine.extract_table(file_path, table_index, sheet, output_path, dry_run)
+    return engine.extract_table(file_path, table_index, sheet, output_path, min_rows, min_cols, dry_run)
 
 
 @mcp.tool()
@@ -139,10 +141,11 @@ def convert_file(
     file_path: str,
     output_format: str = "csv",
     output_path: str = "",
+    sheet: str = "",
     dry_run: bool = False,
 ) -> dict:
     """Convert xlsx/ods/csv/json/parquet to csv/json/parquet/excel."""
-    return engine.convert_file(file_path, output_format, output_path, dry_run)
+    return engine.convert_file(file_path, output_format, output_path, sheet, dry_run)
 
 
 def main() -> None:

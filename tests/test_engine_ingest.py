@@ -290,6 +290,16 @@ class TestExtractAllSheets:
         r = extract_all_sheets(str(multi_sheet_xlsx), output_dir=str(tmp_path / "out"))
         assert "backup" in r
 
+    def test_does_not_snapshot_untouched_source(self, multi_sheet_xlsx, tmp_path):
+        """extract_all_sheets only ever writes to output_dir — it must not
+        waste a snapshot on the source workbook it never overwrites.
+        Regression test for a bug where the snapshot ran unconditionally."""
+        before = Path(str(multi_sheet_xlsx)).read_bytes()
+        r = extract_all_sheets(str(multi_sheet_xlsx), output_dir=str(tmp_path / "out"))
+        assert r["success"] is True
+        assert not r["backup"]
+        assert Path(str(multi_sheet_xlsx)).read_bytes() == before
+
     def test_dry_run(self, multi_sheet_xlsx, tmp_path):
         out_dir = tmp_path / "sheets"
         r = extract_all_sheets(str(multi_sheet_xlsx), output_dir=str(out_dir), dry_run=True)

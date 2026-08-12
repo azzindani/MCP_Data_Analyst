@@ -336,6 +336,25 @@ class TestEnrichWithGeo:
         )
         assert r["success"] is False
 
+    def test_explicit_output_path_does_not_snapshot_input(self, geo_csv, geo_json, tmp_path):
+        """When output_path is given, enrich_with_geo writes there instead of
+        in-place — it must not waste a snapshot on the untouched input.
+        Regression test for a bug where the snapshot ran unconditionally."""
+        before = Path(str(geo_csv)).read_text()
+        out = tmp_path / "enriched.csv"
+        r = enrich_with_geo(
+            str(geo_csv),
+            str(geo_json),
+            join_column="State",
+            geo_join_column="name",
+            output_path=str(out),
+        )
+        if not r["success"]:
+            pytest.skip(f"geopandas not installed: {r['error']}")
+        assert not r["backup"]
+        assert Path(str(geo_csv)).read_text() == before
+        assert out.exists()
+
 
 # ---------------------------------------------------------------------------
 # run_cleaning_pipeline
@@ -767,6 +786,20 @@ class TestFilterRows:
         )
         assert r["success"] is False
 
+    def test_does_not_snapshot_untouched_input(self, cat_csv):
+        """filter_rows always writes to a separate output file — it must not
+        waste a snapshot on the input, which it never overwrites. Regression
+        test for a bug where every call snapshotted the source unconditionally."""
+        before = Path(str(cat_csv)).read_text()
+        r = filter_rows(
+            str(cat_csv),
+            [{"column": "Region", "op": "equals", "value": "West"}],
+            open_after=False,
+        )
+        assert r["success"] is True
+        assert not r["backup"]
+        assert Path(str(cat_csv)).read_text() == before
+
 
 # ---------------------------------------------------------------------------
 # sample_data
@@ -875,6 +908,17 @@ North,4800,12
         r = smart_impute(str(tmp_path / "missing.csv"), open_after=False)
         assert r["success"] is False
 
+    def test_does_not_snapshot_untouched_input(self, tmp_path):
+        """smart_impute always writes to a '_imputed' suffixed file — it must
+        not waste a snapshot on the input it never overwrites."""
+        f = tmp_path / "nulls.csv"
+        self._make_csv_with_nulls(f)
+        before = f.read_text()
+        r = smart_impute(str(f), open_after=False)
+        assert r["success"] is True
+        assert not r["backup"]
+        assert f.read_text() == before
+
 
 # ---------------------------------------------------------------------------
 # merge_datasets
@@ -931,6 +975,22 @@ class TestMergeDatasets:
         r = merge_datasets(str(tmp_path / "missing.csv"), str(right_csv), open_after=False)
         assert r["success"] is False
 
+    def test_does_not_snapshot_untouched_input(self, cat_csv, right_csv):
+        """merge_datasets always writes to a '_merged' suffixed file (or an
+        explicit output_path) — it must not waste a snapshot on the left input
+        it never overwrites."""
+        before = Path(str(cat_csv)).read_text()
+        r = merge_datasets(
+            str(cat_csv),
+            str(right_csv),
+            left_on="Region",
+            right_on="Region",
+            open_after=False,
+        )
+        assert r["success"] is True
+        assert not r["backup"]
+        assert Path(str(cat_csv)).read_text() == before
+
 
 # ---------------------------------------------------------------------------
 # feature_engineering
@@ -967,6 +1027,15 @@ class TestFeatureEngineering:
     def test_file_not_found(self, tmp_path):
         r = feature_engineering(str(tmp_path / "missing.csv"), open_after=False)
         assert r["success"] is False
+
+    def test_does_not_snapshot_untouched_input(self, cat_csv):
+        """feature_engineering always writes to a '_features' suffixed file —
+        it must not waste a snapshot on the input it never overwrites."""
+        before = Path(str(cat_csv)).read_text()
+        r = feature_engineering(str(cat_csv), features=["bins"], open_after=False)
+        assert r["success"] is True
+        assert not r["backup"]
+        assert Path(str(cat_csv)).read_text() == before
 
 
 # ---------------------------------------------------------------------------

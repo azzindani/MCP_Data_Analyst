@@ -471,7 +471,8 @@ def run_workspace_pipeline(
                 "progress": [fail("Import error", "data_basic.engine")],
                 "token_estimate": 20,
             }
-        patch_result = _apply_patch(str(input_path), ops, dry_run=False)
+        shutil.copy2(str(input_path), str(output_path))
+        patch_result = _apply_patch(str(output_path), ops, dry_run=False)
 
         if not patch_result.get("success"):
             return {
@@ -481,9 +482,6 @@ def run_workspace_pipeline(
                 "progress": [fail("Pipeline failed", pipeline_name)],
                 "token_estimate": 20,
             }
-
-        shutil.copy2(str(input_path), str(output_path))
-        _apply_patch(str(output_path), ops, dry_run=False)
 
         _register_file_util(workspace_name, str(output_path), output_alias, output_stage, base_dir)
         log_pipeline_run(workspace_name, pipeline_name, input_alias, output_alias, base_dir)

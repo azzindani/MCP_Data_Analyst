@@ -377,8 +377,6 @@ def extract_all_sheets(file_path: str, output_dir: str = "", dry_run: bool = Fal
             result["token_estimate"] = _token_estimate(result)
             return result
 
-        backup = snapshot(str(path))
-        progress.append(info("Snapshot created", Path(backup).name))
         out_dir.mkdir(parents=True, exist_ok=True)
 
         extracted = []
@@ -501,7 +499,13 @@ def detect_tables(file_path: str, sheet: str = "", min_rows: int = 2, min_cols: 
 
 
 def extract_table(
-    file_path: str, table_index: int = 0, sheet: str = "", output_path: str = "", dry_run: bool = False
+    file_path: str,
+    table_index: int = 0,
+    sheet: str = "",
+    output_path: str = "",
+    min_rows: int = 2,
+    min_cols: int = 2,
+    dry_run: bool = False,
 ) -> dict:
     backup = None
     progress = []
@@ -540,14 +544,14 @@ def extract_table(
                 "token_estimate": 20,
             }
 
-        tables = _find_tables(ws, min_rows=1, min_cols=1)
+        tables = _find_tables(ws, min_rows=min_rows, min_cols=min_cols)
         wb.close()
 
         if table_index < 0 or table_index >= len(tables):
             return {
                 "success": False,
                 "error": f"table_index {table_index} out of range (found {len(tables)} tables)",
-                "hint": "Call detect_tables() first to see available table indices.",
+                "hint": "Call detect_tables() with the same min_rows/min_cols first to see available table indices.",
                 "progress": [fail("Table index out of range", str(table_index))],
                 "token_estimate": 20,
             }
@@ -1045,7 +1049,13 @@ def flatten_merged_cells(file_path: str, sheet: str = "", output_path: str = "",
 # ---------------------------------------------------------------------------
 
 
-def convert_file(file_path: str, output_format: str = "csv", output_path: str = "", dry_run: bool = False) -> dict:
+def convert_file(
+    file_path: str,
+    output_format: str = "csv",
+    output_path: str = "",
+    sheet: str = "",
+    dry_run: bool = False,
+) -> dict:
     from io import BytesIO
 
     backup = None
@@ -1089,9 +1099,37 @@ def convert_file(file_path: str, output_format: str = "csv", output_path: str = 
             }
 
         # Read
+        sheet_used = None
+        other_sheets: list[str] = []
         if ext in {".xlsx", ".ods"}:
-            engine = "odf" if ext == ".ods" else "openpyxl"
-            df = pd.read_excel(str(path), engine=engine)
+            pd_engine = "odf" if ext == ".ods" else "openpyxl"
+            xl = pd.ExcelFile(str(path), engine=pd_engine)
+            names = xl.sheet_names
+            if sheet and sheet.lstrip("-").isdigit():
+                idx = int(sheet)
+                if idx < 0 or idx >= len(names):
+                    return {
+                        "success": False,
+                        "error": f"Sheet index {sheet!r} out of range ({len(names)} sheet(s))",
+                        "hint": f"Available: {names}. Call list_sheets() to inspect.",
+                        "progress": [fail("Sheet not found", sheet)],
+                        "token_estimate": 20,
+                    }
+                sheet_used = names[idx]
+            elif sheet:
+                if sheet not in names:
+                    return {
+                        "success": False,
+                        "error": f"Sheet {sheet!r} not found",
+                        "hint": f"Available: {names}. Call list_sheets() to inspect.",
+                        "progress": [fail("Sheet not found", sheet)],
+                        "token_estimate": 20,
+                    }
+                sheet_used = sheet
+            else:
+                sheet_used = names[0]
+            other_sheets = [n for n in names if n != sheet_used]
+            df = xl.parse(sheet_used)
         elif ext == ".csv":
             df = pd.read_csv(str(path))
         elif ext == ".json":
@@ -1102,6 +1140,14 @@ def convert_file(file_path: str, output_format: str = "csv", output_path: str = 
             df = pd.DataFrame()
 
         out = Path(output_path) if output_path else path.parent / (path.stem + target_ext)
+
+        if other_sheets:
+            progress.append(
+                warn(
+                    "Other sheets ignored",
+                    f"Converted only {sheet_used!r}; {len(other_sheets)} more sheet(s) not included: {other_sheets}",
+                )
+            )
 
         if dry_run:
             progress.append(info("Dry run — no changes written", path.name))
@@ -1138,7 +1184,7 @@ def convert_file(file_path: str, output_format: str = "csv", output_path: str = 
         append_receipt(
             str(path),
             tool="convert_file",
-            args={"output_format": output_format},
+            args={"output_format": output_format, "sheet": sheet_used or ""},
             result=f"converted {ext} → {target_ext} ({len(df)} rows)",
             backup=backup or "",
         )
@@ -1150,6 +1196,8 @@ def convert_file(file_path: str, output_format: str = "csv", output_path: str = 
             "input_format": ext.lstrip("."),
             "output_format": output_format,
             "output_path": str(out),
+            "sheet": sheet_used,
+            "other_sheets_ignored": other_sheets,
             "rows": len(df),
             "cols": len(df.columns),
             "backup": backup,

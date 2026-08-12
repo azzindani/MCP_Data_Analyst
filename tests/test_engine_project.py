@@ -303,6 +303,40 @@ class TestE2EWorkspaceWorkflow:
         assert r_run["dry_run"] is True
         assert f.read_text() == original_content
 
+    def test_run_pipeline_does_not_mutate_input(self, project_base, tmp_path):
+        """A real (non-dry-run) pipeline execution must leave the input file untouched
+        and write only the transformed output — regression test for a bug where
+        run_workspace_pipeline applied ops to input_path before copying it."""
+        f = tmp_path / "raw_revenue.csv"
+        f.write_text("Region,Revenue\nWest,5000\nEast,\nSouth,2100\nNorth,4800\n")
+        original_bytes = f.read_bytes()
+
+        create_workspace("mutate_check", base_dir=str(project_base))
+        register_workspace_file(
+            "mutate_check", str(f), alias="raw_data", stage="raw", base_dir=str(project_base)
+        )
+        ops = [{"op": "fill_nulls", "column": "Revenue", "strategy": "median"}]
+        save_workspace_pipeline("mutate_check", "clean_revenue", ops, base_dir=str(project_base))
+
+        r_run = run_workspace_pipeline(
+            "mutate_check",
+            "clean_revenue",
+            input_alias="raw_data",
+            output_alias="clean_data",
+            dry_run=False,
+            base_dir=str(project_base),
+        )
+        assert r_run["success"] is True
+        assert f.read_bytes() == original_bytes, "input file must not be mutated by a real pipeline run"
+
+        output_path = Path(r_run["output_path"])
+        assert output_path.exists()
+        assert "East" in output_path.read_text()
+        # the null Revenue for East must have been filled in the OUTPUT, not left as blank
+        out_df_lines = output_path.read_text().splitlines()
+        east_line = next(line for line in out_df_lines if line.startswith("East,"))
+        assert east_line != "East,"
+
     def test_list_files_after_registration(self, project_base, tmp_path):
         """Register two files, list by stage, confirm counts."""
         f_raw = tmp_path / "raw.csv"

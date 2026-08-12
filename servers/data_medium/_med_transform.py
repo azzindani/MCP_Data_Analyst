@@ -144,8 +144,8 @@ def enrich_with_geo(
             result["token_estimate"] = _token_estimate(result)
             return result
 
-        backup = snapshot(str(path))
         out = str(resolve_path(output_path)) if output_path else str(path)
+        backup = snapshot(str(path)) if out == str(path) else None
         merged.to_csv(out, index=False)
 
         append_receipt(
@@ -561,7 +561,6 @@ def smart_impute(
             result["token_estimate"] = _token_estimate(result)
             return result
 
-        backup = snapshot(str(path))
         for plan in imputation_plan:
             col = plan["column"]
             strategy = plan["strategy"]
@@ -578,6 +577,7 @@ def smart_impute(
             out = resolve_path(output_path)
         else:
             out = path.parent / f"{path.stem}_imputed{path.suffix}"
+        backup = snapshot(str(path)) if out == path else None
         df.to_csv(str(out), index=False)
 
         if open_after:
@@ -729,11 +729,11 @@ def merge_datasets(
             result["token_estimate"] = _token_estimate(result)
             return result
 
-        backup = snapshot(str(path))
         if output_path:
             out = resolve_path(output_path)
         else:
             out = path.parent / f"{path.stem}_merged{path.suffix}"
+        backup = snapshot(str(path)) if out == path else None
         merged.to_csv(str(out), index=False)
 
         if open_after:
@@ -874,11 +874,11 @@ def feature_engineering(
             result["token_estimate"] = _token_estimate(result)
             return result
 
-        backup = snapshot(str(path))
         if output_path:
             out = resolve_path(output_path)
         else:
             out = path.parent / f"{path.stem}_features{path.suffix}"
+        backup = snapshot(str(path)) if out == path else None
         df.to_csv(str(out), index=False)
 
         if open_after:

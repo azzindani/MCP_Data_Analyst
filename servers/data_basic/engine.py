@@ -1057,7 +1057,7 @@ _OP_CATALOG: dict[str, list[dict]] = {
         {"op": "replace_values", "params": "column, mapping: {old: new}"},
         {"op": "add_column", "params": "name, mode: math|threshold, expr|source+threshold"},
         {"op": "cap_outliers", "params": "column, method: iqr|std, threshold"},
-        {"op": "fill_nulls", "params": "column, strategy: mean|median|mode|ffill|bfill|drop|value"},
+        {"op": "fill_nulls", "params": "column, strategy: mean|median|mode|ffill|bfill|drop|value, fill_zeros: bool (optional)"},
         {"op": "drop_duplicates", "params": "keep: first|last|False"},
         {"op": "normalize", "params": "column, method: minmax|zscore"},
         {"op": "label_encode", "params": "column, new_column"},
@@ -1104,7 +1104,7 @@ _OP_CATALOG: dict[str, list[dict]] = {
         {"op": "cumulative", "params": "column, agg: sum|prod|max|min, new_column"},
     ],
     "structural": [
-        {"op": "column_math", "params": "formula: 'col_a + col_b', new_column"},
+        {"op": "column_math", "params": "formula: 'col_a + col_b', target_column"},
         {"op": "conditional_assign", "params": "new_column, conditions: list[dict], default"},
         {"op": "split_column", "params": "column, delimiter, new_columns: list[str], drop_original"},
         {"op": "combine_columns", "params": "columns: list[str], delimiter, new_column, drop_originals"},

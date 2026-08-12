@@ -731,11 +731,11 @@ def filter_rows(
             result["token_estimate"] = _token_estimate(result)
             return result
 
-        backup = snapshot(str(path))
         if output_path:
             out = resolve_path(output_path)
         else:
             out = path.parent / f"{path.stem}_filtered{path.suffix}"
+        backup = snapshot(str(path)) if out == path else None
         filtered.to_csv(str(out), index=False)
 
         if open_after:
