@@ -1057,7 +1057,10 @@ _OP_CATALOG: dict[str, list[dict]] = {
         {"op": "replace_values", "params": "column, mapping: {old: new}"},
         {"op": "add_column", "params": "name, mode: math|threshold, expr|source+threshold"},
         {"op": "cap_outliers", "params": "column, method: iqr|std, threshold"},
-        {"op": "fill_nulls", "params": "column, strategy: mean|median|mode|ffill|bfill|drop|value, fill_zeros: bool (optional)"},
+        {
+            "op": "fill_nulls",
+            "params": "column, strategy: mean|median|mode|ffill|bfill|drop|value, fill_zeros: bool (optional)",
+        },
         {"op": "drop_duplicates", "params": "keep: first|last|False"},
         {"op": "normalize", "params": "column, method: minmax|zscore"},
         {"op": "label_encode", "params": "column, new_column"},

@@ -312,9 +312,7 @@ class TestE2EWorkspaceWorkflow:
         original_bytes = f.read_bytes()
 
         create_workspace("mutate_check", base_dir=str(project_base))
-        register_workspace_file(
-            "mutate_check", str(f), alias="raw_data", stage="raw", base_dir=str(project_base)
-        )
+        register_workspace_file("mutate_check", str(f), alias="raw_data", stage="raw", base_dir=str(project_base))
         ops = [{"op": "fill_nulls", "column": "Revenue", "strategy": "median"}]
         save_workspace_pipeline("mutate_check", "clean_revenue", ops, base_dir=str(project_base))
 
