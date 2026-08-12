@@ -37,6 +37,13 @@ services:
       # One state dir per sub-server (each is its own claude.ai connector, at
       # its own /basic, /medium, ... path) even though it's one process/port.
       # Only takes effect when a token source above is set; harmless otherwise.
+      # DA_PUBLIC_URL is the public HTTPS origin (no trailing slash, no tier
+      # suffix) this service is reachable at through the reverse proxy — each
+      # server.py appends its own /basic, /medium, etc. REQUIRED for OAuth
+      # discovery to work once mounted behind a path prefix: without it, the
+      # 401's WWW-Authenticate hint falls back to the internal bind address,
+      # which claude.ai can't reach.
+      DA_PUBLIC_URL: ${DA_PUBLIC_URL:-}
       DA_BASIC_OAUTH_STATE_DIR: /home/app/.oauth-state/basic
       DA_MEDIUM_OAUTH_STATE_DIR: /home/app/.oauth-state/medium
       DA_STATISTICS_OAUTH_STATE_DIR: /home/app/.oauth-state/statistics

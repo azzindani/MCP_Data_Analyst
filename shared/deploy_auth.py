@@ -50,8 +50,8 @@ def load_named_tokens(prefix: str) -> dict[str, str]:
 class _DynamicTokenVerifier(TokenVerifier):
     """Checks the static named-tokens dict first, then OAuth-issued tokens."""
 
-    def __init__(self, named: dict[str, str], oauth_bridge: OAuthBridge | None) -> None:
-        super().__init__()
+    def __init__(self, named: dict[str, str], oauth_bridge: OAuthBridge | None, base_url: str | None = None) -> None:
+        super().__init__(base_url=base_url)
         self._by_token = {token: name for name, token in named.items()}
         self._oauth_bridge = oauth_bridge
 
@@ -66,17 +66,28 @@ class _DynamicTokenVerifier(TokenVerifier):
         return None
 
 
-def build_token_verifier(prefix: str, oauth_bridge: OAuthBridge | None = None) -> TokenVerifier | None:
+def build_token_verifier(
+    prefix: str, oauth_bridge: OAuthBridge | None = None, base_url: str | None = None
+) -> TokenVerifier | None:
     """Build bearer (+ optional OAuth) auth from env vars.
 
     Returns None in open mode (no tokens configured at all) — no auth, for
     localhost/private-network use only. oauth_bridge, if given, is consulted
     as a fallback whenever a presented token doesn't match a static one.
+
+    base_url must be the PUBLIC HTTPS URL this server is reachable at,
+    including any reverse-proxy mount prefix (e.g. "https://data.casava.space/basic")
+    — fastmcp bakes it into the WWW-Authenticate `resource_metadata` hint on 401
+    responses at app-build time (it can't be derived per-request the way
+    oauth_bridge.py's own routes can via root_path). Without it, the 401 omits
+    the hint entirely and mounted sub-servers (behind a path prefix) fail OAuth
+    discovery — a bare, unprefixed deployment happens to still work because
+    clients fall back to guessing the unprefixed default well-known path.
     """
     named = load_named_tokens(prefix)
     if not named:
         return None
-    return _DynamicTokenVerifier(named, oauth_bridge)
+    return _DynamicTokenVerifier(named, oauth_bridge, base_url=base_url)
 
 
 def build_oauth_bridge(prefix: str, state_dir: str | None = None) -> OAuthBridge | None:
