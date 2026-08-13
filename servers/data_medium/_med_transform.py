@@ -828,10 +828,27 @@ def feature_engineering(
 
         if "date_parts" in requested:
             date_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])]
+            parsed_cols = {c: df[c] for c in date_cols}
+            # A plain CSV read never produces datetime64 columns on its own —
+            # string date columns (e.g. "2019-10-16") were silently skipped
+            # here, producing zero date-part columns with no error. Sniff
+            # object columns the same way auto_detect_schema does (parse a
+            # sample, keep it if it parses clean) before giving up on them.
+            for col in df.columns:
+                if col in parsed_cols or not _is_string_col(df[col]):
+                    continue
+                try:
+                    sample = pd.to_datetime(df[col].dropna().head(50), errors="raise")
+                except Exception:
+                    continue
+                if len(sample) == 0:
+                    continue
+                parsed_cols[col] = pd.to_datetime(df[col], errors="coerce")
+                date_cols.append(col)
             for col in date_cols:
                 for part in ("year", "month", "day", "dayofweek"):
                     new_col = f"{col}_{part}"
-                    df[new_col] = getattr(df[col].dt, part)
+                    df[new_col] = getattr(parsed_cols[col].dt, part)
                     new_columns.append(new_col)
 
         if "text_length" in requested:

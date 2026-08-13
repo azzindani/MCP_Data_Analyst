@@ -1013,6 +1013,26 @@ class TestFeatureEngineering:
         assert r["success"] is True
         assert len(r["new_columns"]) >= 1
 
+    def test_date_parts_from_string_column(self, tmp_path):
+        """Regression test: a plain CSV read never produces a datetime64
+        column on its own, so a real-world ISO date string column (e.g.
+        "2019-10-16") was silently skipped — success=True but zero new
+        columns, no error. Found live via the opencode harness real-tool
+        sweep on the full Ad_Data.csv. date_parts must sniff-and-parse
+        string columns the same way auto_detect_schema already does."""
+        f = tmp_path / "dated.csv"
+        f.write_text("Date,Region,Revenue\n2019-10-16,West,5000\n2019-11-02,East,3200\n2020-01-15,South,2100\n")
+        r = feature_engineering(str(f), features=["date_parts"], open_after=False)
+        assert r["success"] is True
+        assert {"Date_year", "Date_month", "Date_day", "Date_dayofweek"} <= set(r["new_columns"])
+
+        out = pd.read_csv(r["output_path"])
+        assert out.loc[0, "Date_year"] == 2019
+        assert out.loc[0, "Date_month"] == 10
+        assert out.loc[0, "Date_day"] == 16
+        # original Date column must stay untouched (still the raw string)
+        assert out.loc[0, "Date"] == "2019-10-16"
+
     def test_dry_run(self, cat_csv):
         before = Path(str(cat_csv)).read_text()
         r = feature_engineering(str(cat_csv), features=["bins"], dry_run=True, open_after=False)
