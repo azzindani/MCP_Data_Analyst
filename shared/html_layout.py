@@ -34,13 +34,18 @@ def get_output_path(
       1. Explicit output_path argument if given
       2. Same directory as input file (when input_path is provided)
       3. ~/Downloads/<stem>_<suffix>.<ext>  (pure generation, no input file)
+
+    Creates the resolved path's parent directory if it does not exist yet
+    (e.g. a fresh container where ~/Downloads has never been created).
     """
     if output_path:
-        return resolve_path(output_path)
-    if input_path is not None:
-        return input_path.parent / f"{input_path.stem}_{stem_suffix}.{ext}"
-    downloads = Path.home() / "Downloads"
-    return downloads / f"{stem_suffix}.{ext}"
+        out = resolve_path(output_path)
+    elif input_path is not None:
+        out = input_path.parent / f"{input_path.stem}_{stem_suffix}.{ext}"
+    else:
+        out = Path.home() / "Downloads" / f"{stem_suffix}.{ext}"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    return out
 
 
 # ---------------------------------------------------------------------------

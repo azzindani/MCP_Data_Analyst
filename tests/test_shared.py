@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from shared.file_utils import atomic_write_text, get_default_output_dir, resolve_path
+from shared.html_layout import get_output_path
 from shared.patch_validator import validate_ops
 from shared.platform_utils import get_max_columns, get_max_results, get_max_rows
 from shared.progress import fail, info, ok, undo, warn
@@ -308,3 +309,34 @@ def test_receipt_no_file(tmp_path):
 def test_append_receipt_never_raises(tmp_path):
     # Even with a bad path, should not raise
     append_receipt("/nonexistent/path/data.csv", "tool", {}, "result")
+
+
+# ---------------------------------------------------------------------------
+# get_output_path (html_layout.py)
+# ---------------------------------------------------------------------------
+
+
+class TestGetOutputPath:
+    """Regression tests for the missing-directory bug found while building
+    a real full-dataset EDA profile: generate_auto_profile crashed with a
+    raw 'No such file or directory' on a fresh container with no
+    ~/Downloads, because get_output_path resolved a path without ever
+    creating its parent directory."""
+
+    def test_creates_missing_parent_for_explicit_path(self, tmp_path):
+        target = tmp_path / "not_yet_created" / "out.html"
+        result = get_output_path(str(target), None, "chart", "html")
+        assert result.parent.is_dir()
+
+    def test_creates_missing_parent_beside_input_file(self, tmp_path):
+        input_dir = tmp_path / "input_dir"
+        input_dir.mkdir()
+        input_file = input_dir / "data.csv"
+        input_file.write_text("a")
+        result = get_output_path("", input_file, "chart", "html")
+        assert result.parent.is_dir()
+
+    def test_creates_downloads_fallback(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        result = get_output_path("", None, "chart", "html")
+        assert result.parent.is_dir()

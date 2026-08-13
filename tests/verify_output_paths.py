@@ -83,6 +83,16 @@ def check_html_layout() -> None:
             else:
                 ok("Downloads exists but input file takes priority")
 
+        # 5. Parent directory must be created if it doesn't exist yet — a
+        # fresh container has no ~/Downloads, and this crashed with a raw
+        # "No such file or directory" instead of a usable result.
+        missing_dir_target = str(Path(tmp) / "not_yet_created" / "out.html")
+        result = get_output_path(missing_dir_target, input_file, "chart", "html")
+        if not result.parent.is_dir():
+            fail(f"explicit output_path in a missing directory was not created: {result.parent}")
+        else:
+            ok("explicit output_path creates missing parent directory")
+
 
 # ---------------------------------------------------------------------------
 # Test get_default_output_dir (file_utils.py)
