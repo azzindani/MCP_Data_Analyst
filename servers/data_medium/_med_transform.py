@@ -88,6 +88,25 @@ def enrich_with_geo(
                 "token_estimate": 20,
             }
 
+        # gpd.read_file() hands off to GDAL/fiona/pyogrio, which can fatally
+        # abort the whole process (not raise a catchable Python exception)
+        # on a file it can't recognize as a vector format — no amount of
+        # try/except below protects against that. Same file-extension guard
+        # data_basic's load_geo_dataset already uses, applied here before
+        # ever reaching gpd.read_file(). Found live via the opencode harness
+        # real-tool retest sweep: a plain CSV passed as geo_file_path
+        # crashed and restarted the whole shared container with no
+        # traceback logged anywhere, confirming it bypassed Python entirely.
+        valid_geo_exts = {".geojson", ".shp", ".json"}
+        if geo_path.suffix.lower() not in valid_geo_exts:
+            return {
+                "success": False,
+                "error": f"Expected .geojson or .shp for geo_file_path, got {geo_path.suffix}",
+                "hint": "Use a .geojson or .shp file for geo_file_path.",
+                "progress": [fail("Wrong geo file type", geo_path.suffix)],
+                "token_estimate": 20,
+            }
+
         df = _read_csv(str(path))
         gdf = gpd.read_file(str(geo_path))
 

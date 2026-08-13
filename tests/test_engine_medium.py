@@ -336,6 +336,23 @@ class TestEnrichWithGeo:
         )
         assert r["success"] is False
 
+    def test_rejects_non_geo_file_before_gpd_read(self, geo_csv, tmp_path):
+        """Regression test: gpd.read_file() hands off to GDAL/fiona/pyogrio,
+        which can fatally abort the whole process (not raise a catchable
+        Python exception) on a file it can't recognize as a vector format —
+        no try/except protects against that. Found live via the opencode
+        harness real-tool retest sweep: passing a plain CSV as
+        geo_file_path crashed and restarted the entire shared container
+        with no traceback logged anywhere. Must be rejected by extension
+        before ever reaching gpd.read_file(), same as data_basic's
+        load_geo_dataset already does."""
+        not_geo = tmp_path / "not_geo.csv"
+        not_geo.write_text("a,b\n1,2\n")
+        r = enrich_with_geo(str(geo_csv), str(not_geo), join_column="State", geo_join_column="a")
+        assert r["success"] is False
+        assert "hint" in r
+        assert ".geojson" in r["hint"] or ".shp" in r["hint"]
+
     def test_explicit_output_path_does_not_snapshot_input(self, geo_csv, geo_json, tmp_path):
         """When output_path is given, enrich_with_geo writes there instead of
         in-place — it must not waste a snapshot on the untouched input.
