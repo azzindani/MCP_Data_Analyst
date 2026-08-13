@@ -38,14 +38,15 @@ def large_csv(tmp_path) -> Path:
 
 
 @pytest.fixture()
-def ad_data_real_sample_csv(tmp_path) -> Path:
-    """294-row real (not synthetic) stratified sample of the Ad_Data.csv
-    dataset used for the 2026-08-12 comprehensive real-world tool sweep —
-    see reference_ad_data_test_source in project memory. Includes 4 genuine
+def ad_data_full_csv(tmp_path) -> Path:
+    """Full 16,834-row real (not synthetic) Ad_Data.csv dataset used for the
+    2026-08-12 comprehensive real-world tool sweep — see
+    reference_ad_data_test_source in project memory. Includes 4 genuine
     impressions=0/clicks>0 rows (the real pattern that produces +inf in a
-    derived ctr_pct column) and 20 real null link_clicks rows, so real-world
-    regression scenarios can be re-run here instead of only manually."""
-    src = FIXTURES_DIR / "ad_data_real_sample.csv"
-    dest = tmp_path / "ad_data_real_sample.csv"
+    derived ctr_pct column), 546 real null link_clicks rows, and 205 real
+    duplicate rows, so real-world regression scenarios can be re-run here
+    instead of only manually."""
+    src = FIXTURES_DIR / "ad_data_full.csv"
+    dest = tmp_path / "ad_data_full.csv"
     shutil.copy(src, dest)
     return dest
