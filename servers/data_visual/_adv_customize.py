@@ -16,7 +16,7 @@ for _p in (str(_ROOT), _ADV):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from shared.file_utils import atomic_write_text, resolve_path
+from shared.file_utils import atomic_write_text, embed_content, resolve_path
 from shared.progress import fail, info, ok
 
 logger = logging.getLogger(__name__)
@@ -79,6 +79,7 @@ def customize_chart(
     width: int = 0,
     height: int = 0,
     output_path: str = "",
+    return_content: bool = False,
 ) -> dict:
     """Modify existing Plotly HTML chart. Changes title labels colors annotations."""
     progress = []
@@ -273,6 +274,7 @@ def customize_chart(
             "changes_applied": changes_applied,
             "progress": progress,
         }
+        embed_content(result, out_path, return_content)
         result["token_estimate"] = len(str(result)) // 4
         return result
 

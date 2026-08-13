@@ -672,6 +672,20 @@ class TestConvertFile:
         df = pd.read_csv(str(out))
         assert list(df.columns) == ["Name", "Value", "Category"]
 
+    def test_return_content_embeds_real_bytes(self, simple_xlsx, tmp_path):
+        import base64
+
+        out = tmp_path / "out.csv"
+        r = convert_file(str(simple_xlsx), output_format="csv", output_path=str(out), return_content=True)
+        assert r["success"] is True
+        assert base64.b64decode(r["content_base64"]) == out.read_bytes()
+        assert r["content_mime_type"] == "text/csv"
+
+    def test_no_return_content_by_default(self, simple_xlsx, tmp_path):
+        out = tmp_path / "out.csv"
+        r = convert_file(str(simple_xlsx), output_format="csv", output_path=str(out))
+        assert "content_base64" not in r
+
     def test_csv_to_json(self, simple_csv, tmp_path):
         out = tmp_path / "out.json"
         r = convert_file(str(simple_csv), output_format="json", output_path=str(out))

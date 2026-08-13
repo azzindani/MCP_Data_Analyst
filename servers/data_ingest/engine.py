@@ -12,7 +12,13 @@ if _ROOT not in sys.path:
 
 import pandas as pd
 
-from shared.file_utils import atomic_write, atomic_write_text, get_default_output_dir, resolve_path
+from shared.file_utils import (
+    atomic_write,
+    atomic_write_text,
+    embed_content,
+    get_default_output_dir,
+    resolve_path,
+)
 from shared.platform_utils import get_max_results
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
@@ -211,7 +217,12 @@ def list_sheets(file_path: str) -> dict:
 
 
 def extract_sheet(
-    file_path: str, sheet: str = "", output_path: str = "", header_row: int = 0, dry_run: bool = False
+    file_path: str,
+    sheet: str = "",
+    output_path: str = "",
+    header_row: int = 0,
+    dry_run: bool = False,
+    return_content: bool = False,
 ) -> dict:
     backup = None
     progress = []
@@ -309,6 +320,7 @@ def extract_sheet(
             "backup": backup,
             "progress": progress,
         }
+        embed_content(result, out, return_content)
         result["token_estimate"] = _token_estimate(result)
         return result
     except Exception as exc:
@@ -506,6 +518,7 @@ def extract_table(
     min_rows: int = 2,
     min_cols: int = 2,
     dry_run: bool = False,
+    return_content: bool = False,
 ) -> dict:
     backup = None
     progress = []
@@ -616,6 +629,7 @@ def extract_table(
             "backup": backup,
             "progress": progress,
         }
+        embed_content(result, out, return_content)
         result["token_estimate"] = _token_estimate(result)
         return result
     except Exception as exc:
@@ -920,7 +934,13 @@ def promote_header(file_path: str, row_index: int = 0, dry_run: bool = False) ->
 # ---------------------------------------------------------------------------
 
 
-def flatten_merged_cells(file_path: str, sheet: str = "", output_path: str = "", dry_run: bool = False) -> dict:
+def flatten_merged_cells(
+    file_path: str,
+    sheet: str = "",
+    output_path: str = "",
+    dry_run: bool = False,
+    return_content: bool = False,
+) -> dict:
     backup = None
     progress = []
     try:
@@ -1030,6 +1050,7 @@ def flatten_merged_cells(file_path: str, sheet: str = "", output_path: str = "",
             "backup": backup,
             "progress": progress,
         }
+        embed_content(result, out, return_content)
         result["token_estimate"] = _token_estimate(result)
         return result
     except Exception as exc:
@@ -1055,6 +1076,7 @@ def convert_file(
     output_path: str = "",
     sheet: str = "",
     dry_run: bool = False,
+    return_content: bool = False,
 ) -> dict:
     from io import BytesIO
 
@@ -1203,6 +1225,7 @@ def convert_file(
             "backup": backup,
             "progress": progress,
         }
+        embed_content(result, out, return_content)
         result["token_estimate"] = _token_estimate(result)
         return result
     except Exception as exc:

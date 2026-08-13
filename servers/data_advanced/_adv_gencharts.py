@@ -27,7 +27,7 @@ from _adv_helpers import (
     plotly_template,
 )
 
-from shared.file_utils import resolve_path
+from shared.file_utils import embed_content, resolve_path
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +64,7 @@ def generate_chart(
     title: str = "",
     theme: str = "dark",
     open_after: bool = True,
+    return_content: bool = False,
 ) -> dict:
     """Generate Plotly chart. type: bar pie line scatter geo treemap radius."""
     progress = []
@@ -231,6 +232,7 @@ def generate_chart(
             "rows_plotted": rows_plotted,
             "progress": progress,
         }
+        embed_content(result, Path(abs_p), return_content)
         result["token_estimate"] = _token_estimate(result)
         return result
 
@@ -418,6 +420,7 @@ def generate_geo_map(
     output_path: str = "",
     theme: str = "dark",
     open_after: bool = True,
+    return_content: bool = False,
 ) -> dict:
     """Geo map: scatter (lat/lon) or choropleth (country/state). Auto-detects columns."""
     progress = []
@@ -591,6 +594,7 @@ def generate_geo_map(
             "color_column": color_column,
             "progress": progress,
         }
+        embed_content(result, Path(abs_p), return_content)
         result["token_estimate"] = _token_estimate(result)
         return result
 
@@ -616,6 +620,7 @@ def generate_3d_chart(
     output_path: str = "",
     theme: str = "dark",
     open_after: bool = True,
+    return_content: bool = False,
 ) -> dict:
     """3D scatter or surface chart. type: scatter_3d surface. Opens HTML."""
     progress = []
@@ -749,6 +754,7 @@ def generate_3d_chart(
             "z_column": z_column,
             "progress": progress,
         }
+        embed_content(result, Path(abs_p), return_content)
         result["token_estimate"] = _token_estimate(result)
         return result
 

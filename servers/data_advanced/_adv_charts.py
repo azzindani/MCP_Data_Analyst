@@ -25,7 +25,7 @@ from _adv_helpers import (
     plotly_template,
 )
 
-from shared.file_utils import resolve_path
+from shared.file_utils import embed_content, resolve_path
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,7 @@ def generate_distribution_plot(
     output_path: str = "",
     open_after: bool = True,
     theme: str = "dark",
+    return_content: bool = False,
 ) -> dict:
     """Histogram + box plot for numeric columns. Opens HTML file."""
     progress = []
@@ -119,6 +120,7 @@ def generate_distribution_plot(
             "chart_count": n * 2,
             "progress": progress,
         }
+        embed_content(result, Path(abs_p), return_content)
         result["token_estimate"] = _token_estimate(result)
         return result
 
@@ -139,6 +141,7 @@ def generate_correlation_heatmap(
     output_path: str = "",
     open_after: bool = True,
     theme: str = "dark",
+    return_content: bool = False,
 ) -> dict:
     """Interactive correlation heatmap for numeric columns. Opens HTML."""
     progress = []
@@ -202,6 +205,7 @@ def generate_correlation_heatmap(
             "method": method,
             "progress": progress,
         }
+        embed_content(result, Path(abs_p), return_content)
         result["token_estimate"] = _token_estimate(result)
         return result
 
@@ -223,6 +227,7 @@ def generate_pairwise_plot(
     output_path: str = "",
     open_after: bool = True,
     theme: str = "dark",
+    return_content: bool = False,
 ) -> dict:
     """Pairwise scatter + histogram matrix for numeric columns. Opens HTML."""
     progress = []
@@ -297,6 +302,7 @@ def generate_pairwise_plot(
             "columns_plotted": cols_to_plot,
             "progress": progress,
         }
+        embed_content(result, Path(abs_p), return_content)
         result["token_estimate"] = _token_estimate(result)
         return result
 
@@ -322,6 +328,7 @@ def generate_multi_chart(
     title: str = "",
     open_after: bool = True,
     theme: str = "dark",
+    return_content: bool = False,
 ) -> dict:
     """Multi-variable bar/line chart. Compares 2+ metrics. Opens HTML."""
     progress = []
@@ -431,6 +438,7 @@ def generate_multi_chart(
             "metrics_plotted": value_columns,
             "progress": progress,
         }
+        embed_content(result, Path(abs_p), return_content)
         result["token_estimate"] = _token_estimate(result)
         return result
 
@@ -452,6 +460,7 @@ def export_data(
     encoding: str = "utf-8",
     separator: str = ",",
     open_after: bool = True,
+    return_content: bool = False,
 ) -> dict:
     """Export dataset to CSV, Excel, or JSON format."""
     progress = []
@@ -511,6 +520,7 @@ def export_data(
             "file_size_kb": size_kb,
             "progress": progress,
         }
+        embed_content(result, out, return_content)
         result["token_estimate"] = _token_estimate(result)
         return result
 

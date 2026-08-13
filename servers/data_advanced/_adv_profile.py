@@ -42,7 +42,7 @@ from _adv_helpers import (
     theme_plot_colors,
 )
 
-from shared.file_utils import resolve_path
+from shared.file_utils import embed_content, resolve_path
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,7 @@ def generate_auto_profile(
     output_path: str = "",
     open_after: bool = True,
     theme: str = "dark",
+    return_content: bool = False,
 ) -> dict:
     """Full column profile: stats, charts, correlations, outliers, insights."""
     progress = []
@@ -203,6 +204,7 @@ def generate_auto_profile(
             "correlation_pairs": len(corr_pairs),
             "progress": progress,
         }
+        embed_content(result, out, return_content)
         result["token_estimate"] = _token_estimate(result)
         return result
 

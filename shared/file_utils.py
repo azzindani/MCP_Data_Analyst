@@ -5,10 +5,13 @@ not as inner-layer dependencies.
 
 from __future__ import annotations
 
+import base64
+import mimetypes
 import os
 import shutil
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -108,3 +111,39 @@ def atomic_write(target: Path | str, content: bytes) -> None:
 def atomic_write_text(target: Path | str, content: str, encoding: str = "utf-8") -> None:
     """Write text to target atomically."""
     atomic_write(target, content.encode(encoding))
+
+
+# mimetypes.guess_type() depends on the OS's registered MIME db (registry on
+# Windows, /etc/mime.types on Linux/macOS) and doesn't reliably resolve every
+# extension on every platform — verified missing common Office types on
+# windows-latest CI runners specifically. Known extensions are checked first.
+_KNOWN_MIME_TYPES = {
+    ".html": "text/html",
+    ".csv": "text/csv",
+    ".json": "application/json",
+    ".pdf": "application/pdf",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+
+
+def embed_content(result: dict[str, Any], path: Path, return_content: bool) -> dict[str, Any]:
+    """Attach base64 file bytes to a tool result dict when requested.
+
+    In remote/HTTP deployments the caller has no filesystem in common
+    with this server, so a server-local output path is useless to it —
+    this lets the caller get the real bytes back over the wire instead.
+    A read failure here doesn't fail the whole tool call.
+    """
+    if not return_content or not result.get("success"):
+        return result
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return result
+    result["content_base64"] = base64.b64encode(data).decode("ascii")
+    mime = _KNOWN_MIME_TYPES.get(path.suffix.lower())
+    if mime is None:
+        mime = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+    result["content_mime_type"] = mime
+    return result

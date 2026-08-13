@@ -42,7 +42,7 @@ from _adv_helpers import (
     theme_plot_colors,
 )
 
-from shared.file_utils import resolve_path
+from shared.file_utils import embed_content, resolve_path
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,7 @@ def run_eda(
     output_path: str = "",
     open_after: bool = True,
     theme: str = "dark",
+    return_content: bool = False,
 ) -> dict:
     """Fast EDA summary. Stats, nulls, correlations, outliers. Opens HTML."""
     progress = []
@@ -213,6 +214,7 @@ def run_eda(
             "column_summaries": column_summaries,
             "progress": progress,
         }
+        embed_content(result, out, return_content)
         result["token_estimate"] = _token_estimate(result)
         return result
 

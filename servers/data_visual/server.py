@@ -55,9 +55,10 @@ def run_eda(
     output_path: str = "",
     open_after: bool = True,
     theme: str = "dark",
+    return_content: bool = False,
 ) -> dict:
     """Fast EDA summary. Stats, nulls, correlations, outliers. Saves HTML."""
-    return engine.run_eda(file_path, output_path, open_after, theme)
+    return engine.run_eda(file_path, output_path, open_after, theme, return_content)
 
 
 @mcp.tool()
@@ -66,9 +67,10 @@ def generate_auto_profile(
     output_path: str = "",
     open_after: bool = True,
     theme: str = "dark",
+    return_content: bool = False,
 ) -> dict:
     """Full column profile: stats charts correlations outliers insights."""
-    return engine.generate_auto_profile(file_path, output_path, open_after, theme)
+    return engine.generate_auto_profile(file_path, output_path, open_after, theme, return_content)
 
 
 @mcp.tool()
@@ -78,9 +80,10 @@ def generate_distribution_plot(
     output_path: str = "",
     open_after: bool = True,
     theme: str = "dark",
+    return_content: bool = False,
 ) -> dict:
     """Histogram + box plot for numeric columns. Saves HTML."""
-    return engine.generate_distribution_plot(file_path, columns, output_path, open_after, theme)
+    return engine.generate_distribution_plot(file_path, columns, output_path, open_after, theme, return_content)
 
 
 @mcp.tool()
@@ -90,9 +93,10 @@ def generate_correlation_heatmap(
     output_path: str = "",
     open_after: bool = True,
     theme: str = "dark",
+    return_content: bool = False,
 ) -> dict:
     """Interactive correlation heatmap for numeric columns. Saves HTML."""
-    return engine.generate_correlation_heatmap(file_path, method, output_path, open_after, theme)
+    return engine.generate_correlation_heatmap(file_path, method, output_path, open_after, theme, return_content)
 
 
 @mcp.tool()
@@ -103,9 +107,10 @@ def generate_pairwise_plot(
     output_path: str = "",
     open_after: bool = True,
     theme: str = "dark",
+    return_content: bool = False,
 ) -> dict:
     """Pairwise scatter + histogram matrix for numeric columns. Saves HTML."""
-    return engine.generate_pairwise_plot(file_path, columns, max_cols, output_path, open_after, theme)
+    return engine.generate_pairwise_plot(file_path, columns, max_cols, output_path, open_after, theme, return_content)
 
 
 @mcp.tool()
@@ -120,6 +125,7 @@ def generate_multi_chart(
     title: str = "",
     open_after: bool = True,
     theme: str = "dark",
+    return_content: bool = False,
 ) -> dict:
     """Multi-variable bar/line chart. Compares 2+ metrics. Saves HTML."""
     return engine.generate_multi_chart(
@@ -133,6 +139,7 @@ def generate_multi_chart(
         title,
         open_after,
         theme,
+        return_content,
     )
 
 
@@ -153,6 +160,7 @@ def generate_chart(
     title: str = "",
     theme: str = "dark",
     open_after: bool = True,
+    return_content: bool = False,
 ) -> dict:
     """Generate chart. type: bar pie line scatter geo treemap radius time_series."""
     return engine.generate_chart(
@@ -171,6 +179,7 @@ def generate_chart(
         title,
         theme,
         open_after,
+        return_content,
     )
 
 
@@ -187,6 +196,7 @@ def generate_geo_map(
     output_path: str = "",
     theme: str = "dark",
     open_after: bool = True,
+    return_content: bool = False,
 ) -> dict:
     """Geo map: scatter (lat/lon) or choropleth (country/state). Auto-detects."""
     return engine.generate_geo_map(
@@ -201,6 +211,7 @@ def generate_geo_map(
         output_path,
         theme,
         open_after,
+        return_content,
     )
 
 
@@ -216,6 +227,7 @@ def generate_3d_chart(
     output_path: str = "",
     theme: str = "dark",
     open_after: bool = True,
+    return_content: bool = False,
 ) -> dict:
     """3D scatter or surface chart. type: scatter_3d surface. Saves HTML."""
     return engine.generate_3d_chart(
@@ -229,6 +241,7 @@ def generate_3d_chart(
         output_path,
         theme,
         open_after,
+        return_content,
     )
 
 
@@ -243,6 +256,7 @@ def generate_dashboard(
     theme: str = "dark",
     dry_run: bool = False,
     open_after: bool = True,
+    return_content: bool = False,
 ) -> dict:
     """Interactive HTML dashboard with auto-detected charts. Saves HTML."""
     return engine.generate_dashboard(
@@ -255,6 +269,7 @@ def generate_dashboard(
         theme,
         dry_run,
         open_after,
+        return_content,
     )
 
 
@@ -266,9 +281,10 @@ def export_data(
     encoding: str = "utf-8",
     separator: str = ",",
     open_after: bool = True,
+    return_content: bool = False,
 ) -> dict:
     """Export dataset to CSV, Excel, or JSON format."""
-    return engine.export_data(file_path, output_path, format, encoding, separator, open_after)
+    return engine.export_data(file_path, output_path, format, encoding, separator, open_after, return_content)
 
 
 @mcp.tool()
@@ -285,6 +301,7 @@ def customize_chart(
     width: int = 0,
     height: int = 0,
     output_path: str = "",
+    return_content: bool = False,
 ) -> dict:
     """Customize existing chart. changes: title labels colors annotations."""
     return engine.customize_chart(
@@ -300,6 +317,7 @@ def customize_chart(
         width,
         height,
         output_path,
+        return_content,
     )
 
 

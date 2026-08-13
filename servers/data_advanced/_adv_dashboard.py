@@ -40,7 +40,7 @@ from _adv_helpers import (
     warn,
 )
 
-from shared.file_utils import resolve_path
+from shared.file_utils import embed_content, resolve_path
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +147,7 @@ def generate_dashboard(
     theme: str = "dark",
     dry_run: bool = False,
     open_after: bool = True,
+    return_content: bool = False,
 ) -> dict:
     """Generate interactive HTML dashboard with auto-detected charts. Opens HTML."""
     progress = []
@@ -350,6 +351,7 @@ def generate_dashboard(
             "report_size_kb": size_kb,
             "progress": progress,
         }
+        embed_content(result, out, return_content)
         result["token_estimate"] = _token_estimate(result)
         return result
 

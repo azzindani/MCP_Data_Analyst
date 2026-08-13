@@ -179,6 +179,32 @@ class TestGenerateChart:
         assert r["chart_type"] == "bar"
         assert Path(rich_csv.parent / r["output_path"]).exists()
 
+    def test_return_content_embeds_real_bytes(self, rich_csv):
+        import base64
+
+        r = generate_chart(
+            str(rich_csv),
+            chart_type="bar",
+            value_column="Revenue",
+            category_column="Region",
+            open_after=False,
+            return_content=True,
+        )
+        assert r["success"] is True
+        out = Path(rich_csv.parent / r["output_path"])
+        assert base64.b64decode(r["content_base64"]) == out.read_bytes()
+        assert r["content_mime_type"] == "text/html"
+
+    def test_no_return_content_by_default(self, rich_csv):
+        r = generate_chart(
+            str(rich_csv),
+            chart_type="bar",
+            value_column="Revenue",
+            category_column="Region",
+            open_after=False,
+        )
+        assert "content_base64" not in r
+
     def test_pie(self, rich_csv):
         r = generate_chart(
             str(rich_csv),
