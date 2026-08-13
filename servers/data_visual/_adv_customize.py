@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
+import struct
 import sys
 from pathlib import Path
 
@@ -23,7 +25,7 @@ logger = logging.getLogger(__name__)
 def _extract_plotly_json(html: str) -> tuple[str, str, str]:
     """Extract the Plotly call from the HTML. Returns (before, json_str, after)."""
     # Plotly.newPlot('id', data, layout, config)
-    pattern = r"(Plotly\.newPlot\(['\"][\w-]+['\"],\s*)(\[.*?\])(,\s*\{.*?\})(.*?\))"
+    pattern = r"(Plotly\.newPlot\(\s*['\"][\w-]+['\"],\s*)(\[.*?\])(,\s*\{.*?\})(.*?\))"
     match = re.search(pattern, html, re.DOTALL)
     if not match:
         raise ValueError("Could not find Plotly.newPlot call in HTML. Not a valid Plotly chart HTML.")
@@ -42,6 +44,26 @@ def _extract_layout_json(html: str) -> tuple[dict, str, str, str, str]:
     layout_str = layout_part.lstrip(", ").strip()
     layout = json.loads(layout_str)
     return layout, before, call_prefix, data_json, layout_str, after
+
+
+def _decode_plotly_y(y_field: object) -> list[float] | None:
+    """Decode a trace's y values: either a plain list or Plotly's compact
+    {"dtype": "f8", "bdata": <base64>} binary-encoded float64 array."""
+    if isinstance(y_field, list):
+        return list(y_field)
+    if isinstance(y_field, dict) and "bdata" in y_field:
+        raw = base64.b64decode(y_field["bdata"])
+        n = len(raw) // 8
+        return list(struct.unpack(f"<{n}d", raw))
+    return None
+
+
+def _encode_plotly_y(values: list[float], original_y_field: object) -> object:
+    """Re-encode sorted y values, matching the original field's encoding."""
+    if isinstance(original_y_field, dict) and "bdata" in original_y_field:
+        raw = struct.pack(f"<{len(values)}d", *values)
+        return {"dtype": original_y_field.get("dtype", "f8"), "bdata": base64.b64encode(raw).decode("ascii")}
+    return values
 
 
 def customize_chart(
@@ -123,6 +145,64 @@ def customize_chart(
             )
             changes_applied.append(f"colors → {color_scheme[:3]}...")
             progress.append(info("Color scheme", str(color_scheme[:3])))
+
+        # Sort bars / highlight specific bars — both operate on the parsed
+        # trace data (categories + values), not raw text, since values may
+        # be Plotly's base64-encoded binary float arrays.
+        if sort_bars or highlight:
+            try:
+                _before, _call_prefix, _data_str, _layout_part, _after = _extract_plotly_json(html)
+                traces = json.loads(_data_str)
+                trace = traces[0]
+                categories = trace["x"]
+                if not isinstance(categories, list):
+                    raise ValueError("trace has no categorical x values")
+            except (ValueError, json.JSONDecodeError, KeyError, IndexError) as exc:
+                return {
+                    "success": False,
+                    "error": f"Could not parse chart data: {exc}",
+                    "hint": "sort_bars/highlight only work on single-trace bar charts from generate_chart().",
+                    "progress": [fail("Chart data unparsable", str(exc))],
+                    "token_estimate": 20,
+                }
+
+            if sort_bars:
+                direction = sort_bars.lower()
+                if direction not in ("asc", "desc"):
+                    return {
+                        "success": False,
+                        "error": f"Invalid sort_bars value: {sort_bars}",
+                        "hint": "Use 'asc' or 'desc'.",
+                        "progress": [fail("Invalid sort_bars value", sort_bars)],
+                        "token_estimate": 20,
+                    }
+                values = _decode_plotly_y(trace.get("y"))
+                if values is None or len(values) != len(categories):
+                    return {
+                        "success": False,
+                        "error": "Could not parse chart values for sorting.",
+                        "hint": "sort_bars only works on single-trace bar charts from generate_chart().",
+                        "progress": [fail("Chart values unparsable", "")],
+                        "token_estimate": 20,
+                    }
+                order = sorted(range(len(categories)), key=lambda i: values[i], reverse=(direction == "desc"))
+                categories = [categories[i] for i in order]
+                trace["x"] = categories
+                trace["y"] = _encode_plotly_y([values[i] for i in order], trace.get("y"))
+                changes_applied.append(f"bars sorted {direction}")
+                progress.append(info("Bars sorted", direction))
+
+            if highlight:
+                marker = trace.get("marker", {}) if isinstance(trace.get("marker"), dict) else {}
+                base_color = marker.get("color") if isinstance(marker.get("color"), str) else "#636efa"
+                highlight_set = {str(h) for h in highlight}
+                marker["color"] = ["#EF553B" if str(c) in highlight_set else base_color for c in categories]
+                trace["marker"] = marker
+                changes_applied.append(f"{len(highlight)} categor{'y' if len(highlight) == 1 else 'ies'} highlighted")
+                progress.append(info("Highlighted", str(highlight)))
+
+            traces[0] = trace
+            html = _before + _call_prefix + json.dumps(traces) + _layout_part + _after
 
         # Width / height
         if width or height:
