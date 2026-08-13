@@ -426,6 +426,10 @@ def aggregate_dataset(
     """Aggregate data. mode: groupby crosstab value_counts describe window."""
     progress = []
     backup = None
+    # Only set for modes with a natural single result table (groupby, crosstab,
+    # window) — value_counts/describe produce nested/heterogeneous structures
+    # with no single flat CSV representation, so output_path is a no-op there.
+    output_df: pd.DataFrame | None = None
     valid_modes = {"groupby", "crosstab", "value_counts", "describe", "window"}
     try:
         if mode not in valid_modes:
@@ -508,6 +512,7 @@ def aggregate_dataset(
                 "data": grouped.head(_response_cap).fillna("").to_dict(orient="records"),
                 "truncated": truncated,
             }
+            output_df = grouped
             progress.append(ok("Grouped by", f"{group_by} → {len(grouped)} groups"))
 
         elif mode == "crosstab":
@@ -540,6 +545,7 @@ def aggregate_dataset(
                 "cols": ct.shape[1],
                 "data": ct.to_dict(),
             }
+            output_df = ct.reset_index()
             progress.append(ok("Cross-tabulated", f"{row_col} × {col_col}"))
 
         elif mode == "value_counts":
@@ -594,6 +600,7 @@ def aggregate_dataset(
                 "window_agg": window_agg,
                 "new_columns": [f"{c}_window_{window_agg}{window}" for c in target_cols if c in df.columns],
             }
+            output_df = df
             progress.append(ok("Window functions applied", f"window={window} agg={window_agg}"))
 
         if dry_run:
@@ -608,10 +615,16 @@ def aggregate_dataset(
             result["token_estimate"] = _token_estimate(result)
             return result
 
+        # output_path used to be echoed into the response for every mode even
+        # though the file was only ever written for mode == "window" — a
+        # false-success report (found live via the opencode harness real-tool
+        # retest sweep: aggregate_dataset in groupby mode claimed
+        # output_path but never created the file). Only claim output_path
+        # when a table was actually written for this mode.
         out_path = resolve_path(output_path) if output_path else None
-        if mode == "window" and out_path:
+        if out_path and output_df is not None:
             backup = snapshot(str(path)) if out_path == path else None
-            atomic_write_text(str(out_path), df.to_csv(index=False))
+            atomic_write_text(str(out_path), output_df.to_csv(index=False))
 
         result = {
             "success": True,
@@ -622,8 +635,10 @@ def aggregate_dataset(
             "data": result_data,
             "progress": progress,
         }
-        if out_path:
+        if out_path and output_df is not None:
             result["output_path"] = str(out_path)
+        elif out_path:
+            result["progress"].append(warn(f"output_path ignored for mode '{mode}' — no flat table to write", mode))
         result["token_estimate"] = _token_estimate(result)
         return result
     except Exception as exc:

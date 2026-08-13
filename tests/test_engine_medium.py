@@ -991,6 +991,41 @@ class TestMergeDatasets:
         assert not r["backup"]
         assert Path(str(cat_csv)).read_text() == before
 
+    def test_rejects_combinatorial_explosion(self, tmp_path):
+        """Regression test: a join key that isn't unique on either side fans
+        out combinatorially — pandas.merge() has no size limit and will
+        materialize the full cross product in memory. Found live via the
+        opencode harness real-tool retest sweep: joining two real ~7K-row
+        tables on a low-cardinality key produced an estimated ~54M rows,
+        OOM-killed the whole shared container process (confirmed via dmesg
+        oom-kill entries), and took down every other concurrent request
+        with it — not just this call. Must be rejected with a clean error
+        before pandas.merge() ever runs, not after."""
+        import pandas as pd
+
+        n = 1500
+        left = tmp_path / "left_explosive.csv"
+        right = tmp_path / "right_explosive.csv"
+        pd.DataFrame({"key": ["same"] * n, "val": range(n)}).to_csv(left, index=False)
+        pd.DataFrame({"key": ["same"] * n, "other": range(n)}).to_csv(right, index=False)
+
+        r = merge_datasets(str(left), str(right), left_on="key", right_on="key", open_after=False)
+        assert r["success"] is False
+        assert "hint" in r
+        assert not (tmp_path / "left_explosive_merged.csv").exists()
+
+    def test_normal_size_join_still_works(self, cat_csv, right_csv):
+        """The new size guard must not false-positive on ordinary joins."""
+        r = merge_datasets(
+            str(cat_csv),
+            str(right_csv),
+            left_on="Region",
+            right_on="Region",
+            open_after=False,
+        )
+        assert r["success"] is True
+        assert r["result_rows"] == 8
+
 
 # ---------------------------------------------------------------------------
 # feature_engineering

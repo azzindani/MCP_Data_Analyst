@@ -698,6 +698,35 @@ def merge_datasets(
         unmatched_left = list(left_vals - right_vals)[:20]
         unmatched_right = list(right_vals - left_vals)[:20]
 
+        # A join key that isn't actually unique on either side fans out
+        # combinatorially (e.g. two ~7K-row tables sharing a low-cardinality
+        # key can produce tens of millions of result rows) — pandas.merge()
+        # will happily materialize that in memory with no limit, which OOM-
+        # kills the whole shared container (every other concurrent request
+        # dies with it), not just this call. Estimate the matched-row count
+        # from value_counts — cheap — before running the real merge, which
+        # is not. Found live via the opencode harness real-tool retest
+        # sweep: a badly-keyed merge crashed and repeatedly restarted the
+        # container (RestartCount climbed to 4, confirmed via `dmesg`
+        # oom-kill entries for the server's python process).
+        _MAX_MERGE_ROWS = 2_000_000
+        left_counts = left_df[left_on].astype(str).value_counts()
+        right_counts = right_df[right_on].astype(str).value_counts()
+        common = set(left_counts.index) & set(right_counts.index)
+        estimated_rows = sum(int(left_counts[k]) * int(right_counts[k]) for k in common)
+        estimated_rows += len(left_df) + len(right_df)  # conservative allowance for unmatched rows
+        if estimated_rows > _MAX_MERGE_ROWS:
+            return {
+                "success": False,
+                "error": f"Join would produce an estimated {estimated_rows:,} rows (limit {_MAX_MERGE_ROWS:,}).",
+                "hint": (
+                    f"'{left_on}'/'{right_on}' isn't unique enough on one or both sides for this join — "
+                    "check for a more selective key, or deduplicate first with run_cleaning_pipeline."
+                ),
+                "progress": [fail("Join too large", f"~{estimated_rows:,} estimated rows")],
+                "token_estimate": 40,
+            }
+
         merged = left_df.merge(
             right_df,
             left_on=left_on,

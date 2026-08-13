@@ -326,6 +326,13 @@ class TestAggregateDataset:
         assert r["success"] is False
 
     def test_output_path_in_result(self, sales_csv, tmp_path):
+        """Regression test: output_path used to be echoed into the response
+        for every mode even though the file was only ever written for
+        mode == "window" — groupby (and crosstab) reported success with an
+        output_path that pointed at a file that was never created. Found
+        live via the opencode harness real-tool retest sweep on the full
+        Ad_Data.csv. Must actually verify the file exists with real content,
+        not just that the key is present in the response."""
         out = tmp_path / "agg_out.csv"
         r = aggregate_dataset(
             str(sales_csv),
@@ -336,6 +343,44 @@ class TestAggregateDataset:
         )
         assert r["success"] is True
         assert "output_path" in r
+        assert out.exists()
+        written = pd.read_csv(out)
+        assert len(written) == 4
+        assert "Region" in written.columns
+
+    def test_output_path_written_for_crosstab(self, sales_csv, tmp_path):
+        out = tmp_path / "crosstab_out.csv"
+        r = aggregate_dataset(
+            str(sales_csv),
+            mode="crosstab",
+            row_col="Region",
+            col_col="Product",
+            output_path=str(out),
+        )
+        assert r["success"] is True
+        assert "output_path" in r
+        assert out.exists()
+
+    def test_output_path_not_claimed_for_value_counts(self, sales_csv, tmp_path):
+        """value_counts has no single flat table to write — output_path
+        must not be echoed as if a file were created."""
+        out = tmp_path / "vc_out.csv"
+        r = aggregate_dataset(
+            str(sales_csv),
+            mode="value_counts",
+            columns=["Region"],
+            output_path=str(out),
+        )
+        assert r["success"] is True
+        assert "output_path" not in r
+        assert not out.exists()
+
+    def test_output_path_not_claimed_for_describe(self, sales_csv, tmp_path):
+        out = tmp_path / "describe_out.csv"
+        r = aggregate_dataset(str(sales_csv), mode="describe", output_path=str(out))
+        assert r["success"] is True
+        assert "output_path" not in r
+        assert not out.exists()
 
     def test_token_estimate(self, sales_csv):
         r = aggregate_dataset(str(sales_csv), mode="groupby", group_by=["Region"])
