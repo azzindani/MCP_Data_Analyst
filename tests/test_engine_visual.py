@@ -59,6 +59,112 @@ class TestCustomizeChartBasic:
         assert result["success"] is False
 
 
+def _parsed(html: str) -> tuple[list, dict]:
+    """Return the chart's traces and layout, as the browser would parse them."""
+    import json
+
+    from servers.data_visual._adv_customize import _split_newplot
+
+    _, _, data_str, _, layout_str, _ = _split_newplot(html)
+    return json.loads(data_str), json.loads(layout_str)
+
+
+class TestCustomizedChartStillRenders:
+    """A chart whose JSON no longer parses is a blank page in the browser, but
+    still a structurally valid HTML file on disk — so only parsing the payload
+    back out catches it. Text-substituting the JSON used to append an unbalanced
+    brace per replacement, and every customized chart rendered blank."""
+
+    def test_title_change_leaves_payload_parseable(self, bar_chart: Path, tmp_path: Path):
+        out = tmp_path / "out.html"
+        result = customize_chart(str(bar_chart), title="Revenue by Region", output_path=str(out))
+        assert result["success"] is True
+        traces, layout = _parsed(out.read_text())
+        assert traces
+        assert layout["title"]["text"] == "Revenue by Region"
+
+    def test_title_does_not_leak_into_axis_titles(self, bar_chart: Path, tmp_path: Path):
+        out = tmp_path / "out.html"
+        customize_chart(str(bar_chart), title="Only The Chart", output_path=str(out))
+        _, layout = _parsed(out.read_text())
+        for axis in ("xaxis", "yaxis"):
+            axis_title = layout.get(axis, {}).get("title")
+            text = axis_title.get("text") if isinstance(axis_title, dict) else axis_title
+            assert text != "Only The Chart"
+
+    def test_axis_labels_are_independent(self, bar_chart: Path, tmp_path: Path):
+        out = tmp_path / "out.html"
+        result = customize_chart(
+            str(bar_chart), title="T", x_label="Region", y_label="Revenue", output_path=str(out)
+        )
+        assert result["success"] is True
+        _, layout = _parsed(out.read_text())
+        assert layout["title"]["text"] == "T"
+        assert layout["xaxis"]["title"]["text"] == "Region"
+        assert layout["yaxis"]["title"]["text"] == "Revenue"
+
+    def test_every_option_at_once_still_parses(self, bar_chart: Path, tmp_path: Path):
+        out = tmp_path / "out.html"
+        result = customize_chart(
+            str(bar_chart),
+            title="All Options",
+            x_label="X",
+            y_label="Y",
+            color_scheme=["#111111", "#222222"],
+            show_value_labels=True,
+            annotations=[{"x": 0, "y": 1, "text": "peak"}],
+            width=900,
+            height=600,
+            output_path=str(out),
+        )
+        assert result["success"] is True
+        traces, layout = _parsed(out.read_text())
+        assert traces
+        assert layout["width"] == 900 and layout["height"] == 600
+        assert layout["annotations"][0]["text"] == "peak"
+        assert layout["colorway"] == ["#111111", "#222222"]
+
+    def test_customizing_a_customized_chart_still_parses(self, bar_chart: Path, tmp_path: Path):
+        once = tmp_path / "once.html"
+        twice = tmp_path / "twice.html"
+        customize_chart(str(bar_chart), title="First", output_path=str(once))
+        result = customize_chart(str(once), title="Second", output_path=str(twice))
+        assert result["success"] is True
+        _, layout = _parsed(twice.read_text())
+        assert layout["title"]["text"] == "Second"
+
+    def test_colors_reach_the_bars(self, bar_chart: Path, tmp_path: Path):
+        out = tmp_path / "out.html"
+        result = customize_chart(str(bar_chart), color_scheme=["#abcdef", "#fedcba"], output_path=str(out))
+        assert result["success"] is True
+        traces, _ = _parsed(out.read_text())
+        assert traces[0]["marker"]["color"][0] == "#abcdef"
+
+    def test_sorting_an_integer_valued_chart_works(self, tmp_path: Path):
+        """Plotly encodes small integers as i1/i2, not f8. Assuming float64 read
+        zero values out of the buffer and sorting the chart failed."""
+        from servers.data_visual._adv_customize import _decode_plotly_y
+
+        csv = tmp_path / "ints.csv"
+        csv.write_text("Region,Revenue\nNorth,3\nSouth,9\nEast,1\nWest,7\n")
+        chart = tmp_path / "ints.html"
+        generate_chart(
+            str(csv), "bar", "Revenue", category_column="Region", output_path=str(chart), open_after=False
+        )
+        out = tmp_path / "sorted.html"
+        result = customize_chart(str(chart), sort_bars="asc", output_path=str(out))
+        assert result["success"] is True
+        traces, _ = _parsed(out.read_text())
+        assert _decode_plotly_y(traces[0]["y"]) == [1, 3, 7, 9]
+
+    def test_corrupt_chart_is_rejected_not_silently_written(self, tmp_path: Path):
+        broken = tmp_path / "broken.html"
+        broken.write_text("<html><body><script>Plotly.newPlot('c', [{'x':</script></body></html>")
+        result = customize_chart(str(broken), title="X")
+        assert result["success"] is False
+        assert "hint" in result
+
+
 class TestCustomizeChartSortBars:
     def test_sort_desc_reorders_categories_by_real_value(self, bar_chart: Path, tmp_path: Path):
         out = tmp_path / "sorted.html"

@@ -48,6 +48,47 @@ _VALID_CHART_TYPES = {
 }
 
 
+def _coords_out_of_range(frame: pd.DataFrame, lat_column: str, lon_column: str) -> dict | None:
+    """Return details of the first column holding values no coordinate can take."""
+    for column, kind, low, high in (
+        (lat_column, "latitude", -90.0, 90.0),
+        (lon_column, "longitude", -180.0, 180.0),
+    ):
+        values = frame[column]
+        if values.empty:
+            continue
+        bad = int(((values < low) | (values > high)).sum())
+        if bad:
+            return {
+                "column": column,
+                "kind": kind,
+                "count": bad,
+                "low": low,
+                "high": high,
+                "min": float(values.min()),
+                "max": float(values.max()),
+            }
+    return None
+
+
+def _sort_along_x(frame: pd.DataFrame, x_column: str) -> pd.DataFrame:
+    """Order rows along the x axis for line charts.
+
+    A line joins its points in row order, so the value-descending sort that is
+    right for bars turns a trend into a zigzag. Dates are parsed before sorting
+    so 2019-11-02 follows 2019-11-01 rather than sorting as text.
+    """
+    if not x_column or x_column not in frame.columns:
+        return frame
+    column = frame[x_column]
+    if pd.api.types.is_numeric_dtype(column) or pd.api.types.is_datetime64_any_dtype(column):
+        return frame.sort_values(by=x_column)
+    parsed = pd.to_datetime(column, format="mixed", dayfirst=False, errors="coerce")
+    if parsed.notna().all():
+        return frame.assign(_x_order=parsed).sort_values("_x_order").drop(columns="_x_order")
+    return frame.sort_values(by=x_column)
+
+
 def generate_chart(
     file_path: str,
     chart_type: str,
@@ -149,10 +190,13 @@ def generate_chart(
         if chart_type in ("bar", "pie", "line", "scatter"):
             if category_column:
                 grouped = df.groupby(category_column, as_index=False)[value_column].agg(agg_func)
-                grouped = grouped.sort_values(by=value_column, ascending=False)
+                if chart_type == "line":
+                    grouped = _sort_along_x(grouped, category_column)
+                else:
+                    grouped = grouped.sort_values(by=value_column, ascending=False)
                 chart_df = grouped
             else:
-                chart_df = df
+                chart_df = _sort_along_x(df, category_column) if chart_type == "line" else df
         elif chart_type == "time_series":
             df[date_column] = pd.to_datetime(df[date_column], format="mixed", dayfirst=False, errors="coerce")
             df = df.dropna(subset=[date_column])
@@ -497,6 +541,25 @@ def generate_geo_map(
             for c in (lat_col, lon_col):
                 plot_df[c] = pd.to_numeric(plot_df[c], errors="coerce")
             plot_df = plot_df.dropna(subset=[lat_col, lon_col])
+
+            # Plotly wraps out-of-range coordinates onto the globe instead of
+            # rejecting them, so plotting a spend column as latitude yields a
+            # convincing-looking world map of nothing. Refuse rather than invent.
+            out_of_range = _coords_out_of_range(plot_df, lat_col, lon_col)
+            if out_of_range:
+                return {
+                    "success": False,
+                    "error": f"'{out_of_range['column']}' is not a {out_of_range['kind']}: "
+                    f"{out_of_range['count']:,} of {len(plot_df):,} values fall outside "
+                    f"{out_of_range['low']}..{out_of_range['high']} "
+                    f"(observed {out_of_range['min']:.4g} to {out_of_range['max']:.4g}).",
+                    "hint": (
+                        "Pass real coordinate columns as lat_column/lon_column, or use "
+                        "location_column with country or state names for a choropleth."
+                    ),
+                    "progress": [fail("Not a coordinate column", out_of_range["column"])],
+                    "token_estimate": 40,
+                }
 
             if value_column:
                 plot_df[value_column] = pd.to_numeric(df.loc[plot_df.index, value_column], errors="coerce")

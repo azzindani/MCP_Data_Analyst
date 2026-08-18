@@ -1008,6 +1008,40 @@ class TestMergeDatasets:
         assert not r["backup"]
         assert Path(str(cat_csv)).read_text() == before
 
+    def test_warns_when_a_join_multiplies_rows(self, tmp_path):
+        """A fan-out under the hard row ceiling still succeeds, and the caller
+        cannot tell a deliberate one-to-many expansion from a mistaken key. A
+        real run joined 16,834 rows to 7,357 on a repeated date column, wrote
+        756,755 rows into a 165 MB file, and reported a plain success."""
+        left = tmp_path / "left.csv"
+        right = tmp_path / "right.csv"
+        left.write_text("day,amount\n" + "".join(f"2024-01-01,{i}\n" for i in range(30)))
+        right.write_text("day,label\n" + "".join(f"2024-01-01,L{i}\n" for i in range(30)))
+
+        r = merge_datasets(str(left), str(right), left_on="day", right_on="day", how="inner", open_after=False)
+        assert r["success"] is True
+        assert r["result_rows"] == 900
+        assert "warning" in r
+        assert "day" in r["warning"]
+        assert "30.0×" in r["warning"]
+
+    def test_no_warning_on_a_clean_one_to_one_join(self, cat_csv, right_csv):
+        r = merge_datasets(str(cat_csv), str(right_csv), left_on="Region", right_on="Region", open_after=False)
+        assert r["success"] is True
+        assert "warning" not in r
+
+    def test_dry_run_warns_before_anything_is_written(self, tmp_path):
+        left = tmp_path / "left.csv"
+        right = tmp_path / "right.csv"
+        left.write_text("day,amount\n" + "".join(f"2024-01-01,{i}\n" for i in range(30)))
+        right.write_text("day,label\n" + "".join(f"2024-01-01,L{i}\n" for i in range(30)))
+
+        r = merge_datasets(
+            str(left), str(right), left_on="day", right_on="day", how="inner", dry_run=True, open_after=False
+        )
+        assert r["success"] is True
+        assert "warning" in r
+
     def test_rejects_combinatorial_explosion(self, tmp_path):
         """Regression test: a join key that isn't unique on either side fans
         out combinatorially — pandas.merge() has no size limit and will

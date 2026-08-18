@@ -180,10 +180,16 @@ def generate_correlation_heatmap(
             }
 
         corr = df[numeric_cols].corr(method=method)
+        # Pin the scale to the full correlation range. Auto-ranging over the
+        # observed values paints the weakest positive correlation in the palette's
+        # "strong negative" colour, which reads as the opposite result.
         fig = px.imshow(
             corr,
             text_auto=".2f",
             color_continuous_scale="RdBu_r",
+            zmin=-1,
+            zmax=1,
+            color_continuous_midpoint=0,
             title=f"Correlation Matrix ({method})",
             aspect="auto",
         )

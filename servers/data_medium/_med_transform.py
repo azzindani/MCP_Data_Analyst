@@ -144,6 +144,18 @@ def enrich_with_geo(
             merged[geo_col] = merged[geo_col].apply(lambda g: g.wkt if g is not None else None)
 
         matched = int(merged[geo_col].notna().sum()) if geo_col in merged.columns else 0
+        # Zero matches means the join key never lined up — the output is the input
+        # with a column of nulls bolted on. A real run wrote a 2 MB file and
+        # reported plain success after matching nothing at all.
+        no_match_hint = ""
+        if not matched:
+            no_match_hint = (
+                f"0 of {len(df):,} rows matched — the join key values do not overlap, so no geography "
+                f"was added. Unmatched examples from the dataset: {unmatched_main[:3]}; "
+                f"from the geo file: {unmatched_geo[:3]}. Check the two key columns hold the same "
+                "kind of identifier before re-running."
+            )
+            progress.append(warn("No rows matched", f"{geo_path.name} added nothing"))
 
         if dry_run:
             progress.append(info("Dry run — no changes written", path.name))
@@ -160,6 +172,8 @@ def enrich_with_geo(
                 "new_columns": new_cols,
                 "progress": progress,
             }
+            if no_match_hint:
+                result["warning"] = no_match_hint
             result["token_estimate"] = _token_estimate(result)
             return result
 
@@ -192,6 +206,8 @@ def enrich_with_geo(
             "hint": "Call inspect_dataset() or read_column_stats() to verify the changes.",
             "progress": progress,
         }
+        if no_match_hint:
+            result["warning"] = no_match_hint
         result["token_estimate"] = _token_estimate(result)
         return result
 
@@ -642,6 +658,26 @@ def smart_impute(
 # merge_datasets
 # ---------------------------------------------------------------------------
 
+# A join on a non-unique key multiplies rows instead of aligning them. Below the
+# hard _MAX_MERGE_ROWS ceiling this still succeeds silently, and the caller has
+# no way to tell a legitimate one-to-many expansion from a mistaken key: a real
+# run joined 16,834 rows to 7,357 on a date column and wrote 756,755 rows — a
+# 165 MB file — reported as a plain success.
+_FANOUT_RATIO = 2.0
+
+
+def _fanout_warning(left_rows: int, right_rows: int, result_rows: int, left_on: str, right_on: str) -> str:
+    """Describe a join that multiplied rows, or '' when the size is unremarkable."""
+    largest = max(left_rows, right_rows)
+    if largest == 0 or result_rows <= largest * _FANOUT_RATIO:
+        return ""
+    key = left_on if left_on == right_on else f"{left_on}/{right_on}"
+    return (
+        f"{result_rows:,} rows out of {left_rows:,} × {right_rows:,} — "
+        f"{result_rows / largest:.1f}× the larger input, because '{key}' repeats on both sides. "
+        "Deduplicate the key or join on a more selective column if you expected row alignment."
+    )
+
 
 def merge_datasets(
     file_path: str,
@@ -757,6 +793,9 @@ def merge_datasets(
             merged = merged.drop(columns=[right_on])
 
         rows_matched = int(merged[left_on].notna().sum())
+        fanout = _fanout_warning(len(left_df), len(right_df), len(merged), left_on, right_on)
+        if fanout:
+            progress.append(warn("Join fanned out", fanout))
 
         if dry_run:
             progress.append(info("Dry run — no changes written", path.name))
@@ -774,6 +813,8 @@ def merge_datasets(
                 "how": how,
                 "progress": progress,
             }
+            if fanout:
+                result["warning"] = fanout
             result["token_estimate"] = _token_estimate(result)
             return result
 
@@ -818,6 +859,8 @@ def merge_datasets(
             "hint": "Call inspect_dataset() or read_column_stats() to verify the changes.",
             "progress": progress,
         }
+        if fanout:
+            result["warning"] = fanout
         result["token_estimate"] = _token_estimate(result)
         return result
 
