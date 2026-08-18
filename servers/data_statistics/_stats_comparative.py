@@ -7,7 +7,10 @@ import sys
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[3]
-for _p in (str(_ROOT),):
+# data_medium holds the shared chart saver; engine.py puts it on the path too,
+# but this module is also imported directly by the tests.
+_MED = str(Path(__file__).resolve().parents[1] / "data_medium")
+for _p in (str(_ROOT), _MED):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
@@ -32,6 +35,48 @@ _FREQ_MAP = {
 _VALID_PERIOD_UNITS = set(_FREQ_MAP)
 
 
+def _comparison_chart(
+    comparisons: list[dict],
+    metrics: list[str],
+    current_period: str,
+    reference_period: str,
+    output_path: str,
+    input_path: Path,
+    theme: str,
+    open_after: bool,
+) -> tuple[str, str]:
+    """Plot each metric's current value against its reference, side by side.
+
+    Grouped bars rather than the percentage deltas: the deltas are already in
+    the response as numbers, and what a chart adds is the magnitudes they came
+    from -- a +300% move on a base of 2 reads very differently next to its bar.
+    """
+    try:
+        import plotly.graph_objects as go  # type: ignore[import-untyped]
+        from _med_helpers import _save_chart  # type: ignore[import]
+    except ImportError:
+        return "", ""
+
+    # With group_by, one entry per group; label the axis accordingly.
+    labels = [f"{c.get('group', '')} {m}".strip() for c in comparisons for m in metrics]
+    current = [c[m]["current"] for c in comparisons for m in metrics]
+    reference = [c[m]["reference"] for c in comparisons for m in metrics]
+
+    fig = go.Figure(
+        [
+            go.Bar(name=reference_period, x=labels, y=reference, marker_color="#8b949e"),
+            go.Bar(name=current_period, x=labels, y=current, marker_color="#58a6ff"),
+        ]
+    )
+    fig.update_layout(
+        barmode="group",
+        title=f"{current_period} vs {reference_period}",
+        margin=dict(l=20, r=20, t=60, b=20),
+        autosize=True,
+    )
+    return _save_chart(fig, output_path, "period_comparison", input_path, open_after, theme)
+
+
 def period_comparison(
     file_path: str,
     date_col: str,
@@ -41,6 +86,8 @@ def period_comparison(
     compare_to: str = "previous",
     group_by: str = "",
     output_path: str = "",
+    theme: str = "device",
+    open_after: bool = False,
 ) -> dict:
     """Compare MoM/QoQ/YoY metrics. Returns delta, pct_change, direction."""
     progress = []
@@ -202,6 +249,20 @@ def period_comparison(
             "all_periods_available": [str(p) for p in all_periods],
             "progress": progress,
         }
+
+        # Same defect as regression_analysis: output_path was accepted and then
+        # dropped, so the caller got success:true and no file.
+        if output_path:
+            chart_path, chart_name = _comparison_chart(
+                comparisons, metrics, str(cur_pd), str(ref_pd), output_path, path, theme, open_after
+            )
+            if chart_path:
+                result["output_path"] = chart_path
+                result["output_name"] = chart_name
+                progress.append(ok("Comparison chart saved", chart_name))
+            else:
+                progress.append(warn("No chart written", "plotly is unavailable in this environment"))
+
         result["token_estimate"] = len(str(result)) // 4
         return result
 

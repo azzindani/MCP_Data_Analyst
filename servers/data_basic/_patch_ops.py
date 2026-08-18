@@ -12,6 +12,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 from shared.file_utils import read_csv as _read_csv
+from shared.patch_validator import _FILL_STRATEGIES
 from shared.progress import fail, ok  # noqa: F401 — re-exported for convenience
 
 try:
@@ -262,6 +263,18 @@ def _op_fill_nulls(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
         df[col] = df[col].bfill()
     elif strategy == "drop":
         df = df.dropna(subset=[col])
+    else:
+        # There was no else here, so an unrecognised strategy fell through every
+        # branch and the op reported {"filled": 0} -- which reads as "nothing
+        # needed filling", not "I did not understand you". run_workspace_pipeline
+        # validates against the same allow-list and rejects it up front;
+        # run_cleaning_pipeline does not, so the same op dict was accepted in one
+        # path and silently no-op'd in the other.
+        raise ValueError(
+            f"Invalid fill_nulls strategy '{strategy}'. Valid: {', '.join(sorted(_FILL_STRATEGIES))}. "
+            f"There is no literal-value fill; 'mean' or 'median' on a mostly-zero column is the "
+            f"closest equivalent. Note fill_zeros does the inverse -- it treats existing 0s as null."
+        )
 
     null_after = int(df[col].isna().sum()) if col in df.columns else 0
     filled = null_before - null_after

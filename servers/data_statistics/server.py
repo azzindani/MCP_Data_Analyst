@@ -160,9 +160,13 @@ def regression_analysis(
     model_type: str = "ols",
     interaction_terms: list[str] = None,
     output_path: str = "",
+    open_after: bool = True,
+    theme: str = "device",
 ) -> dict:
     """OLS or logistic regression. Returns coefs p-values R2 RMSE diagnostics."""
-    return engine.regression_analysis(file_path, y_col, x_cols, model_type, interaction_terms, output_path)
+    return engine.regression_analysis(
+        file_path, y_col, x_cols, model_type, interaction_terms, output_path, theme, open_after
+    )
 
 
 @mcp.tool()
@@ -189,6 +193,8 @@ def period_comparison(
     compare_to: str = "previous",
     group_by: str = "",
     output_path: str = "",
+    open_after: bool = True,
+    theme: str = "device",
 ) -> dict:
     """Compare periods: MoM QoQ YoY. Returns delta pct_change direction."""
     return engine.period_comparison(
@@ -200,6 +206,8 @@ def period_comparison(
         compare_to,
         group_by,
         output_path,
+        theme,
+        open_after,
     )
 
 

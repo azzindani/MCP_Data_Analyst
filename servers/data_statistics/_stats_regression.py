@@ -7,7 +7,10 @@ import sys
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[3]
-for _p in (str(_ROOT),):
+# data_medium holds the shared chart saver; engine.py puts it on the path too,
+# but this module is also imported directly by the tests.
+_MED = str(Path(__file__).resolve().parents[1] / "data_medium")
+for _p in (str(_ROOT), _MED):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
@@ -39,6 +42,56 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def _coefficient_chart(
+    coef_table: dict,
+    y_col: str,
+    output_path: str,
+    input_path: Path,
+    theme: str,
+    open_after: bool,
+) -> tuple[str, str]:
+    """Render the fitted coefficients with their confidence intervals.
+
+    This is the standard way to read a regression: which predictors moved the
+    outcome, in which direction, and how sure the fit is about each. Every
+    number plotted is already computed above, so the chart cannot disagree with
+    the returned statistics.
+    """
+    try:
+        import plotly.graph_objects as go  # type: ignore[import-untyped]
+        from _med_helpers import _save_chart  # type: ignore[import]
+    except ImportError:
+        return "", ""
+
+    names = list(coef_table)
+    coefs = [coef_table[n]["coef"] for n in names]
+    # Error bars are the distance from the point to each CI edge, not the edges.
+    plus = [coef_table[n]["ci_upper"] - coef_table[n]["coef"] for n in names]
+    minus = [coef_table[n]["coef"] - coef_table[n]["ci_lower"] for n in names]
+    # Significance is the one thing a reader should not have to compute by eye.
+    colors = ["#3fb950" if coef_table[n]["significant"] else "#8b949e" for n in names]
+
+    fig = go.Figure(
+        go.Bar(
+            x=coefs,
+            y=names,
+            orientation="h",
+            marker_color=colors,
+            error_x=dict(type="data", symmetric=False, array=plus, arrayminus=minus),
+            hovertemplate="%{y}: %{x:.4f}<extra></extra>",
+        )
+    )
+    fig.add_vline(x=0, line_width=1, line_dash="dash", line_color="#8b949e")
+    fig.update_layout(
+        title=f"Effect on {y_col} (95% CI; grey = not significant)",
+        xaxis_title="coefficient",
+        margin=dict(l=20, r=20, t=60, b=20),
+        autosize=True,
+        showlegend=False,
+    )
+    return _save_chart(fig, output_path, "regression", input_path, open_after, theme)
+
+
 def regression_analysis(
     file_path: str,
     y_col: str,
@@ -46,6 +99,8 @@ def regression_analysis(
     model_type: str = "ols",
     interaction_terms: list[str] = None,
     output_path: str = "",
+    theme: str = "device",
+    open_after: bool = False,
 ) -> dict:
     """OLS or logistic regression with coefficients, p-values, R², diagnostics."""
     progress = []
@@ -225,6 +280,19 @@ def regression_analysis(
             **result_data,
             "progress": progress,
         }
+
+        # output_path was accepted, threaded down here and then ignored: the
+        # caller asked for a report, got success:true, and no file. Nothing in
+        # the response said so either, because output_path was not echoed back.
+        if output_path:
+            chart_path, chart_name = _coefficient_chart(coef_table, y_col, output_path, path, theme, open_after)
+            if chart_path:
+                result["output_path"] = chart_path
+                result["output_name"] = chart_name
+                progress.append(ok("Coefficient chart saved", chart_name))
+            else:
+                progress.append(warn("No chart written", "plotly is unavailable in this environment"))
+
         result["token_estimate"] = len(str(result)) // 4
         return result
 
