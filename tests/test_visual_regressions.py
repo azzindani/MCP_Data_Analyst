@@ -39,14 +39,7 @@ def dated_csv(tmp_path: Path) -> Path:
     """Rows deliberately out of date order, with the largest value in the middle,
     so a value-sort and a date-sort produce visibly different charts."""
     csv = tmp_path / "dated.csv"
-    csv.write_text(
-        "day,amount\n"
-        "2024-03-01,10\n"
-        "2024-01-01,50\n"
-        "2024-05-01,20\n"
-        "2024-02-01,90\n"
-        "2024-04-01,30\n"
-    )
+    csv.write_text("day,amount\n2024-03-01,10\n2024-01-01,50\n2024-05-01,20\n2024-02-01,90\n2024-04-01,30\n")
     return csv
 
 
@@ -66,9 +59,7 @@ class TestLineChartsFollowTheXAxis:
 
     def test_line_values_follow_their_own_x(self, dated_csv: Path, tmp_path: Path):
         out = tmp_path / "line.html"
-        generate_chart(
-            str(dated_csv), "line", "amount", category_column="day", output_path=str(out), open_after=False
-        )
+        generate_chart(str(dated_csv), "line", "amount", category_column="day", output_path=str(out), open_after=False)
         from servers.data_visual._adv_customize import _decode_plotly_y
 
         traces, _ = _figure(out)
@@ -76,9 +67,7 @@ class TestLineChartsFollowTheXAxis:
 
     def test_bars_are_still_ranked_by_value(self, dated_csv: Path, tmp_path: Path):
         out = tmp_path / "bar.html"
-        generate_chart(
-            str(dated_csv), "bar", "amount", category_column="day", output_path=str(out), open_after=False
-        )
+        generate_chart(str(dated_csv), "bar", "amount", category_column="day", output_path=str(out), open_after=False)
         traces, _ = _figure(out)
         values = list(traces[0]["y"])
         assert values == sorted(values, reverse=True)
@@ -121,9 +110,7 @@ class TestGeoMapRefusesNonCoordinates:
         assert "Revenue" in result["error"]
 
     def test_the_error_names_a_real_alternative(self, simple_csv: Path, tmp_path: Path):
-        result = generate_geo_map(
-            str(simple_csv), lat_column="Revenue", lon_column="Units Sold", open_after=False
-        )
+        result = generate_geo_map(str(simple_csv), lat_column="Revenue", lon_column="Units Sold", open_after=False)
         assert "location_column" in result["hint"]
 
     def test_nothing_is_written_when_the_columns_are_refused(self, simple_csv: Path, tmp_path: Path):

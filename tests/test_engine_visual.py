@@ -94,9 +94,7 @@ class TestCustomizedChartStillRenders:
 
     def test_axis_labels_are_independent(self, bar_chart: Path, tmp_path: Path):
         out = tmp_path / "out.html"
-        result = customize_chart(
-            str(bar_chart), title="T", x_label="Region", y_label="Revenue", output_path=str(out)
-        )
+        result = customize_chart(str(bar_chart), title="T", x_label="Region", y_label="Revenue", output_path=str(out))
         assert result["success"] is True
         _, layout = _parsed(out.read_text())
         assert layout["title"]["text"] == "T"
@@ -148,9 +146,7 @@ class TestCustomizedChartStillRenders:
         csv = tmp_path / "ints.csv"
         csv.write_text("Region,Revenue\nNorth,3\nSouth,9\nEast,1\nWest,7\n")
         chart = tmp_path / "ints.html"
-        generate_chart(
-            str(csv), "bar", "Revenue", category_column="Region", output_path=str(chart), open_after=False
-        )
+        generate_chart(str(csv), "bar", "Revenue", category_column="Region", output_path=str(chart), open_after=False)
         out = tmp_path / "sorted.html"
         result = customize_chart(str(chart), sort_bars="asc", output_path=str(out))
         assert result["success"] is True
