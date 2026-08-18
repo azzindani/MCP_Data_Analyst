@@ -238,6 +238,63 @@ run ingest flatten_merged_cells "{\"file_path\":\"$XLSX\",\"sheet\":\"Sheet1\",\
 run ingest convert_file "{\"file_path\":\"$SALES\",\"output_format\":\"excel\"}" "convert sales.csv to xlsx"
 
 echo
+echo "===== hybrid file exchange (remote-only behaviour) ====="
+# Only meaningful against a deployment that sets MCP_OUTPUT_DIR /
+# MCP_PUBLIC_BASE_URL / MCP_FETCH_URLS — i.e. exactly what pytest cannot
+# check, since pytest never spins up a server or touches the network.
+SHARED_DIR=$(docker exec "$CONTAINER" printenv MCP_OUTPUT_DIR 2>/dev/null || true)
+if [ -z "$SHARED_DIR" ]; then
+  echo "  SKIP: MCP_OUTPUT_DIR is unset on $CONTAINER — nothing to verify"
+else
+  echo "== prompt: \"chart revenue by region\" -> generate_chart (default output path) =="
+  N=$((N+1))
+  EX_R=$(call visual "$N" generate_chart "{\"file_path\":\"$SALES\",\"chart_type\":\"bar\",\"value_column\":\"revenue\",\"category_column\":\"region\"}")
+  EX_PATH=$(extract "$EX_R" output_path)
+  EX_URL=$(extract "$EX_R" public_url)
+  case "$EX_PATH" in
+    "$SHARED_DIR"/*) pass "default output landed in the shared dir ($EX_PATH)" ;;
+    *) fail "default output went to $EX_PATH, expected it under $SHARED_DIR" ;;
+  esac
+  [ -n "$EX_URL" ] && pass "response carried public_url ($EX_URL)" || fail "no public_url in response"
+  if docker exec "$CONTAINER" test -s "$EX_PATH"; then
+    pass "the chart is a real non-empty file on disk, not just a success message"
+  else
+    fail "no file at $EX_PATH inside the container"
+  fi
+
+  echo "== prompt: \"analyze the dataset at <link>\" -> load_dataset with a URL =="
+  N=$((N+1))
+  URL_R=$(call basic "$N" load_dataset "{\"file_path\":\"https://math.casava.space/health\"}")
+  # /health is public on every sibling MCP endpoint, so this exercises a real
+  # outbound fetch over the real domain without needing a credentialled URL.
+  # It serves JSON, and load_dataset only accepts .csv — so the wrong-type
+  # rejection IS the proof: the server could only know the extension by
+  # downloading the URL first.
+  #
+  # Deliberately a *sibling* host, not $DOMAIN/health. Fetching its own public
+  # URL deadlocks: the tool call occupies the worker that would have to serve
+  # the request, and the fetch dies on the read timeout.
+  if echo "$URL_R" | grep -q "does not fetch URLs"; then
+    fail "MCP_FETCH_URLS is not enabled on $CONTAINER"
+  elif echo "$URL_R" | grep -qE 'Expected \\?\.csv|inbox|"success\\?":[[:space:]]*true'; then
+    pass "a URL was accepted as a file_path and fetched server-side"
+  else
+    fail "URL input -> $URL_R"
+  fi
+  INBOX=$(docker exec "$CONTAINER" sh -c "ls -1 '$SHARED_DIR/inbox' 2>/dev/null | head -3" || true)
+  [ -n "$INBOX" ] && pass "fetched file landed in the inbox ($INBOX)" || fail "inbox is empty after a URL fetch"
+
+  echo "== SSRF guard: a private address must be refused =="
+  N=$((N+1))
+  SSRF_R=$(call basic "$N" load_dataset '{"file_path":"http://169.254.169.254/latest/meta-data/"}')
+  if echo "$SSRF_R" | grep -q "non-public address"; then
+    pass "link-local metadata address refused"
+  else
+    fail "SSRF guard did not fire -> $SSRF_R"
+  fi
+fi
+
+echo
 if [ "$FAILS" -eq 0 ]; then
   echo "ALL 69 TOOLS PASSED against $DOMAIN"
 else

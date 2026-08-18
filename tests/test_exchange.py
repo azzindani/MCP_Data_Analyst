@@ -262,6 +262,13 @@ def test_fetch_url_downloads_real_bytes_into_inbox(remote_mode, http_url):
     assert public_url_for(path) == "https://files.example.test/data/inbox/data.csv"
 
 
+def test_fetch_url_leaves_the_file_readable_by_others(remote_mode, http_url):
+    # mkstemp's 0600 would make a downloaded file unreadable to the file
+    # server (or any other service) sharing this directory.
+    path = fetch_url(f"{http_url}/data.csv")
+    assert path.stat().st_mode & 0o044 == 0o044
+
+
 def test_fetch_url_adds_suffix_from_content_type(remote_mode, http_url):
     path = fetch_url(f"{http_url}/export?id=7")
     assert path.suffix == ".csv"
