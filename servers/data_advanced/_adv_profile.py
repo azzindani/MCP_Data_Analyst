@@ -640,6 +640,9 @@ def _profile_insights(df, col_analysis, numeric_cols, cat_cols, corr_pairs, dup_
 def _profile_quality(df, col_analysis):
     h = ['<div id="quality" class="section"><h2>Data Quality Dashboard</h2>']
     h.append(
+        # Five sortable columns do not fit a phone. Without .tbl-wrap the whole
+        # page scrolls sideways instead of the table.
+        '<div class="tbl-wrap">'
         "<table><tr><th data-sort>Column</th><th data-sort>Type</th><th data-sort>Completeness</th>"
         "<th data-sort>Unique %</th><th data-sort>Quality</th></tr><tbody>"
     )
@@ -654,7 +657,7 @@ def _profile_quality(df, col_analysis):
 <td>{unique_pct:.1f}%</td>
 <td><span class="badge" style="background:{"var(--green)" if quality_score > 80 else "var(--orange)" if quality_score > 50 else "var(--red)"}">{quality_score:.0f}/100</span></td>
 </tr>""")
-    h.append("</tbody></table></div>")
+    h.append("</tbody></table></div></div>")
     return "\n".join(h)
 
 
@@ -663,6 +666,9 @@ def _profile_stats_table(numeric_cols, col_analysis):
         return ""
     h = ['<div id="stats" class="section"><h2>Summary Statistics (Numeric)</h2>']
     h.append(
+        # Ten columns; this is the table that made the profile report 609px wide
+        # in a 390px viewport.
+        '<div class="tbl-wrap">'
         "<table><tr><th data-sort>Column</th><th data-sort>Mean</th><th data-sort>Median</th>"
         "<th data-sort>Std</th><th data-sort>Min</th><th data-sort>Q1</th><th data-sort>Q3</th>"
         "<th data-sort>Max</th><th data-sort>Skew</th><th data-sort>Outliers</th></tr><tbody>"
@@ -676,7 +682,7 @@ def _profile_stats_table(numeric_cols, col_analysis):
 <td>{info["skew"]:+.2f}</td>
 <td class="{"warn" if info["outlier_count"] > 0 else ""}">{info["outlier_count"]:,}</td>
 </tr>""")
-    h.append("</tbody></table></div>")
+    h.append("</tbody></table></div></div>")
     return "\n".join(h)
 
 

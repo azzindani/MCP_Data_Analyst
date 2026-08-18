@@ -393,7 +393,7 @@ def metrics_cards_html(metrics: dict, styles: dict[str, str] | None = None) -> s
 
 
 def data_table_html(rows: list[dict], max_rows: int = 50) -> str:
-    """Render list[dict] as .table-wrap > table."""
+    """Render list[dict] as .tbl-wrap > table."""
     import html as _html
 
     if not rows:
@@ -414,7 +414,10 @@ def data_table_html(rows: list[dict], max_rows: int = 50) -> str:
             f'style="text-align:center;color:var(--text-muted);font-style:italic">'
             f"&hellip; {remaining:,} more rows</td></tr>"
         )
-    return f'<div class="table-wrap"><table><tr>{th}</tr>{trs}</table></div>'
+    # .table-wrap has no CSS rule anywhere in this repo -- the wrapper was
+    # inert and the table overflowed its page regardless. .tbl-wrap is the
+    # class _BASE_CSS actually defines.
+    return f'<div class="tbl-wrap"><table><tr>{th}</tr>{trs}</table></div>'
 
 
 # ---------------------------------------------------------------------------
