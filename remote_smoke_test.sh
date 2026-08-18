@@ -41,6 +41,15 @@ fail() { echo "  FAIL: $1"; FAILS=$((FAILS+1)); }
 ok_json() { echo "$1" | grep -Eq '\\?"success\\?":[[:space:]]*true'; }
 
 echo "Target: $DOMAIN"
+
+# Tools called without an explicit output_path now default into
+# MCP_OUTPUT_DIR, which on a real deployment is a directory the operator
+# actually looks at. Remember what was there so the run can leave it exactly
+# as it found it (see the cleanup at the very bottom).
+SHARED_DIR=$(docker exec "$CONTAINER" printenv MCP_OUTPUT_DIR 2>/dev/null || true)
+SHARED_BEFORE=$(mktemp)
+[ -n "$SHARED_DIR" ] && docker exec "$CONTAINER" sh -c "ls -1A '$SHARED_DIR' 2>/dev/null" | sort > "$SHARED_BEFORE"
+
 echo
 echo "== seed real datasets + a real messy .xlsx into the container =="
 docker exec "$CONTAINER" mkdir -p "$D"
@@ -293,6 +302,18 @@ else
     fail "SSRF guard did not fire -> $SSRF_R"
   fi
 fi
+
+if [ -n "$SHARED_DIR" ]; then
+  echo
+  echo "== leave the shared directory as we found it =="
+  docker exec "$CONTAINER" sh -c "ls -1A '$SHARED_DIR' 2>/dev/null" | sort \
+    | comm -13 "$SHARED_BEFORE" - \
+    | while IFS= read -r leftover; do
+        [ -n "$leftover" ] && docker exec "$CONTAINER" rm -rf "$SHARED_DIR/$leftover"
+      done
+  pass "removed everything this run added to $SHARED_DIR"
+fi
+rm -f "$SHARED_BEFORE"
 
 echo
 if [ "$FAILS" -eq 0 ]; then
