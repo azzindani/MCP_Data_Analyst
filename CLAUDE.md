@@ -450,8 +450,40 @@ hand-authored `curl` sessions or a `remote_smoke_test.sh`, run after `docker
 compose up`, never wired into CI, never storing the live API key in the
 repo.
 
----
 
+`tests/test_smoke_test_covers_every_tool.py` keeps that script honest: it reads
+every `@mcp.tool()` name out of the server modules' AST and fails if one never
+appears in `remote_smoke_test.sh`. Offline, so it runs in CI. It exists because
+a harness-driven sweep was once told to "list the tools then call each" for two
+servers, listed some and called none -- 19 tools silently unexercised, with the
+run still reporting a clean pass.
+
+### Visual checks (not part of pytest / CI)
+
+`visual_check.py` renders generated HTML in headless Chromium and reports what a
+reader would actually see: figures that did not render, axis labels sheared off
+their plot box, a page that scrolls sideways, body text the same colour as its
+background, console errors. Same status as the smoke test -- manual, needs a
+browser, never wired into CI.
+
+```bash
+python3 visual_check.py out/                      # every .html under out/
+python3 visual_check.py --widths 1440,768,390 out/
+python3 visual_check.py --scheme dark out/report.html
+python3 visual_check.py --shots /tmp/shots out/   # save PNGs too
+```
+
+It exists because `success: true` and structurally-valid HTML say nothing about
+whether the page is readable. Everything it checks for is a defect that shipped
+green: y-axis labels clipped so "5000" read "000", a chart pinned at Plotly's
+450px default leaving a third of the window empty, a light chart panel on a dark
+page, a WebGL scatter drawing nothing because the canvas was 0x0, and a report
+32px wider than a phone because one grid track could not shrink.
+
+Needs `playwright install chromium` once; it is deliberately not a repo
+dependency, so run it with system `python3` rather than `uv run`.
+
+---
 ## Testing Standards
 
 Tests import `engine.py` directly. Never spin up an MCP server process in tests.

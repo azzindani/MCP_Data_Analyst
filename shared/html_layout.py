@@ -297,7 +297,12 @@ _REPORT_CSS = (
     ".main{margin-left:0;padding-top:3.5rem}"
     ".cards{grid-template-columns:repeat(auto-fill,minmax(7rem,1fr))}}"
     "@media(max-width:30rem){"
-    ".cards{grid-template-columns:repeat(2,1fr)}"
+    # minmax(0,1fr), not 1fr: a bare 1fr is minmax(auto,1fr), and `auto` floors
+    # the track at its content's min-content width. A .card .num is
+    # white-space:nowrap, so a long value pushed one column to 240px inside a
+    # 358px grid -- the page scrolled sideways on a phone and the ellipsis
+    # never engaged, because there was nothing to ellipsise against.
+    ".cards{grid-template-columns:repeat(2,minmax(0,1fr))}"
     "th,td{padding:.5rem .625rem;font-size:.75rem}}"
 )
 
@@ -406,11 +411,11 @@ _DASHBOARD_CSS = (
     ".mclose:hover{color:var(--red)}"
     "#mdiv{flex:1;min-height:0}"
     # Responsive breakpoints
-    "@media(max-width:68.75rem){.cgrid{grid-template-columns:1fr}}"
+    "@media(max-width:68.75rem){.cgrid{grid-template-columns:minmax(0,1fr)}}"
     "@media(max-width:37.5rem){"
     "header,.filter-bar,.kpi-row,.cgrid,.sec-hdr{padding-left:.875rem;padding-right:.875rem}"
-    ".kpi-row{grid-template-columns:repeat(2,1fr)}}"
-    "@media(max-width:25rem){.kpi-row{grid-template-columns:1fr}}"
+    ".kpi-row{grid-template-columns:repeat(2,minmax(0,1fr))}}"
+    "@media(max-width:25rem){.kpi-row{grid-template-columns:minmax(0,1fr)}}"
 )
 
 # ---------------------------------------------------------------------------

@@ -104,3 +104,84 @@ class TestSharedTableHelper:
         from shared.html_theme import css_vars
 
         assert ".tbl-wrap{overflow-x:auto" in css_report(css_vars("light"))
+
+
+class TestGridTracksCannotBlowOut:
+    """The profile report still scrolled sideways on a phone after the tables
+    were wrapped -- by 32px, and only on a real dataset.
+
+    `1fr` is `minmax(auto, 1fr)`, and `auto` floors a grid track at its
+    content's min-content width. A `.card .num` is `white-space:nowrap`, so a
+    long value pushed one column to 240px inside a 358px grid: the computed
+    columns came back "157.9px 240.4px" instead of two equal halves. The
+    ellipsis never engaged either, because there was nothing to ellipsise
+    against. `minmax(0,1fr)` lets the track shrink, so both work.
+
+    A 4-column fixture never triggered it; the 16-column real dataset did,
+    which is why this is pinned on the stylesheet rather than a rendered page.
+    """
+
+    def _css(self) -> str:
+        from shared.html_layout import css_dashboard, css_report
+        from shared.html_theme import css_vars
+
+        return css_report(css_vars("light")) + css_dashboard(css_vars("light"))
+
+    def test_no_bare_fr_track_survives(self):
+        css = self._css()
+        assert "repeat(2,1fr)" not in css
+        assert "grid-template-columns:1fr}" not in css
+
+    def test_the_mobile_card_grid_can_shrink(self):
+        assert "repeat(2,minmax(0,1fr))" in self._css()
+
+    def test_fixed_minimum_tracks_are_left_alone(self):
+        """auto-fill tracks with a real minimum are fine -- the max is 1fr, and
+        a fixed min cannot be pushed out by content."""
+        assert "repeat(auto-fill,minmax(" in self._css()
+
+
+class TestDashboardChartsKeepTheirAxisLabels:
+    """At 390px the dashboard's fixed margins sheared the y-axis ticks off:
+    '2000', '4000', '6000' and '8000' were all cut.
+
+    Its charts are thirteen hand-written JS layouts, so automargin is applied by
+    one helper at render time rather than edited into each of them, where it
+    would rot the first time someone adds a chart.
+    """
+
+    def _dashboard(self, tmp_path):
+        import numpy as np
+        import pandas as pd
+
+        from servers.data_advanced.engine import generate_dashboard
+
+        rng = np.random.default_rng(0)
+        n = 120
+        csv = tmp_path / "d.csv"
+        pd.DataFrame(
+            {
+                "Date": pd.date_range("2026-01-01", periods=n).astype(str),
+                "spends": rng.integers(1000, 9000, n).astype(float),
+                "clicks": rng.integers(10, 900, n).astype(float),
+                "cat": rng.choice(list("abc"), n),
+            }
+        ).to_csv(csv, index=False)
+        out = tmp_path / "dash.html"
+        result = generate_dashboard(str(csv), output_path=str(out), open_after=False)
+        assert result["success"] is True
+        return out.read_text(encoding="utf-8")
+
+    def test_the_helper_is_defined(self, tmp_path):
+        assert "function am(l)" in self._dashboard(tmp_path)
+
+    def test_every_chart_render_goes_through_it(self, tmp_path):
+        page = self._dashboard(tmp_path)
+        assert "am(layout)" in page
+        # No render may bypass it, or that chart clips again.
+        assert ",layout," not in page
+
+    def test_geo_layouts_are_not_given_cartesian_axes(self, tmp_path):
+        """A map has no x/y axis; inventing one would be meaningless."""
+        page = self._dashboard(tmp_path)
+        assert "!l.geo" in page
