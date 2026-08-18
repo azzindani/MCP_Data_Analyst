@@ -541,6 +541,36 @@ For lower-memory machines, set `MCP_CONSTRAINED_MODE=1` in the `env` section of 
 | Variable | Default | Description |
 |---|---|---|
 | `MCP_CONSTRAINED_MODE` | `0` | Set to `1` for low-memory machines |
+| `MCP_OUTPUT_DIR` | `~/Downloads` | Where generated charts/reports/CSVs land by default |
+| `MCP_PUBLIC_BASE_URL` | _(unset)_ | Public URL serving `MCP_OUTPUT_DIR`; adds `public_url` to results |
+| `MCP_FETCH_URLS` | `0` | `1` lets any `file_path` argument be an `http(s)` URL |
+| `MCP_FETCH_ALLOW_PRIVATE` | `0` | `1` permits fetching hosts on private/loopback addresses |
+| `MCP_MAX_FETCH_MB` | `100` | Size cap for a fetched URL |
+
+### Hybrid local + remote file handling
+
+The same engine serves a local stdio install and a self-hosted HTTP endpoint,
+but over HTTP the caller shares no filesystem with the server: a server-local
+output path means nothing to it, and it may hold a link rather than a path.
+Three opt-in variables close that gap without changing local behaviour — all
+are unset by default, so a local install stays offline and writes to
+`~/Downloads` exactly as before:
+
+- **`MCP_OUTPUT_DIR`** — bind-mount a directory here and every generated file
+  defaults into it, so outputs land somewhere you can actually see. It
+  outranks the input file's own directory; an explicit `output_path` still
+  wins over both.
+- **`MCP_PUBLIC_BASE_URL`** — the public URL that serves that directory. Every
+  produced file then comes back with a `public_url` you can open or hand on.
+- **`MCP_FETCH_URLS=1`** — `load_dataset("https://…/sales.csv")`, and every
+  other path argument, accepts a link; it is downloaded into
+  `MCP_OUTPUT_DIR/inbox` before the tool runs. Hosts resolving to
+  loopback/link-local/private addresses are refused, redirects included,
+  unless `MCP_FETCH_ALLOW_PRIVATE=1`.
+
+Tools that create a file also accept `return_content=True`, which embeds the
+file's bytes as `content_base64` for callers that have neither a shared
+filesystem nor access to the public URL.
 
 ## Deployment
 

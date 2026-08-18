@@ -413,6 +413,33 @@ reaches any tool.
 `Dockerfile` + `docker-compose.yml` build one image and run **one container**
 (`unified_server.py`, `DA_HOST`/`DA_PORT`, default port `8810`).
 
+### Hybrid file exchange (`shared/exchange.py`)
+
+Local and remote run the same engine, but over HTTP the caller shares no
+filesystem with the server — a server-local `output_path` is meaningless to
+it, and it may hold a link rather than a path. `shared/exchange.py` closes
+that gap through three env vars, all unset by default so a local stdio
+install keeps its offline `~/Downloads` behaviour bit for bit:
+
+| Var | Effect |
+|---|---|
+| `MCP_OUTPUT_DIR` | Default directory for generated files. Outranks the input file's directory; an explicit `output_path` argument still wins. |
+| `MCP_PUBLIC_BASE_URL` | Public URL serving `MCP_OUTPUT_DIR` — results gain `public_url`. |
+| `MCP_FETCH_URLS=1` | `resolve_path()` accepts `http(s)` URLs, downloading into `MCP_OUTPUT_DIR/inbox` first, so *every* path argument accepts a link with no per-tool change. |
+
+Rules for this module:
+
+1. Never make URL fetching the default — offline-first is the contract for a
+   local install (STANDARDS.md §4). It is opt-in, per deployment.
+2. Never drop the SSRF guard. `assert_fetchable()` refuses hosts resolving to
+   non-public addresses and is re-run on every redirect; an authenticated
+   caller must not be able to use this server to probe the network it runs on.
+3. Never let a fetch run unbounded — the size cap (`MCP_MAX_FETCH_MB`) and the
+   timeout are load-bearing, not decoration.
+4. `embed_content()` is the single hook that attaches both `public_url` and
+   `content_base64`; new file-producing tools call it instead of assembling
+   those keys by hand.
+
 ### Remote smoke tests (not part of pytest / CI)
 
 Testing Standards below stays offline-only per STANDARDS.md — never spins up

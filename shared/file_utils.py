@@ -15,13 +15,48 @@ from typing import Any
 
 import pandas as pd
 
+from shared.exchange import (
+    attach_public_url,
+    fetch_url,
+    get_inbox_dir,
+    get_output_dir,
+    is_url,
+    public_url_for,
+    url_fetch_enabled,
+)
+
+__all__ = [
+    "atomic_write",
+    "atomic_write_text",
+    "attach_public_url",
+    "embed_content",
+    "fetch_url",
+    "get_default_output_dir",
+    "get_inbox_dir",
+    "get_output_dir",
+    "is_url",
+    "public_url_for",
+    "read_csv",
+    "resolve_path",
+    "url_fetch_enabled",
+]
+
 
 def resolve_path(file_path: str, allowed_extensions: tuple[str, ...] = ()) -> Path:
     """Return resolved absolute Path; handles workspace:name/alias and project:name/alias.
 
     Delegates alias resolution to workspace_utils.resolve_alias which supports
     both workspace: (new) and project: (legacy) prefix formats.
+
+    An http(s) URL is downloaded into the inbox dir first and its local path
+    returned, so every tool that takes a file path also takes a link once the
+    server runs with MCP_FETCH_URLS=1 (off by default — see shared/exchange.py).
     """
+    if is_url(file_path):
+        path = fetch_url(file_path)
+        if allowed_extensions and path.suffix.lower() not in allowed_extensions:
+            raise ValueError(f"Extension {path.suffix!r} not allowed. Allowed: {allowed_extensions}")
+        return path
     if file_path.startswith("workspace:") or file_path.startswith("project:"):
         try:
             from shared.workspace_utils import resolve_alias
@@ -37,7 +72,14 @@ def resolve_path(file_path: str, allowed_extensions: tuple[str, ...] = ()) -> Pa
 
 
 def get_default_output_dir(input_path: str | None = None) -> Path:
-    """Return default output dir: input file's parent if provided, else ~/Downloads."""
+    """Return default output dir: MCP_OUTPUT_DIR, else input's parent, else ~/Downloads.
+
+    MCP_OUTPUT_DIR outranks the input file's directory: a remote deployment
+    sets it precisely so generated files land somewhere the caller can reach,
+    which an input file's own directory is not guaranteed to be.
+    """
+    if os.environ.get("MCP_OUTPUT_DIR", "").strip():
+        return get_output_dir()
     if input_path:
         p = Path(input_path).resolve()
         if p.parent.exists():
@@ -128,14 +170,18 @@ _KNOWN_MIME_TYPES = {
 
 
 def embed_content(result: dict[str, Any], path: Path, return_content: bool) -> dict[str, Any]:
-    """Attach base64 file bytes to a tool result dict when requested.
+    """Attach `public_url`, and base64 file bytes when return_content is set.
 
-    In remote/HTTP deployments the caller has no filesystem in common
-    with this server, so a server-local output path is useless to it —
-    this lets the caller get the real bytes back over the wire instead.
-    A read failure here doesn't fail the whole tool call.
+    In remote/HTTP deployments the caller has no filesystem in common with this
+    server, so a server-local output path is useless to it. `public_url` (set
+    whenever the file lands under a publicly served MCP_OUTPUT_DIR) gives it a
+    link; return_content gives it the bytes themselves. A read failure here
+    doesn't fail the whole tool call.
     """
-    if not return_content or not result.get("success"):
+    if not result.get("success"):
+        return result
+    attach_public_url(result, path)
+    if not return_content:
         return result
     try:
         data = path.read_bytes()

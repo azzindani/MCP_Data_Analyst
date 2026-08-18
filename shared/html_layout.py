@@ -13,8 +13,10 @@ Best-practice rules enforced here:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
+from shared.exchange import get_output_dir
 from shared.file_utils import resolve_path
 
 # ---------------------------------------------------------------------------
@@ -32,18 +34,26 @@ def get_output_path(
 
     Priority:
       1. Explicit output_path argument if given
-      2. Same directory as input file (when input_path is provided)
-      3. ~/Downloads/<stem>_<suffix>.<ext>  (pure generation, no input file)
+      2. MCP_OUTPUT_DIR/<stem>_<suffix>.<ext>   (set by remote deployments)
+      3. Same directory as input file (when input_path is provided)
+      4. ~/Downloads/<stem>_<suffix>.<ext>  (pure generation, no input file)
+
+    MCP_OUTPUT_DIR outranks the input file's directory because a remote
+    deployment sets it precisely so generated files land somewhere the caller
+    can reach — the input file's own directory is not guaranteed to be that.
 
     Creates the resolved path's parent directory if it does not exist yet
     (e.g. a fresh container where ~/Downloads has never been created).
     """
+    name = f"{input_path.stem}_{stem_suffix}.{ext}" if input_path is not None else f"{stem_suffix}.{ext}"
     if output_path:
         out = resolve_path(output_path)
+    elif os.environ.get("MCP_OUTPUT_DIR", "").strip():
+        out = get_output_dir() / name
     elif input_path is not None:
-        out = input_path.parent / f"{input_path.stem}_{stem_suffix}.{ext}"
+        out = input_path.parent / name
     else:
-        out = Path.home() / "Downloads" / f"{stem_suffix}.{ext}"
+        out = Path.home() / "Downloads" / name
     out.parent.mkdir(parents=True, exist_ok=True)
     return out
 
