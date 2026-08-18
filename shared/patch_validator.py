@@ -142,11 +142,18 @@ def validate_ops(ops: list[dict]) -> list[str]:
         elif op_name == "fill_nulls":
             if "column" not in op:
                 errors.append(f"{prefix} (fill_nulls): missing 'column'")
-            strategy = op.get("strategy")
-            if strategy not in _FILL_STRATEGIES:
+            if "strategy" not in op:
+                # Distinct from an invalid one: reporting a missing key as
+                # "invalid strategy 'None'" sends the caller looking for a bad
+                # value it never passed.
                 errors.append(
-                    f"{prefix} (fill_nulls): invalid strategy '{strategy}'. "
-                    f"Valid: {', '.join(sorted(_FILL_STRATEGIES))}"
+                    f"{prefix} (fill_nulls): missing 'strategy'. Valid: {', '.join(sorted(_FILL_STRATEGIES))}"
+                )
+            elif op["strategy"] not in _FILL_STRATEGIES:
+                errors.append(
+                    f"{prefix} (fill_nulls): invalid strategy '{op['strategy']}'. "
+                    f"Valid: {', '.join(sorted(_FILL_STRATEGIES))}. There is no literal-value fill; "
+                    f"'mean' or 'median' on a mostly-zero column is the closest equivalent."
                 )
 
         elif op_name == "normalize":

@@ -33,6 +33,7 @@ from _patch_ops import (  # type: ignore[import-not-found]
 )
 
 from shared.file_utils import resolve_path
+from shared.patch_validator import validate_ops
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
@@ -435,6 +436,22 @@ def run_cleaning_pipeline(
                 "hint": f"Valid ops: {', '.join(sorted(handler_map.keys()))}",
                 "applied": 0,
                 "progress": [fail("Unknown op(s)", str(unknown_ops))],
+                "token_estimate": 20,
+            }
+
+        # The op name was checked; its arguments were not, so a missing required
+        # key reached the handler as a bare KeyError and was reported verbatim --
+        # error "Op 1 (fill_nulls): 'strategy'" says neither what is wrong nor
+        # how to fix it, and by then op 0 had been applied and rolled back.
+        # validate_ops names the missing key, before anything is written.
+        arg_errors = validate_ops(ops)
+        if arg_errors:
+            return {
+                "success": False,
+                "error": "; ".join(arg_errors),
+                "hint": "Fix the op arguments named above and retry. Nothing was modified.",
+                "applied": 0,
+                "progress": [fail("Invalid op arguments", str(arg_errors))],
                 "token_estimate": 20,
             }
 
