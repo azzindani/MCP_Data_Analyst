@@ -315,3 +315,34 @@ def test_atomic_write_leaves_files_readable_by_others(tmp_path):
     target = tmp_path / "out.csv"
     atomic_write(target, CSV_BODY)
     assert target.stat().st_mode & 0o044 == 0o044
+
+
+def test_output_path_extension_is_corrected_to_the_real_format(monkeypatch, tmp_path):
+    """A produced file must never misrepresent its own type.
+
+    Asking for an HTML chart at `outliers.csv` used to write HTML under a .csv
+    name — nothing downstream could open it, and the mistake surfaced much
+    later. The caller's directory and stem are kept; only the suffix is fixed.
+    """
+    monkeypatch.delenv("MCP_OUTPUT_DIR", raising=False)
+    asked = tmp_path / "outliers.csv"
+    out = get_output_path(str(asked), None, "outliers", "html")
+    assert out == tmp_path / "outliers.html"
+
+
+def test_output_path_extension_left_alone_when_it_already_matches(monkeypatch, tmp_path):
+    monkeypatch.delenv("MCP_OUTPUT_DIR", raising=False)
+    asked = tmp_path / "chart.html"
+    assert get_output_path(str(asked), None, "chart", "html") == asked
+
+
+def test_output_path_extension_match_is_case_insensitive(monkeypatch, tmp_path):
+    monkeypatch.delenv("MCP_OUTPUT_DIR", raising=False)
+    asked = tmp_path / "chart.HTML"
+    assert get_output_path(str(asked), None, "chart", "html") == asked
+
+
+def test_output_path_extension_corrected_for_non_html_formats(monkeypatch, tmp_path):
+    monkeypatch.delenv("MCP_OUTPUT_DIR", raising=False)
+    asked = tmp_path / "table.xlsx"
+    assert get_output_path(str(asked), None, "table", "csv") == tmp_path / "table.csv"

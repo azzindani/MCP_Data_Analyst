@@ -42,12 +42,20 @@ def get_output_path(
     deployment sets it precisely so generated files land somewhere the caller
     can reach — the input file's own directory is not guaranteed to be that.
 
+    An explicit output_path whose extension contradicts the format actually
+    being written gets corrected to `ext`. A caller that asks for an HTML
+    chart at `outliers.csv` otherwise receives a file that misrepresents its
+    own type: nothing downstream can open it, and the mistake only surfaces
+    later. The caller's directory and stem are always respected.
+
     Creates the resolved path's parent directory if it does not exist yet
     (e.g. a fresh container where ~/Downloads has never been created).
     """
     name = f"{input_path.stem}_{stem_suffix}.{ext}" if input_path is not None else f"{stem_suffix}.{ext}"
     if output_path:
         out = resolve_path(output_path)
+        if out.suffix.lower() != f".{ext.lower()}":
+            out = out.with_suffix(f".{ext}")
     elif os.environ.get("MCP_OUTPUT_DIR", "").strip():
         out = get_output_dir() / name
     elif input_path is not None:
