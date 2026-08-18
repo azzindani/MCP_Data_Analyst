@@ -36,9 +36,9 @@ from _adv_helpers import (
     device_mode_js,
     fail,
     get_output_path,
-    get_plotlyjs_script,
     is_numeric_col,
     ok,
+    plotly_script_tag,
     theme_plot_colors,
 )
 
@@ -163,6 +163,9 @@ def run_eda(
                 s["zero_count"] = int((df[s["column"]] == 0).sum())
                 s["zero_pct"] = round(s["zero_count"] / rows * 100, 2) if rows > 0 else 0
 
+        # Resolved first: the <head> references plotly.min.js in this directory.
+        out = get_output_path(output_path, path, "eda", "html")
+
         html_content = _build_eda_html(
             df,
             path,
@@ -179,9 +182,9 @@ def run_eda(
             spearman_matrix,
             dup_count,
             theme,
+            out.parent,
         )
 
-        out = get_output_path(output_path, path, "eda", "html")
         out.write_text(html_content, encoding="utf-8")
         size_kb = round(out.stat().st_size / 1024)
 
@@ -252,6 +255,7 @@ def _build_eda_html(
     spearman_matrix,
     dup_count,
     theme,
+    output_dir,
 ):
     vars_css = css_vars(theme)
     score_cls = "good" if quality_score >= 80 else "warn" if quality_score >= 60 else "bad"
@@ -384,7 +388,7 @@ def _build_eda_html(
         cls = "good" if abs(p["correlation"]) > 0.7 else "warn" if abs(p["correlation"]) > 0.5 else ""
         corr_rows += f'<tr class="{cls}"><td>{_html.escape(p["col_a"])}</td><td>{_html.escape(p["col_b"])}</td><td>{p["correlation"]:+.4f}</td><td>{s_str}</td></tr>'
 
-    plotly_script = get_plotlyjs_script()
+    plotly_script = plotly_script_tag(output_dir)
 
     missing_section = _build_missing_section(df, missing_by_col, rows, accent_color, _plot_bg, _font_color)
     corr_section = ""

@@ -34,15 +34,27 @@ from __future__ import annotations
 CHART_MARGIN: dict[str, int] = {"l": 56, "r": 24, "t": 48, "b": 48}
 
 
-def apply_chart_margins(fig: object) -> None:
-    """Set the shared margin and let each axis grow it to fit its own labels."""
+def apply_axis_automargin(fig: object) -> None:
+    """Let every axis grow the margin to fit the labels it actually draws.
+
+    Split out from apply_chart_margins because a figure embedded in a report
+    keeps its own margin and height -- a subplot grid needs them -- but still has
+    to stop shearing its tick labels off. A report's histogram rendered "20" as
+    "0" until this ran on it, so every gridline read zero.
+    """
     # title_automargin covers the one thing axis automargin cannot: a long or
     # wrapped figure title needs room at the top that no axis will ask for.
-    fig.update_layout(margin=dict(CHART_MARGIN), autosize=True, title_automargin=True)  # type: ignore[attr-defined]
+    fig.update_layout(title_automargin=True)  # type: ignore[attr-defined]
     # No-ops on figures without cartesian axes (pie, 3d, geo), which is why this
-    # is safe to call unconditionally from save_chart.
+    # is safe to call unconditionally.
     fig.update_xaxes(automargin=True)  # type: ignore[attr-defined]
     fig.update_yaxes(automargin=True)  # type: ignore[attr-defined]
+
+
+def apply_chart_margins(fig: object) -> None:
+    """Set the shared margin and let each axis grow it to fit its own labels."""
+    fig.update_layout(margin=dict(CHART_MARGIN), autosize=True)  # type: ignore[attr-defined]
+    apply_axis_automargin(fig)
 
 
 # ---------------------------------------------------------------------------

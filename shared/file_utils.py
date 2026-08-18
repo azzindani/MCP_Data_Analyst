@@ -25,6 +25,7 @@ from shared.exchange import (
     public_url_for,
     url_fetch_enabled,
 )
+from shared.plotly_bundle import MAX_EMBED_BYTES
 
 __all__ = [
     "apply_default_mode",
@@ -197,6 +198,15 @@ def embed_content(result: dict[str, Any], path: Path, return_content: bool) -> d
         return result
 
     data = _self_contained(path, data, result)
+    if len(data) > MAX_EMBED_BYTES:
+        # Backstop. Sidecar pages are a few KB, so this only trips on something
+        # unexpected -- but before the sidecar existed a report was 6.21 MB of
+        # base64 in a single tool result, which no client has room for.
+        result["content_note"] = (
+            f"Not embedded: {len(data) // 1024:,} KB exceeds the "
+            f"{MAX_EMBED_BYTES // 1024:,} KB inline limit. Use public_url or output_path."
+        )
+        return result
     result["content_base64"] = base64.b64encode(data).decode("ascii")
     mime = _KNOWN_MIME_TYPES.get(path.suffix.lower())
     if mime is None:

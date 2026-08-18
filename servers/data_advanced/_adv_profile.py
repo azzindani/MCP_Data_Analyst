@@ -36,9 +36,9 @@ from _adv_helpers import (
     device_mode_js,
     fail,
     get_output_path,
-    get_plotlyjs_script,
     is_numeric_col,
     ok,
+    plotly_script_tag,
     theme_plot_colors,
 )
 
@@ -110,8 +110,12 @@ def generate_auto_profile(
         _profile_vars = css_vars(theme)
         _plot_bg, _font_color, ap_accent = theme_plot_colors(theme)
 
+        # Resolved before the page is built: the <head> needs to know which
+        # directory plotly.min.js is written into so it can reference it.
+        out = get_output_path(output_path, path, "profile", "html")
+
         h = []
-        h.append(_profile_head_css(_profile_vars))
+        h.append(_profile_head_css(_profile_vars, out.parent))
         h.append(_profile_sidebar(path, rows, cols, df, col_analysis, ap_alerts))
         h.append('<div class="main">')
         h.append(
@@ -173,7 +177,6 @@ def generate_auto_profile(
 
         html_content = "\n".join(h)
 
-        out = get_output_path(output_path, path, "profile", "html")
         out.write_text(html_content, encoding="utf-8")
         size_kb = round(out.stat().st_size / 1024)
 
@@ -410,9 +413,9 @@ def _ap_alerts_html(al):
     return f'<div class="alert-panel">{"".join(items)}</div>'
 
 
-def _profile_head_css(profile_vars):
+def _profile_head_css(profile_vars, output_dir):
     _css = css_report(profile_vars)
-    plotly_script = get_plotlyjs_script()
+    plotly_script = plotly_script_tag(output_dir)
     return (
         "<!DOCTYPE html><html lang='en'><head>"
         "<meta charset='utf-8'>"

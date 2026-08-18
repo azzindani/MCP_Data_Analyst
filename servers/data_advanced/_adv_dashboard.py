@@ -31,12 +31,12 @@ from _adv_helpers import (
     device_mode_js,
     fail,
     get_output_path,
-    get_plotlyjs_script,
     infer_agg,
     info,
     is_numeric_col,
     ok,
     parse_agg_overrides,
+    plotly_script_tag,
     theme_plot_colors,
     warn,
 )
@@ -252,8 +252,11 @@ def generate_dashboard(
         else:
             geo_land_c, geo_ocean_c, geo_coast_c = "#e8ede6", "#c8ddef", "#aabbc8"
 
+        # Resolved first: the <head> references plotly.min.js in this directory.
+        out = get_output_path(output_path, path, "dashboard", "html")
+
         h: list[str] = []
-        h.append(_dash_head(_css, dashboard_title))
+        h.append(_dash_head(_css, dashboard_title, out.parent))
         h.append(_dash_header(dashboard_title, embed_df, was_sampled))
         h.append(_dash_filterbar(filter_controls, num_ranges))
         h.append(_dash_kpi_row(df, numeric_cols, sparklines, quality, qual_clr, col_agg))
@@ -329,7 +332,6 @@ def generate_dashboard(
 
         html_content = "\n".join(h)
 
-        out = get_output_path(output_path, path, "dashboard", "html")
         out.write_text(html_content, encoding="utf-8")
         size_kb = round(out.stat().st_size / 1024)
 
@@ -430,11 +432,11 @@ def _trend(df, col: str) -> tuple[str, str]:
     return "→", "trend-flat"
 
 
-def _dash_head(_css, dashboard_title):
+def _dash_head(_css, dashboard_title, output_dir):
     import html as _html
 
     full_css = css_dashboard(_css)
-    plotly_script = get_plotlyjs_script()
+    plotly_script = plotly_script_tag(output_dir)
     return (
         "<!DOCTYPE html>"
         "<html lang='en'><head>"
