@@ -41,6 +41,7 @@ from _adv_helpers import (
 )
 
 from shared.file_utils import embed_content, resolve_path
+from shared.table_payload import records_js
 
 logger = logging.getLogger(__name__)
 
@@ -228,7 +229,9 @@ def generate_dashboard(
         for c in datetime_cols:
             if c in embed_clean.columns:
                 embed_clean[c] = pd.to_datetime(embed_clean[c], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
-        raw_json = embed_clean.to_json(orient="records", date_format="iso")
+        # Columnar + dictionary-encoded; the page rebuilds the same array of
+        # row objects, so everything downstream of _RAW is unchanged.
+        raw_json = records_js(embed_clean)
 
         sparklines = _build_sparklines(df, numeric_cols)
         filter_controls = _build_filter_controls(df, cat_cols)
