@@ -66,7 +66,18 @@ _DECODER_JS = """(function(P){
 })"""
 
 
+def json_for_script(obj: object) -> str:
+    """Serialise `obj` for embedding inside a <script> block.
+
+    The HTML parser looks for `</script>` before JavaScript is parsed at all, so a
+    cell or column name containing that text ends the block early and everything
+    after it becomes markup. Escaping the three characters that can start such a
+    sequence keeps the value byte-identical once JavaScript decodes it.
+    """
+    payload = json.dumps(obj, separators=(",", ":"), default=str)
+    return payload.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+
+
 def records_js(df: pd.DataFrame) -> str:
     """Return a JS expression evaluating to the same array `to_json` would give."""
-    packed = json.dumps(encode_frame(df), separators=(",", ":"), default=str)
-    return f"{_DECODER_JS}({packed})"
+    return f"{_DECODER_JS}({json_for_script(encode_frame(df))})"

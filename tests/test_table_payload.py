@@ -112,3 +112,30 @@ class TestRoundTripInTheBrowser:
 
     def test_an_empty_frame_decodes_to_an_empty_array(self):
         assert _decode_in_node(pd.DataFrame({"a": []})) == []
+
+
+class TestScriptBlockSafety:
+    """The HTML parser looks for `</script>` before any JavaScript is parsed, so a
+    cell containing that text ends the block early and the rest becomes markup."""
+
+    def test_closing_tag_cannot_survive_into_the_payload(self):
+        from shared.table_payload import json_for_script
+
+        assert "</script>" not in json_for_script({"a": "</script><script>x</script>"})
+
+    def test_the_value_is_unchanged_once_javascript_decodes_it(self):
+        from shared.table_payload import json_for_script
+
+        assert json.loads(json_for_script({"a": "</script>"})) == {"a": "</script>"}
+
+    def test_angle_brackets_in_data_are_escaped(self):
+        from shared.table_payload import json_for_script
+
+        packed = json_for_script(["<img src=x onerror=1>"])
+        assert "<" not in packed and ">" not in packed
+
+    @needs_node
+    def test_hostile_values_round_trip_through_node(self):
+        df = pd.DataFrame({"t": ["</script>", "<img src=x>", "a&b"] * 8})
+        rows = _decode_in_node(df)
+        assert [r["t"] for r in rows[:3]] == ["</script>", "<img src=x>", "a&b"]

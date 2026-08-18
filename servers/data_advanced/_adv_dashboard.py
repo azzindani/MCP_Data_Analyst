@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html as _html_esc
 import json as _json
 import logging
 import re as _re
@@ -40,6 +41,7 @@ from _adv_helpers import (
     warn,
 )
 
+from shared.data_alerts import alerts_for_frame, alerts_html
 from shared.file_utils import embed_content, resolve_path
 from shared.table_payload import records_js
 
@@ -255,6 +257,11 @@ def generate_dashboard(
         h.append(_dash_header(dashboard_title, embed_df, was_sampled))
         h.append(_dash_filterbar(filter_controls, num_ranges))
         h.append(_dash_kpi_row(df, numeric_cols, sparklines, quality, qual_clr, col_agg))
+        # The dashboard is the artifact people actually send to a colleague, and
+        # it used to show 26 charts of a dataset without mentioning that two of
+        # its columns were constant. Same alert engine the EDA report leads with.
+        alerts = alerts_for_frame(df, numeric_cols, cat_cols)
+        h.append(_dash_alerts(alerts))
 
         spec: list[dict] = []
         h.append('<div class="sec-hdr">Charts</div><div class="cgrid">')
@@ -458,18 +465,22 @@ def _dash_filterbar(filter_controls, num_ranges):
     h = ['<div class="filter-bar">']
     for fc in filter_controls:
         col, vals, style = fc["col"], fc["values"], fc["style"]
-        lbl = col.replace('"', "&quot;")
+        # escape(), not a quote-only replace: a column named "<script>" used to
+        # reach the page intact, and both column names and cell values here come
+        # straight from whatever CSV was loaded.
+        lbl = _html_esc.escape(col)
         col_js = col.replace("\\", "\\\\").replace("'", "\\'")
         h.append(f'<div class="fgrp"><div class="flbl">{lbl}</div>')
         if style == "pills":
             h.append(f'<div class="pills" data-col="{lbl}">')
             for v in vals:
-                ve = str(v).replace('"', "&quot;").replace("'", "&#39;")
+                ve = _html_esc.escape(str(v))
                 h.append(f'<button class="pill active" data-val="{ve}" onclick="pilClick(this)">{ve}</button>')
             h.append("</div>")
         else:
             opts = "".join(
-                f'<label class="optlbl"><input type="checkbox" data-val="{str(v).replace(chr(34), "&quot;")}" checked onchange="ddChange(\'{col_js}\')">{str(v).replace("<", "&lt;")}</label>'
+                f'<label class="optlbl"><input type="checkbox" data-val="{_html_esc.escape(str(v))}"'
+                f" checked onchange=\"ddChange('{col_js}')\">{_html_esc.escape(str(v))}</label>"
                 for v in vals
             )
             h.append(
@@ -496,6 +507,20 @@ def _dash_filterbar(filter_controls, num_ranges):
         )
     h.append("</div>")
     return "\n".join(h)
+
+
+def _dash_alerts(alerts: list[dict]) -> str:
+    """Render the data-quality panel, collapsed when there is nothing to say."""
+    if not alerts:
+        return ""
+    errors = sum(1 for a in alerts if a["sev"] == "error")
+    label = f"Data quality — {len(alerts)} alert{'s' if len(alerts) != 1 else ''}"
+    if errors:
+        label += f", {errors} serious"
+    return (
+        f'<div class="sec-hdr">{label}</div>'
+        f'<div style="padding:0 clamp(.875rem,3vw,1.75rem) .5rem">{alerts_html(alerts)}</div>'
+    )
 
 
 def _dash_kpi_row(df, numeric_cols, sparklines, quality, qual_clr, col_agg):
@@ -527,7 +552,7 @@ def _dash_kpi_row(df, numeric_cols, sparklines, quality, qual_clr, col_agg):
         h.append(
             f'<div class="kpi-card">'
             f'<div class="kpi-val" id="kv-{sc}">{iv}</div>'
-            f'<div class="kpi-lbl">{lbl}</div>'
+            f'<div class="kpi-lbl">{_html_esc.escape(lbl)}</div>'
             f'<div class="kpi-trend {acls}">{arrow}</div>'
             f'<div class="kpi-spark" id="ks-{sc}"></div>'
             f"</div>"
@@ -552,12 +577,10 @@ def _card(h, cid: str, ttl: str, full: bool, height: int) -> None:
     cls = "cc full" if full else "cc"
     # Use CSS class for height — tall (>380 px original) gets cc-body--tall
     body_cls = "cc-body--tall" if height > 380 else "cc-body"
-    import html as _html_mod
-
-    te = _html_mod.escape(ttl)
+    te = _html_esc.escape(ttl)
     h.append(
         f'<div class="{cls}">'
-        f'<div class="cc-hdr"><h3>{ttl}</h3>'
+        f'<div class="cc-hdr"><h3>{te}</h3>'
         f'<button class="exp" data-expand="{cid}" data-expand-title="{te}">&#x2922;</button>'
         f'</div><div class="{body_cls}">'
         f'<div id="{cid}" style="width:100%;height:100%"></div>'
@@ -813,7 +836,21 @@ def _build_render_functions(
     return rfns
 
 
+def _close_tag_safe(js: str) -> str:
+    """Neutralise the one sequence that can end a <script> block early.
+
+    The HTML parser looks for `</script>` before any JavaScript is parsed, so a
+    column name or cell value containing it ends the block and everything after
+    becomes markup. In generated code that sequence can only have come from data,
+    and inside a string literal `<\\/script` is the identical string.
+    """
+    return _re.sub(r"</(script)", r"<\\/\1", js, flags=_re.IGNORECASE)
+
+
 def _dash_js(raw_json, kpi_upd, rfns_str, render_calls):
+    kpi_upd = _close_tag_safe(kpi_upd)
+    rfns_str = _close_tag_safe(rfns_str)
+    render_calls = _close_tag_safe(render_calls)
     return f"""<script>
 let _RAW={raw_json};
 const _TOTAL=_RAW.length;

@@ -256,10 +256,13 @@ def generate_chart(
                 "token_estimate": 20,
             }
 
-        fig.update_layout(
-            margin=dict(l=20, r=20, t=40, b=20),
-            height=calc_chart_height(1, mode="subplot"),
-        )
+        # No height here on purpose. A single chart gets its own page, and the
+        # page's CSS sizes it to the viewport (.plotly-graph-div min-height
+        # clamp(20rem,60vh,50rem)) via autosize. Pinning it in the layout
+        # overrode that and left every standalone chart 300px tall in whatever
+        # window it was opened in. Multi-panel figures still set an explicit
+        # height, because those genuinely have to grow with their row count.
+        fig.update_layout(margin=dict(l=20, r=20, t=40, b=20), autosize=True)
         rows_plotted = len(chart_df)
 
         abs_p, fname = _save_chart(fig, output_path, chart_type, path, open_after, theme)
@@ -634,11 +637,7 @@ def generate_geo_map(
             rows_plotted = len(grouped)
             progress.append(info("Map type", f"choropleth, mode={loc_mode}, {rows_plotted} locations"))
 
-        fig.update_layout(
-            margin={"l": 0, "r": 0, "t": 40, "b": 0},
-            autosize=True,
-            height=calc_chart_height(1, mode="subplot"),
-        )
+        fig.update_layout(margin={"l": 0, "r": 0, "t": 40, "b": 0}, autosize=True)
         abs_p, fname = _save_chart(fig, output_path, "geo_map", path, open_after, theme)
         progress.append(ok("Map saved", fname))
 
@@ -733,9 +732,10 @@ def generate_3d_chart(
                 }
 
         tmpl = plotly_template(theme)
-        chart_title = (
-            title if title else f"3D {chart_type.replace('_', ' ').title()}: {x_column} × {y_column} × {z_column}"
-        )
+        # chart_type already carries the dimension ("scatter_3d"), so prefixing
+        # "3D " onto its titled form read "3D Scatter 3D: ...".
+        kind = chart_type.replace("_3d", "").replace("_", " ").title()
+        chart_title = title if title else f"3D {kind}: {x_column} × {y_column} × {z_column}"
 
         if chart_type == "scatter_3d":
             plot_df = df
@@ -796,10 +796,7 @@ def generate_3d_chart(
             fig.update_layout(title=chart_title, template=tmpl)
             rows_plotted = len(df)
 
-        fig.update_layout(
-            margin=dict(l=20, r=20, t=40, b=20),
-            height=calc_chart_height(1, mode="subplot"),
-        )
+        fig.update_layout(margin=dict(l=20, r=20, t=40, b=20), autosize=True)
         abs_p, fname = _save_chart(fig, output_path, chart_type, path, open_after, theme)
         progress.append(ok("3D chart saved", f"{fname} ({rows_plotted} rows)"))
 

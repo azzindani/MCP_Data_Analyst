@@ -134,3 +134,62 @@ class TestGeoMapRefusesNonCoordinates:
         result = generate_geo_map(str(csv), open_after=False)
         assert result["success"] is False
         assert "longitude" in result["error"]
+
+
+class TestChartsFillTheirPage:
+    """The shared CSS declares it owns chart height
+    (.plotly-graph-div{min-height:clamp(20rem,60vh,50rem)}) and sizes the figure
+    through autosize. Pinning height in the Plotly layout overrode that, so every
+    standalone chart sat at 300px in whatever window it was opened in — 40% of a
+    laptop screen, the rest dead space."""
+
+    def test_single_chart_layout_has_no_pinned_height(self, dated_csv: Path, tmp_path: Path):
+        out = tmp_path / "c.html"
+        generate_chart(str(dated_csv), "line", "amount", category_column="day", output_path=str(out), open_after=False)
+        _, layout = _figure(out)
+        assert "height" not in layout
+        assert layout.get("autosize") is True
+
+    def test_bar_chart_too(self, dated_csv: Path, tmp_path: Path):
+        out = tmp_path / "c.html"
+        generate_chart(str(dated_csv), "bar", "amount", category_column="day", output_path=str(out), open_after=False)
+        _, layout = _figure(out)
+        assert "height" not in layout
+
+    def test_the_page_still_carries_the_sizing_css(self, dated_csv: Path, tmp_path: Path):
+        out = tmp_path / "c.html"
+        generate_chart(str(dated_csv), "line", "amount", category_column="day", output_path=str(out), open_after=False)
+        assert "min-height:clamp" in out.read_text(encoding="utf-8")
+
+    def test_3d_charts_are_not_pinned_either(self, tmp_path: Path):
+        from servers.data_advanced.engine import generate_3d_chart
+
+        csv = tmp_path / "xyz.csv"
+        csv.write_text("x,y,z\n1,2,3\n4,5,6\n7,8,9\n2,4,6\n")
+        out = tmp_path / "3d.html"
+        result = generate_3d_chart(str(csv), "scatter_3d", "x", "y", "z", output_path=str(out), open_after=False)
+        assert result["success"] is True
+        _, layout = _figure(out)
+        assert "height" not in layout
+
+    def test_3d_title_does_not_say_3d_twice(self, tmp_path: Path):
+        from servers.data_advanced.engine import generate_3d_chart
+
+        csv = tmp_path / "xyz.csv"
+        csv.write_text("x,y,z\n1,2,3\n4,5,6\n7,8,9\n2,4,6\n")
+        out = tmp_path / "3d.html"
+        generate_3d_chart(str(csv), "scatter_3d", "x", "y", "z", output_path=str(out), open_after=False)
+        _, layout = _figure(out)
+        title = layout["title"]["text"]
+        assert title.lower().count("3d") == 1
+
+    def test_multi_panel_figures_keep_an_explicit_height(self, dated_csv: Path, tmp_path: Path):
+        """Subplots genuinely have to grow with their row count — the fix must
+        not strip height from those."""
+        from servers.data_advanced.engine import generate_distribution_plot
+
+        out = tmp_path / "dist.html"
+        result = generate_distribution_plot(str(dated_csv), output_path=str(out), open_after=False)
+        assert result["success"] is True
+        _, layout = _figure(out)
+        assert layout.get("height", 0) > 0

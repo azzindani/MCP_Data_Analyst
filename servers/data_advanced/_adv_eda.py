@@ -42,6 +42,7 @@ from _adv_helpers import (
     theme_plot_colors,
 )
 
+from shared.data_alerts import alerts_html, compute_alerts
 from shared.file_utils import embed_content, resolve_path
 
 logger = logging.getLogger(__name__)
@@ -229,133 +230,10 @@ def run_eda(
         }
 
 
-def _compute_alerts(df, numeric_cols, cat_cols, corr_pairs, rows, dup_count):
-    alerts = []
-    for c in df.columns:
-        if df[c].nunique(dropna=True) <= 1:
-            alerts.append(
-                {
-                    "col": c,
-                    "type": "CONSTANT",
-                    "sev": "error",
-                    "msg": f"'{c}' has only 1 unique value — constant, no predictive value.",
-                }
-            )
-    for c in df.columns:
-        np_ = round(df[c].isna().mean() * 100, 1)
-        if np_ > 50:
-            alerts.append(
-                {
-                    "col": c,
-                    "type": "HIGH NULLS",
-                    "sev": "error",
-                    "msg": f"'{c}': {np_}% missing values — consider dropping.",
-                }
-            )
-        elif np_ > 20:
-            alerts.append(
-                {
-                    "col": c,
-                    "type": "HIGH NULLS",
-                    "sev": "warning",
-                    "msg": f"'{c}': {np_}% missing — imputation needed.",
-                }
-            )
-    for c in numeric_cols:
-        zp = round((df[c] == 0).mean() * 100, 1)
-        if zp > 50:
-            alerts.append(
-                {
-                    "col": c,
-                    "type": "ZEROS",
-                    "sev": "warning",
-                    "msg": f"'{c}': {zp}% zero values — zero-inflated distribution.",
-                }
-            )
-    for c in cat_cols:
-        uniq = df[c].nunique()
-        if uniq > max(50, rows * 0.5):
-            alerts.append(
-                {
-                    "col": c,
-                    "type": "HIGH CARDINALITY",
-                    "sev": "warning",
-                    "msg": f"'{c}': {uniq:,} unique values — likely an ID, consider dropping.",
-                }
-            )
-    for c in cat_cols:
-        if df[c].notna().sum() > 0:
-            top_pct = round(df[c].value_counts(normalize=True).iloc[0] * 100, 1)
-            if top_pct > 90:
-                alerts.append(
-                    {
-                        "col": c,
-                        "type": "IMBALANCED",
-                        "sev": "warning",
-                        "msg": f"'{c}': top category = {top_pct}% of values — highly imbalanced.",
-                    }
-                )
-    for c in numeric_cols:
-        try:
-            skv = round(float(df[c].skew()), 2)
-            if abs(skv) > 2:
-                alerts.append(
-                    {
-                        "col": c,
-                        "type": "SKEWED",
-                        "sev": "warning",
-                        "msg": f"'{c}': skewness={skv:+.2f} — consider log/sqrt transform.",
-                    }
-                )
-        except Exception:
-            pass
-    for c in numeric_cols:
-        q1_, q3_ = df[c].quantile(0.25), df[c].quantile(0.75)
-        iqr_ = q3_ - q1_
-        oc_ = int(((df[c] < q1_ - 1.5 * iqr_) | (df[c] > q3_ + 1.5 * iqr_)).sum())
-        op_ = round(oc_ / max(rows, 1) * 100, 1)
-        if op_ > 10:
-            alerts.append(
-                {
-                    "col": c,
-                    "type": "OUTLIERS",
-                    "sev": "warning",
-                    "msg": f"'{c}': {oc_:,} outliers ({op_}%) — investigate or cap.",
-                }
-            )
-    for p in corr_pairs[:20]:
-        if abs(p["correlation"]) > 0.9:
-            alerts.append(
-                {
-                    "col": p["col_a"],
-                    "type": "HIGH CORR",
-                    "sev": "warning",
-                    "msg": f"'{p['col_a']}' \u2194 '{p['col_b']}': r={p['correlation']:+.3f} — possible multicollinearity.",
-                }
-            )
-    if dup_count > 0:
-        dp_ = round(dup_count / max(rows, 1) * 100, 1)
-        alerts.append(
-            {
-                "col": None,
-                "type": "DUPLICATES",
-                "sev": "warning" if dp_ < 5 else "error",
-                "msg": f"{dup_count:,} duplicate rows ({dp_}%) — consider deduplication.",
-            }
-        )
-    return alerts
-
-
-def _alerts_html(al):
-    if not al:
-        return '<div class="alert-panel"><div class="alert-item info"><span class="alert-badge info">OK</span> No data quality alerts detected.</div></div>'
-    items = []
-    for a in al:
-        badge_cls = "error" if a["sev"] == "error" else "warning" if a["sev"] == "warning" else "info"
-        items.append(
-            f'<div class="alert-item {badge_cls}"><span class="alert-badge {badge_cls}">{a["type"]}</span> {a["msg"]}</div>'
-        )
-    return f'<div class="alert-panel">{"".join(items)}</div>'
+# The alert engine moved to shared/data_alerts.py so the interactive dashboard
+# can show the same judgement; these names stay as the local spelling.
+_compute_alerts = compute_alerts
+_alerts_html = alerts_html
 
 
 def _build_eda_html(
