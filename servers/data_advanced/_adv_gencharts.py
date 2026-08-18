@@ -103,7 +103,7 @@ def generate_chart(
     geo_join_column: str = "",
     output_path: str = "",
     title: str = "",
-    theme: str = "dark",
+    theme: str = "device",
     open_after: bool = True,
     return_content: bool = False,
 ) -> dict:
@@ -465,7 +465,7 @@ def generate_geo_map(
     color_column: str = "",
     title: str = "",
     output_path: str = "",
-    theme: str = "dark",
+    theme: str = "device",
     open_after: bool = True,
     return_content: bool = False,
 ) -> dict:
@@ -680,7 +680,7 @@ def generate_3d_chart(
     color_column: str = "",
     title: str = "",
     output_path: str = "",
-    theme: str = "dark",
+    theme: str = "device",
     open_after: bool = True,
     return_content: bool = False,
 ) -> dict:

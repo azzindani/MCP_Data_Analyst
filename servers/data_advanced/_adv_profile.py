@@ -51,7 +51,7 @@ def generate_auto_profile(
     file_path: str,
     output_path: str = "",
     open_after: bool = True,
-    theme: str = "dark",
+    theme: str = "device",
     return_content: bool = False,
 ) -> dict:
     """Full column profile: stats, charts, correlations, outliers, insights."""

@@ -35,7 +35,7 @@ def generate_distribution_plot(
     columns: list[str] = None,
     output_path: str = "",
     open_after: bool = True,
-    theme: str = "dark",
+    theme: str = "device",
     return_content: bool = False,
 ) -> dict:
     """Histogram + box plot for numeric columns. Opens HTML file."""
@@ -140,7 +140,7 @@ def generate_correlation_heatmap(
     method: str = "pearson",
     output_path: str = "",
     open_after: bool = True,
-    theme: str = "dark",
+    theme: str = "device",
     return_content: bool = False,
 ) -> dict:
     """Interactive correlation heatmap for numeric columns. Opens HTML."""
@@ -232,7 +232,7 @@ def generate_pairwise_plot(
     max_cols: int = 6,
     output_path: str = "",
     open_after: bool = True,
-    theme: str = "dark",
+    theme: str = "device",
     return_content: bool = False,
 ) -> dict:
     """Pairwise scatter + histogram matrix for numeric columns. Opens HTML."""
@@ -333,7 +333,7 @@ def generate_multi_chart(
     output_path: str = "",
     title: str = "",
     open_after: bool = True,
-    theme: str = "dark",
+    theme: str = "device",
     return_content: bool = False,
 ) -> dict:
     """Multi-variable bar/line chart. Compares 2+ metrics. Opens HTML."""

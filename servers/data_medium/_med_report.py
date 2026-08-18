@@ -52,7 +52,7 @@ def cross_tabulate(
     normalize: str = "",
     output_path: str = "",
     open_after: bool = True,
-    theme: str = "dark",
+    theme: str = "device",
 ) -> dict:
     progress = []
     try:
@@ -270,7 +270,7 @@ def value_counts(
     include_pct: bool = True,
     output_path: str = "",
     open_after: bool = True,
-    theme: str = "dark",
+    theme: str = "device",
 ) -> dict:
     progress = []
     try:

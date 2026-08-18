@@ -65,7 +65,7 @@ def check_outliers(
     th3: float = 0.75,
     output_path: str = "",
     open_after: bool = True,
-    theme: str = "dark",
+    theme: str = "device",
 ) -> dict:
     progress = []
     try:
@@ -203,7 +203,7 @@ def scan_nulls_zeros(
     min_count: int = 1,
     output_path: str = "",
     open_after: bool = True,
-    theme: str = "dark",
+    theme: str = "device",
 ) -> dict:
     progress = []
     try:

@@ -70,7 +70,7 @@ def correlation_analysis(
     top_n: int = 10,
     output_path: str = "",
     open_after: bool = True,
-    theme: str = "dark",
+    theme: str = "device",
 ) -> dict:
     progress = []
     try:
@@ -622,7 +622,7 @@ def time_series_analysis(
     period: str = "M",
     output_path: str = "",
     open_after: bool = True,
-    theme: str = "dark",
+    theme: str = "device",
 ) -> dict:
     progress = []
     try:
@@ -898,7 +898,7 @@ def cohort_analysis(
     value_column: str = "",
     output_path: str = "",
     open_after: bool = True,
-    theme: str = "dark",
+    theme: str = "device",
 ) -> dict:
     progress = []
     try:

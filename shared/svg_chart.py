@@ -322,7 +322,7 @@ def _render_cartesian(c: _Canvas, traces: list[dict], layout: dict) -> bool:
     return True
 
 
-def figure_to_svg(traces: list[dict], layout: dict, theme: str = "dark") -> str | None:
+def figure_to_svg(traces: list[dict], layout: dict, theme: str = "device") -> str | None:
     """Render `traces` as one self-contained SVG, or None if not drawable here."""
     palette = _THEMES.get(theme, _THEMES["dark"])
     c = _Canvas(palette)
@@ -353,7 +353,7 @@ def figure_to_svg(traces: list[dict], layout: dict, theme: str = "dark") -> str 
     )
 
 
-def standalone_html(chart_html: str, theme: str = "dark") -> str | None:
+def standalone_html(chart_html: str, theme: str = "device") -> str | None:
     """Turn a generated Plotly page into one that renders with nothing beside it."""
     try:
         traces, layout = load_figure(chart_html)

@@ -74,7 +74,7 @@ def _save_chart(
     stem_suffix: str,
     input_path: Path,
     open_after: bool,
-    theme: str = "dark",
+    theme: str = "device",
 ) -> tuple[str, str]:
     """Save plotly figure to themed responsive HTML."""
     return _html_save_chart(fig, output_path, stem_suffix, input_path, theme, open_after, _open_file)

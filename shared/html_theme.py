@@ -20,7 +20,9 @@ PLOTLY_TEMPLATE: dict[str, str] = {
 
 
 def plotly_template(theme: str) -> str:
-    return PLOTLY_TEMPLATE.get(theme, "plotly_dark")
+    # Unrecognised names fall back to the default theme, "device", so a typo
+    # lands on the viewer-follows behaviour rather than on a fixed dark page.
+    return PLOTLY_TEMPLATE.get(theme, PLOTLY_TEMPLATE["device"])
 
 
 # ---------------------------------------------------------------------------
@@ -89,10 +91,12 @@ def css_vars(theme: str) -> str:
     """Return a CSS :root{} block (and optional media query) for the theme."""
     if theme == "light":
         return f":root{{{_LIGHT_VARS}{_LAYOUT_VARS}}}"
-    elif theme == "device":
-        return f":root{{{_LIGHT_VARS}{_LAYOUT_VARS}}}@media(prefers-color-scheme:dark){{:root{{{_DARK_VARS}}}}}"
-    else:  # dark (default)
+    if theme == "dark":
         return f":root{{{_DARK_VARS}{_LAYOUT_VARS}}}"
+    # "device" and anything unrecognised: ship the light palette and let the
+    # viewer's own setting override it, so one artifact reads correctly on a
+    # colleague's machine whichever way they have their system set.
+    return f":root{{{_LIGHT_VARS}{_LAYOUT_VARS}}}@media(prefers-color-scheme:dark){{:root{{{_DARK_VARS}}}}}"
 
 
 # ---------------------------------------------------------------------------
@@ -118,8 +122,8 @@ THEMES: dict[str, dict] = {
 THEMES["device"] = THEMES["light"]
 
 
-def get_theme(theme: str = "dark") -> dict:
-    return THEMES.get(theme, THEMES["dark"])
+def get_theme(theme: str = "device") -> dict:
+    return THEMES.get(theme, THEMES["device"])
 
 
 def theme_plot_colors(theme: str) -> tuple[str, str, str]:

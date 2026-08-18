@@ -90,7 +90,7 @@ def check_outliers(
     th3: float = 0.75,
     output_path: str = "",
     open_after: bool = True,
-    theme: str = "dark",
+    theme: str = "device",
 ) -> dict:
     """Scan for outliers + anomalies. method: iqr std both. Flags anomalous rows."""
     return engine.check_outliers(file_path, columns, method, th1, th3, output_path, open_after, theme)
@@ -103,7 +103,7 @@ def scan_nulls_zeros(
     min_count: int = 1,
     output_path: str = "",
     open_after: bool = True,
-    theme: str = "dark",
+    theme: str = "device",
 ) -> dict:
     """Scan all columns for nulls and zeros. Returns counts, pcts, patterns."""
     return engine.scan_nulls_zeros(file_path, include_zeros, min_count, output_path, open_after, theme)
@@ -116,7 +116,7 @@ def correlation_analysis(
     top_n: int = 10,
     output_path: str = "",
     open_after: bool = True,
-    theme: str = "dark",
+    theme: str = "device",
 ) -> dict:
     """Correlation matrix + top pairs. method: pearson spearman kendall."""
     return engine.correlation_analysis(file_path, method, top_n, output_path, open_after, theme)
@@ -173,7 +173,7 @@ def time_series_analysis(
     period: str = "M",
     output_path: str = "",
     open_after: bool = True,
-    theme: str = "dark",
+    theme: str = "device",
 ) -> dict:
     """Auto-detect dates, compute trend seasonality rolling stats. Saves HTML."""
     return engine.time_series_analysis(file_path, date_column, value_columns, period, output_path, open_after, theme)
@@ -211,7 +211,7 @@ def cohort_analysis(
     value_column: str = "",
     output_path: str = "",
     open_after: bool = True,
-    theme: str = "dark",
+    theme: str = "device",
 ) -> dict:
     """Cohort retention matrix. Auto-detect cohort + date + value columns."""
     return engine.cohort_analysis(

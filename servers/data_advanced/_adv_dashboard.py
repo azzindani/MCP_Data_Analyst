@@ -147,7 +147,7 @@ def generate_dashboard(
     chart_types: list[str] = None,
     agg_overrides: list[str] = None,
     geo_file_path: str = "",
-    theme: str = "dark",
+    theme: str = "device",
     dry_run: bool = False,
     open_after: bool = True,
     return_content: bool = False,

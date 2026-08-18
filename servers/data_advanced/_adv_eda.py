@@ -52,7 +52,7 @@ def run_eda(
     file_path: str,
     output_path: str = "",
     open_after: bool = True,
-    theme: str = "dark",
+    theme: str = "device",
     return_content: bool = False,
 ) -> dict:
     """Fast EDA summary. Stats, nulls, correlations, outliers. Opens HTML."""
