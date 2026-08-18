@@ -29,15 +29,41 @@ def plotly_template(theme: str) -> str:
 # Device-mode JS (auto-switches Plotly template + body bg on system pref)
 # ---------------------------------------------------------------------------
 
+# Swapping the template alone does nothing visible. Every figure this repo
+# builds bakes paper_bgcolor, plot_bgcolor and font.color into its layout, and
+# in Plotly an explicit layout property always beats a template -- so the old
+# version switched the template, the baked light-mode colours won, and the chart
+# stayed light on a dark page while the surrounding CSS went dark. The same bug
+# in the ML reports showed up as near-black text on a dark panel, because that
+# repo bakes a slightly different set. The fix is to relayout the properties
+# that were baked, not just the template underneath them.
 _DEVICE_JS = """<script>
 (function(){
-  const DARK_BG='#0d1117',LIGHT_BG='#ffffff';
+  const LIGHT={bg:'#ffffff',surface:'#ffffff',text:'#1f2328',grid:'#d0d7de',muted:'#636c76'};
+  const DARK ={bg:'#0d1117',surface:'#0d1117',text:'#c9d1d9',grid:'#30363d',muted:'#8b949e'};
   function applyTheme(){
     const dark=window.matchMedia('(prefers-color-scheme:dark)').matches;
-    document.body.style.background=dark?DARK_BG:LIGHT_BG;
+    const P=dark?DARK:LIGHT;
+    document.body.style.background=P.bg;
     document.documentElement.setAttribute('data-theme',dark?'dark':'light');
     document.querySelectorAll('.plotly-graph-div').forEach(function(d){
-      try{Plotly.relayout(d,{template:dark?'plotly_dark':'plotly_white'});}catch(e){}
+      try{
+        const u={template:dark?'plotly_dark':'plotly_white',
+                 paper_bgcolor:P.surface,plot_bgcolor:P.surface,
+                 'font.color':P.text,'title.font.color':P.text,
+                 'legend.font.color':P.text};
+        // Axis colours are baked per-axis, and a figure may have many
+        // (xaxis, xaxis2, ... on subplots), so walk whatever this one has.
+        const lay=d.layout||{};
+        Object.keys(lay).forEach(function(k){
+          if(/^[xy]axis/.test(k)){
+            u[k+'.gridcolor']=P.grid; u[k+'.linecolor']=P.grid;
+            u[k+'.zerolinecolor']=P.grid; u[k+'.tickfont.color']=P.muted;
+            u[k+'.title.font.color']=P.text;
+          }
+        });
+        Plotly.relayout(d,u);
+      }catch(e){}
     });
   }
   if(typeof Plotly!=='undefined'){applyTheme();}
