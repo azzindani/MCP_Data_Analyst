@@ -16,6 +16,7 @@ from typing import Any
 import pandas as pd
 
 from shared.exchange import (
+    apply_default_mode,
     attach_public_url,
     fetch_url,
     get_inbox_dir,
@@ -26,6 +27,7 @@ from shared.exchange import (
 )
 
 __all__ = [
+    "apply_default_mode",
     "atomic_write",
     "atomic_write_text",
     "attach_public_url",
@@ -135,12 +137,18 @@ def read_csv(
 
 
 def atomic_write(target: Path | str, content: bytes) -> None:
-    """Write bytes to target atomically via temp file + move."""
+    """Write bytes to target atomically via temp file + move.
+
+    mkstemp creates 0600 and the move preserves it, which would leave every
+    generated file unreadable to anything but this process — wrong for a
+    shared output directory, and inconsistent with a plain open() anywhere.
+    """
     target = Path(target)
     fd, tmp_path = tempfile.mkstemp(dir=target.parent)
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(content)
+        apply_default_mode(tmp_path)
         shutil.move(tmp_path, str(target))
     except Exception:
         try:

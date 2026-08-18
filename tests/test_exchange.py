@@ -24,7 +24,7 @@ from shared.exchange import (
     public_url_for,
     url_fetch_enabled,
 )
-from shared.file_utils import embed_content, get_default_output_dir, resolve_path
+from shared.file_utils import atomic_write, embed_content, get_default_output_dir, resolve_path
 from shared.html_layout import get_output_path
 
 CSV_BODY = b"a,b\n1,2\n3,4\n"
@@ -307,3 +307,11 @@ def test_resolve_path_downloads_url_and_returns_local_path(remote_mode, http_url
 def test_resolve_path_enforces_allowed_extensions_on_downloads(remote_mode, http_url):
     with pytest.raises(ValueError, match="not allowed"):
         resolve_path(f"{http_url}/data.csv", allowed_extensions=(".xlsx",))
+
+
+def test_atomic_write_leaves_files_readable_by_others(tmp_path):
+    # A generated file only its writer can read is useless in a shared
+    # output directory — the file server in front of it has to read it too.
+    target = tmp_path / "out.csv"
+    atomic_write(target, CSV_BODY)
+    assert target.stat().st_mode & 0o044 == 0o044
