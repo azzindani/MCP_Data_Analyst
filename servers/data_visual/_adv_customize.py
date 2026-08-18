@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import base64
 import json
 import logging
 import re
-import struct
 import sys
 from pathlib import Path
 
@@ -17,6 +15,7 @@ for _p in (str(_ROOT), _ADV):
         sys.path.insert(0, _p)
 
 from shared.file_utils import atomic_write_text, embed_content, resolve_path
+from shared.plotly_payload import decode_array, encode_array, scan_balanced, split_newplot
 from shared.progress import fail, info, ok
 
 logger = logging.getLogger(__name__)
@@ -25,71 +24,13 @@ _HIGHLIGHT_COLOR = "#EF553B"
 _DEFAULT_TRACE_COLOR = "#636efa"
 
 
-def _scan_balanced(text: str, start: int) -> int:
-    """Return the index just past the balanced [...] or {...} beginning at `start`.
-
-    A regex cannot do this: chart payloads nest brackets and embed base64 blobs
-    and titles that contain braces, so `.*?\\]` stops at the first inner
-    delimiter. Scanning tracks depth and skips over string literals.
-    """
-    opener = text[start]
-    closer = {"[": "]", "{": "}"}.get(opener)
-    if closer is None:
-        raise ValueError(f"Expected '[' or '{{' at offset {start}, found {text[start]!r}.")
-
-    depth = 0
-    in_string = False
-    quote = ""
-    i = start
-    while i < len(text):
-        ch = text[i]
-        if in_string:
-            if ch == "\\":
-                i += 2
-                continue
-            if ch == quote:
-                in_string = False
-        elif ch in ("'", '"'):
-            in_string = True
-            quote = ch
-        elif ch == opener:
-            depth += 1
-        elif ch == closer:
-            depth -= 1
-            if depth == 0:
-                return i + 1
-        i += 1
-    raise ValueError("Unbalanced Plotly payload — the chart HTML is truncated or corrupt.")
-
-
-def _split_newplot(html: str) -> tuple[str, str, str, str, str, str]:
-    """Split chart HTML around the Plotly.newPlot call.
-
-    Returns (before, call_prefix, data_str, separator, layout_str, after) such that
-    concatenating all six reproduces `html` exactly.
-    """
-    call = re.search(r"Plotly\.newPlot\(", html)
-    if call is None:
-        raise ValueError("Could not find Plotly.newPlot call in HTML. Not a valid Plotly chart HTML.")
-
-    data_start = html.find("[", call.end())
-    if data_start == -1:
-        raise ValueError("Plotly.newPlot call has no trace array.")
-    data_end = _scan_balanced(html, data_start)
-
-    layout_start = html.find("{", data_end)
-    if layout_start == -1:
-        raise ValueError("Plotly.newPlot call has no layout object.")
-    layout_end = _scan_balanced(html, layout_start)
-
-    return (
-        html[: call.start()],
-        html[call.start() : data_start],
-        html[data_start:data_end],
-        html[data_end:layout_start],
-        html[layout_start:layout_end],
-        html[layout_end:],
-    )
+# The scanner and the array codec live in shared/plotly_payload.py: reading a
+# figure back out of a generated page is needed in more than one place now, and
+# two copies of a parser drift.
+_scan_balanced = scan_balanced
+_split_newplot = split_newplot
+_decode_plotly_y = decode_array
+_encode_plotly_y = encode_array
 
 
 def _extract_plotly_json(html: str) -> tuple[str, str, str, str, str]:
@@ -98,54 +39,8 @@ def _extract_plotly_json(html: str) -> tuple[str, str, str, str, str]:
     `layout_part` keeps its leading separator so the five pieces still concatenate
     back into the original document.
     """
-    before, call_prefix, data_str, separator, layout_str, after = _split_newplot(html)
+    before, call_prefix, data_str, separator, layout_str, after = split_newplot(html)
     return before, call_prefix, data_str, separator + layout_str, after
-
-
-# Plotly picks the narrowest dtype that fits the data, so an integer-valued bar
-# chart arrives as "i1"/"i2" rather than "f8". Assuming float64 made the decode
-# read zero elements out of the buffer and sorting such a chart failed outright.
-_PLOTLY_DTYPES = {
-    "f4": "f",
-    "f8": "d",
-    "i1": "b",
-    "i2": "h",
-    "i4": "i",
-    "i8": "q",
-    "u1": "B",
-    "u2": "H",
-    "u4": "I",
-    "u8": "Q",
-}
-
-
-def _decode_plotly_y(y_field: object) -> list[float] | None:
-    """Decode a trace's y values: either a plain list or Plotly's compact
-    {"dtype": ..., "bdata": <base64>} binary-encoded numeric array."""
-    if isinstance(y_field, list):
-        return list(y_field)
-    if isinstance(y_field, dict) and "bdata" in y_field:
-        code = _PLOTLY_DTYPES.get(str(y_field.get("dtype", "f8")))
-        if code is None:
-            return None
-        raw = base64.b64decode(y_field["bdata"])
-        n = len(raw) // struct.calcsize(f"<{code}")
-        return list(struct.unpack(f"<{n}{code}", raw))
-    return None
-
-
-def _encode_plotly_y(values: list[float], original_y_field: object) -> object:
-    """Re-encode sorted y values, matching the original field's encoding."""
-    if isinstance(original_y_field, dict) and "bdata" in original_y_field:
-        dtype = str(original_y_field.get("dtype", "f8"))
-        code = _PLOTLY_DTYPES.get(dtype)
-        if code is None:
-            dtype, code = "f8", "d"
-        if code not in ("f", "d"):
-            values = [int(v) for v in values]
-        raw = struct.pack(f"<{len(values)}{code}", *values)
-        return {"dtype": dtype, "bdata": base64.b64encode(raw).decode("ascii")}
-    return values
 
 
 def _title_dict(text: str) -> dict:

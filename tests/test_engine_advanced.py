@@ -179,7 +179,10 @@ class TestGenerateChart:
         assert r["chart_type"] == "bar"
         assert Path(rich_csv.parent / r["output_path"]).exists()
 
-    def test_return_content_embeds_real_bytes(self, rich_csv):
+    def test_return_content_embeds_a_chart_that_renders(self, rich_csv):
+        """Deliberately not the file's own bytes: that file loads plotly.min.js
+        from beside itself, which a caller handed only the bytes does not have.
+        See tests/test_svg_chart.py."""
         import base64
 
         r = generate_chart(
@@ -191,9 +194,11 @@ class TestGenerateChart:
             return_content=True,
         )
         assert r["success"] is True
-        out = Path(rich_csv.parent / r["output_path"])
-        assert base64.b64decode(r["content_base64"]) == out.read_bytes()
+        assert Path(rich_csv.parent / r["output_path"]).exists()
         assert r["content_mime_type"] == "text/html"
+        content = base64.b64decode(r["content_base64"]).decode("utf-8")
+        assert "plotly.min.js" not in content
+        assert "<svg" in content
 
     def test_no_return_content_by_default(self, rich_csv):
         r = generate_chart(

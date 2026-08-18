@@ -195,9 +195,48 @@ def embed_content(result: dict[str, Any], path: Path, return_content: bool) -> d
         data = path.read_bytes()
     except OSError:
         return result
+
+    data = _self_contained(path, data, result)
     result["content_base64"] = base64.b64encode(data).decode("ascii")
     mime = _KNOWN_MIME_TYPES.get(path.suffix.lower())
     if mime is None:
         mime = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
     result["content_mime_type"] = mime
     return result
+
+
+def _self_contained(path: Path, data: bytes, result: dict[str, Any]) -> bytes:
+    """Return bytes that render on their own, for a caller with no filesystem.
+
+    A chart page loads `plotly.min.js` from beside itself — right for a directory
+    served as a whole, worthless to a caller handed only the bytes, where it is a
+    blank page reading "Plotly is not defined". The interactive file on disk is
+    left alone; `output_path` and `public_url` still point at it. Only the copy
+    travelling in the response is swapped for a self-contained drawing.
+    """
+    if path.suffix.lower() not in (".html", ".htm"):
+        return data
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data
+    if 'src="plotly.min.js"' not in text:
+        return data
+
+    from shared.svg_chart import standalone_html
+
+    rendered = standalone_html(text, _theme_of(text))
+    if rendered is None:
+        # Nothing safe to draw. Say so rather than returning a page that looks
+        # like a chart and shows nothing.
+        result["content_note"] = (
+            "This chart type has no self-contained form; the returned HTML needs "
+            "plotly.min.js from the same directory. Use public_url to view it."
+        )
+        return data
+    result["content_note"] = "Static self-contained rendering; use public_url for the interactive chart."
+    return rendered.encode("utf-8")
+
+
+def _theme_of(chart_html: str) -> str:
+    return "light" if "background:#ffffff" in chart_html.replace(" ", "") else "dark"
