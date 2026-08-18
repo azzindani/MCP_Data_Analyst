@@ -26,6 +26,15 @@ except ImportError:
 pytestmark = pytest.mark.skipif(not HAS_ADVANCED, reason="data_advanced deps unavailable")
 
 
+def _page_heading(html_path: Path) -> str:
+    """Return the page's <h1 class="chart-title"> text."""
+    import re
+
+    m = re.search(r'<h1 class="chart-title">(.*?)</h1>', html_path.read_text(encoding="utf-8"), re.S)
+    assert m is not None, "page has no chart-title heading"
+    return m.group(1).strip()
+
+
 def _figure(html_path: Path) -> tuple[list, dict]:
     """Return the chart's traces and layout exactly as the browser parses them."""
     from servers.data_visual._adv_customize import _split_newplot
@@ -157,9 +166,20 @@ class TestChartsFillTheirPage:
         assert "height" not in layout
 
     def test_the_page_still_carries_the_sizing_css(self, dated_csv: Path, tmp_path: Path):
+        """The page owns chart height, and owns it as a floor rather than a cap.
+
+        `--chart-h` is applied as min-height to both the card and the Plotly div,
+        so a figure carrying no height of its own gets a viewport-proportional
+        one instead of Plotly's 450px default, while a multi-panel figure that
+        asks for more is still allowed to exceed it and scroll.
+        """
         out = tmp_path / "c.html"
         generate_chart(str(dated_csv), "line", "amount", category_column="day", output_path=str(out), open_after=False)
-        assert "min-height:clamp" in out.read_text(encoding="utf-8")
+        page = out.read_text(encoding="utf-8")
+        assert "--chart-h:clamp" in page
+        assert "min-height:var(--chart-h)" in page
+        # A plain `height` would cap tall figures instead of flooring short ones.
+        assert "\nheight:var(--chart-h)" not in page
 
     def test_3d_charts_are_not_pinned_either(self, tmp_path: Path):
         from servers.data_advanced.engine import generate_3d_chart
@@ -173,15 +193,25 @@ class TestChartsFillTheirPage:
         assert "height" not in layout
 
     def test_3d_title_does_not_say_3d_twice(self, tmp_path: Path):
+        """The figure's title is now lifted into the page heading rather than
+        drawn a second time inside the plot, so assert it where it renders."""
         from servers.data_advanced.engine import generate_3d_chart
 
         csv = tmp_path / "xyz.csv"
         csv.write_text("x,y,z\n1,2,3\n4,5,6\n7,8,9\n2,4,6\n")
         out = tmp_path / "3d.html"
         generate_3d_chart(str(csv), "scatter_3d", "x", "y", "z", output_path=str(out), open_after=False)
-        _, layout = _figure(out)
-        title = layout["title"]["text"]
+        title = _page_heading(out)
         assert title.lower().count("3d") == 1
+
+    def test_the_figure_title_is_not_drawn_twice(self, dated_csv: Path, tmp_path: Path):
+        """A page headed "Line" above a chart titled "sum of amount by day" was
+        captioned twice, and the heading was the less useful of the two."""
+        out = tmp_path / "c.html"
+        generate_chart(str(dated_csv), "line", "amount", category_column="day", output_path=str(out), open_after=False)
+        _, layout = _figure(out)
+        assert "amount" in _page_heading(out).lower()
+        assert not (layout.get("title") or {}).get("text")
 
     def test_multi_panel_figures_keep_an_explicit_height(self, dated_csv: Path, tmp_path: Path):
         """Subplots genuinely have to grow with their row count — the fix must

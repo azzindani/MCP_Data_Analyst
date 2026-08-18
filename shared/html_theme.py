@@ -6,6 +6,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from shared.chart_page import apply_chart_margins, chart_page_html, take_page_title
 from shared.html_layout import VIEWPORT_META, get_output_path, get_plotlyjs_script  # noqa: F401  (re-exported)
 
 # ---------------------------------------------------------------------------
@@ -454,6 +455,9 @@ def save_chart(
 ) -> tuple[str, str]:
     """Save Plotly fig as themed responsive HTML. Returns (abs_path, filename)."""
     apply_fig_theme(fig, theme)
+    apply_chart_margins(fig)
+    # Before to_html, so the title is not rendered into the fragment as well.
+    page_title = take_page_title(fig, stem_suffix)
 
     out = get_output_path(output_path, input_path, stem_suffix, "html")
 
@@ -462,35 +466,18 @@ def save_chart(
     # embedding the 3.5 MB bundle inline — tiny HTML, no internet required.
     # Falls back to "cdn" only if the package file cannot be located.
     include_js = _ensure_plotly_js(out.parent)
-    html = fig.to_html(
+    chart_html = fig.to_html(
         include_plotlyjs=include_js,
-        full_html=True,
+        full_html=False,
         config={"responsive": True, "displayModeBar": True, "scrollZoom": True},
     )
 
-    # Inject viewport meta
-    html = html.replace("<head>", f"<head>\n{VIEWPORT_META}", 1)
-
-    # Inject device-mode JS and CSS media query
-    if theme == "device":
-        style_block = (
-            "<style>"
-            "html,body{height:100vh;margin:0;padding:0;}"
-            ".plotly-graph-div{min-height:clamp(20rem,60vh,50rem)}"
-            "@media(prefers-color-scheme:dark){html,body{background:#0d1117!important;}}"
-            "@media(prefers-color-scheme:light){html,body{background:#ffffff!important;}}"
-            "</style>"
-        )
-        html = html.replace("</head>", f"{style_block}\n</head>", 1)
-        html = html.replace("</body>", f"{device_mode_js()}\n</body>", 1)
-    else:
-        bg = "#0d1117" if theme == "dark" else "#ffffff"
-        html = html.replace(
-            "</head>",
-            f"<style>html,body{{height:100vh;margin:0;padding:0;background:{bg}!important;}}"
-            f".plotly-graph-div{{min-height:clamp(20rem,60vh,50rem)}}</style>\n</head>",
-            1,
-        )
+    html = chart_page_html(
+        chart_html,
+        page_title,
+        css_vars(theme),
+        device_mode_js() if theme == "device" else "",
+    )
 
     out.write_text(html, encoding="utf-8")
 
