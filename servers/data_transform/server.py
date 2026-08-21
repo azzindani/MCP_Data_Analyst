@@ -211,10 +211,11 @@ def smart_impute(
 def run_cleaning_pipeline(
     file_path: str,
     ops: list[dict],
+    output_path: str = "",
     dry_run: bool = False,
 ) -> dict:
     """Run ordered cleaning ops in one call. Single snapshot taken."""
-    return engine.run_cleaning_pipeline(file_path, ops, dry_run)
+    return engine.run_cleaning_pipeline(file_path, ops, output_path, dry_run)
 
 
 @mcp.tool()

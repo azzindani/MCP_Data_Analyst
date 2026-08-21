@@ -389,6 +389,7 @@ def _coerce_op(raw: dict) -> dict:
 def run_cleaning_pipeline(
     file_path: str,
     ops: list[dict],
+    output_path: str = "",
     dry_run: bool = False,
 ) -> dict:
     progress = []
@@ -462,20 +463,32 @@ def run_cleaning_pipeline(
             for op in ops:
                 op_name = op.get("op", "")
                 would_change.append({"op": op_name, "params": op})
+            # A dry run must say which file it would have written, or the
+            # caller cannot tell an in-place clean from a redirected one.
+            would_write = resolve_path(output_path) if output_path else path
             result = {
                 "success": True,
                 "dry_run": True,
                 "op": "run_cleaning_pipeline",
                 "file_path": str(path),
+                "output_path": str(would_write),
                 "total_ops": len(ops),
                 "would_change": would_change,
-                "progress": [info("Dry run — no changes written", path.name)],
+                "progress": [info("Dry run — no changes written", would_write.name)],
             }
             result["token_estimate"] = _token_estimate(result)
             return result
 
-        backup = snapshot(str(path))
-        progress.append(info("Snapshot created", Path(backup).name))
+        # Unlike its nine sibling transform tools, this one defaults to cleaning
+        # in place -- that is deliberate and unchanged, since a pipeline that
+        # snapshots first is meant to advance the file it is given. What was
+        # missing is the choice: every sibling accepts output_path, so a caller
+        # naturally passes it here too and used to get a hard "unexpected
+        # keyword" error. Only snapshot when the source is what gets rewritten.
+        out = resolve_path(output_path) if output_path else path
+        backup = snapshot(str(path)) if out == path else None
+        if backup:
+            progress.append(info("Snapshot created", Path(backup).name))
 
         summary = []
         for i, op in enumerate(ops):
@@ -487,18 +500,26 @@ def run_cleaning_pipeline(
                 progress.append(ok(f"Applied {op_name}", str(op_result)))
             except Exception as exc:
                 progress.append(fail(f"Op {i} ({op_name}) failed", str(exc)))
-                _restore(str(path), backup)
+                # Nothing to roll back when the source was never the target:
+                # ops run against an in-memory frame, so the file on disk is
+                # still untouched at this point.
+                if backup:
+                    _restore(str(path), backup)
                 return {
                     "success": False,
                     "error": f"Op {i} ({op_name}): {exc}",
-                    "hint": "Restored from snapshot. Fix the op and retry.",
+                    "hint": (
+                        "Restored from snapshot. Fix the op and retry."
+                        if backup
+                        else f"{path.name} was not modified. Fix the op and retry."
+                    ),
                     "applied": i,
                     "backup": backup,
                     "progress": progress,
                     "token_estimate": _token_estimate(progress),
                 }
 
-        df.to_csv(str(path), index=False)
+        df.to_csv(str(out), index=False)
 
         append_receipt(
             str(path),
@@ -508,12 +529,14 @@ def run_cleaning_pipeline(
             backup=backup,
         )
 
-        progress.append(ok(f"Saved {path.name}", f"{len(ops)} ops applied"))
+        progress.append(ok(f"Saved {out.name}", f"{len(ops)} ops applied"))
 
         result = {
             "success": True,
             "op": "run_cleaning_pipeline",
             "file_path": str(path),
+            "output_file": out.name,
+            "output_path": str(out),
             "total_ops": len(ops),
             "applied": len(ops),
             "summary": summary,
