@@ -356,7 +356,10 @@ _DASHBOARD_CSS = (
     ".optlbl:hover{background:var(--bg)}"
     ".optlbl input{accent-color:var(--accent)}"
     ".nrng{display:flex;gap:.375rem;align-items:center}"
-    ".ninp{width:5.5rem;background:var(--bg);border:1px solid var(--border);"
+    # flex rather than a fixed 5.5rem: the placeholder carries the column's
+    # range and was being clipped mid-number ("Max (67,4"). min-width:0 lets
+    # the pair shrink inside the filter grid instead of forcing the row wider.
+    ".ninp{flex:1 1 0;min-width:0;background:var(--bg);border:1px solid var(--border);"
     "color:var(--text);border-radius:.375rem;padding:.25rem .5rem;font-size:.75rem;"
     "outline:none}"
     ".ninp:focus{border-color:var(--accent)}"

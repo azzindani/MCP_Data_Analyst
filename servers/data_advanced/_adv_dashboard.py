@@ -239,9 +239,13 @@ def generate_dashboard(
         filter_controls = _build_filter_controls(df, cat_cols)
         num_ranges = _build_num_ranges(df, numeric_cols)
 
+        # Computed before the KPI row so the score can see them: the headline
+        # number and the panel underneath it must describe the same dataset.
+        alerts = alerts_for_frame(df, numeric_cols, cat_cols)
+
         null_pct = float(df.isnull().mean().mean() * 100)
         dup_pct = float(df.duplicated().sum() / max(len(df), 1) * 100)
-        quality = max(0, round(100 - null_pct * 2 - dup_pct * 0.5))
+        quality = _quality_score(null_pct, dup_pct, alerts)
         qual_clr = "var(--green)" if quality >= 80 else "var(--orange)" if quality >= 60 else "var(--red)"
 
         _css = css_vars(theme)
@@ -263,7 +267,6 @@ def generate_dashboard(
         # The dashboard is the artifact people actually send to a colleague, and
         # it used to show 26 charts of a dataset without mentioning that two of
         # its columns were constant. Same alert engine the EDA report leads with.
-        alerts = alerts_for_frame(df, numeric_cols, cat_cols)
         h.append(_dash_alerts(alerts))
 
         spec: list[dict] = []
@@ -497,8 +500,8 @@ def _dash_filterbar(filter_controls, num_ranges):
     for nr in num_ranges:
         nc = nr["col"]
         nc_js = nc.replace("\\", "\\\\").replace("'", "\\'")
-        mn_s = f"{nr['min']:,.0f}" if abs(nr["min"]) >= 1 else f"{nr['min']:.3f}"
-        mx_s = f"{nr['max']:,.0f}" if abs(nr["max"]) >= 1 else f"{nr['max']:.3f}"
+        mn_s = _compact_num(nr["min"])
+        mx_s = _compact_num(nr["max"])
         h.append(
             f'<div class="fgrp"><div class="flbl">{nc}</div>'
             f'<div class="nrng">'
@@ -509,6 +512,41 @@ def _dash_filterbar(filter_controls, num_ranges):
         )
     h.append("</div>")
     return "\n".join(h)
+
+
+def _compact_num(v: float) -> str:
+    """Short enough to survive inside a filter input.
+
+    These are placeholders showing a column's bounds, and "Max (67,454)" was
+    being clipped mid-number to "Max (67,4" -- a hint the reader cannot finish
+    is worse than a rounder one they can, so magnitudes are abbreviated.
+    """
+    a = abs(v)
+    if a < 1:
+        return f"{v:.3f}".rstrip("0").rstrip(".") or "0"
+    for cutoff, suffix in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
+        if a >= cutoff:
+            scaled = v / cutoff
+            return f"{scaled:.0f}{suffix}" if abs(scaled) >= 10 else f"{scaled:.1f}{suffix}"
+    return f"{v:,.0f}"
+
+
+def _quality_score(null_pct: float, dup_pct: float, alerts: list[dict]) -> int:
+    """Score the dataset the dashboard is actually describing.
+
+    This used to be nulls and duplicates only, so a frame whose nulls had been
+    imputed and duplicates dropped scored a flat 100 -- directly above a panel
+    reading "Data quality - 15 alerts, 2 serious" about constant columns,
+    zero-inflation, skew and outliers. The headline contradicted the list under
+    it, and the headline is the part people read.
+
+    Alerts carry the findings the percentages cannot see, so they are priced in
+    here: a serious one costs more than a warning, and the floor stays at 0.
+    """
+    penalty = null_pct * 2 + dup_pct * 0.5
+    for alert in alerts:
+        penalty += 8 if alert.get("sev") == "error" else 3
+    return max(0, round(100 - penalty))
 
 
 def _dash_alerts(alerts: list[dict]) -> str:
