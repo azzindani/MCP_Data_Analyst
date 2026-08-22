@@ -941,7 +941,16 @@ def cohort_analysis(
         df = df.dropna(subset=[date_column])
 
         if not cohort_column:
-            cat_cols = [c for c in df.columns if _is_string_col(df[c]) and df[c].nunique() < 50]
+            # A column with one value puts every row in the same cohort, which
+            # is not a cohort analysis -- it is the total, drawn as one row. The
+            # old bound was `nunique() < 50`, which admits 1, and the first
+            # string column of the ad dataset is `product` ("Product 1" in all
+            # 16,834 rows), so the tool answered with a 1x10 matrix and reported
+            # "Auto-detected cohort column: product" as if that were a finding.
+            # Excluding constants lets the real candidate through, and if none
+            # qualifies the year-month fallback below is the right answer.
+            # _adv_dashboard.py applies the same `nunique() > 1` rule to charts.
+            cat_cols = [c for c in df.columns if _is_string_col(df[c]) and 1 < df[c].nunique() < 50]
             if cat_cols:
                 cohort_column = cat_cols[0]
                 progress.append(info("Auto-detected cohort column", cohort_column))
