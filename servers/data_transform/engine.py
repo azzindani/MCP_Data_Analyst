@@ -72,6 +72,49 @@ _FILTER_OPS = frozenset(
 )
 
 
+def _needs(cond: dict, op: str, key: str):
+    """Read a key an op depends on, or say which key is missing.
+
+    Each op reads a differently named key -- "value" for most, "values" for
+    isin, "min"/"max" for between, "pattern" for regex -- and nothing documents
+    that: the docstring names the ops, not their keys. Reading them straight off
+    the dict raised a bare KeyError, so a caller who sent the documented op
+    `between` with a `value` list got back the whole error `'min'`, under a hint
+    listing the ops, which were already right.
+
+    filter_rows in data-medium, doing the same job, already falls back to
+    "value" for every one of these; its comments say so. This brings the two
+    into line and names the key when there is nothing to fall back to.
+    """
+    if key in cond:
+        return cond[key]
+    if "value" in cond:
+        return cond["value"]
+    raise ValueError(
+        f"Filter op '{op}' needs '{key}'. Got keys: {sorted(cond)}. "
+        f"Write it as {{'column': ..., 'op': '{op}', '{key}': ...}}."
+    )
+
+
+def _as_list(value) -> list:
+    """isin wants a list; a caller who means one value often writes it bare."""
+    return list(value) if isinstance(value, list | tuple | set) else [value]
+
+
+def _bounds(cond: dict, op: str) -> tuple[float, float]:
+    """min/max for a range op, however the caller expressed them."""
+    if "min" in cond and "max" in cond:
+        return float(cond["min"]), float(cond["max"])
+    value = cond.get("value")
+    if isinstance(value, list | tuple) and len(value) == 2:
+        return float(value[0]), float(value[1])
+    raise ValueError(
+        f"Filter op '{op}' needs numeric bounds. Got keys: {sorted(cond)}. "
+        f"Write it as {{'column': ..., 'op': '{op}', 'min': 0, 'max': 100}} "
+        "or pass value as a two-item list."
+    )
+
+
 def _apply_condition(df: pd.DataFrame, cond: dict) -> pd.Series:
     col = cond.get("column", "")
     op = cond.get("op", "") or cond.get("operator", "")
@@ -105,14 +148,15 @@ def _apply_condition(df: pd.DataFrame, cond: dict) -> pd.Series:
     elif op == "is_null":
         return s.isna()
     elif op == "isin":
-        return s.isin(cond["values"])
+        return s.isin(_as_list(_needs(cond, op, "values")))
     elif op == "not_isin":
-        return ~s.isin(cond["values"])
+        return ~s.isin(_as_list(_needs(cond, op, "values")))
     elif op == "between":
+        low, high = _bounds(cond, op)
         num = pd.to_numeric(s, errors="coerce")
-        return (num >= float(cond["min"])) & (num <= float(cond["max"]))
+        return (num >= low) & (num <= high)
     elif op == "regex":
-        return s.astype(str).str.match(cond["pattern"], na=False)
+        return s.astype(str).str.match(str(_needs(cond, op, "pattern")), na=False)
     elif op == "date_range":
         dates = pd.to_datetime(s, errors="coerce")
         start = pd.to_datetime(cond.get("start")) if cond.get("start") else None

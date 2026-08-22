@@ -604,9 +604,25 @@ def _apply_condition(df: pd.DataFrame, cond: dict) -> pd.Series:
         values = cond.get("values", val if isinstance(val, list) else [val])
         return ~s.isin(values)
     if op == "between":
-        min_v = cond.get("min", val)
-        max_v = cond.get("max", val)
-        return pd.to_numeric(s, errors="coerce").between(float(min_v), float(max_v))
+        # The fallback to `val` covers {"min": ..., "max": ...} being written as
+        # a single value, but the obvious way to give a range one key is a pair
+        # -- {"op": "between", "value": [0, 10000]} -- and float() on that list
+        # raised "float() argument must be a string or a real number, not
+        # 'list'", which names nothing the caller wrote.
+        if isinstance(val, list | tuple) and len(val) == 2:
+            min_v, max_v = val
+        else:
+            min_v = cond.get("min", val)
+            max_v = cond.get("max", val)
+        try:
+            low, high = float(min_v), float(max_v)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"Filter op 'between' needs numeric bounds. Got keys: {sorted(cond)}. "
+                "Write it as {'column': ..., 'op': 'between', 'min': 0, 'max': 100} "
+                "or pass value as a two-item list."
+            ) from None
+        return pd.to_numeric(s, errors="coerce").between(low, high)
     if op == "date_range":
         start = cond.get("start")
         end = cond.get("end")
