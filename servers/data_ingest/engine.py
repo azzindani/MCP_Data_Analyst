@@ -650,7 +650,11 @@ def extract_table(
 
 
 def normalize_headers(
-    file_path: str, lowercase: bool = True, replace_spaces: bool = True, dry_run: bool = False
+    file_path: str,
+    lowercase: bool = True,
+    replace_spaces: bool = True,
+    output_path: str = "",
+    dry_run: bool = False,
 ) -> dict:
     import re
 
@@ -696,6 +700,7 @@ def normalize_headers(
             new_cols.append(candidate)
 
         changes = {old: nw for old, nw in zip(old_cols, new_cols) if old != nw}
+        out = resolve_path(output_path) if output_path else path
 
         if dry_run:
             progress.append(info("Dry run — no changes written", path.name))
@@ -704,33 +709,39 @@ def normalize_headers(
                 "dry_run": True,
                 "op": "normalize_headers",
                 "would_change": changes,
+                "would_write": str(out),
                 "progress": progress,
             }
             result["token_estimate"] = _token_estimate(result)
             return result
 
-        backup = snapshot(str(path))
-        progress.append(info("Snapshot created", Path(backup).name))
+        # Only the source needs saving from itself; a named destination leaves
+        # the caller's file untouched, so there is nothing to snapshot.
+        if out == path:
+            backup = snapshot(str(path))
+            progress.append(info("Snapshot created", Path(backup).name))
         df.columns = new_cols
-        atomic_write_text(path, df.to_csv(index=False))
+        out.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(out, df.to_csv(index=False))
         append_receipt(
             str(path),
             tool="normalize_headers",
             args={"lowercase": lowercase, "replace_spaces": replace_spaces},
-            result=f"renamed {len(changes)} headers",
-            backup=backup,
+            result=f"renamed {len(changes)} headers → {out.name}",
+            backup=backup or "",
         )
-        progress.append(ok("Normalized headers", f"{len(changes)} renamed"))
+        progress.append(ok("Normalized headers", f"{len(changes)} renamed → {out.name}"))
         result = {
             "success": True,
             "op": "normalize_headers",
             "file": path.name,
+            "output_path": str(out),
             "changes": changes,
             "renamed_count": len(changes),
             "deduped_count": sum(
                 1 for o, n in zip(old_cols, new_cols) if o != n and n != o.strip().lower().replace(" ", "_")
             ),
-            "backup": backup,
+            "backup": backup or "",
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -752,7 +763,7 @@ def normalize_headers(
 # ---------------------------------------------------------------------------
 
 
-def trim_empty(file_path: str, dry_run: bool = False) -> dict:
+def trim_empty(file_path: str, output_path: str = "", dry_run: bool = False) -> dict:
     backup = None
     progress = []
     try:
@@ -789,6 +800,8 @@ def trim_empty(file_path: str, dry_run: bool = False) -> dict:
         rows_dropped = rows_before - rows_after
         cols_dropped = cols_before - cols_after
 
+        out = resolve_path(output_path) if output_path else path
+
         if dry_run:
             progress.append(info("Dry run — no changes written", path.name))
             result = {
@@ -796,33 +809,37 @@ def trim_empty(file_path: str, dry_run: bool = False) -> dict:
                 "dry_run": True,
                 "op": "trim_empty",
                 "would_change": {"rows_to_drop": rows_dropped, "cols_to_drop": cols_dropped},
+                "would_write": str(out),
                 "progress": progress,
             }
             result["token_estimate"] = _token_estimate(result)
             return result
 
-        backup = snapshot(str(path))
-        progress.append(info("Snapshot created", Path(backup).name))
-        atomic_write_text(path, df.to_csv(index=False))
+        if out == path:
+            backup = snapshot(str(path))
+            progress.append(info("Snapshot created", Path(backup).name))
+        out.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(out, df.to_csv(index=False))
         append_receipt(
             str(path),
             tool="trim_empty",
             args={},
-            result=f"dropped {rows_dropped} rows, {cols_dropped} cols",
-            backup=backup,
+            result=f"dropped {rows_dropped} rows, {cols_dropped} cols → {out.name}",
+            backup=backup or "",
         )
-        progress.append(ok("Trimmed empty", f"-{rows_dropped} rows, -{cols_dropped} cols"))
+        progress.append(ok("Trimmed empty", f"-{rows_dropped} rows, -{cols_dropped} cols → {out.name}"))
         result = {
             "success": True,
             "op": "trim_empty",
             "file": path.name,
+            "output_path": str(out),
             "rows_before": rows_before,
             "rows_after": rows_after,
             "cols_before": cols_before,
             "cols_after": cols_after,
             "rows_dropped": rows_dropped,
             "cols_dropped": cols_dropped,
-            "backup": backup,
+            "backup": backup or "",
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -844,7 +861,7 @@ def trim_empty(file_path: str, dry_run: bool = False) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def promote_header(file_path: str, row_index: int = 0, dry_run: bool = False) -> dict:
+def promote_header(file_path: str, row_index: int = 0, output_path: str = "", dry_run: bool = False) -> dict:
     backup = None
     progress = []
     try:
@@ -882,6 +899,8 @@ def promote_header(file_path: str, row_index: int = 0, dry_run: bool = False) ->
         df.columns = new_headers
         df = df.reset_index(drop=True)
 
+        out = resolve_path(output_path) if output_path else path
+
         if dry_run:
             progress.append(info("Dry run — no changes written", path.name))
             result = {
@@ -889,30 +908,34 @@ def promote_header(file_path: str, row_index: int = 0, dry_run: bool = False) ->
                 "dry_run": True,
                 "op": "promote_header",
                 "would_change": {"new_headers": new_headers, "rows_dropped_above": rows_dropped},
+                "would_write": str(out),
                 "progress": progress,
             }
             result["token_estimate"] = _token_estimate(result)
             return result
 
-        backup = snapshot(str(path))
-        progress.append(info("Snapshot created", Path(backup).name))
-        atomic_write_text(path, df.to_csv(index=False))
+        if out == path:
+            backup = snapshot(str(path))
+            progress.append(info("Snapshot created", Path(backup).name))
+        out.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(out, df.to_csv(index=False))
         append_receipt(
             str(path),
             tool="promote_header",
             args={"row_index": row_index},
-            result=f"promoted row {row_index} as header",
-            backup=backup,
+            result=f"promoted row {row_index} as header → {out.name}",
+            backup=backup or "",
         )
         progress.append(ok("Promoted header", f"row {row_index} → columns; {rows_dropped} row(s) dropped"))
         result = {
             "success": True,
             "op": "promote_header",
             "file": path.name,
+            "output_path": str(out),
             "promoted_row_index": row_index,
             "new_headers": new_headers,
             "rows_dropped_above": rows_dropped,
-            "backup": backup,
+            "backup": backup or "",
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)

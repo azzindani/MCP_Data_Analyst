@@ -105,26 +105,28 @@ def normalize_headers(
     file_path: str,
     lowercase: bool = True,
     replace_spaces: bool = True,
+    output_path: str = "",
     dry_run: bool = False,
 ) -> dict:
-    """Strip whitespace, lowercase, dedup column headers in a CSV."""
-    return engine.normalize_headers(file_path, lowercase, replace_spaces, dry_run)
+    """Strip whitespace, lowercase, dedup headers. output_path: write elsewhere."""
+    return engine.normalize_headers(file_path, lowercase, replace_spaces, output_path, dry_run)
 
 
 @mcp.tool()
-def trim_empty(file_path: str, dry_run: bool = False) -> dict:
-    """Drop fully-empty leading/trailing rows and columns from CSV."""
-    return engine.trim_empty(file_path, dry_run)
+def trim_empty(file_path: str, output_path: str = "", dry_run: bool = False) -> dict:
+    """Drop empty leading/trailing rows and cols. output_path: write elsewhere."""
+    return engine.trim_empty(file_path, output_path, dry_run)
 
 
 @mcp.tool()
 def promote_header(
     file_path: str,
     row_index: int = 0,
+    output_path: str = "",
     dry_run: bool = False,
 ) -> dict:
-    """Make row N the header; drop rows above it."""
-    return engine.promote_header(file_path, row_index, dry_run)
+    """Make row N the header; drop rows above. output_path: write elsewhere."""
+    return engine.promote_header(file_path, row_index, output_path, dry_run)
 
 
 @mcp.tool()
