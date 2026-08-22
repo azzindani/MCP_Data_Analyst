@@ -69,6 +69,21 @@ def _parsed(html: str) -> tuple[list, dict]:
     return json.loads(data_str), json.loads(layout_str)
 
 
+def _heading(html: str) -> str | None:
+    """The caption the reader actually sees.
+
+    A customized title used to be written into layout["title"], inside the SVG,
+    where plotly clips it and the page ends up captioned twice: the stale <h1>
+    above the chart and the new title cut off within it. It now goes to the
+    heading, which is where save_chart() puts every other chart's title.
+    See test_customize_chart_retitles_the_page.py.
+    """
+    import re
+
+    m = re.search(r'<h1 class="chart-title">([^<]*)</h1>', html)
+    return m.group(1) if m else None
+
+
 class TestCustomizedChartStillRenders:
     """A chart whose JSON no longer parses is a blank page in the browser, but
     still a structurally valid HTML file on disk — so only parsing the payload
@@ -81,7 +96,8 @@ class TestCustomizedChartStillRenders:
         assert result["success"] is True
         traces, layout = _parsed(out.read_text())
         assert traces
-        assert layout["title"]["text"] == "Revenue by Region"
+        assert "title" not in layout
+        assert _heading(out.read_text()) == "Revenue by Region"
 
     def test_title_does_not_leak_into_axis_titles(self, bar_chart: Path, tmp_path: Path):
         out = tmp_path / "out.html"
@@ -97,7 +113,7 @@ class TestCustomizedChartStillRenders:
         result = customize_chart(str(bar_chart), title="T", x_label="Region", y_label="Revenue", output_path=str(out))
         assert result["success"] is True
         _, layout = _parsed(out.read_text())
-        assert layout["title"]["text"] == "T"
+        assert _heading(out.read_text()) == "T"
         assert layout["xaxis"]["title"]["text"] == "Region"
         assert layout["yaxis"]["title"]["text"] == "Revenue"
 
@@ -129,7 +145,8 @@ class TestCustomizedChartStillRenders:
         result = customize_chart(str(once), title="Second", output_path=str(twice))
         assert result["success"] is True
         _, layout = _parsed(twice.read_text())
-        assert layout["title"]["text"] == "Second"
+        assert layout
+        assert _heading(twice.read_text()) == "Second"
 
     def test_colors_reach_the_bars(self, bar_chart: Path, tmp_path: Path):
         out = tmp_path / "out.html"

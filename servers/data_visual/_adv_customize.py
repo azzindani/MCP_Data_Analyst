@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import sys
+from html import escape as html_escape
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[3]
@@ -114,7 +115,16 @@ def customize_chart(
         changes_applied: list[str] = []
 
         if title:
-            layout["title"] = _title_dict(title)
+            # save_chart() hoists a figure's title into the page's <h1> and
+            # clears it from the layout, so every other chart page carries its
+            # caption once, as HTML. Writing the new title back into the layout
+            # put it inside the SVG instead, where plotly centres it and never
+            # wraps it -- at 390px wide a 52-character title overflowed its plot
+            # by 34px at each end and was clipped mid-word. Worse, the page's
+            # own <h1> still showed the title the chart was created with, so
+            # customising the title left the reader looking at the old one with
+            # the new one cut off inside the picture. The heading is the title.
+            layout.pop("title", None)
             changes_applied.append(f"title → '{title}'")
             progress.append(info("Title updated", title))
 
@@ -243,7 +253,20 @@ def customize_chart(
 
         html = before + call_prefix + json.dumps(traces) + separator + json.dumps(layout) + after
         if title:
-            html = re.sub(r"<title>[^<]*</title>", f"<title>{title}</title>", html)
+            # A lambda, not an f-string replacement: re.sub treats backslashes
+            # and \1 in a replacement string as group references, so a title
+            # containing either would corrupt the page or raise.
+            safe = html_escape(title)
+            html = re.sub(r"<title>[^<]*</title>", lambda _m: f"<title>{safe}</title>", html, count=1)
+            # The visible caption, not just the browser tab. Only chart pages
+            # built by chart_page_html carry this heading; anything else simply
+            # does not match and keeps whatever markup it had.
+            html = re.sub(
+                r'(<h1 class="chart-title">)[^<]*(</h1>)',
+                lambda m: f"{m.group(1)}{safe}{m.group(2)}",
+                html,
+                count=1,
+            )
 
         # A chart that no longer parses is a blank page in the browser, and the
         # file would still look like valid HTML on disk. Fail loudly instead.
