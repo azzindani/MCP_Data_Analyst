@@ -204,8 +204,15 @@ _BASE_CSS = (
     ".tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}"
     "table{width:100%;border-collapse:collapse;font-size:.8125rem;"
     "background:var(--surface);border-radius:.5rem;overflow:hidden}"
+    # Cells wrap between words but never inside one. Under the global
+    # word-break:break-word a squeezed data-sample column rendered
+    # "Performance" as "Perfor / manc / e" and "2019-10-16" as "2019 / -10- /
+    # 16", which is unreadable and, for a date, wrong-looking. With words kept
+    # whole the table's min-content width grows past the 100% above, and the
+    # .tbl-wrap / overflow-x:auto parent scrolls instead -- which is what the
+    # wrapper was always there to do.
     "th,td{padding:.625rem 1rem;text-align:left;border-bottom:1px solid var(--border);"
-    "min-width:0;overflow-wrap:break-word}"
+    "min-width:0;overflow-wrap:normal;word-break:normal}"
     "th{background:rgba(88,166,255,.08);color:var(--accent);font-weight:600;"
     "font-size:.6875rem;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}"
     "tr:hover{background:rgba(88,166,255,.03)}"

@@ -160,6 +160,31 @@ def compute_alerts(
     return alerts
 
 
+def quality_score(null_pct: float, dup_pct: float, alerts: list[dict]) -> int:
+    """Score the dataset the report is actually describing.
+
+    Scored from nulls and duplicates alone, a frame whose nulls had been imputed
+    and duplicates dropped came out near 100 -- directly above a panel reading
+    "16 alerts, 2 serious" about constant columns, zero-inflation, skew and
+    outliers. The headline contradicted the list under it, and the headline is
+    the part people read.
+
+    Alerts carry the findings the percentages cannot see, so they are priced in
+    here: a serious one costs more than a warning, and the floor stays at 0.
+
+    It lives beside compute_alerts, and not in either report, because the
+    dashboard and the EDA report describe the same frames. When each kept its
+    own formula they disagreed by 57 points on one dataset -- the dashboard said
+    41, the EDA report said 98, from identical alerts. Outliers are deliberately
+    not charged separately: they already arrive as alerts, and the EDA report's
+    own outlier_penalty term was double-counting them.
+    """
+    penalty = null_pct * 2 + dup_pct * 0.5
+    for alert in alerts:
+        penalty += 8 if alert.get("sev") == "error" else 3
+    return max(0, round(100 - penalty))
+
+
 def alerts_html(alerts: list[dict]) -> str:
     """Render alerts as the badge panel the EDA report has always shown."""
     if not alerts:

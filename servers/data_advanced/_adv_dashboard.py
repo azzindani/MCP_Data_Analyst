@@ -41,7 +41,7 @@ from _adv_helpers import (
     warn,
 )
 
-from shared.data_alerts import alerts_for_frame, alerts_html
+from shared.data_alerts import alerts_for_frame, alerts_html, quality_score
 from shared.file_utils import embed_content, resolve_path
 from shared.table_payload import records_js
 
@@ -545,22 +545,9 @@ def _compact_num(v: float) -> str:
     return f"{v:,.0f}"
 
 
-def _quality_score(null_pct: float, dup_pct: float, alerts: list[dict]) -> int:
-    """Score the dataset the dashboard is actually describing.
-
-    This used to be nulls and duplicates only, so a frame whose nulls had been
-    imputed and duplicates dropped scored a flat 100 -- directly above a panel
-    reading "Data quality - 15 alerts, 2 serious" about constant columns,
-    zero-inflation, skew and outliers. The headline contradicted the list under
-    it, and the headline is the part people read.
-
-    Alerts carry the findings the percentages cannot see, so they are priced in
-    here: a serious one costs more than a warning, and the floor stays at 0.
-    """
-    penalty = null_pct * 2 + dup_pct * 0.5
-    for alert in alerts:
-        penalty += 8 if alert.get("sev") == "error" else 3
-    return max(0, round(100 - penalty))
+# Shared with the EDA report: both describe the same frames, and when each
+# kept its own formula they disagreed by 57 points on one dataset.
+_quality_score = quality_score
 
 
 def _dash_alerts(alerts: list[dict]) -> str:

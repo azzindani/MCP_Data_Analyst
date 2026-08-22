@@ -43,6 +43,7 @@ from _adv_helpers import (
 )
 
 from shared.data_alerts import alerts_html, compute_alerts
+from shared.data_alerts import quality_score as compute_quality_score
 from shared.file_utils import embed_content, resolve_path
 
 logger = logging.getLogger(__name__)
@@ -146,13 +147,18 @@ def run_eda(
 
         outlier_cols.sort(key=lambda o: o["outlier_count"], reverse=True)
 
-        null_penalty = sum(s["null_pct"] for s in column_summaries) / max(cols, 1)
+        null_pct = sum(s["null_pct"] for s in column_summaries) / max(cols, 1)
         dup_count = int(df.duplicated().sum())
-        dup_penalty = dup_count / rows * 100 if rows > 0 else 0
-        outlier_penalty = sum(o["outlier_pct"] for o in outlier_cols) / max(cols, 1)
-        quality_score = max(0, round(100 - null_penalty - dup_penalty * 0.5 - outlier_penalty * 0.3))
+        dup_pct = dup_count / rows * 100 if rows > 0 else 0
 
+        # Computed before the score, so the headline can see what the panel
+        # under it says. Scored from nulls and duplicates alone this report
+        # printed "QUALITY SCORE 98" directly beneath "Alerts (16)" -- constant
+        # columns, 89.7% zero-inflation, skewness of +17 and outliers at 13% all
+        # cost nothing. The shared scorer prices the same alerts the dashboard
+        # does, so the two tools can no longer give one frame two verdicts.
         alerts = _compute_alerts(df, numeric_cols, cat_cols, corr_pairs, rows, dup_count)
+        quality_score = compute_quality_score(null_pct, dup_pct, alerts)
 
         spearman_matrix = None
         if len(numeric_cols) >= 2:
