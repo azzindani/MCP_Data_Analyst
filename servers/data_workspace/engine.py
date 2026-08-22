@@ -264,6 +264,22 @@ def register_workspace_file(
         result["token_estimate"] = _token_estimate(result)
         return result
     except FileNotFoundError as exc:
+        # Two different things raise FileNotFoundError here -- the data file, and
+        # the workspace manifest -- and only the first got a hint. Registering
+        # into a workspace that does not exist (a container restart is enough,
+        # the manifests live outside the mounted data directory) answered
+        # "Workspace 'x' not found" under "Check that file_path is an absolute
+        # path to an existing file", which sends the caller to inspect the one
+        # argument that was correct. open_workspace and list_workspace_files
+        # next door already tell the caller to run create_workspace.
+        if f"Workspace '{workspace_name}'" in str(exc):
+            return {
+                "success": False,
+                "error": str(exc),
+                "hint": f"Use create_workspace('{workspace_name}') first, then register files into it.",
+                "progress": [fail("Workspace not found", workspace_name)],
+                "token_estimate": 20,
+            }
         return {
             "success": False,
             "error": str(exc),
