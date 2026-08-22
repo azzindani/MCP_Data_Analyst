@@ -25,11 +25,20 @@ from _adv_helpers import (
     is_numeric_col,
     ok,
     plotly_template,
+    warn,
 )
 
 from shared.file_utils import embed_content, resolve_path
+from shared.geo_names import unrecognised_locations
 
 logger = logging.getLogger(__name__)
+
+# Plotly's locationmode strings do not read as English in a sentence.
+_LOC_MODE_LABELS = {
+    "country names": "country name",
+    "ISO-3": "ISO-3 country code",
+    "USA-states": "US state code",
+}
 
 _VALID_CHART_TYPES = {
     "bar",
@@ -646,6 +655,41 @@ def generate_geo_map(
                 grouped = df.groupby(loc_col, as_index=False).size()
                 grouped = grouped.rename(columns={"size": "_count"})
                 agg_col = "_count"
+
+            # px.choropleth drops every location it cannot resolve, without
+            # saying so: "Google Ads"/"Facebook Ads" as country names produced a
+            # complete figure with a colour bar over the real spend range and
+            # not one country shaded. rows_plotted counted the distinct values,
+            # so the response said "2 locations" about an empty map and a sweep
+            # recorded it as a PASS. Nothing downstream can be asked what
+            # matched -- plotly.js resolves names in the browser -- so check the
+            # names here before drawing.
+            place_names = [str(v) for v in grouped[loc_col].tolist()]
+            unplaceable = unrecognised_locations(place_names, loc_mode or "")
+            mode_label = _LOC_MODE_LABELS.get(loc_mode or "", str(loc_mode))
+            if unplaceable and len(unplaceable) == len(place_names):
+                sample = ", ".join(repr(v) for v in unplaceable[:3])
+                return {
+                    "success": False,
+                    "error": (
+                        f"No value in '{loc_col}' is a recognisable {mode_label}: {sample}"
+                        f"{' ...' if len(unplaceable) > 3 else ''}"
+                    ),
+                    "hint": (
+                        f"A choropleth can only shade places. '{loc_col}' holds categories, so "
+                        "the map would be blank. Use generate_chart with chart_type=bar to "
+                        "compare them, or pass location_column with country or state names."
+                    ),
+                    "progress": [fail("Not a location column", loc_col)],
+                    "token_estimate": 40,
+                }
+            if unplaceable:
+                progress.append(
+                    warn(
+                        f"{len(unplaceable)} of {len(place_names)} values are not a {mode_label}",
+                        f"dropped from the map: {', '.join(str(v) for v in unplaceable[:5])}",
+                    )
+                )
 
             if not chart_title:
                 nc_label = value_column or "Count"

@@ -43,6 +43,7 @@ from _adv_helpers import (
 
 from shared.data_alerts import alerts_for_frame, alerts_html, quality_score
 from shared.file_utils import embed_content, resolve_path
+from shared.geo_names import unrecognised_locations
 from shared.table_payload import records_js
 
 logger = logging.getLogger(__name__)
@@ -211,7 +212,17 @@ def generate_dashboard(
             detected.append("pie")
         if _d_geo_lat and _d_geo_lon:
             detected.append("geo_scatter")
-        if _d_geo_loc and numeric_cols:
+        # The column is found by name ("country", "state", "iso3"), which says
+        # nothing about what is in it -- a `country` column holding "Domestic"
+        # and "International" adds a card containing an unshaded world map.
+        # generate_geo_map refuses that outright; a dashboard panel is one of
+        # many, so it is simply left out and the rest of the dashboard is drawn.
+        if _d_geo_loc:
+            _d_geo_values = [str(v) for v in df[_d_geo_loc].dropna().unique().tolist()]
+            _d_geo_placeable = len(unrecognised_locations(_d_geo_values, _d_geo_loc_mode)) < len(_d_geo_values)
+        else:
+            _d_geo_placeable = False
+        if _d_geo_loc and numeric_cols and _d_geo_placeable:
             detected.append("geo_choropleth")
         charts = chart_types if chart_types else detected
 
