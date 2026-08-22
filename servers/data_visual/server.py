@@ -162,7 +162,7 @@ def generate_chart(
     open_after: bool = True,
     return_content: bool = False,
 ) -> dict:
-    """Generate chart. type: bar pie line scatter geo treemap radius time_series."""
+    """Generate chart. bar/pie/line/scatter/funnel/radius/geo need category_column."""
     return engine.generate_chart(
         file_path,
         chart_type,

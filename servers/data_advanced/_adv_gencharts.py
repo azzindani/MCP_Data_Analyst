@@ -47,6 +47,16 @@ _VALID_CHART_TYPES = {
     "sankey",
 }
 
+# Types that index category_column unconditionally -- px.bar(x=...), px.pie(names=...),
+# px.funnel(y=...), Scatterpolar(theta=...), and geo's groupby. The schema gives
+# category_column a "" default, so a caller who supplies only the three required
+# arguments reaches plotly with x="" and gets ValueError: Value of 'x' is not the
+# name of a column in 'data_frame' -- naming a parameter this tool does not have.
+# radius was worse: chart_df[""] raises KeyError(""), whose str() is "''", so the
+# response carried an empty error string. Guarded here instead, in the same block
+# that already covers geo, treemap, time_series and sankey.
+_NEEDS_CATEGORY = ("bar", "pie", "line", "scatter", "funnel", "radius", "geo")
+
 
 def _coords_out_of_range(frame: pd.DataFrame, lat_column: str, lon_column: str) -> dict | None:
     """Return details of the first column holding values no coordinate can take."""
@@ -107,7 +117,7 @@ def generate_chart(
     open_after: bool = True,
     return_content: bool = False,
 ) -> dict:
-    """Generate Plotly chart. type: bar pie line scatter geo treemap radius."""
+    """Generate Plotly chart. bar/pie/line/scatter/funnel/radius/geo need category_column."""
     progress = []
     try:
         try:
@@ -183,6 +193,18 @@ def generate_chart(
                 "error": "sankey requires color_column (target column)",
                 "hint": "Provide color_column as the target node column.",
                 "progress": [fail("Missing params", "color_column")],
+                "token_estimate": 30,
+            }
+        if chart_type in _NEEDS_CATEGORY and not category_column:
+            return {
+                "success": False,
+                "error": f"{chart_type} requires category_column",
+                "hint": (
+                    f"Name the column to plot along the category axis, e.g. "
+                    f"category_column='campaign_platform'. Call inspect_dataset('{path.name}') "
+                    f"to list the columns."
+                ),
+                "progress": [fail("Missing params", "category_column")],
                 "token_estimate": 30,
             }
 
