@@ -960,6 +960,21 @@ def cohort_analysis(
             cohort_column = "_cohort"
             progress.append(info("Using date-based cohort", "year-month"))
 
+        # The guard above only covers the column this function picks for itself.
+        # A caller can name a constant column outright -- `phase` in the ad
+        # dataset -- and reach the same dead end: the dataset total drawn as a
+        # single row, under a hint reading "use a specific cohort_column", which
+        # is exactly what they had just done. Say so, and keep the result: they
+        # asked for that column and the matrix is not wrong, only degenerate.
+        degenerate_cohort = cohort_column != "_cohort" and df[cohort_column].nunique() <= 1
+        if degenerate_cohort:
+            progress.append(
+                warn(
+                    f"'{cohort_column}' has one distinct value",
+                    "every row lands in the same cohort, so this is the dataset total",
+                )
+            )
+
         if not value_column:
             num_cols = [c for c in df.columns if is_numeric_col(df[c])]
             if num_cols:
@@ -999,9 +1014,17 @@ def cohort_analysis(
         progress.append(
             ok(
                 f"Cohort analysis for {path.name}",
-                f"{len(pivot)} cohorts × {len(pivot.columns)} periods",
+                f"{len(pivot)} cohort{'' if len(pivot) == 1 else 's'} × {len(pivot.columns)} periods",
             )
         )
+
+        if degenerate_cohort:
+            usable = [c for c in df.columns if _is_string_col(df[c]) and 1 < df[c].nunique() < 50]
+            cohort_hint = f"'{cohort_column}' is the same for every row, so there is one cohort. " + (
+                f"Try cohort_column={usable[0]}." if usable else "Leave cohort_column empty to cohort by year-month."
+            )
+        else:
+            cohort_hint = "Use a more targeted call with a specific cohort_column or value_column."
 
         result: dict = {
             "success": True,
@@ -1014,7 +1037,7 @@ def cohort_analysis(
             "periods": len(pivot.columns),
             "matrix": matrix,
             "truncated": truncated,
-            "hint": "Use a more targeted call with a specific cohort_column or value_column.",
+            "hint": cohort_hint,
             "progress": progress,
         }
 
