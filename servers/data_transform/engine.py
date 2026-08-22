@@ -353,7 +353,20 @@ def reshape_dataset(
             progress.append(ok("Melted (wide→long)", f"{before_shape} → {list(df.shape)}"))
 
         elif mode == "split_column":
-            if not split_column or split_column not in df.columns:
+            # Not supplying it and naming a column that is not there are
+            # different mistakes. Reporting both as "split_column '' not in
+            # dataset" tells a caller who omitted the argument to go looking for
+            # a column named "" -- the other modes here say "pivot requires
+            # 'index' parameter" and "crosstab requires 'row_col' and 'col_col'".
+            if not split_column:
+                return {
+                    "success": False,
+                    "error": "split_column mode requires a 'split_column' parameter.",
+                    "hint": f"Name the column to split, e.g. split_column='{list(df.columns)[0]}'.",
+                    "progress": [fail("Missing param", "split_column")],
+                    "token_estimate": 20,
+                }
+            if split_column not in df.columns:
                 return {
                     "success": False,
                     "error": f"split_column '{split_column}' not in dataset.",
@@ -373,6 +386,19 @@ def reshape_dataset(
 
         elif mode == "combine_columns":
             cols = combine_columns or []
+            # With no columns to combine this reported success and wrote a new
+            # column full of NaN into the output file: df[[]].apply(axis=1) has
+            # nothing to join, and nothing downstream noticed. A caller who
+            # forgot the argument was told the reshape worked and handed back a
+            # dataset with a junk column in it -- the worst way to fail.
+            if not cols:
+                return {
+                    "success": False,
+                    "error": "combine_columns mode requires a 'combine_columns' list.",
+                    "hint": f"Name the columns to join, e.g. combine_columns={list(df.columns)[:2]}.",
+                    "progress": [fail("Missing param", "combine_columns")],
+                    "token_estimate": 20,
+                }
             missing = [c for c in cols if c not in df.columns]
             if missing:
                 return {

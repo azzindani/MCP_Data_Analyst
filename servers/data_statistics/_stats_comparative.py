@@ -34,6 +34,20 @@ _FREQ_MAP = {
 
 _VALID_PERIOD_UNITS = set(_FREQ_MAP)
 
+# The tool description is "Compare periods: MoM QoQ YoY", and the schema carries
+# no enum, so those three strings are the whole vocabulary a caller can see --
+# and all three were rejected, because the code wanted the single letters. The
+# names are not interchangeable in general (MoM is a comparison, M is a period),
+# but for this tool they mean the same thing: month over month is a monthly
+# period compared with the one before it, which is what compare_to="previous"
+# already does. Matched after the .upper() below, so MoM/mom/MOM all land.
+_PERIOD_ALIASES = {"MOM": "M", "QOQ": "Q", "YOY": "Y", "WOW": "W", "DOD": "D"}
+
+# What pandas' to_period() calls each unit. Only the hour differs -- pandas 3
+# removed the uppercase "H" alias -- but the mapping is spelled out so the next
+# alias to change is a one-line edit rather than another traceback.
+_PERIOD_ALIAS = {"D": "D", "W": "W", "M": "M", "Q": "Q", "Y": "Y", "H": "h"}
+
 
 def _comparison_chart(
     comparisons: list[dict],
@@ -124,11 +138,16 @@ def period_comparison(
             }
 
         period_unit = period_unit.strip().upper()
+        period_unit = _PERIOD_ALIASES.get(period_unit, period_unit)
         if period_unit not in _VALID_PERIOD_UNITS:
             return {
                 "success": False,
                 "error": f"Invalid period_unit {period_unit!r}.",
-                "hint": f"Use one of: {sorted(_VALID_PERIOD_UNITS)} (D=day, W=week, M=month, Q=quarter, Y=year, H=hour).",
+                "hint": (
+                    f"Use one of: {sorted(_VALID_PERIOD_UNITS)} "
+                    "(D=day, W=week, M=month, Q=quarter, Y=year, H=hour), "
+                    "or MoM / QoQ / YoY."
+                ),
                 "progress": [fail("Invalid period_unit", period_unit)],
                 "token_estimate": 25,
             }
@@ -138,8 +157,13 @@ def period_comparison(
 
         freq = _FREQ_MAP.get(period_unit, "ME")
 
-        # Group by date period (and optional group_by)
-        df["__period__"] = df[date_col].dt.to_period(period_unit)
+        # Group by date period (and optional group_by). to_period wants a period
+        # alias, not the resample offset in _FREQ_MAP ("ME" is not a period) and
+        # not the raw letter either: pandas 3 dropped uppercase "H" and answers
+        # it with 'Invalid frequency: H ... Did you mean h?', nested inside a
+        # second copy of itself. period_unit="H" is listed as valid by this
+        # tool's own validation hint, so it reached that line and failed there.
+        df["__period__"] = df[date_col].dt.to_period(_PERIOD_ALIAS.get(period_unit, period_unit))
 
         group_cols = ["__period__"]
         if group_by and group_by in df.columns:
@@ -271,7 +295,9 @@ def period_comparison(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check date_col, metrics, and period_unit (D W M Q Y).",
+            # The validation hint above lists H as valid; this one used to omit
+            # it, so the tool contradicted itself about its own vocabulary.
+            "hint": "Check date_col, metrics, and period_unit (D W M Q Y H, or MoM QoQ YoY).",
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
