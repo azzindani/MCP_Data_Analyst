@@ -184,6 +184,15 @@ def generate_dashboard(
         cat_cols = [
             c for c in df.columns if c not in numeric_cols and c not in datetime_cols and df[c].nunique() <= 100
         ]
+        # A column with one value groups into one bar, one pie slice and a 1x1
+        # heatmap -- the total, drawn as a rectangle. The alert panel keeps the
+        # full cat_cols so it can still say the column is constant; charts get
+        # this list so they do not spend the top of the page proving it. The
+        # filter bar and the numeric range inputs already made this exclusion
+        # (1 < len(uniq), mn < mx); the chart builder was the one place that did
+        # not, which is how a dataset flagged "'product' has only 1 unique
+        # value" got four full-size charts of product.
+        chart_cat_cols = [c for c in cat_cols if df[c].nunique() > 1]
 
         col_agg: dict[str, str] = {nc: infer_agg(nc, df[nc]) for nc in numeric_cols}
         col_agg.update(parse_agg_overrides(agg_overrides))
@@ -192,13 +201,13 @@ def generate_dashboard(
         _d_geo_loc_mode = _detect_location_mode(df, _d_geo_loc) if _d_geo_loc else ""
 
         detected: list[str] = []
-        if numeric_cols and cat_cols:
+        if numeric_cols and chart_cat_cols:
             detected.append("bar")
         if datetime_cols and numeric_cols:
             detected.append("time_series")
         if len(numeric_cols) >= 2:
             detected.append("scatter")
-        if cat_cols:
+        if chart_cat_cols:
             detected.append("pie")
         if _d_geo_lat and _d_geo_lon:
             detected.append("geo_scatter")
@@ -275,7 +284,7 @@ def generate_dashboard(
             h,
             spec,
             charts,
-            cat_cols,
+            chart_cat_cols,
             numeric_cols,
             datetime_cols,
             _d_geo_lat,
@@ -297,7 +306,12 @@ def generate_dashboard(
                 f"{{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',"
                 f"font:{{color:'{font_c}',size:12}},"
                 f"autosize:true,margin:{{l:55,r:20,t:10,b:65}},"
-                f"xaxis:{{gridcolor:'{grid_c}',tickangle:-38}},"
+                # 'auto' rotates only when labels would collide. The fixed -38
+                # tilted "Google Ads" and "Facebook Ads" diagonally across an
+                # otherwise empty axis, which is harder to read than level text
+                # and bought nothing. (automargin is not set here on purpose --
+                # am() applies it to every axis of every layout.)
+                f"xaxis:{{gridcolor:'{grid_c}',tickangle:'auto'}},"
                 f"yaxis:{{gridcolor:'{grid_c}'}}{extra}}}"
             )
 
@@ -776,7 +790,7 @@ def _build_render_functions(
         elif t == "pie":
             cc = s["cc"]
             rfns.append(
-                f"function rf_{cid}(d){{\n  var c={{}};\n  d.forEach(function(r){{var k=String(r['{cc}']??'');c[k]=(c[k]||0)+1;}});\n  var e=Object.entries(c).sort((x,y)=>y[1]-x[1]).slice(0,15);\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:12}},autosize:true,margin:{{l:20,r:20,t:10,b:20}},showlegend:true,legend:{{orientation:'h',y:-0.14}}}};\n  Plotly.react('{cid}',[{{values:e.map(i=>i[1]),labels:e.map(i=>i[0]),type:'pie',hole:0.38,marker:{{colors:{COLORS}}},textinfo:'label+percent',textfont:{{size:11}},pull:e.map((_,i)=>i===0?0.04:0)}}],am(layout),{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
+                f"function rf_{cid}(d){{\n  var c={{}};\n  d.forEach(function(r){{var k=String(r['{cc}']??'');c[k]=(c[k]||0)+1;}});\n  var e=Object.entries(c).sort((x,y)=>y[1]-x[1]).slice(0,15);\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:12}},autosize:true,margin:{{l:20,r:20,t:10,b:20}},showlegend:true,legend:{{orientation:'h',y:-0.14}}}};\n  // Past a handful of slices, per-slice labels are drawn outside on\n  // leader lines that overlap each other and spill out of the card, while\n  // repeating names the legend already lists. Keep the percent inside the\n  // slice and let the legend carry the names.\n  var ti=e.length>6?'percent':'label+percent';\n  Plotly.react('{cid}',[{{values:e.map(i=>i[1]),labels:e.map(i=>i[0]),type:'pie',hole:0.38,marker:{{colors:{COLORS}}},textinfo:ti,textposition:'inside',insidetextorientation:'horizontal',textfont:{{size:11}},pull:e.map((_,i)=>i===0?0.04:0)}}],am(layout),{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
             )
         elif t == "scatter":
             nc1, nc2 = s["nc1"], s["nc2"]
@@ -805,12 +819,12 @@ def _build_render_functions(
                 inner_acc = "if(!isNaN(v)){if(!a[k2])a[k2]={};a[k2][k1]=(a[k2][k1]||0)+v;}"
                 val_expr = "(a[k]&&a[k][g])||0"
             rfns.append(
-                f"function rf_{cid}(d){{\n  var a={{}};\n  d.forEach(function(r){{var k1=String(r['{cc1}']??''),k2=String(r['{cc2}']??''),v=+r['{nc}'];{inner_acc}}});\n  var gs=Array.from(new Set(d.map(r=>String(r['{cc1}']??'')))).slice(0,20);\n  var ks=Object.keys(a).slice(0,10),C={COLORS};\n  var traces=ks.map(function(k,i){{return{{x:gs,y:gs.map(g=>{val_expr}),type:'bar',name:k,marker:{{color:C[i%15],opacity:0.85}}}};}});\n  var layout=Object.assign({{}},{_lyt(380)},{{barmode:'group',showlegend:true,legend:{{orientation:'h',y:-0.3}}}});\n  Plotly.react('{cid}',traces,am(layout),{PCFG});\n}}"
+                f"function rf_{cid}(d){{\n  var a={{}};\n  d.forEach(function(r){{var k1=String(r['{cc1}']??''),k2=String(r['{cc2}']??''),v=+r['{nc}'];{inner_acc}}});\n  var gs=Array.from(new Set(d.map(r=>String(r['{cc1}']??'')))).slice(0,20);\n  var ks=Object.keys(a).slice(0,10),C={COLORS};\n  var traces=ks.map(function(k,i){{return{{x:gs,y:gs.map(g=>{val_expr}),type:'bar',name:k,marker:{{color:C[i%15],opacity:0.85}}}};}});\n  var layout=Object.assign({{}},{_lyt(380)},{{barmode:'group',showlegend:true,legend:{{orientation:'h',x:0,y:1.12}}}});\n  Plotly.react('{cid}',traces,am(layout),{PCFG});\n}}"
             )
         elif t == "cscat":
             nc1, nc2, cc = s["nc1"], s["nc2"], s["cc"]
             rfns.append(
-                f"function rf_{cid}(d){{\n  var g={{}};\n  d.forEach(function(r){{var x=+r['{nc1}'],y=+r['{nc2}'],k=String(r['{cc}']??'');if(!isNaN(x)&&!isNaN(y)){{if(!g[k])g[k]={{x:[],y:[]}};g[k].x.push(x);g[k].y.push(y);}}}});\n  var ks=Object.keys(g).slice(0,15),C={COLORS};\n  var traces=ks.map(function(k,i){{return{{x:g[k].x,y:g[k].y,type:'scatter',mode:'markers',name:k,marker:{{color:C[i%15],opacity:0.6,size:5}}}};}});\n  var layout=Object.assign({{}},{_lyt(380)},{{showlegend:true,legend:{{orientation:'h',y:-0.3}},xaxis:{{title:'{nc1}',gridcolor:'{grid_c}'}},yaxis:{{title:'{nc2}',gridcolor:'{grid_c}'}}}});\n  Plotly.react('{cid}',traces,am(layout),{PCFG});\n}}"
+                f"function rf_{cid}(d){{\n  var g={{}};\n  d.forEach(function(r){{var x=+r['{nc1}'],y=+r['{nc2}'],k=String(r['{cc}']??'');if(!isNaN(x)&&!isNaN(y)){{if(!g[k])g[k]={{x:[],y:[]}};g[k].x.push(x);g[k].y.push(y);}}}});\n  var ks=Object.keys(g).slice(0,15),C={COLORS};\n  var traces=ks.map(function(k,i){{return{{x:g[k].x,y:g[k].y,type:'scatter',mode:'markers',name:k,marker:{{color:C[i%15],opacity:0.6,size:5}}}};}});\n  var layout=Object.assign({{}},{_lyt(380)},{{showlegend:true,legend:{{orientation:'h',x:0,y:1.12}},xaxis:{{title:'{nc1}',gridcolor:'{grid_c}'}},yaxis:{{title:'{nc2}',gridcolor:'{grid_c}'}}}});\n  Plotly.react('{cid}',traces,am(layout),{PCFG});\n}}"
             )
         elif t == "box":
             nc, cc = s["nc"], s["cc"]
