@@ -57,6 +57,10 @@ _VALID_CHART_TYPES = {
 # that already covers geo, treemap, time_series and sankey.
 _NEEDS_CATEGORY = ("bar", "pie", "line", "scatter", "funnel", "radius", "geo")
 
+# These read category_column as one level of a hierarchy or as one axis among
+# several, so "by <column>" would not describe what the chart shows.
+_CATEGORY_IS_NOT_THE_BREAKDOWN = ("treemap", "sunburst", "parallel_coords")
+
 
 def _coords_out_of_range(frame: pd.DataFrame, lat_column: str, lon_column: str) -> dict | None:
     """Return details of the first column holding values no coordinate can take."""
@@ -153,12 +157,14 @@ def generate_chart(
 
         df = _read_csv(str(path))
         tmpl = plotly_template(theme)
-        chart_title = title if title else f"{agg_func} of {value_column}"
-        if category_column and chart_type not in (
-            "treemap",
-            "sunburst",
-            "parallel_coords",
-        ):
+        # The " by <column>" suffix finishes the *generated* title -- "sum of
+        # spends" alone does not say what it is broken down by. Appending it to
+        # a title the caller wrote says it twice: a sweep asked for "Total Ad
+        # Spend by Campaign Platform" and the page heading read "Total Ad Spend
+        # by Campaign Platform by campaign_platform". generate_geo_map already
+        # guards its own generated title with `if not chart_title`.
+        chart_title = title or f"{agg_func} of {value_column}"
+        if not title and category_column and chart_type not in _CATEGORY_IS_NOT_THE_BREAKDOWN:
             chart_title += f" by {category_column}"
 
         # Validate required params per type
