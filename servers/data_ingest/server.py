@@ -108,13 +108,13 @@ def normalize_headers(
     output_path: str = "",
     dry_run: bool = False,
 ) -> dict:
-    """Strip whitespace, lowercase, dedup headers. output_path: write elsewhere."""
+    """CSV: strip whitespace, lowercase, dedup headers. output_path: write elsewhere."""
     return engine.normalize_headers(file_path, lowercase, replace_spaces, output_path, dry_run)
 
 
 @mcp.tool()
 def trim_empty(file_path: str, output_path: str = "", dry_run: bool = False) -> dict:
-    """Drop empty leading/trailing rows and cols. output_path: write elsewhere."""
+    """CSV: drop empty leading/trailing rows and cols. output_path: write elsewhere."""
     return engine.trim_empty(file_path, output_path, dry_run)
 
 
@@ -125,7 +125,7 @@ def promote_header(
     output_path: str = "",
     dry_run: bool = False,
 ) -> dict:
-    """Make row N the header; drop rows above. output_path: write elsewhere."""
+    """CSV: make row N the header; drop rows above. output_path: write elsewhere."""
     return engine.promote_header(file_path, row_index, output_path, dry_run)
 
 
