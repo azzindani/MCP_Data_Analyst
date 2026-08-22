@@ -127,7 +127,7 @@ def generate_multi_chart(
     theme: str = "device",
     return_content: bool = False,
 ) -> dict:
-    """Multi-variable bar/line chart. Compares 2+ metrics. Saves HTML."""
+    """Multi-metric bar/line chart. bar needs category_column, line needs date_column."""
     return engine.generate_multi_chart(
         file_path,
         chart_type,

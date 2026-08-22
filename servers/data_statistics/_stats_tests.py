@@ -106,7 +106,20 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
                 "token_estimate": 20,
             }
 
-        def _get_series(col: str) -> pd.Series:
+        def _get_series(col: str, name: str = "column_a") -> pd.Series:
+            # file_path and test are the only arguments the schema marks
+            # required, so the call it documents arrives with column_a still at
+            # its "" default. That used to come back as "Column '' not found.
+            # Available: [...]", which reads as though the caller had named a
+            # column when it had named none, under a hint listing the 17 valid
+            # tests -- and the test was already right. Not supplying a column
+            # and naming one that is not there are different mistakes.
+            if not col:
+                numeric = [c for c in df.columns if pd.to_numeric(df[c], errors="coerce").notna().any()]
+                raise ValueError(
+                    f"Test '{test}' needs {name}. Name the column to test, e.g. "
+                    f"{name}='{numeric[0] if numeric else df.columns[0]}'. Numeric columns: {numeric}"
+                )
             if col not in df.columns:
                 raise ValueError(f"Column '{col}' not found. Available: {list(df.columns)}")
             return pd.to_numeric(df[col], errors="coerce").dropna()
@@ -118,16 +131,16 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
 
         # --- Normality tests ---
         if test == "shapiro_wilk":
-            a = _get_series(column_a)
+            a = _get_series(column_a, "column_a")
             stat, p = scipy_stats.shapiro(a.values)
             statistic, p_value = float(stat), float(p)
             interp = "Normally distributed" if p >= alpha else "Not normally distributed"
             progress.append(ok("Shapiro-Wilk", interp))
 
         elif test == "ks":
-            a = _get_series(column_a)
+            a = _get_series(column_a, "column_a")
             if column_b and column_b in df.columns:
-                b = _get_series(column_b)
+                b = _get_series(column_b, "column_b")
                 stat, p = scipy_stats.ks_2samp(a.values, b.values, alternative=alternative)
             else:
                 stat, p = scipy_stats.kstest(a.values, "norm", alternative=alternative)
@@ -135,7 +148,7 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
             progress.append(ok("Kolmogorov-Smirnov", _interpret_p(p, alpha)))
 
         elif test == "anderson":
-            a = _get_series(column_a)
+            a = _get_series(column_a, "column_a")
             result = scipy_stats.anderson(a.values, dist="norm")
             statistic = float(result.statistic)
             # Use 5% significance level index (index 2)
@@ -157,7 +170,7 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
 
         # --- t-tests ---
         elif test == "t_test":
-            a = _get_series(column_a)
+            a = _get_series(column_a, "column_a")
             if group_column and group_column in df.columns:
                 groups = df[group_column].dropna().unique()
                 if len(groups) < 2:
@@ -175,7 +188,7 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
                     d = float((g1.mean() - g2.mean()) / pooled_std) if pooled_std > 0 else 0.0
                     effect_size = {"cohens_d": round(d, 4), "interpretation": _cohens_d_label(d)}
             else:
-                b = _get_series(column_b)
+                b = _get_series(column_b, "column_b")
                 stat, p = scipy_stats.ttest_ind(a.values, b.values, alternative=alternative)
                 statistic, p_value = float(stat), float(p)
                 if compute_effect_size:
@@ -187,8 +200,8 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
             progress.append(ok("Independent t-test", _interpret_p(p_value, alpha)))
 
         elif test == "paired_t_test":
-            a = _get_series(column_a)
-            b = _get_series(column_b)
+            a = _get_series(column_a, "column_a")
+            b = _get_series(column_b, "column_b")
             common_idx = a.index.intersection(b.index)
             stat, p = scipy_stats.ttest_rel(a[common_idx].values, b[common_idx].values, alternative=alternative)
             statistic, p_value = float(stat), float(p)
@@ -199,7 +212,7 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
             progress.append(ok("Paired t-test", _interpret_p(p_value, alpha)))
 
         elif test == "one_sample_t":
-            a = _get_series(column_a)
+            a = _get_series(column_a, "column_a")
             stat, p = scipy_stats.ttest_1samp(a.values, hypothesized_mean, alternative=alternative)
             statistic, p_value = float(stat), float(p)
             if compute_effect_size:
@@ -261,7 +274,7 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
 
         # --- Non-parametric ---
         elif test == "mann_whitney":
-            a = _get_series(column_a)
+            a = _get_series(column_a, "column_a")
             if group_column and group_column in df.columns:
                 groups = df[group_column].dropna().unique()
                 g1 = pd.to_numeric(df.loc[df[group_column] == groups[0], column_a], errors="coerce").dropna()
@@ -271,7 +284,7 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
                     r = float(1 - 2 * stat / (len(g1) * len(g2))) if (len(g1) * len(g2)) > 0 else 0.0
                     effect_size = {"rank_biserial_r": round(r, 4), "interpretation": _r_label(abs(r))}
             else:
-                b = _get_series(column_b)
+                b = _get_series(column_b, "column_b")
                 stat, p = scipy_stats.mannwhitneyu(a.values, b.values, alternative=alternative)
                 if compute_effect_size:
                     r = float(1 - 2 * stat / (len(a) * len(b))) if (len(a) * len(b)) > 0 else 0.0
@@ -280,8 +293,8 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
             progress.append(ok("Mann-Whitney U", _interpret_p(p_value, alpha)))
 
         elif test == "wilcoxon":
-            a = _get_series(column_a)
-            b = _get_series(column_b)
+            a = _get_series(column_a, "column_a")
+            b = _get_series(column_b, "column_b")
             common_idx = a.index.intersection(b.index)
             stat, p = scipy_stats.wilcoxon(a[common_idx].values, b[common_idx].values, alternative=alternative)
             statistic, p_value = float(stat), float(p)
@@ -317,8 +330,8 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
                     for g in df[group_column].dropna().unique()
                 ]
             else:
-                a = _get_series(column_a)
-                b = _get_series(column_b)
+                a = _get_series(column_a, "column_a")
+                b = _get_series(column_b, "column_b")
                 groups_data = [a.values, b.values]
             stat, p = scipy_stats.levene(*groups_data)
             statistic, p_value = float(stat), float(p)
@@ -326,8 +339,8 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
 
         # --- Correlation tests ---
         elif test == "pearson":
-            a = _get_series(column_a)
-            b = _get_series(column_b)
+            a = _get_series(column_a, "column_a")
+            b = _get_series(column_b, "column_b")
             common_idx = a.index.intersection(b.index)
             stat, p = scipy_stats.pearsonr(a[common_idx].values, b[common_idx].values)
             statistic, p_value = float(stat), float(p)
@@ -340,8 +353,8 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
             progress.append(ok("Pearson correlation", f"r={statistic:.4f}  {_interpret_p(p_value, alpha)}"))
 
         elif test == "spearman":
-            a = _get_series(column_a)
-            b = _get_series(column_b)
+            a = _get_series(column_a, "column_a")
+            b = _get_series(column_b, "column_b")
             common_idx = a.index.intersection(b.index)
             stat, p = scipy_stats.spearmanr(a[common_idx].values, b[common_idx].values)
             statistic, p_value = float(stat), float(p)
@@ -350,8 +363,8 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
             progress.append(ok("Spearman correlation", f"rho={statistic:.4f}  {_interpret_p(p_value, alpha)}"))
 
         elif test == "kendall":
-            a = _get_series(column_a)
-            b = _get_series(column_b)
+            a = _get_series(column_a, "column_a")
+            b = _get_series(column_b, "column_b")
             common_idx = a.index.intersection(b.index)
             stat, p = scipy_stats.kendalltau(a[common_idx].values, b[common_idx].values)
             statistic, p_value = float(stat), float(p)
@@ -360,8 +373,8 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
             progress.append(ok("Kendall's tau", f"tau={statistic:.4f}  {_interpret_p(p_value, alpha)}"))
 
         elif test == "proportion_z":
-            a = _get_series(column_a)
-            b = _get_series(column_b) if column_b and column_b in df.columns else None
+            a = _get_series(column_a, "column_a")
+            b = _get_series(column_b, "column_b") if column_b and column_b in df.columns else None
             n1 = len(a)
             p1 = float(a.mean())
             if b is not None:

@@ -336,7 +336,7 @@ def generate_multi_chart(
     theme: str = "device",
     return_content: bool = False,
 ) -> dict:
-    """Multi-variable bar/line chart. Compares 2+ metrics. Opens HTML."""
+    """Multi-metric bar/line chart. bar needs category_column, line needs date_column."""
     progress = []
     try:
         try:
@@ -397,6 +397,29 @@ def generate_multi_chart(
                 "error": "multi_line requires date_column",
                 "hint": "Provide date_column for time-based multi-line chart.",
                 "progress": [fail("Missing param", "date_column")],
+                "token_estimate": 30,
+            }
+
+        # multi_line has needed its date_column since it was written; multi_bar
+        # had no equivalent guard and fell through to x_vals = range(len(df)).
+        # plotly refuses a range object -- "Invalid value of type
+        # 'builtins.range' received for the 'x' property of bar" -- so calling
+        # this tool with exactly the three arguments its schema marks required
+        # failed, under the hint "Check file_path, column names, and chart_type",
+        # which names the three that were already correct. Even if plotly took
+        # it, one bar per row is not a comparison of metrics: the categories are
+        # what the metrics get compared across. generate_chart was given the
+        # same guard for the same reason.
+        if chart_type == "multi_bar" and not category_column:
+            suggestion = next((c for c in df.columns if not is_numeric_col(df[c])), "category")
+            return {
+                "success": False,
+                "error": "multi_bar requires category_column",
+                "hint": (
+                    f"Name the column to compare the metrics across, e.g. category_column='{suggestion}'. "
+                    f"Call inspect_dataset('{path.name}') to list the columns."
+                ),
+                "progress": [fail("Missing params", "category_column")],
                 "token_estimate": 30,
             }
 
