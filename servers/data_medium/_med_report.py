@@ -208,11 +208,40 @@ def pivot_table(
                 "token_estimate": 20,
             }
 
+        # Without `values`, pandas pivots every remaining column -- and
+        # aggfunc="sum" over a text column concatenates it. Pivoting the real
+        # 16,834-row file by one index returned two rows whose cells held
+        # "ConversionsConversionsConversions..." 19,063 characters long: 1.32 MB,
+        # 330,195 tokens, under success: true, from a server built for a
+        # 12,000-token context. A pivot's values are its measures, so default to
+        # the columns that can actually be aggregated.
+        chosen_values = list(values) if values else None
+        if not chosen_values:
+            spoken_for = set(index or []) | set(columns or [])
+            numeric = [c for c in df.select_dtypes("number").columns if c not in spoken_for]
+            if not numeric:
+                return {
+                    "success": False,
+                    "error": "No numeric column to aggregate",
+                    "hint": (f"Pass values=['col'] naming what to aggregate. Columns here: {', '.join(df.columns)}"),
+                    "progress": [fail("Nothing to aggregate", "no numeric columns")],
+                    "token_estimate": 20,
+                }
+            chosen_values = numeric
+            skipped = [c for c in df.columns if c not in numeric and c not in spoken_for]
+            if skipped:
+                progress.append(
+                    warn(
+                        f"Aggregating the {len(numeric)} numeric column(s) only",
+                        f"not text: {', '.join(skipped[:6])}" + (" ..." if len(skipped) > 6 else ""),
+                    )
+                )
+
         pt = pd.pivot_table(
             df,
             index=index,
             columns=columns if columns else None,
-            values=values if values else None,
+            values=chosen_values,
             aggfunc=agg_func,
             fill_value=fill_value,
         )
@@ -221,12 +250,15 @@ def pivot_table(
             pt.columns = ["_".join(str(c) for c in col).strip("_") for col in pt.columns]
 
         pt = pt.reset_index()
+        # One cap, used for both the slice and the flag. These were two numbers
+        # -- head(10) against `len(pt) > get_max_rows()` -- so a 20-row pivot
+        # returned 10 rows and reported truncated: False, and a 257-row one
+        # warned "Showing first 100 rows" having returned 10.
         max_r = get_max_rows()
         truncated = len(pt) > max_r
-        _response_cap = 10
-        records = pt.head(_response_cap).fillna("").to_dict(orient="records")
+        records = pt.head(max_r).fillna("").to_dict(orient="records")
         if truncated:
-            progress.append(warn("Results truncated", f"Showing first {max_r} rows"))
+            progress.append(warn("Results truncated", f"Showing first {len(records)} of {len(pt)} rows"))
 
         progress.append(ok(f"Pivot table for {path.name}", f"{len(records)} rows"))
 
@@ -236,7 +268,7 @@ def pivot_table(
             "file_path": str(path),
             "index": index,
             "columns": columns,
-            "values": values,
+            "values": chosen_values,
             "agg_func": agg_func,
             "rows": len(pt),
             "returned": len(records),
