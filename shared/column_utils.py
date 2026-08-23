@@ -148,3 +148,39 @@ def parse_agg_overrides(overrides: list[str] | None) -> dict[str, str]:
             if agg in valid:
                 result[col] = agg
     return result
+
+
+# ---------------------------------------------------------------------------
+# Filter conditions
+# ---------------------------------------------------------------------------
+
+# `conditions` is a bare list[dict] in every schema that takes one, so the key
+# names live nowhere a caller can read them. `op` has always accepted `operator`
+# as an alias; the column key accepted exactly one spelling, and a caller who
+# wrote `variable` got "Column '' not found" -- the empty string being the
+# tool's own default, quoted back as if the caller had asked for a column named
+# "". The same shape as delete_paragraph answering with an index nobody sent.
+COLUMN_KEYS: tuple[str, ...] = ("column", "col", "field", "variable", "name", "column_name")
+
+
+def condition_column(cond: dict) -> str:
+    """The column a filter condition names, under any of its spellings."""
+    for key in COLUMN_KEYS:
+        value = cond.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return ""
+
+
+def missing_column_error(cond: dict) -> tuple[str, str]:
+    """(error, hint) for a condition that names no column at all.
+
+    Kept separate from "names a column that does not exist" because the two
+    need different advice and used to share one misleading message.
+    """
+    keys = ", ".join(str(k) for k in cond) or "none"
+    return (
+        f"This filter condition names no column. Its keys are: {keys}",
+        f'Give the column under "column" — {", ".join(COLUMN_KEYS[1:])} are accepted too. '
+        'A condition looks like {"column": "spends", "op": "gt", "value": 0}.',
+    )

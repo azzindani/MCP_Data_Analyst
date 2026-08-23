@@ -43,6 +43,7 @@ from _med_helpers import (
     is_numeric_col,
 )
 
+from shared.column_utils import condition_column, missing_column_error
 from shared.file_utils import resolve_path
 from shared.platform_utils import get_max_results, get_max_rows
 from shared.progress import fail, info, ok, warn
@@ -572,7 +573,7 @@ def auto_detect_schema(
 
 def _apply_condition(df: pd.DataFrame, cond: dict) -> pd.Series:
     """Return boolean mask for a single condition dict."""
-    col = cond.get("column", "")
+    col = condition_column(cond)
     op = cond.get("op", "") or cond.get("operator", "")
     val = cond.get("value")
     s = df[col]
@@ -699,7 +700,16 @@ def filter_rows(
         df = _read_csv(str(path))
 
         for cond in conditions:
-            col = cond.get("column", "")
+            col = condition_column(cond)
+            if not col:
+                error, hint = missing_column_error(cond)
+                return {
+                    "success": False,
+                    "error": error,
+                    "hint": hint,
+                    "progress": [fail("Condition names no column", ", ".join(str(k) for k in cond))],
+                    "token_estimate": 20,
+                }
             if col not in df.columns:
                 return {
                     "success": False,

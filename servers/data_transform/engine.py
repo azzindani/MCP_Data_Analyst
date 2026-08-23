@@ -25,6 +25,7 @@ from _med_transform import (  # type: ignore[import]
     smart_impute,
 )
 
+from shared.column_utils import condition_column, missing_column_error
 from shared.file_utils import atomic_write_text, resolve_path
 from shared.file_utils import read_csv as _shared_read_csv
 from shared.platform_utils import get_max_rows
@@ -116,8 +117,11 @@ def _bounds(cond: dict, op: str) -> tuple[float, float]:
 
 
 def _apply_condition(df: pd.DataFrame, cond: dict) -> pd.Series:
-    col = cond.get("column", "")
+    col = condition_column(cond)
     op = cond.get("op", "") or cond.get("operator", "")
+    if not col:
+        error, hint = missing_column_error(cond)
+        raise ValueError(f"{error} {hint}")
     if col not in df.columns:
         raise ValueError(f"Column '{col}' not found. Available: {list(df.columns)}")
     if op not in _FILTER_OPS:
