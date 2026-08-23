@@ -20,6 +20,7 @@ from starlette.responses import JSONResponse
 
 from servers.data_ingest import engine
 from shared.deploy_auth import build_oauth_bridge, build_token_verifier
+from shared.tool_annotations import CREATES, EDITS, READS
 
 _VERSION = "0.2.1"  # keep in sync with pyproject.toml [project].version
 
@@ -45,13 +46,13 @@ async def version(request: Request) -> JSONResponse:
     return JSONResponse({"current": _VERSION})
 
 
-@mcp.tool()
+@mcp.tool(annotations=READS)
 def list_sheets(file_path: str) -> dict:
     """List sheets in xlsx/ods with row and col counts."""
     return engine.list_sheets(file_path)
 
 
-@mcp.tool()
+@mcp.tool(annotations=EDITS)
 def extract_sheet(
     file_path: str,
     sheet: str = "",
@@ -64,7 +65,7 @@ def extract_sheet(
     return engine.extract_sheet(file_path, sheet, output_path, header_row, dry_run, return_content)
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def extract_all_sheets(
     file_path: str,
     output_dir: str = "",
@@ -74,7 +75,7 @@ def extract_all_sheets(
     return engine.extract_all_sheets(file_path, output_dir, dry_run)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READS)
 def detect_tables(
     file_path: str,
     sheet: str = "",
@@ -85,7 +86,7 @@ def detect_tables(
     return engine.detect_tables(file_path, sheet, min_rows, min_cols)
 
 
-@mcp.tool()
+@mcp.tool(annotations=EDITS)
 def extract_table(
     file_path: str,
     table_index: int = 0,
@@ -100,7 +101,7 @@ def extract_table(
     return engine.extract_table(file_path, table_index, sheet, output_path, min_rows, min_cols, dry_run, return_content)
 
 
-@mcp.tool()
+@mcp.tool(annotations=EDITS)
 def normalize_headers(
     file_path: str,
     lowercase: bool = True,
@@ -112,13 +113,13 @@ def normalize_headers(
     return engine.normalize_headers(file_path, lowercase, replace_spaces, output_path, dry_run)
 
 
-@mcp.tool()
+@mcp.tool(annotations=EDITS)
 def trim_empty(file_path: str, output_path: str = "", dry_run: bool = False) -> dict:
     """CSV: drop empty leading/trailing rows and cols. output_path: write elsewhere."""
     return engine.trim_empty(file_path, output_path, dry_run)
 
 
-@mcp.tool()
+@mcp.tool(annotations=EDITS)
 def promote_header(
     file_path: str,
     row_index: int = 0,
@@ -129,7 +130,7 @@ def promote_header(
     return engine.promote_header(file_path, row_index, output_path, dry_run)
 
 
-@mcp.tool()
+@mcp.tool(annotations=EDITS)
 def flatten_merged_cells(
     file_path: str,
     sheet: str = "",
@@ -141,7 +142,7 @@ def flatten_merged_cells(
     return engine.flatten_merged_cells(file_path, sheet, output_path, dry_run, return_content)
 
 
-@mcp.tool()
+@mcp.tool(annotations=EDITS)
 def convert_file(
     file_path: str,
     output_format: str = "csv",

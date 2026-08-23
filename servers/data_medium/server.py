@@ -19,6 +19,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from shared.deploy_auth import build_oauth_bridge, build_token_verifier
+from shared.tool_annotations import CREATES, EDITS, READS
 
 try:
     from . import engine
@@ -49,7 +50,7 @@ async def version(request: Request) -> JSONResponse:
     return JSONResponse({"current": _VERSION})
 
 
-@mcp.tool()
+@mcp.tool(annotations=READS)
 def compute_aggregations(
     file_path: str,
     group_by: list[str],
@@ -62,7 +63,7 @@ def compute_aggregations(
     return engine.compute_aggregations(file_path, group_by, agg_column, agg_func, sort_desc, top_n)
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def cross_tabulate(
     file_path: str,
     row_column: str,
@@ -88,7 +89,7 @@ def cross_tabulate(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=READS)
 def pivot_table(
     file_path: str,
     index: list[str],
@@ -101,7 +102,7 @@ def pivot_table(
     return engine.pivot_table(file_path, index, columns, values, agg_func, fill_value)
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def value_counts(
     file_path: str,
     columns: list[str],
@@ -115,7 +116,7 @@ def value_counts(
     return engine.value_counts(file_path, columns, top_n, include_pct, output_path, open_after, theme)
 
 
-@mcp.tool()
+@mcp.tool(annotations=EDITS)
 def filter_rows(
     file_path: str,
     conditions: list[dict],
@@ -129,7 +130,7 @@ def filter_rows(
     return engine.filter_rows(file_path, conditions, output_path, dry_run, open_after, sort_by, sort_ascending)
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def sample_data(
     file_path: str,
     method: str = "random",
@@ -143,7 +144,7 @@ def sample_data(
     return engine.sample_data(file_path, method, n, random_state, output_path, open_after, top_n)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READS)
 def statistical_tests(
     file_path: str,
     test_type: str = "",
@@ -156,13 +157,13 @@ def statistical_tests(
     return engine.statistical_tests(file_path, test_type, column_a, column_b, group_column, test)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READS)
 def analyze_text_column(file_path: str, column: str, top_n: int = 20) -> dict:
     """Analyze text column: length stats, word freq, pattern detection."""
     return engine.analyze_text_column(file_path, column, top_n)
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def detect_anomalies(
     file_path: str,
     columns: list[str] = None,
@@ -174,7 +175,7 @@ def detect_anomalies(
     return engine.detect_anomalies(file_path, columns, method, output_path, threshold)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READS)
 def compare_datasets(
     file_path_a: str = "",
     file_path_b: str = "",
@@ -186,7 +187,7 @@ def compare_datasets(
     return engine.compare_datasets(file_path_a, file_path_b, key_columns, file_path, right_file_path)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READS)
 def extended_stats(
     file_path: str,
     columns: list[str] = None,

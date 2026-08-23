@@ -19,6 +19,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from shared.deploy_auth import build_oauth_bridge, build_token_verifier
+from shared.tool_annotations import CREATES, EDITS
 
 try:
     from . import engine
@@ -49,7 +50,7 @@ async def version(request: Request) -> JSONResponse:
     return JSONResponse({"current": _VERSION})
 
 
-@mcp.tool()
+@mcp.tool(annotations=EDITS)
 def filter_dataset(
     file_path: str,
     conditions: list[dict],
@@ -62,7 +63,7 @@ def filter_dataset(
     return engine.filter_dataset(file_path, conditions, sort_by, sort_ascending, output_path, dry_run)
 
 
-@mcp.tool()
+@mcp.tool(annotations=EDITS)
 def reshape_dataset(
     file_path: str,
     mode: str,
@@ -110,7 +111,7 @@ def reshape_dataset(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=EDITS)
 def aggregate_dataset(
     file_path: str,
     mode: str,
@@ -158,7 +159,7 @@ def aggregate_dataset(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def resample_timeseries(
     file_path: str,
     date_col: str = "",
@@ -177,7 +178,7 @@ def resample_timeseries(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=EDITS)
 def merge_datasets(
     file_path: str,
     right_file_path: str,
@@ -192,7 +193,7 @@ def merge_datasets(
     return engine.merge_datasets(file_path, right_file_path, left_on, right_on, how, output_path, dry_run, open_after)
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def concat_datasets(
     file_paths: list[str],
     direction: str = "rows",
@@ -205,7 +206,7 @@ def concat_datasets(
     return engine.concat_datasets(file_paths, direction, fill_missing, add_source_column, output_path, dry_run)
 
 
-@mcp.tool()
+@mcp.tool(annotations=EDITS)
 def smart_impute(
     file_path: str,
     columns: list[str] = None,
@@ -217,7 +218,7 @@ def smart_impute(
     return engine.smart_impute(file_path, columns, output_path, dry_run, open_after)
 
 
-@mcp.tool()
+@mcp.tool(annotations=EDITS)
 def run_cleaning_pipeline(
     file_path: str,
     ops: list[dict],
@@ -228,7 +229,7 @@ def run_cleaning_pipeline(
     return engine.run_cleaning_pipeline(file_path, ops, output_path, dry_run)
 
 
-@mcp.tool()
+@mcp.tool(annotations=EDITS)
 def feature_engineering(
     file_path: str,
     features: list[str] = None,
@@ -240,7 +241,7 @@ def feature_engineering(
     return engine.feature_engineering(file_path, features, output_path, dry_run, open_after)
 
 
-@mcp.tool()
+@mcp.tool(annotations=EDITS)
 def enrich_with_geo(
     file_path: str,
     geo_file_path: str,

@@ -19,6 +19,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from shared.deploy_auth import build_oauth_bridge, build_token_verifier
+from shared.tool_annotations import CREATES, READS
 
 try:
     from . import engine
@@ -49,7 +50,7 @@ async def version(request: Request) -> JSONResponse:
     return JSONResponse({"current": _VERSION})
 
 
-@mcp.tool()
+@mcp.tool(annotations=READS)
 def extended_stats(
     file_path: str,
     columns: list[str] = None,
@@ -61,7 +62,7 @@ def extended_stats(
     return engine.extended_stats(file_path, columns, percentiles, compute_ci, ci_level)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READS)
 def validate_dataset(
     file_path: str,
     expected_dtypes: dict = None,
@@ -72,7 +73,7 @@ def validate_dataset(
     return engine.validate_dataset(file_path, expected_dtypes, max_null_pct, check_duplicates)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READS)
 def auto_detect_schema(
     file_path: str,
     max_rows: int = 1000,
@@ -81,7 +82,7 @@ def auto_detect_schema(
     return engine.auto_detect_schema(file_path, max_rows)
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def check_outliers(
     file_path: str,
     columns: list[str] = None,
@@ -96,7 +97,7 @@ def check_outliers(
     return engine.check_outliers(file_path, columns, method, th1, th3, output_path, open_after, theme)
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def scan_nulls_zeros(
     file_path: str,
     include_zeros: bool = True,
@@ -109,7 +110,7 @@ def scan_nulls_zeros(
     return engine.scan_nulls_zeros(file_path, include_zeros, min_count, output_path, open_after, theme)
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def correlation_analysis(
     file_path: str,
     method: str = "pearson",
@@ -122,7 +123,7 @@ def correlation_analysis(
     return engine.correlation_analysis(file_path, method, top_n, output_path, open_after, theme)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READS)
 def statistical_test(
     file_path: str,
     test: str = "",
@@ -154,7 +155,7 @@ def statistical_test(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def regression_analysis(
     file_path: str,
     y_col: str = "",
@@ -173,7 +174,7 @@ def regression_analysis(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def time_series_analysis(
     file_path: str,
     date_column: str = "",
@@ -187,7 +188,7 @@ def time_series_analysis(
     return engine.time_series_analysis(file_path, date_column, value_columns, period, output_path, open_after, theme)
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def period_comparison(
     file_path: str,
     date_col: str = "",
@@ -217,7 +218,7 @@ def period_comparison(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def cohort_analysis(
     file_path: str,
     cohort_column: str = "",

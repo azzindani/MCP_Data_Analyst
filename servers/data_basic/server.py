@@ -19,6 +19,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from shared.deploy_auth import build_oauth_bridge, build_token_verifier
+from shared.tool_annotations import EDITS, READS
 
 try:
     from . import engine
@@ -49,7 +50,7 @@ async def version(request: Request) -> JSONResponse:
     return JSONResponse({"current": _VERSION})
 
 
-@mcp.tool()
+@mcp.tool(annotations=READS)
 def load_dataset(
     file_path: str,
     encoding: str = "utf-8",
@@ -60,7 +61,7 @@ def load_dataset(
     return engine.load_dataset(file_path, encoding, separator, max_rows)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READS)
 def load_geo_dataset(
     file_path: str,
     rename_column: str = "",
@@ -70,7 +71,7 @@ def load_geo_dataset(
     return engine.load_geo_dataset(file_path, rename_column, keep_columns)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READS)
 def inspect_dataset(
     file_path: str,
     include_sample: bool = False,
@@ -79,7 +80,7 @@ def inspect_dataset(
     return engine.inspect_dataset(file_path, include_sample)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READS)
 def read_column_stats(
     file_path: str,
     column: str,
@@ -88,7 +89,7 @@ def read_column_stats(
     return engine.read_column_stats(file_path, column)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READS)
 def search_columns(
     file_path: str,
     has_nulls: bool = False,
@@ -101,7 +102,7 @@ def search_columns(
     return engine.search_columns(file_path, has_nulls, has_zeros, dtype, name_contains, min_null_pct)
 
 
-@mcp.tool()
+@mcp.tool(annotations=EDITS)
 def apply_patch(
     file_path: str,
     ops: list[dict],
@@ -111,7 +112,7 @@ def apply_patch(
     return engine.apply_patch(file_path, ops, dry_run)
 
 
-@mcp.tool()
+@mcp.tool(annotations=EDITS)
 def restore_version(
     file_path: str,
     timestamp: str = "",
@@ -120,7 +121,7 @@ def restore_version(
     return engine.restore_version(file_path, timestamp)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READS)
 def read_receipt(
     file_path: str,
     last_n: int = 10,
@@ -129,7 +130,7 @@ def read_receipt(
     return engine.read_receipt(file_path, last_n)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READS)
 def list_patch_ops(category: str = "") -> dict:
     """List apply_patch ops. category: filtering numeric encoding temporal structural."""
     return engine.list_patch_ops(category)

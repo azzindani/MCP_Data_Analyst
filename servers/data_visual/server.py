@@ -19,6 +19,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from shared.deploy_auth import build_oauth_bridge, build_token_verifier
+from shared.tool_annotations import CREATES
 
 try:
     from . import engine
@@ -49,7 +50,7 @@ async def version(request: Request) -> JSONResponse:
     return JSONResponse({"current": _VERSION})
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def run_eda(
     file_path: str,
     output_path: str = "",
@@ -61,7 +62,7 @@ def run_eda(
     return engine.run_eda(file_path, output_path, open_after, theme, return_content)
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def generate_auto_profile(
     file_path: str,
     output_path: str = "",
@@ -73,7 +74,7 @@ def generate_auto_profile(
     return engine.generate_auto_profile(file_path, output_path, open_after, theme, return_content)
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def generate_distribution_plot(
     file_path: str,
     columns: list[str] = None,
@@ -86,7 +87,7 @@ def generate_distribution_plot(
     return engine.generate_distribution_plot(file_path, columns, output_path, open_after, theme, return_content)
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def generate_correlation_heatmap(
     file_path: str,
     method: str = "pearson",
@@ -99,7 +100,7 @@ def generate_correlation_heatmap(
     return engine.generate_correlation_heatmap(file_path, method, output_path, open_after, theme, return_content)
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def generate_pairwise_plot(
     file_path: str,
     columns: list[str] = None,
@@ -113,7 +114,7 @@ def generate_pairwise_plot(
     return engine.generate_pairwise_plot(file_path, columns, max_cols, output_path, open_after, theme, return_content)
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def generate_multi_chart(
     file_path: str,
     chart_type: str,
@@ -143,7 +144,7 @@ def generate_multi_chart(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def generate_chart(
     file_path: str,
     chart_type: str,
@@ -183,7 +184,7 @@ def generate_chart(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def generate_geo_map(
     file_path: str,
     lat_column: str = "",
@@ -215,7 +216,7 @@ def generate_geo_map(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def generate_3d_chart(
     file_path: str,
     chart_type: str,
@@ -245,7 +246,7 @@ def generate_3d_chart(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def generate_dashboard(
     file_path: str,
     output_path: str = "",
@@ -273,7 +274,7 @@ def generate_dashboard(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def export_data(
     file_path: str,
     output_path: str = "",
@@ -290,7 +291,7 @@ def export_data(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def customize_chart(
     chart_path: str,
     title: str = "",

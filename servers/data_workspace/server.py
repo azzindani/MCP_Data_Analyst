@@ -19,6 +19,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from shared.deploy_auth import build_oauth_bridge, build_token_verifier
+from shared.tool_annotations import CREATES, READS
 
 try:
     from . import engine
@@ -49,19 +50,19 @@ async def version(request: Request) -> JSONResponse:
     return JSONResponse({"current": _VERSION})
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def create_workspace(name: str, description: str = "", base_dir: str = "") -> dict:
     """Create workspace with data/working/trial/report dirs."""
     return engine.create_workspace(name, description, base_dir)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READS)
 def open_workspace(name: str, base_dir: str = "") -> dict:
     """Open workspace. Returns file aliases, pipeline history, active file."""
     return engine.open_workspace(name, base_dir)
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def register_workspace_file(
     workspace_name: str,
     file_path: str,
@@ -74,13 +75,13 @@ def register_workspace_file(
     return engine.register_workspace_file(workspace_name, file_path, alias, stage, set_active, base_dir)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READS)
 def list_workspace_files(workspace_name: str, stage: str = "", base_dir: str = "") -> dict:
     """List all workspace files with alias, stage, size, row count."""
     return engine.list_workspace_files(workspace_name, stage, base_dir)
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def save_workspace_pipeline(
     workspace_name: str,
     pipeline_name: str,
@@ -92,7 +93,7 @@ def save_workspace_pipeline(
     return engine.save_workspace_pipeline(workspace_name, pipeline_name, ops, description, base_dir)
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATES)
 def run_workspace_pipeline(
     workspace_name: str,
     pipeline_name: str,
