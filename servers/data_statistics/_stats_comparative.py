@@ -18,8 +18,8 @@ import numpy as np
 import pandas as pd
 
 from shared.arg_alias import missing, pick
+from shared.file_utils import hint_for_error, resolve_path
 from shared.file_utils import read_csv as _read_csv
-from shared.file_utils import resolve_path
 from shared.progress import fail, info, ok, warn
 
 logger = logging.getLogger(__name__)
@@ -327,7 +327,7 @@ def period_comparison(
             "error": str(exc),
             # The validation hint above lists H as valid; this one used to omit
             # it, so the tool contradicted itself about its own vocabulary.
-            "hint": "Check date_col, metrics, and period_unit (D W M Q Y H, or MoM QoQ YoY).",
+            "hint": hint_for_error(exc, "Check date_col, metrics, and period_unit (D W M Q Y H, or MoM QoQ YoY)."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }

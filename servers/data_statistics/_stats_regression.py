@@ -18,9 +18,10 @@ import numpy as np
 import pandas as pd
 
 from shared.arg_alias import missing, pick, pick_list
+from shared.file_utils import hint_for_error, resolve_path
 from shared.file_utils import read_csv as _read_csv
-from shared.file_utils import resolve_path
 from shared.progress import fail, info, ok, warn
+from shared.stats_format import format_p, round_p
 
 try:
     import statsmodels.api as _sm  # type: ignore[import-untyped]
@@ -200,7 +201,7 @@ def regression_analysis(
                 "coef": round(float(model.params[param]), 6),
                 "std_err": round(float(model.bse[param]), 6),
                 "t_or_z": round(float(model.tvalues[param]), 4),
-                "p_value": round(float(model.pvalues[param]), 6),
+                "p_value": round_p(float(model.pvalues[param])),
                 "ci_lower": round(float(model.conf_int().loc[param, 0]), 6),
                 "ci_upper": round(float(model.conf_int().loc[param, 1]), 6),
                 "significant": bool(model.pvalues[param] < 0.05),
@@ -253,7 +254,7 @@ def regression_analysis(
             result_data["diagnostics"] = {
                 "normality_of_residuals": {
                     "test": "shapiro_wilk",
-                    "p_value": round(float(normality_p), 4),
+                    "p_value": round_p(float(normality_p)),
                     "normal": bool(normality_p >= 0.05),
                 },
                 "multicollinearity": vif_data,
@@ -314,7 +315,10 @@ def regression_analysis(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check y_col and x_cols are numeric (or categorical for one-hot encoding). Use model_type: ols or logistic.",
+            "hint": hint_for_error(
+                exc,
+                "Check y_col and x_cols are numeric (or categorical for one-hot encoding). Use model_type: ols or logistic.",
+            ),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }

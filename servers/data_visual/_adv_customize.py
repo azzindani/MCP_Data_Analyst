@@ -15,7 +15,7 @@ for _p in (str(_ROOT), _ADV):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from shared.file_utils import atomic_write_text, embed_content, resolve_path
+from shared.file_utils import atomic_write_text, embed_content, hint_for_error, resolve_path
 from shared.plotly_payload import decode_array, encode_array, scan_balanced, split_newplot
 from shared.progress import fail, info, ok
 
@@ -307,7 +307,9 @@ def customize_chart(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Ensure chart_path points to an HTML file from generate_chart() or generate_dashboard().",
+            "hint": hint_for_error(
+                exc, "Ensure chart_path points to an HTML file from generate_chart() or generate_dashboard()."
+            ),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }

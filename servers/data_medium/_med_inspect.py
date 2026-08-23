@@ -44,7 +44,7 @@ from _med_helpers import (
 )
 
 from shared.column_utils import condition_column, missing_column_error
-from shared.file_utils import resolve_path
+from shared.file_utils import hint_for_error, resolve_path
 from shared.platform_utils import get_max_results, get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
@@ -187,7 +187,7 @@ def check_outliers(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -324,7 +324,7 @@ def scan_nulls_zeros(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -459,7 +459,7 @@ def validate_dataset(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -560,7 +560,7 @@ def auto_detect_schema(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -891,7 +891,7 @@ def sample_data(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -1008,7 +1008,7 @@ def analyze_text_column(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path is absolute, column exists, and is a text column.",
+            "hint": hint_for_error(exc, "Check file_path is absolute, column exists, and is a text column."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -1168,7 +1168,7 @@ def extended_stats(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path is absolute and columns are numeric.",
+            "hint": hint_for_error(exc, "Check file_path is absolute and columns are numeric."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }

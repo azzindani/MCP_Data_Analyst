@@ -33,8 +33,8 @@ from _patch_ops import (  # type: ignore[import-not-found]
 )
 
 from shared.arg_alias import missing, pick, pick_list
-from shared.file_utils import resolve_path
-from shared.patch_validator import validate_ops
+from shared.file_utils import hint_for_error, resolve_path
+from shared.patch_validator import unwrap_params, validate_ops
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
@@ -218,7 +218,7 @@ def enrich_with_geo(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file paths are absolute and join columns exist.",
+            "hint": hint_for_error(exc, "Check file paths are absolute and join columns exist."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -327,7 +327,7 @@ def compute_aggregations(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path and column names are correct.",
+            "hint": hint_for_error(exc, "Check file_path and column names are correct."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -426,8 +426,12 @@ def run_cleaning_pipeline(
             "drop_duplicates": _op_drop_duplicates,
         }
 
-        # Normalise ops: fix common LLM mistakes (nested params, missing op key)
-        ops = [_coerce_op(o) for o in ops]
+        # Normalise ops: fix common LLM mistakes (missing op key, params nested
+        # inside it). unwrap_params covers the other direction -- {"op": "name",
+        # "params": {...}} -- which is the shape list_patch_ops prints, and
+        # which apply_patch accepts. The two tools take the same op dicts, so
+        # they must accept the same malformed ones.
+        ops = [unwrap_params(_coerce_op(o)) for o in ops]
 
         # Validate all ops before touching the file or creating a snapshot
         unknown_ops = [op.get("op", "") for op in ops if op.get("op", "") not in handler_map]
@@ -553,7 +557,7 @@ def run_cleaning_pipeline(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Use restore_version to undo if a snapshot was taken.",
+            "hint": hint_for_error(exc, "Use restore_version to undo if a snapshot was taken."),
             "backup": backup,
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -688,7 +692,7 @@ def smart_impute(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Use restore_version to undo if a snapshot was taken.",
+            "hint": hint_for_error(exc, "Use restore_version to undo if a snapshot was taken."),
             "backup": backup,
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -910,7 +914,7 @@ def merge_datasets(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Use restore_version to undo if a snapshot was taken.",
+            "hint": hint_for_error(exc, "Use restore_version to undo if a snapshot was taken."),
             "backup": backup,
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -1063,7 +1067,7 @@ def feature_engineering(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Use restore_version to undo if a snapshot was taken.",
+            "hint": hint_for_error(exc, "Use restore_version to undo if a snapshot was taken."),
             "backup": backup,
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -1253,7 +1257,7 @@ def resample_timeseries(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Ensure date_col is parseable as datetime and value_cols are numeric.",
+            "hint": hint_for_error(exc, "Ensure date_col is parseable as datetime and value_cols are numeric."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -1371,7 +1375,7 @@ def concat_datasets(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check all file_paths are absolute and point to valid CSVs.",
+            "hint": hint_for_error(exc, "Check all file_paths are absolute and point to valid CSVs."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }

@@ -19,6 +19,7 @@ from shared.arg_alias import missing, pick
 from shared.file_utils import read_csv as _read_csv
 from shared.file_utils import resolve_path
 from shared.progress import fail, info, ok, warn
+from shared.stats_format import format_p, round_p
 
 try:
     from scipy import stats as _scipy_stats
@@ -64,9 +65,10 @@ _SIBLING_TEST_NAMES = {
 
 def _interpret_p(p: float, alpha: float) -> str:
     reject = p < alpha
+    shown = format_p(p)
     if reject:
-        return f"Reject H0 (p={p:.4f} < α={alpha})"
-    return f"Fail to reject H0 (p={p:.4f} ≥ α={alpha})"
+        return f"Reject H0 (p={shown} < α={alpha})"
+    return f"Fail to reject H0 (p={shown} ≥ α={alpha})"
 
 
 def statistical_test(  # type: ignore[reportGeneralTypeIssues]
@@ -417,7 +419,7 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
             "success": True,
             "test": test,
             "statistic": round(statistic, 6) if not np.isnan(statistic) else None,
-            "p_value": round(p_value, 6) if not np.isnan(p_value) else None,
+            "p_value": round_p(p_value) if not np.isnan(p_value) else None,
             "alpha": alpha,
             "reject_null": reject_null,
             "interpretation": interpretation,

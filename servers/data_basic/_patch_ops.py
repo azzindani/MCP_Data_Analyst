@@ -40,17 +40,50 @@ def _op_drop_column(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     return df, {"op": "drop_column", "dropped": columns, "remaining": len(remaining)}
 
 
+def _clean_one(text: str, operations: list[str]) -> str:
+    for name in operations:
+        if name == "strip":
+            text = text.strip()
+        elif name == "lower":
+            text = text.lower()
+        elif name == "upper":
+            text = text.upper()
+        elif name == "title":
+            text = text.title()
+        elif name == "collapse_spaces":
+            text = " ".join(text.split())
+    return text
+
+
 def _op_clean_text(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     scope = op.get("scope", "both")
+    # This op did exactly one thing -- strip then Title Case -- and said so
+    # nowhere. Asking it for lowercase headers returned Campaign_Platform,
+    # because `operations` was accepted and never read. The default is
+    # unchanged so existing callers see what they always saw; naming the
+    # operations now gets the operations named.
+    operations = op.get("operations") or ["strip", "title"]
+    if isinstance(operations, str):
+        operations = [operations]
     affected = 0
     if scope in ("headers", "both"):
-        df.columns = [c.strip().title() for c in df.columns]
-        affected = len(df.columns)
+        cleaned = [_clean_one(c, operations) for c in df.columns]
+        affected = sum(1 for old_c, new_c in zip(df.columns, cleaned, strict=True) if old_c != new_c)
+        df.columns = cleaned
     if scope in ("values", "both"):
         for col in df.select_dtypes(include="object").columns:
-            df[col] = df[col].apply(lambda v: v.strip().title() if isinstance(v, str) else v)
-            affected += 1
-    return df, {"op": "clean_text", "scope": scope, "columns_affected": affected}
+            before = df[col]
+            df[col] = before.apply(lambda v: _clean_one(v, operations) if isinstance(v, str) else v)
+            if not before.equals(df[col]):
+                affected += 1
+    return df, {
+        "op": "clean_text",
+        "scope": scope,
+        "operations": list(operations),
+        # This counted every column it looked at, so headers that were already
+        # clean still reported "columns_affected: 16".
+        "columns_affected": affected,
+    }
 
 
 def _op_cast_column(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:

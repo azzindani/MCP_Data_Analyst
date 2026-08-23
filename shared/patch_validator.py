@@ -77,13 +77,40 @@ VALID_OPS: frozenset[str] = frozenset(
 _FILL_STRATEGIES = frozenset({"mean", "median", "mode", "ffill", "bfill", "drop"})
 _CAST_DTYPES = frozenset({"int", "float", "str", "datetime"})
 _CLEAN_SCOPES = frozenset({"headers", "values", "both"})
+# clean_text applied strip+title unconditionally and read no vocabulary at
+# all, so asking for lowercase headers returned Campaign_Platform.
+CLEAN_OPERATIONS = frozenset({"strip", "lower", "upper", "title", "collapse_spaces"})
 _CAP_METHODS = frozenset({"iqr", "std"})
 _ADD_MODES = frozenset({"math", "threshold"})
+
+
+def unwrap_params(op: dict) -> dict:
+    """Lift a nested `params` dict up onto the op itself.
+
+    list_patch_ops describes every op as {"op": "clean_text", "params": "scope:
+    headers|values|both"} -- so a caller reading the catalog writes the same
+    shape back, {"op": ..., "params": {...}}, and every field inside it was
+    dropped. The refusal was then actively misleading:
+
+        Op 0 (add_column): missing 'name'; math mode requires 'expr'
+
+    naming two fields the caller had in fact supplied. The catalog taught the
+    form the tool rejected. Flat keys win when both are present, so an op that
+    already works is untouched.
+    """
+    nested = op.get("params")
+    if isinstance(nested, dict):
+        for k, v in nested.items():
+            op.setdefault(k, v)
+    return op
 
 
 def validate_ops(ops: list[dict]) -> list[str]:
     """Validate op list. Returns list of error strings (empty = valid)."""
     errors: list[str] = []
+    for op in ops:
+        if isinstance(op, dict):
+            unwrap_params(op)
     if not ops:
         errors.append("ops list is empty; at least one op is required.")
         return errors
@@ -113,6 +140,18 @@ def validate_ops(ops: list[dict]) -> list[str]:
                 errors.append(
                     f"{prefix} (clean_text): invalid scope '{scope}'. Valid: {', '.join(sorted(_CLEAN_SCOPES))}"
                 )
+            given = op.get("operations")
+            if given is not None:
+                given = [given] if isinstance(given, str) else given
+                if not isinstance(given, list):
+                    errors.append(f"{prefix} (clean_text): 'operations' must be a list of strings")
+                else:
+                    bad = [o for o in given if o not in CLEAN_OPERATIONS]
+                    if bad:
+                        errors.append(
+                            f"{prefix} (clean_text): invalid operations {bad}. "
+                            f"Valid: {', '.join(sorted(CLEAN_OPERATIONS))}"
+                        )
 
         elif op_name == "cast_column":
             if "column" not in op:

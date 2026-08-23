@@ -94,7 +94,7 @@ from _patch_ops import (
     _parse_expr,
 )
 
-from shared.file_utils import atomic_write_text, resolve_path
+from shared.file_utils import atomic_write_text, hint_for_error, resolve_path
 from shared.patch_validator import VALID_OPS, validate_ops
 from shared.platform_utils import get_max_results, get_max_rows
 from shared.progress import fail, info, ok, undo, warn
@@ -400,7 +400,7 @@ def load_dataset(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check that file_path is absolute and the file exists.",
+            "hint": hint_for_error(exc, "Check that file_path is absolute and the file exists."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -493,7 +493,7 @@ def load_geo_dataset(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Verify the file is a valid GeoJSON or shapefile.",
+            "hint": hint_for_error(exc, "Verify the file is a valid GeoJSON or shapefile."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -568,7 +568,7 @@ def inspect_dataset(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -629,7 +629,7 @@ def read_column_stats(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Use inspect_dataset() first to verify column names.",
+            "hint": hint_for_error(exc, "Use inspect_dataset() first to verify column names."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -706,7 +706,7 @@ def search_columns(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -906,7 +906,7 @@ def apply_patch(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Use restore_version() to undo if a snapshot was taken.",
+            "hint": hint_for_error(exc, "Use restore_version() to undo if a snapshot was taken."),
             "backup": backup,
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -992,7 +992,7 @@ def restore_version(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check that the backup path is valid.",
+            "hint": hint_for_error(exc, "Check that the backup path is valid."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -1041,7 +1041,7 @@ def read_receipt(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path is absolute and the file exists.",
+            "hint": hint_for_error(exc, "Check file_path is absolute and the file exists."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -1054,7 +1054,11 @@ def read_receipt(
 _OP_CATALOG: dict[str, list[dict]] = {
     "original": [
         {"op": "drop_column", "params": "columns: list[str]"},
-        {"op": "clean_text", "params": "scope: headers|values|both"},
+        {
+            "op": "clean_text",
+            "params": "scope: headers|values|both, "
+            "operations: strip|lower|upper|title|collapse_spaces (default strip+title)",
+        },
         {"op": "cast_column", "params": "column, dtype: int|float|str|datetime"},
         {"op": "replace_values", "params": "column, mapping: {old: new}"},
         {"op": "add_column", "params": "name, mode: math|threshold, expr|source+threshold"},
@@ -1164,7 +1168,7 @@ def list_patch_ops(category: str = "") -> dict:
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Call with no arguments to list all ops.",
+            "hint": hint_for_error(exc, "Call with no arguments to list all ops."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 10,
         }

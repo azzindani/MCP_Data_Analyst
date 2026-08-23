@@ -42,7 +42,7 @@ from _adv_helpers import (
     theme_plot_colors,
 )
 
-from shared.file_utils import embed_content, resolve_path
+from shared.file_utils import embed_content, hint_for_error, resolve_path
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +216,7 @@ def generate_auto_profile(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }

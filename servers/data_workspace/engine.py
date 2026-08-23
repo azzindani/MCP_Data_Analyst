@@ -7,6 +7,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from shared.file_utils import hint_for_error
 from shared.handover import make_context, make_handover
 from shared.progress import fail, info, ok, warn  # noqa: F401
 from shared.project_utils import (
@@ -120,7 +121,7 @@ def create_workspace(name: str, description: str = "", base_dir: str = "") -> di
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check that base_dir is writable and name contains no special characters.",
+            "hint": hint_for_error(exc, "Check that base_dir is writable and name contains no special characters."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -199,7 +200,7 @@ def open_workspace(name: str, base_dir: str = "") -> dict:
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check that base_dir matches the one used when creating the workspace.",
+            "hint": hint_for_error(exc, "Check that base_dir matches the one used when creating the workspace."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -292,7 +293,7 @@ def register_workspace_file(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Valid stages: raw working trial output.",
+            "hint": hint_for_error(exc, "Valid stages: raw working trial output."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -350,7 +351,7 @@ def list_workspace_files(workspace_name: str, stage: str = "", base_dir: str = "
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check workspace_name and base_dir.",
+            "hint": hint_for_error(exc, "Check workspace_name and base_dir."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -406,7 +407,9 @@ def save_workspace_pipeline(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "ops must be a list of apply_patch op dicts. Use list_patch_ops() for reference.",
+            "hint": hint_for_error(
+                exc, "ops must be a list of apply_patch op dicts. Use list_patch_ops() for reference."
+            ),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -556,7 +559,7 @@ def run_workspace_pipeline(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check pipeline_name, input_alias, and workspace configuration.",
+            "hint": hint_for_error(exc, "Check pipeline_name, input_alias, and workspace configuration."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }

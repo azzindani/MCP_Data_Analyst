@@ -250,3 +250,30 @@ def _self_contained(path: Path, data: bytes, result: dict[str, Any]) -> bytes:
 
 def _theme_of(chart_html: str) -> str:
     return "light" if "background:#ffffff" in chart_html.replace(" ", "") else "dark"
+
+
+def hint_for_error(exc: Exception, fallback: str) -> str:
+    """A hint that matches what actually went wrong, not what usually does.
+
+    Every tool here ends in `except Exception` with one domain-specific hint,
+    which is right for the failure it was written for and wrong for the rest.
+    A sweep hit a PermissionError writing a chart into a scratch directory and
+    was told "Check date_column is a datetime column and value_columns are
+    numeric" -- neither of which had anything to do with it, and it cost a
+    diagnostic detour.
+
+    The fallback is still the domain hint, so nothing is lost where the guess
+    was already right.
+    """
+    if isinstance(exc, PermissionError):
+        return (
+            "Permission denied writing that path. Point output_path at a directory "
+            "this server can write to, or fix the directory's permissions."
+        )
+    if isinstance(exc, FileNotFoundError):
+        return "That path does not exist. Check the directory was created first."
+    if isinstance(exc, MemoryError):
+        return "Ran out of memory. Filter or sample the dataset before retrying."
+    if isinstance(exc, UnicodeDecodeError):
+        return "The file is not valid UTF-8. Pass encoding= (e.g. latin-1) to load_dataset."
+    return fallback

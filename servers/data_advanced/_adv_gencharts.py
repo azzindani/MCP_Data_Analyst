@@ -28,7 +28,7 @@ from _adv_helpers import (
     warn,
 )
 
-from shared.file_utils import embed_content, resolve_path
+from shared.file_utils import embed_content, hint_for_error, resolve_path
 from shared.geo_names import unrecognised_locations
 
 logger = logging.getLogger(__name__)
@@ -325,7 +325,7 @@ def generate_chart(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path, column names, and chart_type.",
+            "hint": hint_for_error(exc, "Check file_path, column names, and chart_type."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -737,7 +737,7 @@ def generate_geo_map(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path, column names, and that columns contain valid geo data.",
+            "hint": hint_for_error(exc, "Check file_path, column names, and that columns contain valid geo data."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -895,7 +895,7 @@ def generate_3d_chart(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path, column names, and chart_type.",
+            "hint": hint_for_error(exc, "Check file_path, column names, and chart_type."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }

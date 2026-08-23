@@ -26,7 +26,7 @@ from _med_transform import (  # type: ignore[import]
 )
 
 from shared.column_utils import condition_column, missing_column_error
-from shared.file_utils import atomic_write_text, resolve_path
+from shared.file_utils import atomic_write_text, hint_for_error, resolve_path
 from shared.file_utils import read_csv as _shared_read_csv
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
@@ -473,7 +473,7 @@ def reshape_dataset(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check mode and required parameters for each mode.",
+            "hint": hint_for_error(exc, "Check mode and required parameters for each mode."),
             "backup": backup or "",
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -765,7 +765,9 @@ def aggregate_dataset(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check mode and required parameters. Use inspect_dataset() to verify column names.",
+            "hint": hint_for_error(
+                exc, "Check mode and required parameters. Use inspect_dataset() to verify column names."
+            ),
             "backup": backup or "",
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,

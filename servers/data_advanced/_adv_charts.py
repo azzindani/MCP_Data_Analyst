@@ -25,7 +25,7 @@ from _adv_helpers import (
     plotly_template,
 )
 
-from shared.file_utils import embed_content, resolve_path
+from shared.file_utils import embed_content, hint_for_error, resolve_path
 from shared.progress import info
 
 logger = logging.getLogger(__name__)
@@ -137,7 +137,7 @@ def generate_distribution_plot(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -228,7 +228,7 @@ def generate_correlation_heatmap(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -325,7 +325,7 @@ def generate_pairwise_plot(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path and column names.",
+            "hint": hint_for_error(exc, "Check file_path and column names."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -484,7 +484,7 @@ def generate_multi_chart(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path, column names, and chart_type.",
+            "hint": hint_for_error(exc, "Check file_path, column names, and chart_type."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -572,7 +572,7 @@ def export_data(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path and format.",
+            "hint": hint_for_error(exc, "Check file_path and format."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }

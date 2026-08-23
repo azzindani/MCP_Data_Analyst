@@ -52,9 +52,10 @@ from _med_helpers import (
 )
 
 from shared.column_utils import infer_agg, is_numeric_col
-from shared.file_utils import resolve_path
+from shared.file_utils import hint_for_error, resolve_path
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
+from shared.stats_format import format_p, round_p
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +175,7 @@ def correlation_analysis(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -259,7 +260,7 @@ def statistical_tests(
                     try:
                         _st, _pv = scipy_stats.shapiro(s.sample(min(len(s), 5000), random_state=42))
                         normality[col] = {
-                            "p_value": round(float(_pv), 4),
+                            "p_value": round_p(float(_pv)),
                             "normal": bool(float(_pv) >= 0.05),
                         }
                     except Exception:
@@ -277,7 +278,7 @@ def statistical_tests(
                                 "col_a": ca,
                                 "col_b": cb,
                                 "r": round(float(_r), 3),
-                                "p_value": round(float(_p), 4),
+                                "p_value": round_p(float(_p)),
                                 "significant": bool(float(_p) < 0.05),
                             }
                         )
@@ -341,7 +342,7 @@ def statistical_tests(
             test_result = {
                 "test": "Independent t-test",
                 "statistic": round(float(stat), 4),
-                "p_value": round(float(pval), 6),
+                "p_value": round_p(float(pval)),
                 "significant": float(pval) < 0.05,
                 "interpretation": (
                     "Means differ significantly (p<0.05)"
@@ -364,7 +365,7 @@ def statistical_tests(
             test_result = {
                 "test": "One-Way ANOVA",
                 "statistic": round(float(stat), 4),
-                "p_value": round(float(pval), 6),
+                "p_value": round_p(float(pval)),
                 "groups": int(df[group_column].nunique()),
                 "significant": float(pval) < 0.05,
                 "interpretation": (
@@ -388,7 +389,7 @@ def statistical_tests(
             test_result = {
                 "test": "Chi-Square Test of Independence",
                 "statistic": round(float(stat), 4),
-                "p_value": round(float(pval), 6),
+                "p_value": round_p(float(pval)),
                 "degrees_of_freedom": int(dof),
                 "significant": float(pval) < 0.05,
                 "interpretation": (
@@ -412,7 +413,7 @@ def statistical_tests(
             test_result = {
                 "test": "Pearson Correlation",
                 "statistic": round(float(stat), 4),
-                "p_value": round(float(pval), 6),
+                "p_value": round_p(float(pval)),
                 "significant": float(pval) < 0.05,
                 "interpretation": (
                     f"Correlation r={round(float(stat), 3)}, "
@@ -435,7 +436,7 @@ def statistical_tests(
             test_result = {
                 "test": "Shapiro-Wilk normality test",
                 "statistic": round(float(stat), 4),
-                "p_value": round(float(pval), 6),
+                "p_value": round_p(float(pval)),
                 "significant": float(pval) < 0.05,
                 "interpretation": (
                     f"Data in '{column_a}' is {'NOT ' if float(pval) < 0.05 else ''}normally distributed (p={'<' if float(pval) < 0.05 else '≥'}0.05)"
@@ -456,7 +457,7 @@ def statistical_tests(
             test_result = {
                 "test": "Kolmogorov-Smirnov normality test",
                 "statistic": round(float(stat), 4),
-                "p_value": round(float(pval), 6),
+                "p_value": round_p(float(pval)),
                 "significant": float(pval) < 0.05,
                 "interpretation": (
                     f"Data in '{column_a}' is {'NOT ' if float(pval) < 0.05 else ''}normally distributed (KS test)"
@@ -488,7 +489,7 @@ def statistical_tests(
             test_result = {
                 "test": "Mann-Whitney U test",
                 "statistic": round(float(stat), 4),
-                "p_value": round(float(pval), 6),
+                "p_value": round_p(float(pval)),
                 "significant": float(pval) < 0.05,
                 "interpretation": "Groups differ significantly (p<0.05)"
                 if float(pval) < 0.05
@@ -516,7 +517,7 @@ def statistical_tests(
             test_result = {
                 "test": "Kruskal-Wallis test",
                 "statistic": round(float(stat), 4),
-                "p_value": round(float(pval), 6),
+                "p_value": round_p(float(pval)),
                 "groups": int(df[group_column].nunique()),
                 "significant": float(pval) < 0.05,
                 "interpretation": "Group distributions differ significantly (p<0.05)"
@@ -542,7 +543,7 @@ def statistical_tests(
             test_result = {
                 "test": "Wilcoxon signed-rank test",
                 "statistic": round(float(stat), 4),
-                "p_value": round(float(pval), 6),
+                "p_value": round_p(float(pval)),
                 "significant": float(pval) < 0.05,
                 "interpretation": "Paired differences are significant (p<0.05)"
                 if float(pval) < 0.05
@@ -563,7 +564,7 @@ def statistical_tests(
             test_result = {
                 "test": "Levene's test for equal variances",
                 "statistic": round(float(stat), 4),
-                "p_value": round(float(pval), 6),
+                "p_value": round_p(float(pval)),
                 "significant": float(pval) < 0.05,
                 "interpretation": "Variances are NOT equal (p<0.05)"
                 if float(pval) < 0.05
@@ -592,7 +593,7 @@ def statistical_tests(
             test_result = {
                 "test": "Fisher's exact test",
                 "odds_ratio": round(float(stat), 4),
-                "p_value": round(float(pval), 6),
+                "p_value": round_p(float(pval)),
                 "significant": float(pval) < 0.05,
                 "interpretation": "Significant association (p<0.05)"
                 if float(pval) < 0.05
@@ -627,7 +628,7 @@ def statistical_tests(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check column names and ensure numeric/categorical types are correct.",
+            "hint": hint_for_error(exc, "Check column names and ensure numeric/categorical types are correct."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -769,7 +770,7 @@ def time_series_analysis(
                 try:
                     adf_out = adfuller(ts.values, autolag="AIC")
                     adf_results[col] = {
-                        "p_value": round(float(adf_out[1]), 4),
+                        "p_value": round_p(float(adf_out[1])),
                         "is_stationary": bool(adf_out[1] < 0.05),
                     }
                 except Exception:
@@ -903,7 +904,7 @@ def time_series_analysis(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check date_column is a datetime column and value_columns are numeric.",
+            "hint": hint_for_error(exc, "Check date_column is a datetime column and value_columns are numeric."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -1100,7 +1101,7 @@ def cohort_analysis(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check date_column is a datetime column and cohort_column exists.",
+            "hint": hint_for_error(exc, "Check date_column is a datetime column and cohort_column exists."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -1229,7 +1230,7 @@ def detect_anomalies(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path is absolute and columns are numeric.",
+            "hint": hint_for_error(exc, "Check file_path is absolute and columns are numeric."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }

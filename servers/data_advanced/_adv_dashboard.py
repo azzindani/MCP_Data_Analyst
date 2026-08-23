@@ -42,7 +42,7 @@ from _adv_helpers import (
 )
 
 from shared.data_alerts import alerts_for_frame, alerts_html, quality_score
-from shared.file_utils import embed_content, resolve_path
+from shared.file_utils import embed_content, hint_for_error, resolve_path
 from shared.geo_names import unrecognised_locations
 from shared.table_payload import records_js
 
@@ -400,7 +400,7 @@ def generate_dashboard(
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check file_path is absolute and the file is a valid CSV.",
+            "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }

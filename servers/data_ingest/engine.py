@@ -17,6 +17,7 @@ from shared.file_utils import (
     atomic_write_text,
     embed_content,
     get_default_output_dir,
+    hint_for_error,
     resolve_path,
 )
 from shared.platform_utils import get_max_results
@@ -205,7 +206,7 @@ def list_sheets(file_path: str) -> dict:
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check that the file is a valid Excel or ODS file.",
+            "hint": hint_for_error(exc, "Check that the file is a valid Excel or ODS file."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -329,7 +330,7 @@ def extract_sheet(
             "success": False,
             "error": str(exc),
             "backup": backup,
-            "hint": "Use list_sheets() to verify sheet names.",
+            "hint": hint_for_error(exc, "Use list_sheets() to verify sheet names."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -424,7 +425,7 @@ def extract_all_sheets(file_path: str, output_dir: str = "", dry_run: bool = Fal
             "success": False,
             "error": str(exc),
             "backup": backup,
-            "hint": "Use restore_version() on the input file if a snapshot was taken.",
+            "hint": hint_for_error(exc, "Use restore_version() on the input file if a snapshot was taken."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -499,7 +500,7 @@ def detect_tables(file_path: str, sheet: str = "", min_rows: int = 2, min_cols: 
         return {
             "success": False,
             "error": str(exc),
-            "hint": "Check the file is a valid Excel file.",
+            "hint": hint_for_error(exc, "Check the file is a valid Excel file."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -638,7 +639,7 @@ def extract_table(
             "success": False,
             "error": str(exc),
             "backup": backup,
-            "hint": "Call detect_tables() to verify table indices.",
+            "hint": hint_for_error(exc, "Call detect_tables() to verify table indices."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -752,7 +753,7 @@ def normalize_headers(
             "success": False,
             "error": str(exc),
             "backup": backup,
-            "hint": "Use inspect_dataset() to verify column names first.",
+            "hint": hint_for_error(exc, "Use inspect_dataset() to verify column names first."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -850,7 +851,7 @@ def trim_empty(file_path: str, output_path: str = "", dry_run: bool = False) -> 
             "success": False,
             "error": str(exc),
             "backup": backup,
-            "hint": "Use inspect_dataset() to verify the file structure first.",
+            "hint": hint_for_error(exc, "Use inspect_dataset() to verify the file structure first."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -946,7 +947,7 @@ def promote_header(file_path: str, row_index: int = 0, output_path: str = "", dr
             "success": False,
             "error": str(exc),
             "backup": backup,
-            "hint": "Use inspect_dataset() to verify row structure first.",
+            "hint": hint_for_error(exc, "Use inspect_dataset() to verify row structure first."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -1082,7 +1083,7 @@ def flatten_merged_cells(
             "success": False,
             "error": str(exc),
             "backup": backup,
-            "hint": "Check the file is a valid .xlsx with merged cells.",
+            "hint": hint_for_error(exc, "Check the file is a valid .xlsx with merged cells."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
