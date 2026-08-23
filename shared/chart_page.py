@@ -74,6 +74,14 @@ def apply_chart_margins(fig: object) -> None:
 # `min-height:0` shrinks below its content, which is exactly what a tall subplot
 # must not do.
 #
+# That split missed a third case: a figure that asks for *less* on purpose.
+# calc_chart_height() sizes a heatmap to its row count, so a 2x4 crosstab asks
+# for 280px — and the floor stretched its container to 648px, leaving 368px of
+# empty bordered card under a chart that was the right size all along. A floor
+# only works when nothing deliberately sits below it. So chart_page_html() now
+# pins `--chart-h` to the figure's own height whenever it declares one, and the
+# viewport-proportional floor applies only to figures that do not.
+#
 # The narrow breakpoint tightens padding and type but deliberately leaves
 # `--chart-h` alone: a phone has less width to spare, not less height, and an
 # earlier mobile cap of 28rem left a third of the screen empty below the card.
@@ -112,14 +120,26 @@ body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
 """
 
 
-def chart_page_html(chart_html: str, title: str, vars_css: str, device_js: str = "") -> str:
+def chart_page_html(
+    chart_html: str,
+    title: str,
+    vars_css: str,
+    device_js: str = "",
+    chart_height: float | None = None,
+) -> str:
     """Wrap a Plotly fragment in the shared standalone chart page.
 
-    chart_html : the fragment from `to_html(full_html=False)`
-    title      : heading shown above the chart
-    vars_css   : `:root{}` block from css_vars(theme)
-    device_js  : device-mode script, or "" for a page pinned to one theme
+    chart_html   : the fragment from `to_html(full_html=False)`
+    title        : heading shown above the chart
+    vars_css     : `:root{}` block from css_vars(theme)
+    device_js    : device-mode script, or "" for a page pinned to one theme
+    chart_height : the figure's own layout height, if it declares one. The card
+                   is then sized to match instead of to the viewport floor --
+                   see the height note above CHART_PAGE_CSS.
     """
+    # Same specificity as the `--chart-h` declaration in CHART_PAGE_CSS and
+    # written after it, so it wins on order without an !important.
+    height_css = f"\nbody{{--chart-h:{round(float(chart_height))}px}}" if chart_height else ""
     return f"""<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8">
@@ -127,7 +147,7 @@ def chart_page_html(chart_html: str, title: str, vars_css: str, device_js: str =
 <title>{title}</title>
 <style>
 {vars_css}
-{CHART_PAGE_CSS}
+{CHART_PAGE_CSS}{height_css}
 </style></head><body>
 <div class="page">
   <h1 class="chart-title">{title}</h1>

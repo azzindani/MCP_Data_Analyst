@@ -58,6 +58,57 @@ class TestHeightIsAFloorNotACap:
         assert "\n  height:var(--chart-h)" not in CHART_PAGE_CSS
 
 
+class TestAFigureThatAsksForLessGetsIt:
+    """A floor only works when nothing deliberately sits below it.
+
+    calc_chart_height() sizes a heatmap to its row count, so a 2x4 crosstab
+    asked for 280px. The 72vh floor stretched its card to 648px and the SVG
+    stayed at 280 -- 368px of empty bordered box under a chart that had been
+    the right size all along. Measured, not eyeballed: card 648, svg 280.
+    """
+
+    def test_a_declared_height_is_pinned_on_the_page(self):
+        page = chart_page_html("<div>c</div>", "T", ":root{}", "", chart_height=280)
+        assert "--chart-h:280px" in page
+
+    def test_it_is_written_after_the_floor_so_it_wins(self):
+        page = chart_page_html("<div>c</div>", "T", ":root{}", "", chart_height=280)
+        assert page.index("--chart-h:clamp(") < page.index("--chart-h:280px")
+
+    def test_it_stays_inside_the_style_block(self):
+        page = chart_page_html("<div>c</div>", "T", ":root{}", "", chart_height=280)
+        assert page.index("--chart-h:280px") < page.index("</style>")
+
+    def test_it_does_not_need_an_important(self):
+        page = chart_page_html("<div>c</div>", "T", ":root{}", "", chart_height=280)
+        assert "--chart-h:280px!important" not in page
+
+    def test_a_tall_figure_pins_its_own_height_too(self):
+        """The floor is not a cap either way -- a 1200px subplot grid asks for
+        1200 and the card follows it up, not just down."""
+        page = chart_page_html("<div>c</div>", "T", ":root{}", "", chart_height=1200)
+        assert "--chart-h:1200px" in page
+
+    def test_a_float_height_becomes_whole_pixels(self):
+        page = chart_page_html("<div>c</div>", "T", ":root{}", "", chart_height=280.6)
+        assert "--chart-h:281px" in page
+
+    def test_a_figure_with_no_height_keeps_the_viewport_floor(self):
+        page = chart_page_html("<div>c</div>", "T", ":root{}", "")
+        assert "--chart-h:clamp(" in page
+        assert "body{--chart-h:" not in page
+
+    def test_none_and_zero_are_both_treated_as_no_height(self):
+        for value in (None, 0):
+            page = chart_page_html("<div>c</div>", "T", ":root{}", "", chart_height=value)
+            assert "body{--chart-h:" not in page, value
+
+    def test_the_floor_declaration_is_still_the_only_one_in_the_css(self):
+        """If CHART_PAGE_CSS ever gains a second --chart-h, the override has to
+        be re-checked for order -- this fails loudly rather than silently."""
+        assert CHART_PAGE_CSS.count("--chart-h:") == 1
+
+
 class TestPageTitle:
     def test_a_figure_title_becomes_the_heading_and_leaves_the_figure(self):
         fig = _FakeFig("Spends Over Time")
