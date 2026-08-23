@@ -1074,16 +1074,22 @@ _OP_CATALOG: dict[str, list[dict]] = {
         {"op": "cast_column", "params": "column, dtype: int|float|str|datetime"},
         {"op": "replace_values", "params": "column, mapping: {old: new}"},
         {"op": "add_column", "params": "name, mode: math|threshold, expr|source+threshold"},
-        {"op": "cap_outliers", "params": "column, method: iqr|std, threshold"},
+        {
+            "op": "cap_outliers",
+            "params": "column, method: iqr|std, threshold: number (IQR multiplier, default 1.5; sigma count for std, default 3), th1/th3: quantiles for iqr",
+        },
         {
             "op": "fill_nulls",
             "params": "column, strategy: mean|median|mode|ffill|bfill|drop|value, fill_zeros: bool (optional)",
         },
-        {"op": "drop_duplicates", "params": "keep: first|last|False"},
+        {"op": "drop_duplicates", "params": "subset: list[str] (default all cols), keep: first|last|False"},
         {"op": "normalize", "params": "column, method: minmax|zscore"},
         {"op": "label_encode", "params": "column, new_column"},
         {"op": "extract_regex", "params": "column, pattern, new_column"},
-        {"op": "date_diff", "params": "start_col, end_col, new_col, unit: days|hours|minutes"},
+        {
+            "op": "date_diff",
+            "params": "date_col_a, date_col_b, new_column, unit: days|months|years (computes date_col_a minus date_col_b)",
+        },
         {"op": "rank_column", "params": "column, new_column, method: average|min|max|first|dense"},
     ],
     "filtering": [
@@ -1141,7 +1147,10 @@ _OP_CATALOG: dict[str, list[dict]] = {
         {"op": "combine_columns", "params": "columns: list[str], delimiter, new_column, drop_originals"},
         {"op": "regex_replace", "params": "column, pattern, replacement"},
         {"op": "str_slice", "params": "column, start, end, new_column"},
-        {"op": "concat_file", "params": "file_path, direction: rows|columns, fill_missing, add_source"},
+        {
+            "op": "concat_file",
+            "params": "file_path, direction: rows|columns, fill_missing, add_source_column (add_source accepted)",
+        },
         {"op": "melt", "params": "id_vars: list, value_vars: list, var_name, value_name"},
     ],
 }

@@ -224,8 +224,21 @@ def _op_cap_outliers(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
         raise ValueError(f"Column '{col}' is not numeric; cannot cap outliers.")
 
     method = op.get("method", "iqr")
+    # list_patch_ops advertises this op as `column, method: iqr|std, threshold`
+    # and the handler read no threshold at all: the IQR multiplier was a
+    # hardcoded 1.5 and the std method a hardcoded 3 sigma. A caller following
+    # the catalog and asking for a wider or tighter cap got the default one,
+    # under success: true, with the capped counts to match.
+    threshold = float(op.get("threshold", 1.5 if method == "iqr" else 3.0))
+    if threshold <= 0:
+        raise ValueError(f"Invalid threshold: {threshold}. Must be greater than 0.")
     clean = df[col].dropna()
-    result_info: dict = {"op": "cap_outliers", "column": col, "method": method}
+    result_info: dict = {
+        "op": "cap_outliers",
+        "column": col,
+        "method": method,
+        "threshold": threshold,
+    }
 
     if method == "iqr":
         th1 = op.get("th1", 0.25)
@@ -233,8 +246,8 @@ def _op_cap_outliers(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
         q1 = float(clean.quantile(th1))
         q3 = float(clean.quantile(th3))
         iqr = q3 - q1
-        lower = q1 - 1.5 * iqr
-        upper = q3 + 1.5 * iqr
+        lower = q1 - threshold * iqr
+        upper = q3 + threshold * iqr
         capped_lower = int((df[col] < lower).sum())
         capped_upper = int((df[col] > upper).sum())
         df[col] = df[col].clip(lower=lower, upper=upper)
@@ -249,8 +262,8 @@ def _op_cap_outliers(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     elif method == "std":
         mean_val = float(clean.mean())
         std_val = float(clean.std())
-        lower = mean_val - 3 * std_val
-        upper = mean_val + 3 * std_val
+        lower = mean_val - threshold * std_val
+        upper = mean_val + threshold * std_val
         capped_lower = int((df[col] < lower).sum())
         capped_upper = int((df[col] > upper).sum())
         df[col] = df[col].clip(lower=lower, upper=upper)
@@ -328,14 +341,24 @@ def _op_fill_nulls(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
 
 
 def _op_drop_duplicates(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
+    # list_patch_ops advertises this op as `keep: first|last|False`, and the
+    # handler read only `subset` -- so a caller following the catalog and
+    # asking to keep the last of each duplicate group kept the first, and was
+    # told the op succeeded. Its sibling dedup_subset has always honoured keep.
     subset = op.get("subset", None)
+    keep = op.get("keep", "first")
+    if keep in ("False", "false", "None", "none"):
+        keep = False
+    if keep not in ("first", "last", False):
+        raise ValueError(f"Invalid keep: {keep!r}. Valid: first, last, False.")
     before = len(df)
-    df = df.drop_duplicates(subset=subset)
+    df = df.drop_duplicates(subset=subset, keep=keep)
     dropped = before - len(df)
     return df, {
         "op": "drop_duplicates",
         "dropped": dropped,
         "remaining": len(df),
+        "keep": keep,
     }
 
 
@@ -390,12 +413,19 @@ def _op_label_encode(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     col = op["column"]
     if col not in df.columns:
         raise ValueError(f"Column not found: {col}. Available: {list(df.columns)}")
+    # list_patch_ops advertises `column, new_column` and the handler read only
+    # `column`, so a caller asking for the codes in a new column got them
+    # written over the categorical they were encoding -- the labels the
+    # encoding map is expressed in were gone, and every sibling encoder
+    # (ordinal, binary, frequency) offers new_column.
+    target = op.get("new_column") or col
     unique_vals = sorted(df[col].dropna().unique().tolist(), key=str)
     encoding = {str(v): i for i, v in enumerate(unique_vals)}
-    df[col] = df[col].map({v: i for i, v in enumerate(unique_vals)})
+    df[target] = df[col].map({v: i for i, v in enumerate(unique_vals)})
     return df, {
         "op": "label_encode",
         "column": col,
+        "new_column": target,
         "encoding": encoding,
         "unique_count": len(encoding),
     }
