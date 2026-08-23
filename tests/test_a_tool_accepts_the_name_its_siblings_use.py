@@ -277,3 +277,64 @@ class TestAnAliasDoesNotMoveAnExistingArgument:
     def test_the_original_order_is_unchanged(self, fn, expected):
         names = list(inspect.signature(fn).parameters)
         assert names[: len(expected)] == expected, f"{fn.__name__} reordered its arguments"
+
+
+class TestTheWorkspaceHasOneName:
+    """Four of six workspace tools say `workspace_name`; two said `name`.
+
+    The two are `create_workspace` and `open_workspace` -- the first two anyone
+    calls. A caller who reads `list_workspace_files(workspace_name=...)` and
+    then writes the same spelling for the tool that makes the workspace is
+    refused by pydantic before any server code runs:
+
+        create_workspace(workspace_name="probe")
+        -> name: Missing required argument
+           workspace_name: Unexpected keyword argument
+
+    Found by the round-11 repeat-call probe, which could not build a second
+    identical call because the first one never landed.
+    """
+
+    @staticmethod
+    def load():
+        import importlib
+
+        p = str(ROOT / "servers" / "data_workspace")
+        if p not in sys.path:
+            sys.path.insert(0, p)
+        return importlib.import_module("servers.data_workspace.server")
+
+    def test_the_census_shows_which_spelling_is_the_convention(self):
+        params = TestTheCensusItself.tool_params()
+        assert len(params["workspace_name"]) >= len(params["name"]), (
+            f"workspace_name={params['workspace_name']} name={params['name']}"
+        )
+
+    def test_create_workspace_takes_workspace_name(self, tmp_path):
+        mod = self.load()
+        r = mod.create_workspace.fn(workspace_name="probe_ws", base_dir=str(tmp_path))
+        assert r["success"] is True, r.get("error")
+
+    def test_create_workspace_still_takes_name(self, tmp_path):
+        mod = self.load()
+        r = mod.create_workspace.fn(name="probe_ws", base_dir=str(tmp_path))
+        assert r["success"] is True, r.get("error")
+
+    def test_open_workspace_takes_workspace_name(self, tmp_path):
+        mod = self.load()
+        mod.create_workspace.fn(name="probe_ws", base_dir=str(tmp_path))
+        r = mod.open_workspace.fn(workspace_name="probe_ws", base_dir=str(tmp_path))
+        assert r["success"] is True, r.get("error")
+
+    def test_neither_spelling_names_the_missing_argument(self, tmp_path):
+        mod = self.load()
+        r = mod.create_workspace.fn(base_dir=str(tmp_path))
+        assert r["success"] is False
+        assert "workspace_name" in r["hint"], r["hint"]
+
+    def test_the_first_positional_argument_is_still_the_name(self, tmp_path):
+        # Appending the alias must not move `name` out of position 0.
+        mod = self.load()
+        r = mod.create_workspace.fn("positional_ws", "", str(tmp_path))
+        assert r["success"] is True, r.get("error")
+        assert "positional_ws" in str(r), r

@@ -18,6 +18,7 @@ from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from shared.arg_alias import missing, pick
 from shared.deploy_auth import build_oauth_bridge, build_token_verifier
 from shared.tool_annotations import CREATES, READS
 
@@ -50,16 +51,28 @@ async def version(request: Request) -> JSONResponse:
     return JSONResponse({"current": _VERSION})
 
 
+# Four of this server's six tools name the workspace `workspace_name`; these two
+# -- the first two anyone calls -- said `name`. A caller who reads
+# list_workspace_files(workspace_name=...) and then writes the same spelling here
+# is refused by pydantic before any server code runs, so the tool never gets to
+# say what it wanted. Both spellings work; `name` keeps its position so no
+# positional caller is rebound.
 @mcp.tool(annotations=CREATES)
-def create_workspace(name: str, description: str = "", base_dir: str = "") -> dict:
+def create_workspace(name: str = "", description: str = "", base_dir: str = "", workspace_name: str = "") -> dict:
     """Create workspace with data/working/trial/report dirs."""
-    return engine.create_workspace(name, description, base_dir)
+    chosen, _ = pick("create_workspace", "workspace_name", name, workspace_name)
+    if not chosen:
+        return missing("create_workspace", "workspace_name", "name")
+    return engine.create_workspace(chosen, description, base_dir)
 
 
 @mcp.tool(annotations=READS)
-def open_workspace(name: str, base_dir: str = "") -> dict:
+def open_workspace(name: str = "", base_dir: str = "", workspace_name: str = "") -> dict:
     """Open workspace. Returns file aliases, pipeline history, active file."""
-    return engine.open_workspace(name, base_dir)
+    chosen, _ = pick("open_workspace", "workspace_name", name, workspace_name)
+    if not chosen:
+        return missing("open_workspace", "workspace_name", "name")
+    return engine.open_workspace(chosen, base_dir)
 
 
 @mcp.tool(annotations=CREATES)

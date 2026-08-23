@@ -27,6 +27,7 @@ from _adv_helpers import (
 
 from shared.file_utils import embed_content, hint_for_error, resolve_path
 from shared.progress import info
+from shared.version_control import snapshot_if_exists
 
 logger = logging.getLogger(__name__)
 
@@ -535,6 +536,12 @@ def export_data(
         else:
             ext_map = {"csv": ".csv", "json": ".json", "excel": ".xlsx"}
             out = path.parent / f"{path.stem}_export{ext_map[format]}"
+
+        # An export lands wherever the caller points it, including at another
+        # dataset. Without this it overwrote one and recorded nothing:
+        # export_data(file_path="d.csv", output_path="precious.csv") returned
+        # success: true with .mcp_versions empty.
+        snapshot_if_exists(out)
 
         if format == "csv":
             df.to_csv(str(out), index=False, encoding=encoding, sep=separator)

@@ -18,6 +18,7 @@ from pathlib import Path
 
 from shared.exchange import get_output_dir
 from shared.file_utils import resolve_path
+from shared.version_control import snapshot_if_exists
 
 # ---------------------------------------------------------------------------
 # Output path — input-file-first
@@ -63,6 +64,12 @@ def get_output_path(
     else:
         out = Path.home() / "Downloads" / name
     out.parent.mkdir(parents=True, exist_ok=True)
+    # Every caller writes to what it gets back, so anything already at that path
+    # is about to be replaced. The tools that edit a dataset in place have always
+    # snapshotted first; the ones that write to an output_path never did, which
+    # made regenerating a report over an edited one -- or retrying a call that
+    # timed out -- an unrecoverable overwrite reported as success.
+    snapshot_if_exists(out)
     return out
 
 
