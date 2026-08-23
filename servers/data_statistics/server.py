@@ -124,6 +124,36 @@ def correlation_analysis(
 
 
 @mcp.tool(annotations=READS)
+def lag_correlation(
+    file_path: str,
+    date_column: str = "",
+    x_column: str = "",
+    y_column: str = "",
+    max_lag: int = 10,
+    period_unit: str = "D",
+    method: str = "pearson",
+    x_agg: str = "",
+    y_agg: str = "",
+    min_overlap: int = 8,
+    date_col: str = "",
+) -> dict:
+    """Cross-correlate two columns across lags. Returns the curve and its peak."""
+    return engine.lag_correlation(
+        file_path,
+        date_column,
+        x_column,
+        y_column,
+        max_lag,
+        period_unit,
+        method,
+        x_agg,
+        y_agg,
+        min_overlap,
+        date_col,
+    )
+
+
+@mcp.tool(annotations=READS)
 def statistical_test(
     file_path: str,
     test: str = "",

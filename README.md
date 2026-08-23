@@ -4,7 +4,7 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 
 ## Features
 
-- **69 tools** across 7 servers: workspace (6), basic (9), medium (11), transform (10), statistics (11), visual (12), ingest (10)
+- **70 tools** across 7 servers: workspace (6), basic (9), medium (11), transform (10), statistics (12), visual (12), ingest (10)
 - **LOCATE → INSPECT → PATCH → VERIFY** workflow for surgical data edits
 - **Automatic version control** — every write is snapshotted and fully restorable (Windows-safe: collision-proof timestamps)
 - **Operation receipt logging** — full audit trail of all modifications
@@ -171,7 +171,7 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
 ```
 
 4. Wait for the blue dot next to each server
-5. Start chatting — the model will see all 69 tools
+5. Start chatting — the model will see all 70 tools
 
 ### macOS / Linux
 
@@ -347,7 +347,7 @@ Focused transformation server — richer filtering, reshaping, and aggregation t
 
 ---
 
-### Tier 3 — Statistics (11 tools)
+### Tier 3 — Statistics (12 tools)
 
 | Tool | Purpose |
 |---|---|
@@ -356,6 +356,7 @@ Focused transformation server — richer filtering, reshaping, and aggregation t
 | `period_comparison` | MoM / QoQ / YoY comparison — returns delta, pct_change, direction per metric |
 | `time_series_analysis` | Trend + seasonality + rolling stats + exponential-smoothing forecast + **STL decomposition** + **ACF/PACF** + **ADF stationarity test** |
 | `correlation_analysis` | Correlation matrix (Pearson/Spearman/Kendall) + top N pairs |
+| `lag_correlation` | Lead-lag cross-correlation of two columns across a lag sweep — resamples to a regular grid, correlates at every lag, reports the peak, its lag, and a Bonferroni-adjusted p-value. `lag +k` means x leads y by k periods |
 | `cohort_analysis` | Cohort retention matrix with auto-detected identifiers |
 | `extended_stats` | Deep stats: skewness, kurtosis, percentiles, CI, MAD, CV |
 | `check_outliers` | IQR/std outlier scan |

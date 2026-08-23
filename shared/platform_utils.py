@@ -20,3 +20,15 @@ def get_max_columns() -> int:
 
 def get_max_results() -> int:
     return 10 if _constrained() else 50
+
+
+def get_max_lag() -> int:
+    """Largest lag a lag-correlation sweep may test, in periods.
+
+    The response carries one row per lag from -max_lag to +max_lag, so the cap
+    bounds the answer at 2n+1 rows. It also bounds the multiple-comparison
+    problem: every extra lag is another correlation tested against the same
+    data, and the widest sweep is the one most likely to turn up a peak that is
+    only noise.
+    """
+    return 10 if _constrained() else 30

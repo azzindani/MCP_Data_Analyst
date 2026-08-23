@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# MCP_Data_Analyst — remote smoke test, all 69 tools across 7 sub-servers.
+# MCP_Data_Analyst — remote smoke test, all 70 tools across 7 sub-servers.
 #
 # NOT part of pytest / CI (see CLAUDE.md "Remote smoke tests"). Real auth
 # enforcement + real handwritten-prompt-style tool calls on real generated
@@ -176,7 +176,7 @@ run medium compare_datasets "{\"file_path_a\":\"$SALES\",\"file_path_b\":\"$SALE
 run medium extended_stats "{\"file_path\":\"$SALES\"}" "give me extended stats"
 
 echo
-echo "===== data_statistics (11 tools) ====="
+echo "===== data_statistics (12 tools) ====="
 run statistics validate_dataset "{\"file_path\":\"$SALES\"}" "validate this dataset"
 run statistics auto_detect_schema "{\"file_path\":\"$SALES\"}" "auto-detect the schema"
 run statistics check_outliers "{\"file_path\":\"$SALES\"}" "check for outliers"
@@ -187,6 +187,7 @@ run statistics regression_analysis "{\"file_path\":\"$SALES\",\"y_col\":\"revenu
 run statistics time_series_analysis "{\"file_path\":\"$SALES\",\"date_column\":\"date\",\"value_columns\":[\"revenue\"]}" "analyze the revenue time series"
 run statistics period_comparison "{\"file_path\":\"$SALES\",\"date_col\":\"date\",\"metrics\":[\"revenue\"],\"period_unit\":\"M\"}" "compare this month to last"
 run statistics cohort_analysis "{\"file_path\":\"$SALES\",\"cohort_column\":\"region\",\"date_column\":\"date\",\"value_column\":\"revenue\"}" "run a cohort analysis by region"
+run statistics lag_correlation "{\"file_path\":\"$SALES\",\"date_column\":\"date\",\"x_column\":\"units\",\"y_column\":\"revenue\",\"max_lag\":5}" "does units lead revenue by a few days?"
 
 echo
 echo "===== data_transform (10 tools) ====="
@@ -317,7 +318,7 @@ rm -f "$SHARED_BEFORE"
 
 echo
 if [ "$FAILS" -eq 0 ]; then
-  echo "ALL 69 TOOLS PASSED against $DOMAIN"
+  echo "ALL 70 TOOLS PASSED against $DOMAIN"
 else
   echo "$FAILS TOOL(S) FAILED against $DOMAIN"
   exit 1

@@ -27,6 +27,7 @@ from _med_inspect import (  # type: ignore[import]
     validate_dataset,
 )
 from _stats_comparative import period_comparison
+from _stats_lag import lag_correlation
 from _stats_regression import regression_analysis
 
 # New statistics tools
@@ -50,4 +51,5 @@ __all__ = [
     "statistical_test",
     "regression_analysis",
     "period_comparison",
+    "lag_correlation",
 ]
