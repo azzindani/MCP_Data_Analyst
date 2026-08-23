@@ -654,22 +654,44 @@ def aggregate_dataset(
             numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c]) and c != order_by]
             target_cols = columns or numeric_cols
             df = df.sort_values(order_by)
+
+            # group_by is in this tool's schema and was accepted here, then
+            # silently dropped: the rolling ran over the whole frame. On a file
+            # holding two platforms interleaved by date, the 3-day rolling mean
+            # for Google came back 167.33 -- two Google rows averaged with a
+            # Meta row -- where the answer is 200.0. Wrong number, success: true.
+            missing_group = [c for c in (group_by or []) if c not in df.columns]
+            if missing_group:
+                return {
+                    "success": False,
+                    "error": f"group_by columns not found: {missing_group}",
+                    "hint": f"Available: {list(df.columns)}",
+                    "progress": [fail("Column not found", str(missing_group))],
+                    "token_estimate": 20,
+                }
+            if window_agg not in {"mean", "sum", "std", "min", "max"}:
+                return {
+                    "success": False,
+                    "error": f"Unknown window_agg '{window_agg}'",
+                    "hint": "Use window_agg: mean, sum, std, min or max.",
+                    "progress": [fail("Bad window_agg", window_agg)],
+                    "token_estimate": 20,
+                }
             for col in target_cols:
                 if col not in df.columns:
                     continue
                 new_col = f"{col}_window_{window_agg}{window}"
-                if window_agg == "mean":
-                    df[new_col] = df[col].rolling(window).mean()
-                elif window_agg == "sum":
-                    df[new_col] = df[col].rolling(window).sum()
-                elif window_agg == "std":
-                    df[new_col] = df[col].rolling(window).std()
-                elif window_agg == "min":
-                    df[new_col] = df[col].rolling(window).min()
-                elif window_agg == "max":
-                    df[new_col] = df[col].rolling(window).max()
+                if group_by:
+                    df[new_col] = df.groupby(group_by, sort=False)[col].transform(
+                        lambda s: getattr(s.rolling(window), window_agg)()
+                    )
+                else:
+                    df[new_col] = getattr(df[col].rolling(window), window_agg)()
+            if group_by:
+                progress.append(ok("Rolled within each group", ", ".join(group_by)))
             result_data = {
                 "order_by": order_by,
+                "group_by": list(group_by or []),
                 "window": window,
                 "window_agg": window_agg,
                 "new_columns": [f"{c}_window_{window_agg}{window}" for c in target_cols if c in df.columns],

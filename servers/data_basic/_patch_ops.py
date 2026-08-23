@@ -12,7 +12,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 from shared.file_utils import read_csv as _read_csv
-from shared.patch_validator import _FILL_STRATEGIES
+from shared.patch_validator import _FILL_STRATEGIES, GROUP_AGGS, GROUP_REDUCERS
 from shared.progress import fail, ok  # noqa: F401 — re-exported for convenience
 
 try:
@@ -1001,6 +1001,64 @@ def _op_cumulative(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
         raise ValueError(f"Unknown agg: '{agg}'. Valid: {', '.join(sorted(valid_aggs))}")
     df[new_col] = getattr(df[col], f"cum{agg}")()
     return df, {"op": "cumulative", "column": col, "new_column": new_col, "agg": agg}
+
+
+def _op_group_transform(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
+    """Compute a statistic within each group and keep every row.
+
+    The gap this fills: aggregate_dataset(mode="groupby") *reduces* -- 16,834
+    rows become one per platform -- while every op in this file works on the
+    whole frame. Neither can answer "what share of its own platform's spend is
+    this row", which is most of what gets asked of campaign data. This is
+    pandas' groupby().transform(), which had no route through the tools.
+    """
+    col = op["column"]
+    group_by = op.get("group_by") or op.get("by") or []
+    if isinstance(group_by, str):
+        group_by = [group_by]
+    agg = op.get("agg", "mean")
+    new_col = op.get("new_column") or f"{col}_{agg}_by_{'_'.join(group_by)}"
+
+    if not group_by:
+        raise ValueError("group_transform needs group_by: the column(s) that define each group.")
+    missing = [c for c in [*group_by, col] if c not in df.columns]
+    if missing:
+        raise ValueError(f"Column not found: {missing}. Available: {list(df.columns)}")
+    if agg not in GROUP_AGGS:
+        raise ValueError(f"Unknown agg: '{agg}'. Valid: {', '.join(sorted(GROUP_AGGS))}")
+    if agg not in {"count", "nunique"} and not pd.api.types.is_numeric_dtype(df[col]):
+        raise ValueError(f"Column '{col}' must be numeric for agg '{agg}'.")
+
+    grouped = df.groupby(group_by, sort=False)[col]
+    if agg in GROUP_REDUCERS:
+        df[new_col] = grouped.transform(agg)
+    elif agg == "share":
+        totals = grouped.transform("sum")
+        # A group summing to zero has no shares to give. NaN says that; the
+        # division would otherwise produce inf and travel into a chart unnoticed.
+        df[new_col] = (df[col] / totals).where(totals != 0)
+    elif agg == "pct_of_max":
+        peaks = grouped.transform("max")
+        df[new_col] = (df[col] / peaks).where(peaks != 0)
+    elif agg == "rank":
+        df[new_col] = grouped.rank(method=op.get("method", "dense"), ascending=not op.get("descending", False))
+    elif agg == "cumsum":
+        df[new_col] = grouped.cumsum()
+    elif agg == "diff_from_mean":
+        df[new_col] = df[col] - grouped.transform("mean")
+    elif agg == "zscore":
+        spread = grouped.transform("std")
+        df[new_col] = ((df[col] - grouped.transform("mean")) / spread).where(spread != 0)
+
+    return df, {
+        "op": "group_transform",
+        "column": col,
+        "group_by": list(group_by),
+        "agg": agg,
+        "new_column": new_col,
+        "groups": int(df.groupby(group_by, sort=False).ngroups),
+        "null_count": int(df[new_col].isna().sum()),
+    }
 
 
 # ---------------------------------------------------------------------------

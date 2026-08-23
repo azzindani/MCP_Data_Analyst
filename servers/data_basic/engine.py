@@ -69,6 +69,7 @@ from _patch_ops import (
     _op_filter_regex,
     _op_filter_top_n,
     _op_frequency_encode,
+    _op_group_transform,
     _op_label_encode,
     _op_lag,
     _op_lead,
@@ -764,6 +765,7 @@ _OP_HANDLERS = {
     "rolling_agg": _op_rolling_agg,
     "ewm": _op_ewm,
     "cumulative": _op_cumulative,
+    "group_transform": _op_group_transform,
     # --- arithmetic & structural ---
     "column_math": _op_column_math,
     "conditional_assign": _op_conditional_assign,
@@ -1105,6 +1107,16 @@ _OP_CATALOG: dict[str, list[dict]] = {
         {"op": "rolling_agg", "params": "column, window: int, agg: mean|std|min|max|sum, new_column"},
         {"op": "ewm", "params": "column, span: int, new_column"},
         {"op": "cumulative", "params": "column, agg: sum|prod|max|min, new_column"},
+    ],
+    "grouped": [
+        {
+            "op": "group_transform",
+            "params": (
+                "group_by: list[str], column, new_column, agg: "
+                "sum|mean|median|max|min|std|count|nunique|"
+                "share|rank|cumsum|zscore|diff_from_mean|pct_of_max"
+            ),
+        },
     ],
     "structural": [
         {"op": "column_math", "params": "formula: 'col_a + col_b', target_column"},

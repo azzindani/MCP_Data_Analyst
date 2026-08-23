@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+# The group_transform vocabulary lives here, not beside the handler, because
+# the validator and the handler must never disagree about what is legal --
+# _patch_ops imports these back. Reducers collapse a group to one number and
+# broadcast it to that group's rows; row-wise aggs give each row its own value
+# relative to its group.
+GROUP_REDUCERS: frozenset[str] = frozenset({"sum", "mean", "median", "max", "min", "std", "count", "nunique"})
+GROUP_ROWWISE: frozenset[str] = frozenset({"share", "rank", "cumsum", "zscore", "diff_from_mean", "pct_of_max"})
+GROUP_AGGS: frozenset[str] = GROUP_REDUCERS | GROUP_ROWWISE
+
 VALID_OPS: frozenset[str] = frozenset(
     {
         # original
@@ -52,6 +61,7 @@ VALID_OPS: frozenset[str] = frozenset(
         "rolling_agg",
         "ewm",
         "cumulative",
+        "group_transform",
         # arithmetic & structural
         "column_math",
         "conditional_assign",
@@ -297,6 +307,18 @@ def validate_ops(ops: list[dict]) -> list[str]:
         elif op_name in ("lag", "lead", "diff", "pct_change", "ewm", "cumulative"):
             if "column" not in op:
                 errors.append(f"{prefix} ({op_name}): missing 'column'")
+
+        elif op_name == "group_transform":
+            if "column" not in op:
+                errors.append(f"{prefix} (group_transform): missing 'column'")
+            by = op.get("group_by") or op.get("by")
+            if not by:
+                errors.append(f"{prefix} (group_transform): missing 'group_by' (the column(s) defining each group)")
+            elif not isinstance(by, (list, str)):
+                errors.append(f"{prefix} (group_transform): 'group_by' must be a column name or a list of them")
+            agg = op.get("agg", "mean")
+            if agg not in GROUP_AGGS:
+                errors.append(f"{prefix} (group_transform): invalid agg '{agg}'. Valid: {' '.join(sorted(GROUP_AGGS))}")
 
         elif op_name == "rolling_agg":
             if "column" not in op:
