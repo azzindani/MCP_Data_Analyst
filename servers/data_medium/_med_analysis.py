@@ -51,7 +51,7 @@ from _med_helpers import (
     _token_estimate,
 )
 
-from shared.column_utils import infer_agg, is_numeric_col
+from shared.column_utils import infer_agg, is_numeric_col, paired_numeric
 from shared.file_utils import hint_for_error, resolve_path
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
@@ -269,10 +269,8 @@ def statistical_tests(
             for i, ca in enumerate(num_cols):
                 for cb in num_cols[i + 1 :]:
                     try:
-                        _r, _p = scipy_stats.pearsonr(
-                            df[ca].dropna().iloc[: len(df[cb].dropna())],
-                            df[cb].dropna().iloc[: len(df[ca].dropna())],
-                        )
+                        _a, _b = paired_numeric(df, ca, cb)
+                        _r, _p = scipy_stats.pearsonr(_a, _b)
                         correlations.append(
                             {
                                 "col_a": ca,
@@ -280,6 +278,7 @@ def statistical_tests(
                                 "r": round(float(_r), 3),
                                 "p_value": round_p(float(_p)),
                                 "significant": bool(float(_p) < 0.05),
+                                "n": int(len(_a)),
                             }
                         )
                     except Exception:
@@ -406,14 +405,19 @@ def statistical_tests(
                     "progress": [fail("Invalid correlation params", "")],
                     "token_estimate": 20,
                 }
-            a = pd.to_numeric(df[column_a], errors="coerce").dropna()
-            b = pd.to_numeric(df[column_b], errors="coerce").dropna()
-            min_len = min(len(a), len(b))
-            stat, pval = scipy_stats.pearsonr(a.iloc[:min_len], b.iloc[:min_len])
+            # Pairwise deletion: row i of one column has to be compared with
+            # row i of the other. Dropping each column's nulls separately and
+            # cutting both to the shorter length offsets every pair after the
+            # first null, which turned r=0.9256 into r=0.0015 on the reference
+            # dataset -- see paired_numeric.
+            a, b = paired_numeric(df, column_a, column_b)
+            stat, pval = scipy_stats.pearsonr(a, b)
             test_result = {
                 "test": "Pearson Correlation",
                 "statistic": round(float(stat), 4),
                 "p_value": round_p(float(pval)),
+                "n": int(len(a)),
+                "rows_dropped": int(len(df) - len(a)),
                 "significant": float(pval) < 0.05,
                 "interpretation": (
                     f"Correlation r={round(float(stat), 3)}, "
@@ -528,10 +532,9 @@ def statistical_tests(
 
         elif test_type == "wilcoxon":
             if column_a and column_b:
-                a = pd.to_numeric(df[column_a], errors="coerce").dropna()
-                b = pd.to_numeric(df[column_b], errors="coerce").dropna()
-                min_len = min(len(a), len(b))
-                stat, pval = scipy_stats.wilcoxon(a.iloc[:min_len], b.iloc[:min_len])
+                # Paired, so the pairs have to be real rows -- see paired_numeric.
+                a, b = paired_numeric(df, column_a, column_b)
+                stat, pval = scipy_stats.wilcoxon(a, b)
             else:
                 return {
                     "success": False,

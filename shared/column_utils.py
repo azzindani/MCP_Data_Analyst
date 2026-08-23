@@ -184,3 +184,36 @@ def missing_column_error(cond: dict) -> tuple[str, str]:
         f'Give the column under "column" — {", ".join(COLUMN_KEYS[1:])} are accepted too. '
         'A condition looks like {"column": "spends", "op": "gt", "value": 0}.',
     )
+
+
+def paired_numeric(df: pd.DataFrame, col_a: str, col_b: str) -> tuple[pd.Series, pd.Series]:
+    """Two numeric columns as aligned pairs, dropping rows either one is null in.
+
+    A paired test compares row i of one column against row i of the other, so
+    the two series have to come out of the same rows. Dropping the nulls from
+    each column *separately* and then cutting both to the shorter length looks
+    equivalent and is not: after the first null, every pair is offset by one,
+    and the offset grows with each null after it.
+
+        a = to_numeric(df[col_a]).dropna()
+        b = to_numeric(df[col_b]).dropna()
+        n = min(len(a), len(b))
+        pearsonr(a.iloc[:n], b.iloc[:n])
+
+    On the reference dataset, clicks against link_clicks -- 546 nulls out of
+    16,834, the first at row 2,011:
+
+        as written           r = 0.0015   p = 0.847257   "not significant"
+        pairwise deletion    r = 0.9256   p < 1e-300     n = 16,288
+
+    A near-perfect correlation reported as no correlation at all, deterministic,
+    under success: true. Pairwise deletion is what every stats package means by
+    dropping missing values from a paired test.
+    """
+    pair = pd.DataFrame(
+        {
+            "a": pd.to_numeric(df[col_a], errors="coerce"),
+            "b": pd.to_numeric(df[col_b], errors="coerce"),
+        }
+    ).dropna()
+    return pair["a"], pair["b"]

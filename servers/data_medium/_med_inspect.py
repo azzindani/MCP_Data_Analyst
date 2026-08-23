@@ -1042,7 +1042,32 @@ def extended_stats(
             }
 
         df = _read_csv(str(path))
-        pcts = percentiles or [5, 10, 25, 50, 75, 90, 95, 99]
+        # The default list is whole percentages, so the code divided by 100 and
+        # keyed on int(p). A caller passing pandas' convention -- [0.25, 0.5,
+        # 0.75] -- therefore got int() of each, which is 0 for all three: one
+        # key "p0" holding the 0.75th percentile, while percentiles_computed
+        # echoed the request back as if all three had been honoured.
+        #
+        # Both conventions are reasonable and they are distinguishable: a list
+        # whose values are all <= 1 can only be fractions, because p1 through
+        # p100 as percentages are never all <= 1 unless the caller asked for
+        # the 1st percentile alone, where the two readings agree to within the
+        # 1st percentile itself. Keys are formatted so 2.5 and 25 stay
+        # different names.
+        pcts = list(percentiles) if percentiles else [5, 10, 25, 50, 75, 90, 95, 99]
+        bad = [p for p in pcts if not 0 <= float(p) <= 100]
+        if bad:
+            return {
+                "success": False,
+                "error": f"Percentiles out of range: {bad}",
+                "hint": "Give percentiles as 0-100 (25, 50, 75) or as fractions (0.25, 0.5, 0.75).",
+                "progress": [fail("Invalid percentiles", str(bad))],
+                "token_estimate": 20,
+            }
+        as_fractions = bool(pcts) and all(float(p) <= 1 for p in pcts)
+        if as_fractions:
+            pcts = [float(p) * 100 for p in pcts]
+        pcts = sorted({float(p) for p in pcts})
         target_cols = columns or [c for c in df.columns if is_numeric_col(df[c])]
 
         missing = [c for c in target_cols if c not in df.columns]
@@ -1089,7 +1114,7 @@ def extended_stats(
                 kurt_label = "approximately normal tails"
 
             # Percentiles
-            pct_vals = {f"p{int(p)}": round(float(series.quantile(p / 100)), 4) for p in pcts}
+            pct_vals = {f"p{p:g}": round(float(series.quantile(p / 100)), 4) for p in pcts}
 
             # Coefficient of variation
             cv = round(std_val / mean_val, 4) if mean_val != 0 else None
