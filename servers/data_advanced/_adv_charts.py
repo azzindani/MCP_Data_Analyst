@@ -81,10 +81,17 @@ def generate_distribution_plot(
             }
 
         n = len(cols_to_plot)
+        # make_subplots consumes subplot_titles row-major: (r1c1, r1c2, r2c1...).
+        # Listing every histogram title and then every box-plot title handed that
+        # row-major reader a column-major list, so each panel was captioned with
+        # another panel's name -- "impressions — Histogram" sat over a box plot
+        # of spends, and four of six panels in a three-column report were wrong.
+        # With one column the two orders coincide, which is why nothing caught
+        # it. Each row is one column's pair, so the titles pair up the same way.
         fig = make_subplots(
             rows=n,
             cols=2,
-            subplot_titles=[f"{c} — Histogram" for c in cols_to_plot] + [f"{c} — Box Plot" for c in cols_to_plot],
+            subplot_titles=[title for c in cols_to_plot for title in (f"{c} — Histogram", f"{c} — Box Plot")],
             vertical_spacing=0.3 / n,
         )
 
