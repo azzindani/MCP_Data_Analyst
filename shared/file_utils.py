@@ -28,6 +28,7 @@ from shared.exchange import (
 from shared.plotly_bundle import MAX_EMBED_BYTES
 
 __all__ = [
+    "count_data_rows",
     "apply_default_mode",
     "atomic_write",
     "atomic_write_text",
@@ -135,6 +136,30 @@ def read_csv(
 
     df.columns = df.columns.str.strip()
     return df
+
+
+def count_data_rows(path: Path | str) -> int:
+    """Rows of data in a CSV, header excluded, without parsing it.
+
+    A tool that samples the first N rows needs to be able to say what fraction
+    of the file that was: `rows_sampled: 1000` reads the same whether the file
+    has 1,000 rows or 16,834. Counting lines on a 1.9 MB file costs
+    milliseconds against a full parse.
+
+    Blank lines are skipped, because pandas skips them too and this number is
+    meant to be comparable with the frame's length. A field containing a
+    quoted newline would still be counted as two lines, so treat the result as
+    an upper bound on a file that has them; it is exact for everything else.
+    """
+    try:
+        rows = 0
+        with open(path, "rb") as fh:
+            for line in fh:
+                if line.strip():
+                    rows += 1
+        return max(0, rows - 1)  # the header is not data
+    except OSError:
+        return 0
 
 
 def atomic_write(target: Path | str, content: bytes) -> None:

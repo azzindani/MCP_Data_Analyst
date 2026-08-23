@@ -44,6 +44,7 @@ from _med_helpers import (
 )
 
 from shared.column_utils import condition_column, missing_column_error
+from shared.file_utils import count_data_rows as _count_data_rows
 from shared.file_utils import hint_for_error, resolve_path
 from shared.platform_utils import get_max_results, get_max_rows
 from shared.progress import fail, info, ok, warn
@@ -487,6 +488,17 @@ def auto_detect_schema(
             }
 
         df = _read_csv(str(path), max_rows=max_rows)
+        # Everything below is inferred from the sample, and `current_dtype` in
+        # particular is a fact about the sample presented as a fact about the
+        # column. On the reference dataset the first null in link_clicks is at
+        # row 2,011, so a 1,000-row sample sees a gapless integer column and
+        # reports int64 -- while the file is float64 with 546 nulls, which is
+        # what inspect_dataset and validate_dataset say about the same column
+        # on the same server. The low cardinality of those first rows also made
+        # it "category_encoded". Neither reading is wrong about what was read;
+        # the response just never said how little that was.
+        total_rows = _count_data_rows(path)
+        sampled = total_rows > len(df)
         suggestions = []
         column_info = {}
 
@@ -546,10 +558,18 @@ def auto_detect_schema(
             "op": "auto_detect_schema",
             "file_path": str(path),
             "file": path.name,
-            "rows_sampled": min(max_rows, len(df)),
+            "rows_sampled": len(df),
+            "total_rows": total_rows,
+            "inferred_from_sample": sampled,
             "columns": column_info,
             "suggestions": suggestions,
-            "hint": "Call apply_patch() or run_cleaning_pipeline() to act on findings.",
+            "hint": (
+                f"Types come from the first {len(df):,} of {total_rows:,} rows; a dtype or null "
+                "count for the whole column comes from inspect_dataset(). Raise max_rows to widen "
+                "the sample, or call apply_patch() / run_cleaning_pipeline() to act on findings."
+                if sampled
+                else "Call apply_patch() or run_cleaning_pipeline() to act on findings."
+            ),
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
