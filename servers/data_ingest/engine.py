@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import logging
 import sys
 from pathlib import Path
@@ -36,6 +37,67 @@ _FMT_EXT = {"csv": ".csv", "json": ".json", "parquet": ".parquet", "excel": ".xl
 
 def _token_estimate(obj: object) -> int:
     return len(str(obj)) // 4
+
+
+def _widest_row(path: Path) -> int:
+    """Field count of the widest row in a CSV, honouring quoting."""
+    width = 0
+    with open(path, newline="", encoding="utf-8", errors="replace") as fh:
+        for row in csv.reader(fh):
+            width = max(width, len(row))
+    return width
+
+
+def _first_row(path: Path) -> list[str]:
+    """The first row's fields, honouring quoting."""
+    with open(path, newline="", encoding="utf-8", errors="replace") as fh:
+        for row in csv.reader(fh):
+            return row
+    return []
+
+
+def read_csv_ragged(path: Path, header: int | None = 0) -> pd.DataFrame:
+    """Read a CSV whose rows disagree about how many fields they have.
+
+    pandas fixes the column count from the first row it reads and raises
+    ParserError the moment a later row is wider:
+
+        Error tokenizing data. C error: Expected 1 fields in line 3, saw 16
+
+    That is the ordinary shape of the files this server exists to repair -- a
+    title line above a table, a sheet exported with a short header row, a
+    "generated on ..." banner. So promote_header(), trim_empty() and
+    normalize_headers() each refused the exact input they were written for,
+    and the error named a pandas internal rather than anything the caller
+    could act on.
+
+    The well-formed path is unchanged and pays nothing: a plain read is tried
+    first, and the file is only re-scanned for its true width after pandas has
+    already refused it. Short rows are then padded with NaN, which is what a
+    spreadsheet shows for the same cells.
+    """
+    try:
+        return pd.read_csv(str(path), header=header)
+    except pd.errors.ParserError:
+        # Only a width the whole file agrees on can rescue this; if the file
+        # has no rows at all, the original ParserError is the honest answer.
+        width = _widest_row(path)
+        if width == 0:
+            raise
+
+    if header is None:
+        return pd.read_csv(str(path), names=range(width))
+
+    # Take the header off with the csv module and let pandas infer dtypes from
+    # the data rows alone -- leaving the header in place would make every
+    # column object-typed.
+    names = _first_row(path)
+    columns = [
+        str(names[i]).strip() if i < len(names) and str(names[i]).strip() else f"Unnamed: {i}" for i in range(width)
+    ]
+    frame = pd.read_csv(str(path), names=range(width), skiprows=1)
+    frame.columns = columns
+    return frame
 
 
 def _resolve_sheet(wb, sheet: str):
@@ -680,7 +742,7 @@ def normalize_headers(
                 "token_estimate": 20,
             }
 
-        df = pd.read_csv(str(path))
+        df = read_csv_ragged(path)
         old_cols = list(df.columns)
         new_cols: list[str] = []
         assigned: set[str] = set()
@@ -786,7 +848,7 @@ def trim_empty(file_path: str, output_path: str = "", dry_run: bool = False) -> 
                 "token_estimate": 20,
             }
 
-        df = pd.read_csv(str(path))
+        df = read_csv_ragged(path)
         rows_before = len(df)
         cols_before = len(df.columns)
 
@@ -884,7 +946,7 @@ def promote_header(file_path: str, row_index: int = 0, output_path: str = "", dr
                 "token_estimate": 20,
             }
 
-        df = pd.read_csv(str(path), header=None)
+        df = read_csv_ragged(path, header=None)
         if row_index < 0 or row_index >= len(df):
             return {
                 "success": False,
@@ -1177,7 +1239,7 @@ def convert_file(
             other_sheets = [n for n in names if n != sheet_used]
             df = xl.parse(sheet_used)
         elif ext == ".csv":
-            df = pd.read_csv(str(path))
+            df = read_csv_ragged(path)
         elif ext == ".json":
             df = pd.read_json(str(path))
         elif ext == ".parquet":

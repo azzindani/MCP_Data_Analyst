@@ -276,4 +276,14 @@ def hint_for_error(exc: Exception, fallback: str) -> str:
         return "Ran out of memory. Filter or sample the dataset before retrying."
     if isinstance(exc, UnicodeDecodeError):
         return "The file is not valid UTF-8. Pass encoding= (e.g. latin-1) to load_dataset."
+    if isinstance(exc, pd.errors.ParserError):
+        # "Expected 1 fields in line 3, saw 16" names a pandas internal and
+        # nothing the caller can act on. It always means the same thing: the
+        # rows disagree about how many fields they have, usually a title or
+        # "generated on ..." banner sitting above the real table.
+        return (
+            "The file's rows have different numbers of fields — usually a title or banner "
+            "line above the real table. Call promote_header() to make the real header row "
+            "the header, or trim_empty() to drop the junk, then retry."
+        )
     return fallback
