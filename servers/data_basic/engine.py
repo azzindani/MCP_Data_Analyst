@@ -974,6 +974,18 @@ def restore_version(
         restore(str(path), backup_path)
         progress.append(ok(f"Restored {path.name}", backup_name))
 
+        # A restore replaces the dataset's entire contents, which makes it the
+        # single event most worth being able to look up later -- and it was the
+        # one write on this server that recorded nothing. read_receipt showed
+        # every apply_patch and no sign that any of them had been rolled back.
+        append_receipt(
+            str(path),
+            tool="restore_version",
+            args={"timestamp": timestamp},
+            result=f"restored from {backup_name}",
+            backup=counter_backup,
+        )
+
         result = {
             "success": True,
             "op": "restore_version",
