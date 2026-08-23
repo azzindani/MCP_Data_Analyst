@@ -282,9 +282,12 @@ def export_data(
     separator: str = ",",
     open_after: bool = True,
     return_content: bool = False,
+    output_format: str = "",
 ) -> dict:
     """Export dataset to CSV, Excel, or JSON format."""
-    return engine.export_data(file_path, output_path, format, encoding, separator, open_after, return_content)
+    return engine.export_data(
+        file_path, output_path, format, encoding, separator, open_after, return_content, output_format
+    )
 
 
 @mcp.tool()

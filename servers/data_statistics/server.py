@@ -125,7 +125,7 @@ def correlation_analysis(
 @mcp.tool()
 def statistical_test(
     file_path: str,
-    test: str,
+    test: str = "",
     column_a: str = "",
     column_b: str = "",
     group_column: str = "",
@@ -135,6 +135,7 @@ def statistical_test(
     posthoc: bool = False,
     correction: str = "",
     hypothesized_mean: float = 0.0,
+    test_type: str = "",
 ) -> dict:
     """Run stat test. test: shapiro_wilk t_test anova chi_square mann_whitney kruskal."""
     return engine.statistical_test(
@@ -149,23 +150,26 @@ def statistical_test(
         posthoc,
         correction,
         hypothesized_mean,
+        test_type,
     )
 
 
 @mcp.tool()
 def regression_analysis(
     file_path: str,
-    y_col: str,
-    x_cols: list[str],
+    y_col: str = "",
+    x_cols: list[str] = None,
     model_type: str = "ols",
     interaction_terms: list[str] = None,
     output_path: str = "",
     open_after: bool = True,
     theme: str = "device",
+    y_column: str = "",
+    x_columns: list[str] = None,
 ) -> dict:
     """OLS or logistic regression. Returns coefs p-values R2 RMSE diagnostics."""
     return engine.regression_analysis(
-        file_path, y_col, x_cols, model_type, interaction_terms, output_path, theme, open_after
+        file_path, y_col, x_cols, model_type, interaction_terms, output_path, theme, open_after, y_column, x_columns
     )
 
 
@@ -186,15 +190,16 @@ def time_series_analysis(
 @mcp.tool()
 def period_comparison(
     file_path: str,
-    date_col: str,
-    metrics: list[str],
-    period_unit: str,
+    date_col: str = "",
+    metrics: list[str] = None,
+    period_unit: str = "",
     current_period: str = "",
     compare_to: str = "previous",
     group_by: str = "",
     output_path: str = "",
     open_after: bool = True,
     theme: str = "device",
+    date_column: str = "",
 ) -> dict:
     """Compare periods: MoM QoQ YoY. Returns delta pct_change direction."""
     return engine.period_comparison(
@@ -208,6 +213,7 @@ def period_comparison(
         output_path,
         theme,
         open_after,
+        date_column,
     )
 
 

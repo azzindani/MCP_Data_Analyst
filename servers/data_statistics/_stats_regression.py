@@ -17,6 +17,7 @@ for _p in (str(_ROOT), _MED):
 import numpy as np
 import pandas as pd
 
+from shared.arg_alias import missing, pick, pick_list
 from shared.file_utils import read_csv as _read_csv
 from shared.file_utils import resolve_path
 from shared.progress import fail, info, ok, warn
@@ -94,16 +95,28 @@ def _coefficient_chart(
 
 def regression_analysis(
     file_path: str,
-    y_col: str,
-    x_cols: list[str],
+    y_col: str = "",
+    x_cols: list[str] = None,
     model_type: str = "ols",
     interaction_terms: list[str] = None,
     output_path: str = "",
     theme: str = "device",
     open_after: bool = False,
+    y_column: str = "",
+    x_columns: list[str] = None,
 ) -> dict:
     """OLS or logistic regression with coefficients, p-values, R², diagnostics."""
     progress = []
+    # Every other tool that names an axis spells it x_column / y_column.
+    y_col, y_note = pick("regression_analysis", "y_col", y_col, y_column)
+    if not y_col:
+        return missing("regression_analysis", "y_col", "y_column")
+    x_cols, x_note = pick_list("regression_analysis", "x_cols", x_cols, x_columns)
+    if not x_cols:
+        return missing("regression_analysis", "x_cols", "x_columns")
+    for note in (y_note, x_note):
+        if note:
+            progress.append(info("Argument alias", note))
     if _sm is None or _vif is None:
         return {
             "success": False,

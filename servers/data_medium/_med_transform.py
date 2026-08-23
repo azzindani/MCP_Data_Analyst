@@ -32,6 +32,7 @@ from _patch_ops import (  # type: ignore[import-not-found]
     _op_replace_values,
 )
 
+from shared.arg_alias import missing, pick, pick_list
 from shared.file_utils import resolve_path
 from shared.patch_validator import validate_ops
 from shared.platform_utils import get_max_rows
@@ -1080,15 +1081,26 @@ _VALID_AGGS = frozenset({"sum", "mean", "count", "min", "max", "median", "std", 
 
 def resample_timeseries(
     file_path: str,
-    date_col: str,
+    date_col: str = "",
     freq: str = "M",
     agg_func: str = "sum",
     value_cols: list[str] = None,
     group_by: str = None,
     output_path: str = "",
     dry_run: bool = False,
+    date_column: str = "",
+    value_columns: list[str] = None,
 ) -> dict:
     progress = []
+    # Four sibling tools spell these date_column and value_columns.
+    date_col, note = pick("resample_timeseries", "date_col", date_col, date_column)
+    if not date_col:
+        return missing("resample_timeseries", "date_col", "date_column")
+    if note:
+        progress.append(info("Argument alias", note))
+    if not value_cols and value_columns:
+        value_cols = list(value_columns)
+        progress.append(info("Argument alias", "Read value_cols from an accepted alternative spelling"))
     try:
         path = resolve_path(file_path)
         if not path.exists():

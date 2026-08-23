@@ -1125,7 +1125,9 @@ def _op_split_column(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     col = op["column"]
     delimiter = op.get("delimiter", " ")
     new_columns = op.get("new_columns")
-    drop_original = op.get("drop_original", False)
+    # The sibling op combine_columns spells this drop_originals; a caller who
+    # used that one first sends the plural here and it is silently ignored.
+    drop_original = op.get("drop_original", op.get("drop_originals", False))
     n_splits = int(op.get("n_splits", -1))
     if col not in df.columns:
         raise ValueError(f"Column not found: {col}. Available: {list(df.columns)}")
@@ -1156,7 +1158,8 @@ def _op_combine_columns(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]
     columns = op["columns"]
     delimiter = op.get("delimiter", " ")
     new_col = op.get("new_column", "_".join(columns))
-    drop_originals = op.get("drop_originals", False)
+    # ... and the singular from split_column arrives here just as often.
+    drop_originals = op.get("drop_originals", op.get("drop_original", False))
     missing = [c for c in columns if c not in df.columns]
     if missing:
         raise ValueError(f"Columns not found: {missing}. Available: {list(df.columns)}")

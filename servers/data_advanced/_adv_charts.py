@@ -26,6 +26,7 @@ from _adv_helpers import (
 )
 
 from shared.file_utils import embed_content, resolve_path
+from shared.progress import info
 
 logger = logging.getLogger(__name__)
 
@@ -497,9 +498,15 @@ def export_data(
     separator: str = ",",
     open_after: bool = True,
     return_content: bool = False,
+    output_format: str = "",
 ) -> dict:
     """Export dataset to CSV, Excel, or JSON format."""
     progress = []
+    # convert_file, the other tool that changes a file's format, calls this
+    # output_format.
+    if output_format:
+        format = output_format
+        progress.append(info("Argument alias", "Read format from an accepted alternative spelling"))
     try:
         path = resolve_path(file_path)
         if not path.exists():

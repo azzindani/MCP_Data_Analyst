@@ -17,6 +17,7 @@ for _p in (str(_ROOT), _MED):
 import numpy as np
 import pandas as pd
 
+from shared.arg_alias import missing, pick
 from shared.file_utils import read_csv as _read_csv
 from shared.file_utils import resolve_path
 from shared.progress import fail, info, ok, warn
@@ -93,18 +94,47 @@ def _comparison_chart(
 
 def period_comparison(
     file_path: str,
-    date_col: str,
-    metrics: list[str],
-    period_unit: str,
+    date_col: str = "",
+    metrics: list[str] = None,
+    period_unit: str = "",
     current_period: str = "",
     compare_to: str = "previous",
     group_by: str = "",
     output_path: str = "",
     theme: str = "device",
     open_after: bool = False,
+    date_column: str = "",
 ) -> dict:
     """Compare MoM/QoQ/YoY metrics. Returns delta, pct_change, direction."""
     progress = []
+    # time_series_analysis and cohort_analysis, in the same server, say date_column.
+    date_col, note = pick("period_comparison", "date_col", date_col, date_column)
+    if not date_col:
+        return missing("period_comparison", "date_col", "date_column")
+    if note:
+        progress.append(info("Argument alias", note))
+    # A parameter with a default cannot precede one without, so accepting
+    # date_column made these two optional in the signature. They are still
+    # required in fact, and refusing here keeps the message as clear as
+    # pydantic's was.
+    if not metrics:
+        return {
+            "success": False,
+            "op": "period_comparison",
+            "error": "period_comparison needs metrics",
+            "hint": "Pass metrics=['spends'] — the numeric columns to compare across periods.",
+            "progress": [fail("Missing argument", "metrics")],
+            "token_estimate": 25,
+        }
+    if not period_unit:
+        return {
+            "success": False,
+            "op": "period_comparison",
+            "error": "period_comparison needs period_unit",
+            "hint": "Pass period_unit= one of: D, W, M, Q, Y.",
+            "progress": [fail("Missing argument", "period_unit")],
+            "token_estimate": 25,
+        }
     try:
         path = resolve_path(file_path)
         if not path.exists():

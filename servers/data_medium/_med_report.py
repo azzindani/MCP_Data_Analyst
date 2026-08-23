@@ -31,9 +31,11 @@ from _med_helpers import (
     _token_estimate,
 )
 
+from shared.arg_alias import missing as missing_arg
+from shared.arg_alias import pick
 from shared.file_utils import resolve_path
 from shared.platform_utils import get_max_rows
-from shared.progress import fail, ok, warn
+from shared.progress import fail, info, ok, warn
 
 logger = logging.getLogger(__name__)
 
@@ -397,12 +399,26 @@ def value_counts(
 
 
 def compare_datasets(
-    file_path_a: str,
-    file_path_b: str,
+    file_path_a: str = "",
+    file_path_b: str = "",
     key_columns: list[str] = None,
+    file_path: str = "",
+    right_file_path: str = "",
 ) -> dict:
     """Compare two CSVs: schema diff, row counts, value changes."""
     progress = []
+    # 60 tools in this repo call the dataset file_path; this is the one that
+    # does not, and merge_datasets -- the other two-file tool -- spells the
+    # second one right_file_path.
+    file_path_a, a_note = pick("compare_datasets", "file_path_a", file_path_a, file_path)
+    if not file_path_a:
+        return missing_arg("compare_datasets", "file_path_a", "file_path")
+    file_path_b, b_note = pick("compare_datasets", "file_path_b", file_path_b, right_file_path)
+    if not file_path_b:
+        return missing_arg("compare_datasets", "file_path_b", "right_file_path")
+    for note in (a_note, b_note):
+        if note:
+            progress.append(info("Argument alias", note))
     try:
         path_a = resolve_path(file_path_a)
         path_b = resolve_path(file_path_b)

@@ -185,14 +185,37 @@ def correlation_analysis(
 # ---------------------------------------------------------------------------
 
 
+# statistical_test on the statistics server names these two differently, and
+# they are the same test: its `t_test` is the independent-samples one, and
+# `correlation` here is Pearson and nothing else.
+#
+# Only exact synonyms belong here. `paired_t_test`, `one_sample_t`, `spearman`
+# and `kendall` all look mappable and are not -- this tool cannot run them, so
+# accepting them would answer a different question than the caller asked under
+# success: true. They stay refused, with the valid list in the hint.
+_SIBLING_TEST_NAMES = {
+    "t_test": "ttest",
+    "pearson": "correlation",
+}
+
+
 def statistical_tests(
     file_path: str,
     test_type: str = "",
     column_a: str = "",
     column_b: str = "",
     group_column: str = "",
+    test: str = "",
 ) -> dict:
     progress = []
+    # statistical_test on the statistics server spells this same choice `test`.
+    # Blank is legitimate here -- this tool auto-selects a test -- so only the
+    # alias having supplied the value is worth logging.
+    if not test_type and test:
+        test_type = test
+        progress.append(info("Argument alias", "Read test_type from an accepted alternative spelling"))
+    # ... and spells the same tests t_test, pearson, spearman and kendall.
+    test_type = _SIBLING_TEST_NAMES.get(test_type, test_type)
     if not _SCIPY_OK:
         return {
             "success": False,

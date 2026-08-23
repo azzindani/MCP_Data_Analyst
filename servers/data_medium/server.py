@@ -137,9 +137,10 @@ def sample_data(
     random_state: int = 42,
     output_path: str = "",
     open_after: bool = True,
+    top_n: int = 0,
 ) -> dict:
     """Sample rows from dataset. methods: random head tail."""
-    return engine.sample_data(file_path, method, n, random_state, output_path, open_after)
+    return engine.sample_data(file_path, method, n, random_state, output_path, open_after, top_n)
 
 
 @mcp.tool()
@@ -149,9 +150,10 @@ def statistical_tests(
     column_a: str = "",
     column_b: str = "",
     group_column: str = "",
+    test: str = "",
 ) -> dict:
     """Auto-select and run statistical tests: t-test ANOVA chi-square correlation."""
-    return engine.statistical_tests(file_path, test_type, column_a, column_b, group_column)
+    return engine.statistical_tests(file_path, test_type, column_a, column_b, group_column, test)
 
 
 @mcp.tool()
@@ -174,12 +176,14 @@ def detect_anomalies(
 
 @mcp.tool()
 def compare_datasets(
-    file_path_a: str,
-    file_path_b: str,
+    file_path_a: str = "",
+    file_path_b: str = "",
     key_columns: list[str] = None,
+    file_path: str = "",
+    right_file_path: str = "",
 ) -> dict:
     """Compare two CSVs: schema diff, row counts, value changes."""
-    return engine.compare_datasets(file_path_a, file_path_b, key_columns)
+    return engine.compare_datasets(file_path_a, file_path_b, key_columns, file_path, right_file_path)
 
 
 @mcp.tool()

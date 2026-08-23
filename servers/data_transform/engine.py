@@ -304,6 +304,13 @@ def reshape_dataset(
     """Reshape data. mode: pivot melt split_column combine_columns transpose."""
     progress = []
     backup = None
+    # One tool, two flags for "drop what I consumed", one letter apart:
+    # mode=split_column reads drop_original, mode=combine_columns reads
+    # drop_originals. Sending the wrong one is a valid argument, so pydantic
+    # accepts it and the mode ignores it -- success: true and the source
+    # columns still in the output. Honour either.
+    drop_original = drop_original or drop_originals
+    drop_originals = drop_original
     valid_modes = {"pivot", "melt", "split_column", "combine_columns", "transpose"}
     try:
         if mode not in valid_modes:
@@ -496,10 +503,26 @@ def aggregate_dataset(
     window_agg: str = "mean",
     output_path: str = "",
     dry_run: bool = False,
+    row_column: str = "",
+    col_column: str = "",
+    values_column: str = "",
 ) -> dict:
     """Aggregate data. mode: groupby crosstab value_counts describe window."""
     progress = []
     backup = None
+    # mode="crosstab" does what cross_tabulate does, and cross_tabulate spells
+    # these three row_column / col_column / values_column. A caller moving
+    # between the two tools has no way to learn that from the schema.
+    for short, long_, label in (
+        (row_col, row_column, "row_col"),
+        (col_col, col_column, "col_col"),
+        (values_col, values_column, "values_col"),
+    ):
+        if not short and long_:
+            progress.append(info("Argument alias", f"Read {label} from an accepted alternative spelling"))
+    row_col = row_col or row_column
+    col_col = col_col or col_column
+    values_col = values_col or values_column
     # Only set for modes with a natural single result table (groupby, crosstab,
     # window) — value_counts/describe produce nested/heterogeneous structures
     # with no single flat CSV representation, so output_path is a no-op there.

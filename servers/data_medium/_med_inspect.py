@@ -816,8 +816,13 @@ def sample_data(
     random_state: int = 42,
     output_path: str = "",
     open_after: bool = True,
+    top_n: int = 0,
 ) -> dict:
     progress = []
+    # Five sibling tools call "how many rows" top_n; this is the only n.
+    if top_n:
+        n = top_n
+        progress.append(info("Argument alias", "Read n from an accepted alternative spelling"))
     try:
         path = resolve_path(file_path)
         if not path.exists():

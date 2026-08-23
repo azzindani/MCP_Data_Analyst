@@ -15,6 +15,7 @@ for _p in (str(_ROOT), _MED):
 import numpy as np
 import pandas as pd
 
+from shared.arg_alias import missing, pick
 from shared.file_utils import read_csv as _read_csv
 from shared.file_utils import resolve_path
 from shared.progress import fail, info, ok, warn
@@ -54,6 +55,13 @@ _VALID_TESTS = frozenset(
 )
 
 
+# The medium server's statistical_tests names three of these differently.
+_SIBLING_TEST_NAMES = {
+    "ttest": "t_test",
+    "correlation": "pearson",
+}
+
+
 def _interpret_p(p: float, alpha: float) -> str:
     reject = p < alpha
     if reject:
@@ -63,7 +71,7 @@ def _interpret_p(p: float, alpha: float) -> str:
 
 def statistical_test(  # type: ignore[reportGeneralTypeIssues]
     file_path: str,
-    test: str,
+    test: str = "",
     column_a: str = "",
     column_b: str = "",
     group_column: str = "",
@@ -73,9 +81,16 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
     posthoc: bool = False,
     correction: str = "",
     hypothesized_mean: float = 0.0,
+    test_type: str = "",
 ) -> dict:
     """Run one of 17 statistical tests. Returns statistic, p-value, effect size."""
     progress = []
+    # statistical_tests on the medium server spells this same choice `test_type`.
+    test, note = pick("statistical_test", "test", test, test_type)
+    if not test:
+        return missing("statistical_test", "test", "test_type")
+    if note:
+        progress.append(info("Argument alias", note))
     if not _SCIPY_OK:
         return {
             "success": False,
@@ -96,6 +111,11 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
                 "token_estimate": 20,
             }
         df = _read_csv(str(path))
+
+        # statistical_tests, whose name differs by one letter, spells the same
+        # test `ttest` and lumps the three correlations under `correlation`.
+        # Accept its vocabulary rather than refusing a caller who learned it there.
+        test = _SIBLING_TEST_NAMES.get(test, test)
 
         if test not in _VALID_TESTS:
             return {

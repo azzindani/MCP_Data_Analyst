@@ -129,6 +129,9 @@ def aggregate_dataset(
     window_agg: str = "mean",
     output_path: str = "",
     dry_run: bool = False,
+    row_column: str = "",
+    col_column: str = "",
+    values_column: str = "",
 ) -> dict:
     """Aggregate data. mode: groupby crosstab value_counts describe window."""
     return engine.aggregate_dataset(
@@ -149,22 +152,29 @@ def aggregate_dataset(
         window_agg,
         output_path,
         dry_run,
+        row_column,
+        col_column,
+        values_column,
     )
 
 
 @mcp.tool()
 def resample_timeseries(
     file_path: str,
-    date_col: str,
+    date_col: str = "",
     freq: str = "M",
     agg_func: str = "sum",
     value_cols: list[str] = None,
     group_by: str = None,
     output_path: str = "",
     dry_run: bool = False,
+    date_column: str = "",
+    value_columns: list[str] = None,
 ) -> dict:
     """Resample time series by freq: D W M Q Y H. agg: sum mean count min max."""
-    return engine.resample_timeseries(file_path, date_col, freq, agg_func, value_cols, group_by, output_path, dry_run)
+    return engine.resample_timeseries(
+        file_path, date_col, freq, agg_func, value_cols, group_by, output_path, dry_run, date_column, value_columns
+    )
 
 
 @mcp.tool()
