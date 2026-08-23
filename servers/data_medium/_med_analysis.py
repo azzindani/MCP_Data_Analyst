@@ -15,6 +15,7 @@ for _p in (str(_ROOT), _HERE):
 import pandas as pd
 
 try:
+    import plotly.colors as px_colors
     import plotly.graph_objects as go
 
     from shared.html_theme import calc_chart_height, plotly_template
@@ -867,7 +868,11 @@ def time_series_analysis(
             "stl": stl_results,
             "acf": acf_results,
             "adf": adf_results,
-            "hint": "HTML chart saved — open output_path for the full visualization.",
+            "hint": (
+                "HTML chart saved — open output_path for the history and the dashed forecast."
+                if _PLOTLY_AVAILABLE
+                else "plotly is not installed, so no chart was written; the numbers above are complete."
+            ),
             "forecast_periods": forecast_periods,
             "forecast_values": forecast_values_map,
             "forecast_dates": forecast_dates_map,
@@ -877,17 +882,45 @@ def time_series_analysis(
         if _PLOTLY_AVAILABLE:
             fig = go.Figure()
             x_vals = [str(i) for i in resampled.index]
-            for col in value_columns:
+            # Plotly's own qualitative cycle, pinned per column so a series and
+            # its forecast are drawn in the same colour.
+            palette = px_colors.qualitative.Plotly
+            for i, col in enumerate(value_columns):
+                colour = palette[i % len(palette)]
                 fig.add_trace(
                     go.Scatter(
                         x=x_vals,
                         y=resampled[col].tolist(),
                         name=col,
                         mode="lines+markers",
+                        legendgroup=col,
+                        line=dict(color=colour),
                     )
                 )
+                # The forecast was computed, returned in forecast_values, and
+                # never drawn -- while the hint said to open the file "for the
+                # full visualization". Continued from the last observed point,
+                # so the dashed segment joins the line it extends instead of
+                # floating beside it.
+                fcast = forecast_values_map.get(col)
+                fdates = forecast_dates_map.get(col)
+                if fcast and fdates and len(resampled[col].dropna()):
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[x_vals[-1], *fdates],
+                            y=[float(resampled[col].dropna().iloc[-1]), *fcast],
+                            name=f"{col} (forecast)",
+                            mode="lines+markers",
+                            legendgroup=col,
+                            line=dict(color=colour, dash="dash"),
+                            marker=dict(symbol="circle-open"),
+                        )
+                    )
             fig.update_layout(
-                title=f"Time Series — {path.name} (period={period})",
+                title=(
+                    f"Time Series — {path.name} (period={period})"
+                    + (f", {forecast_periods}-period forecast dashed" if forecast_values_map else "")
+                ),
                 xaxis_title=date_column,
                 template=plotly_template(theme),
                 height=calc_chart_height(len(value_columns), mode="subplot"),
