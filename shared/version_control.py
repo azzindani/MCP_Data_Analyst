@@ -143,3 +143,38 @@ def snapshot_if_exists(path: str | Path) -> str:
         return snapshot(str(p))
     except Exception:
         return ""
+
+
+def discard_snapshot_if_unchanged(backup: str, live: str | Path) -> str:
+    """Drop a snapshot whose file the operation turned out not to change.
+
+    A snapshot has to be taken before the write, because nothing knows yet
+    whether the write will change anything. Round 11 measured what that costs
+    when the answer is "nothing": every call kept a full copy regardless.
+
+        apply_patch     regex_replace, second identical call, changed=0 rows
+                        -> 1,938,840 B .bak written anyway
+        restore_version to a timestamp the file already equals
+                        -> another full-size .bak
+
+    Four calls on one 1.9 MB CSV left ~7.5 MB in .mcp_versions, and a client
+    retrying on timeout grows that without limit. Comparing after the fact is
+    exact rather than a guess: a backup byte-identical to the file now on disk
+    cannot restore anything the file does not already hold, so deleting it
+    loses nothing. Returns the backup path, or "" if it was discarded.
+    """
+    if not backup:
+        return ""
+    b, live_path = Path(backup), Path(live)
+    try:
+        if not (b.is_file() and live_path.is_file()):
+            return backup
+        if b.stat().st_size != live_path.stat().st_size:
+            return backup
+        if b.read_bytes() != live_path.read_bytes():
+            return backup
+        b.unlink()
+        return ""
+    except Exception:
+        # Never let tidying up fail an operation that already succeeded.
+        return backup

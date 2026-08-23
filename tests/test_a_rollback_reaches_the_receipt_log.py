@@ -29,7 +29,9 @@ def logged(path) -> list[str]:
 @pytest.fixture
 def dataset(tmp_path):
     p = tmp_path / "d.csv"
-    p.write_text("a,b\n1,2\n3,4\n", encoding="utf-8")
+    # The patch has to change something: a no-op patch now discards its own
+    # snapshot, so there would be nothing to roll back to.
+    p.write_text("a,b\n1,2.4\n3,4.6\n", encoding="utf-8")
     r = engine.apply_patch(str(p), [{"op": "round_values", "column": "b", "decimals": 0}])
     assert r["success"] is True, r.get("error")
     assert logged(p) == ["apply_patch"], "fixture needs a patch in the log to roll back"

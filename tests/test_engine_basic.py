@@ -462,13 +462,15 @@ class TestRestoreVersion:
         assert "available_versions" in r
 
     def test_available_versions_in_response(self, simple_csv):
-        apply_patch(str(simple_csv), [{"op": "drop_duplicates"}])
+        # A patch that changes nothing now discards its own snapshot, so this
+        # needs one that does.
+        apply_patch(str(simple_csv), [{"op": "drop_column", "columns": ["Discount"]}])
         r = restore_version(str(simple_csv))
         assert "available_versions" in r
         assert len(r["available_versions"]) >= 1
 
     def test_counter_snapshot_created(self, simple_csv):
-        apply_patch(str(simple_csv), [{"op": "drop_duplicates"}])
+        apply_patch(str(simple_csv), [{"op": "drop_column", "columns": ["Discount"]}])
         versions_before = len(list((simple_csv.parent / ".mcp_versions").glob("*.bak")))
         restore_version(str(simple_csv))
         versions_after = len(list((simple_csv.parent / ".mcp_versions").glob("*.bak")))

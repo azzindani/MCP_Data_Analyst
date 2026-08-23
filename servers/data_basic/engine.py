@@ -99,7 +99,7 @@ from shared.patch_validator import VALID_OPS, validate_ops
 from shared.platform_utils import get_max_results, get_max_rows
 from shared.progress import fail, info, ok, undo, warn
 from shared.receipt import append_receipt, read_receipt_log
-from shared.version_control import list_versions, restore, snapshot
+from shared.version_control import discard_snapshot_if_unchanged, list_versions, restore, snapshot
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
@@ -880,6 +880,15 @@ def apply_patch(
         atomic_write_text(path, df.to_csv(index=False))
         progress.append(ok(f"Saved {path.name}", f"{len(ops)} op(s) applied"))
 
+        # A retried patch whose ops match nothing changed no bytes, and the
+        # snapshot taken before it is then a full second copy of a file that
+        # never moved. Compared after the fact, so it is exact: a backup equal
+        # to the file now on disk cannot restore anything it does not hold.
+        kept = discard_snapshot_if_unchanged(backup, path)
+        if not kept and backup:
+            progress.append(info("Snapshot discarded", "the file is unchanged"))
+        backup = kept
+
         append_receipt(
             str(path),
             tool="apply_patch",
@@ -895,6 +904,7 @@ def apply_patch(
             "applied": len(ops),
             "results": results,
             "backup": backup,
+            "changed_file": bool(backup),
             "hint": ("Call read_column_stats() or inspect_dataset() to verify the changes."),
             "progress": progress,
         }
@@ -973,6 +983,13 @@ def restore_version(
 
         restore(str(path), backup_path)
         progress.append(ok(f"Restored {path.name}", backup_name))
+
+        # Restoring to a state the file already held changes nothing, and the
+        # counter-snapshot of it is then a duplicate of the live file.
+        kept_counter = discard_snapshot_if_unchanged(counter_backup, path)
+        if not kept_counter and counter_backup:
+            progress.append(info("Counter-snapshot discarded", "the file was already at this version"))
+        counter_backup = kept_counter
 
         # A restore replaces the dataset's entire contents, which makes it the
         # single event most worth being able to look up later -- and it was the
