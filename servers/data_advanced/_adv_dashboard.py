@@ -155,6 +155,24 @@ def generate_dashboard(
 ) -> dict:
     """Generate interactive HTML dashboard with auto-detected charts. Opens HTML."""
     progress = []
+    # geo_file_path was declared on the tool, forwarded by the wrapper, and read
+    # nowhere. The dashboard does build geo panels -- from geo columns it finds
+    # in the dataset itself, via _find_geo_cols below -- so an external geojson
+    # handed to it was accepted and dropped, and the map that appeared or did
+    # not had nothing to do with the file the caller passed. Refused with the
+    # route that works rather than silently ignored.
+    if geo_file_path:
+        return {
+            "success": False,
+            "op": "generate_dashboard",
+            "error": "generate_dashboard does not read an external geo file",
+            "hint": (
+                "It maps geo columns found in file_path itself. Use enrich_with_geo() to join the "
+                "geojson into your dataset first, or generate_geo_map() to map the geojson directly."
+            ),
+            "progress": [fail("Unsupported argument", "geo_file_path")],
+            "token_estimate": 40,
+        }
     try:
         try:
             import plotly.graph_objects as _go  # noqa: F401

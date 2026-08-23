@@ -71,6 +71,92 @@ def _interpret_p(p: float, alpha: float) -> str:
     return f"Fail to reject H0 (p={shown} ≥ α={alpha})"
 
 
+VALID_CORRECTIONS = ("none", "bonferroni", "holm")
+
+
+def _adjust(pvals: list[float], correction: str) -> list[float]:
+    """Adjust a family of p-values for multiple comparisons.
+
+    Implemented here rather than pulled in from statsmodels because the whole
+    point of this server is that the caller cannot run a stats package itself
+    -- which is also why `posthoc` returning "use scipy.stats.tukey_hsd" was
+    not an answer.
+    """
+    m = len(pvals)
+    if m <= 1 or correction in ("", "none"):
+        return [min(1.0, float(p)) for p in pvals]
+    if correction == "bonferroni":
+        return [min(1.0, float(p) * m) for p in pvals]
+    # holm: step-down, each p scaled by the number still under test, then made
+    # monotone so a later comparison never reports a smaller adjusted p than an
+    # earlier one.
+    order = sorted(range(m), key=lambda i: pvals[i])
+    out = [0.0] * m
+    running = 0.0
+    for rank, idx in enumerate(order):
+        running = max(running, min(1.0, float(pvals[idx]) * (m - rank)))
+        out[idx] = running
+    return out
+
+
+def _posthoc_pairs(groups: list, labels: list[str], kind: str, correction: str, alpha: float, scipy_stats) -> dict:
+    """Pairwise comparisons after a significant omnibus test.
+
+    `posthoc=True` used to return {"method": "Tukey HSD", "note": "Use
+    scipy.stats.tukey_hsd for full pairwise comparisons."} -- a method name
+    implying a test had been run, and a note pointing at a function the caller
+    has no way to call. `correction` was declared on the tool, forwarded
+    through the wrapper, and read nowhere at all.
+    """
+    import itertools
+
+    pairs: list[dict] = []
+    if kind == "anova":
+        # Tukey HSD controls the family-wise error rate itself, so an extra
+        # correction on top of it would be wrong, not merely redundant.
+        res = scipy_stats.tukey_hsd(*groups)
+        for i, j in itertools.combinations(range(len(groups)), 2):
+            pairs.append(
+                {
+                    "group_a": labels[i],
+                    "group_b": labels[j],
+                    "statistic": round(float(res.statistic[i][j]), 4),
+                    "p_value": round_p(float(res.pvalue[i][j])),
+                    "significant": bool(float(res.pvalue[i][j]) < alpha),
+                }
+            )
+        return {
+            "method": "Tukey HSD",
+            "correction": "tukey (family-wise, built in)",
+            "comparisons": pairs,
+            "n_comparisons": len(pairs),
+        }
+
+    raw: list[float] = []
+    combos = list(itertools.combinations(range(len(groups)), 2))
+    for i, j in combos:
+        st, pv = scipy_stats.mannwhitneyu(groups[i], groups[j], alternative="two-sided")
+        raw.append(float(pv))
+        pairs.append(
+            {
+                "group_a": labels[i],
+                "group_b": labels[j],
+                "statistic": round(float(st), 4),
+            }
+        )
+    adjusted = _adjust(raw, correction)
+    for entry, before, after in zip(pairs, raw, adjusted):
+        entry["p_value"] = round_p(after)
+        entry["p_value_raw"] = round_p(before)
+        entry["significant"] = bool(after < alpha)
+    return {
+        "method": "pairwise Mann-Whitney U",
+        "correction": correction or "none",
+        "comparisons": pairs,
+        "n_comparisons": len(pairs),
+    }
+
+
 def statistical_test(  # type: ignore[reportGeneralTypeIssues]
     file_path: str,
     test: str = "",
@@ -91,6 +177,15 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
     test, note = pick("statistical_test", "test", test, test_type)
     if not test:
         return missing("statistical_test", "test", "test_type")
+    if correction and correction not in VALID_CORRECTIONS:
+        return {
+            "success": False,
+            "op": "statistical_test",
+            "error": f"Unknown correction: '{correction}'",
+            "hint": f"Valid: {', '.join(VALID_CORRECTIONS)}. Correction applies to posthoc=True comparisons.",
+            "progress": [fail("Invalid correction", correction)],
+            "token_estimate": 30,
+        }
     if note:
         progress.append(info("Argument alias", note))
     if not _SCIPY_OK:
@@ -246,6 +341,7 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
         elif test == "anova":
             if not group_column or group_column not in df.columns:
                 raise ValueError(f"anova requires group_column. Available: {list(df.columns)}")
+            group_labels = [str(g) for g in df[group_column].dropna().unique()]
             groups_data = [
                 pd.to_numeric(df.loc[df[group_column] == g, column_a], errors="coerce").dropna().values
                 for g in df[group_column].dropna().unique()
@@ -258,11 +354,9 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
                 ss_total = sum(((v - grand_mean) ** 2).sum() for v in groups_data)
                 eta_sq = float(ss_between / ss_total) if ss_total > 0 else 0.0
                 effect_size = {"eta_squared": round(eta_sq, 4), "interpretation": _eta_sq_label(eta_sq)}
-            if posthoc and p < alpha:
-                posthoc_result = {
-                    "method": "Tukey HSD",
-                    "note": "Use scipy.stats.tukey_hsd for full pairwise comparisons.",
-                }
+            if posthoc and p < alpha and len(groups_data) > 2:
+                posthoc_result = _posthoc_pairs(groups_data, group_labels, "anova", correction, alpha, scipy_stats)
+                progress.append(ok("Post-hoc", f"{posthoc_result['n_comparisons']} pairwise comparison(s)"))
             progress.append(ok("One-way ANOVA", _interpret_p(p_value, alpha)))
 
         # --- Chi-square ---
@@ -329,6 +423,7 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
         elif test == "kruskal":
             if not group_column or group_column not in df.columns:
                 raise ValueError(f"kruskal requires group_column. Available: {list(df.columns)}")
+            group_labels = [str(g) for g in df[group_column].dropna().unique()]
             groups_data = [
                 pd.to_numeric(df.loc[df[group_column] == g, column_a], errors="coerce").dropna().values
                 for g in df[group_column].dropna().unique()
@@ -343,6 +438,11 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
                     "epsilon_squared": round(max(0.0, eps_sq), 4),
                     "interpretation": _epsilon_sq_label(eps_sq),
                 }
+            # posthoc was read only by the ANOVA branch, so asking for pairwise
+            # comparisons after a non-parametric omnibus test did nothing at all.
+            if posthoc and p_value < alpha and len(groups_data) > 2:
+                posthoc_result = _posthoc_pairs(groups_data, group_labels, "kruskal", correction, alpha, scipy_stats)
+                progress.append(ok("Post-hoc", f"{posthoc_result['n_comparisons']} pairwise comparison(s)"))
             progress.append(ok("Kruskal-Wallis", _interpret_p(p_value, alpha)))
 
         elif test == "levene":

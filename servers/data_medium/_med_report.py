@@ -12,6 +12,7 @@ for _p in (str(_ROOT), _HERE):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import numpy as np
 import pandas as pd
 
 try:
@@ -398,6 +399,92 @@ def value_counts(
 # ---------------------------------------------------------------------------
 
 
+def _keyed_diff(df_a, df_b, key_columns: list[str], limit: int) -> dict:
+    """Row-level differences between two frames joined on a key.
+
+    `key_columns` was declared on the tool, forwarded through the wrapper, and
+    read nowhere -- so "value changes" in the docstring meant column means, and
+    a caller who edited one cell saw nothing. Round 11 changed three cells in a
+    16,834-row copy and the response reported only the two numeric means that
+    shifted; the edit to a text column was invisible.
+    """
+    missing_a = [c for c in key_columns if c not in df_a.columns]
+    missing_b = [c for c in key_columns if c not in df_b.columns]
+    if missing_a or missing_b:
+        return {"error": f"Key columns missing — A: {missing_a}, B: {missing_b}"}
+
+    left = df_a.set_index(key_columns, drop=False)
+    right = df_b.set_index(key_columns, drop=False)
+    if left.index.has_duplicates or right.index.has_duplicates:
+        return {
+            "error": "Key columns are not unique; a keyed comparison needs one row per key.",
+            "duplicate_keys_a": int(left.index.duplicated().sum()),
+            "duplicate_keys_b": int(right.index.duplicated().sum()),
+        }
+
+    keys_a, keys_b = set(left.index), set(right.index)
+    added = sorted(keys_b - keys_a, key=str)
+    removed = sorted(keys_a - keys_b, key=str)
+    common = keys_a & keys_b
+
+    shared_cols = [c for c in df_a.columns if c in df_b.columns and c not in key_columns]
+    changed: list[dict] = []
+    changed_by_column: dict[str, int] = {}
+    if common:
+        common_idx = [k for k in left.index if k in common]
+        la, rb = left.loc[common_idx, shared_cols], right.loc[common_idx, shared_cols]
+        # NaN != NaN, so compare the null masks separately or every null row
+        # reads as a change.
+        differs = (la != rb) & ~(la.isna() & rb.isna())
+        for col in shared_cols:
+            n = int(differs[col].sum())
+            if n:
+                changed_by_column[col] = n
+        rows_with_change = differs.any(axis=1)
+        for key in la.index[rows_with_change][:limit]:
+            row = {"key": key if not isinstance(key, tuple) else list(key), "changes": {}}
+            for col in shared_cols:
+                if bool(differs.loc[key, col]):
+                    row["changes"][col] = {"a": _cell(la.loc[key, col]), "b": _cell(rb.loc[key, col])}
+            changed.append(row)
+        changed_rows = int(rows_with_change.sum())
+    else:
+        changed_rows = 0
+
+    return {
+        "key_columns": key_columns,
+        "rows_matched": len(common),
+        "rows_added": len(added),
+        "rows_removed": len(removed),
+        "rows_changed": changed_rows,
+        "changed_by_column": changed_by_column,
+        "changed_sample": changed,
+        "changed_sample_truncated": changed_rows > len(changed),
+        "added_keys": [k if not isinstance(k, tuple) else list(k) for k in added[:limit]],
+        "removed_keys": [k if not isinstance(k, tuple) else list(k) for k in removed[:limit]],
+    }
+
+
+def _cell(value):
+    """A cell value JSON can carry.
+
+    numpy scalars are not int/float/str/bool, so an isinstance check alone
+    turns every number into its repr -- 30 comes back as "30" and a reader
+    cannot tell a numeric change from a text one.
+    """
+    if pd.isna(value):
+        return None
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, (int, np.integer)):
+        return int(value)
+    if isinstance(value, (float, np.floating)):
+        return float(value)
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
 def compare_datasets(
     file_path_a: str = "",
     file_path_b: str = "",
@@ -478,6 +565,17 @@ def compare_datasets(
         dup_a = int(df_a.duplicated().sum())
         dup_b = int(df_b.duplicated().sum())
 
+        keyed = _keyed_diff(df_a, df_b, list(key_columns), get_max_rows()) if key_columns else None
+        if keyed and keyed.get("error"):
+            return {
+                "success": False,
+                "op": "compare_datasets",
+                "error": keyed["error"],
+                "hint": "Drop key_columns for a column-level comparison, or pick columns that identify a row.",
+                "progress": progress + [fail("Keyed comparison not possible", keyed["error"])],
+                "token_estimate": 40,
+            }
+
         progress.append(
             ok(
                 f"Compared {path_a.name} vs {path_b.name}",
@@ -505,6 +603,16 @@ def compare_datasets(
             "duplicates_b": dup_b,
             "progress": progress,
         }
+        if keyed:
+            result["keyed_diff"] = keyed
+            progress.append(
+                ok(
+                    "Keyed comparison",
+                    f"{keyed['rows_changed']} changed, {keyed['rows_added']} added, {keyed['rows_removed']} removed",
+                )
+            )
+        else:
+            result["hint"] = "Column-level only. Pass key_columns=['id'] to see which rows changed and how."
         result["token_estimate"] = _token_estimate(result)
         return result
 
