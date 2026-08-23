@@ -40,11 +40,20 @@ def _dtype_label(series: pd.Series) -> str:
 
 def _open_file(path: Path) -> None:
     """Open file in default system app. Silently ignored on failure."""
+    # A test run must never launch a browser or an Office app. Under Windows
+    # this reached the COM layer on a CI runner and killed the interpreter
+    # mid-suite with an access violation -- which the `except` below cannot
+    # catch, so the suite died with no failing test named.
+    import os
+
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
     try:
         if sys.platform == "win32":
-            import os
-
-            os.startfile(str(path.resolve()))
+            # A child process rather than in-process os.startfile(): the shell
+            # handler it invokes can fault, and a fault there must cost the
+            # child, not this server.
+            subprocess.Popen(["cmd", "/c", "start", "", str(path.resolve())], shell=False)
         elif sys.platform == "darwin":
             subprocess.Popen(["open", str(path.resolve())])
         else:
