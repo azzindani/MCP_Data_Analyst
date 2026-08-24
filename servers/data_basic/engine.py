@@ -38,61 +38,7 @@ _HERE = str(Path(__file__).resolve().parent)
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-from _patch_ops import (
-    _op_abs_values,
-    _op_add_column,
-    _op_bin_column,
-    _op_binary_encode,
-    _op_boxcox_transform,
-    _op_cap_outliers,
-    _op_cast_column,
-    _op_clean_text,
-    _op_clip_values,
-    _op_column_math,
-    _op_combine_columns,
-    _op_concat_file,
-    _op_conditional_assign,
-    _op_cumulative,
-    _op_date_diff,
-    _op_dedup_subset,
-    _op_diff,
-    _op_drop_column,
-    _op_drop_duplicates,
-    _op_ewm,
-    _op_extract_regex,
-    _op_fill_nulls,
-    _op_filter_between,
-    _op_filter_date_range,
-    _op_filter_isin,
-    _op_filter_not_isin,
-    _op_filter_quantile,
-    _op_filter_regex,
-    _op_filter_top_n,
-    _op_frequency_encode,
-    _op_group_transform,
-    _op_label_encode,
-    _op_lag,
-    _op_lead,
-    _op_log_transform,
-    _op_melt,
-    _op_normalize,
-    _op_ordinal_encode,
-    _op_pct_change,
-    _op_qbin_column,
-    _op_rank_column,
-    _op_regex_replace,
-    _op_replace_values,
-    _op_robust_scale,
-    _op_rolling_agg,
-    _op_round_values,
-    _op_sort,
-    _op_split_column,
-    _op_sqrt_transform,
-    _op_str_slice,
-    _op_winsorize,
-    _op_yeojohnson_transform,
-    _parse_expr,
-)
+from _patch_ops import OP_HANDLERS, _parse_expr
 
 from shared.file_utils import atomic_write_text, hint_for_error, resolve_path
 from shared.patch_validator import VALID_OPS, validate_ops
@@ -716,66 +662,9 @@ def search_columns(
 # apply_patch — op dispatch table
 # ---------------------------------------------------------------------------
 
-_OP_HANDLERS = {
-    # --- original 13 ops ---
-    "drop_column": _op_drop_column,
-    "clean_text": _op_clean_text,
-    "cast_column": _op_cast_column,
-    "replace_values": _op_replace_values,
-    "add_column": _op_add_column,
-    "cap_outliers": _op_cap_outliers,
-    "fill_nulls": _op_fill_nulls,
-    "drop_duplicates": _op_drop_duplicates,
-    "normalize": _op_normalize,
-    "label_encode": _op_label_encode,
-    "extract_regex": _op_extract_regex,
-    "date_diff": _op_date_diff,
-    "rank_column": _op_rank_column,
-    # --- filtering & sorting ---
-    "sort": _op_sort,
-    "filter_isin": _op_filter_isin,
-    "filter_not_isin": _op_filter_not_isin,
-    "filter_between": _op_filter_between,
-    "filter_date_range": _op_filter_date_range,
-    "filter_regex": _op_filter_regex,
-    "filter_quantile": _op_filter_quantile,
-    "filter_top_n": _op_filter_top_n,
-    "dedup_subset": _op_dedup_subset,
-    # --- numeric transforms ---
-    "log_transform": _op_log_transform,
-    "sqrt_transform": _op_sqrt_transform,
-    "boxcox_transform": _op_boxcox_transform,
-    "yeojohnson_transform": _op_yeojohnson_transform,
-    "robust_scale": _op_robust_scale,
-    "winsorize": _op_winsorize,
-    "bin_column": _op_bin_column,
-    "qbin_column": _op_qbin_column,
-    "clip_values": _op_clip_values,
-    "round_values": _op_round_values,
-    "abs_values": _op_abs_values,
-    # --- encoding ---
-    "ordinal_encode": _op_ordinal_encode,
-    "binary_encode": _op_binary_encode,
-    "frequency_encode": _op_frequency_encode,
-    # --- temporal ---
-    "lag": _op_lag,
-    "lead": _op_lead,
-    "diff": _op_diff,
-    "pct_change": _op_pct_change,
-    "rolling_agg": _op_rolling_agg,
-    "ewm": _op_ewm,
-    "cumulative": _op_cumulative,
-    "group_transform": _op_group_transform,
-    # --- arithmetic & structural ---
-    "column_math": _op_column_math,
-    "conditional_assign": _op_conditional_assign,
-    "split_column": _op_split_column,
-    "combine_columns": _op_combine_columns,
-    "regex_replace": _op_regex_replace,
-    "str_slice": _op_str_slice,
-    "concat_file": _op_concat_file,
-    "melt": _op_melt,
-}
+# Defined in _patch_ops beside the handlers, and shared with
+# run_cleaning_pipeline so the two tools cannot drift apart.
+_OP_HANDLERS = OP_HANDLERS
 
 
 # Ring-1 pure transform — no I/O, no exception catching. Raises on error.
@@ -1174,7 +1063,14 @@ _OP_CATALOG: dict[str, list[dict]] = {
     ],
     "structural": [
         {"op": "column_math", "params": "formula: 'col_a + col_b', target_column"},
-        {"op": "conditional_assign", "params": "new_column, conditions: list[dict], default"},
+        {
+            "op": "conditional_assign",
+            "params": (
+                "new_column, default, conditions: list of "
+                "{column, op: equals|not_equals|gt|gte|lt|lte|contains|isin, value, label} "
+                "(label is assigned when the condition matches; first match wins)"
+            ),
+        },
         {"op": "split_column", "params": "column, delimiter, new_columns: list[str], drop_original"},
         {"op": "combine_columns", "params": "columns: list[str], delimiter, new_column, drop_originals"},
         {"op": "regex_replace", "params": "column, pattern, replacement"},

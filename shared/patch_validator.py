@@ -11,6 +11,89 @@ GROUP_REDUCERS: frozenset[str] = frozenset({"sum", "mean", "median", "max", "min
 GROUP_ROWWISE: frozenset[str] = frozenset({"share", "rank", "cumsum", "zscore", "diff_from_mean", "pct_of_max"})
 GROUP_AGGS: frozenset[str] = GROUP_REDUCERS | GROUP_ROWWISE
 
+# conditional_assign's conditions are a list of dicts, one level below where
+# validate_ops used to look: it checked that `conditions` was a list and stopped.
+# So every key inside was a guess, and a wrong guess came back as
+#
+#     Op 0 (conditional_assign): 'label'
+#
+# a bare KeyError naming a field the catalog never mentioned, from an op that
+# had already been accepted. The catalog entry now names these four, and the
+# aliases below cover the spellings a caller writes when reading `op` and
+# `label` as English rather than as a vocabulary.
+CONDITION_FIELDS: frozenset[str] = frozenset({"column", "op", "value", "label"})
+CONDITION_ALIASES: dict[str, str] = {
+    "then": "label",
+    "result": "label",
+    "assign": "label",
+    "value_if_true": "label",
+    "comparison": "op",
+    "operator": "op",
+}
+CONDITION_OPS: frozenset[str] = frozenset({"equals", "not_equals", "gt", "gte", "lt", "lte", "contains", "isin"})
+# Symbols mean exactly one comparison each, so accepting them costs nothing and
+# `>` is what anyone writes first.
+CONDITION_OP_ALIASES: dict[str, str] = {
+    "==": "equals",
+    "=": "equals",
+    "eq": "equals",
+    "!=": "not_equals",
+    "<>": "not_equals",
+    "ne": "not_equals",
+    ">": "gt",
+    ">=": "gte",
+    "<": "lt",
+    "<=": "lte",
+    "in": "isin",
+}
+
+
+def normalize_condition(cond: dict) -> dict:
+    """Rewrite one condition's aliased keys and comparison symbols in place."""
+    if not isinstance(cond, dict):
+        return cond
+    for given, canonical in CONDITION_ALIASES.items():
+        if canonical not in cond and given in cond:
+            cond[canonical] = cond.pop(given)
+    given_op = cond.get("op")
+    if isinstance(given_op, str):
+        cond["op"] = CONDITION_OP_ALIASES.get(given_op.strip().lower(), given_op)
+    return cond
+
+
+def _condition_errors(conditions: list, prefix: str) -> list[str]:
+    """Name what is wrong with each condition dict, by its index."""
+    errors: list[str] = []
+    for j, cond in enumerate(conditions):
+        where = f"{prefix} (conditional_assign) condition {j}"
+        if not isinstance(cond, dict):
+            errors.append(f"{where}: must be a dict, got {type(cond).__name__}")
+            continue
+        normalize_condition(cond)
+        missing_keys = sorted(CONDITION_FIELDS - set(cond))
+        if missing_keys:
+            errors.append(
+                f"{where}: missing {', '.join(missing_keys)} -- "
+                f"each condition needs {', '.join(sorted(CONDITION_FIELDS))} "
+                f"(label is the value assigned when it matches)"
+            )
+        unknown_keys = sorted(set(cond) - CONDITION_FIELDS)
+        if unknown_keys:
+            suggestion = _did_you_mean(unknown_keys[0], sorted(CONDITION_FIELDS))
+            lead = f"did you mean {suggestion}? " if suggestion else ""
+            errors.append(
+                f"{where}: unknown field(s) {', '.join(unknown_keys)} -- "
+                f"{lead}a condition accepts: {', '.join(sorted(CONDITION_FIELDS))}"
+            )
+        cop = cond.get("op")
+        if cop is not None and cop not in CONDITION_OPS:
+            errors.append(
+                f"{where}: invalid op '{cop}'. Valid: {', '.join(sorted(CONDITION_OPS))} "
+                f"(symbols {'>'}, {'>='}, {'<'}, {'<='}, ==, != are accepted too)"
+            )
+    return errors
+
+
 VALID_OPS: frozenset[str] = frozenset(
     {
         # original
@@ -519,6 +602,10 @@ def validate_ops(ops: list[dict]) -> list[str]:
                 errors.append(f"{prefix} (conditional_assign): missing 'new_column'")
             if "conditions" not in op or not isinstance(op["conditions"], list):
                 errors.append(f"{prefix} (conditional_assign): 'conditions' must be a list")
+            elif not op["conditions"]:
+                errors.append(f"{prefix} (conditional_assign): 'conditions' is empty; every row would get 'default'")
+            else:
+                errors.extend(_condition_errors(op["conditions"], prefix))
 
         elif op_name == "split_column":
             if "column" not in op:

@@ -21,16 +21,7 @@ from _med_helpers import (
     _token_estimate,
     is_numeric_col,
 )
-from _patch_ops import (  # type: ignore[import-not-found]
-    _op_add_column,
-    _op_cap_outliers,
-    _op_cast_column,
-    _op_clean_text,
-    _op_drop_column,
-    _op_drop_duplicates,
-    _op_fill_nulls,
-    _op_replace_values,
-)
+from _patch_ops import OP_HANDLERS  # type: ignore[import-not-found]
 
 from shared.arg_alias import missing, pick, pick_list
 from shared.file_utils import hint_for_error, resolve_path
@@ -416,16 +407,9 @@ def run_cleaning_pipeline(
                 "token_estimate": 20,
             }
 
-        handler_map = {
-            "drop_column": _op_drop_column,
-            "clean_text": _op_clean_text,
-            "cast_column": _op_cast_column,
-            "replace_values": _op_replace_values,
-            "add_column": _op_add_column,
-            "cap_outliers": _op_cap_outliers,
-            "fill_nulls": _op_fill_nulls,
-            "drop_duplicates": _op_drop_duplicates,
-        }
+        # Every op apply_patch runs, which is every op list_patch_ops
+        # advertises. This used to be a hand-written table of eight.
+        handler_map = OP_HANDLERS
 
         # Normalise ops: fix common LLM mistakes (missing op key, params nested
         # inside it). unwrap_params covers the other direction -- {"op": "name",
@@ -434,15 +418,19 @@ def run_cleaning_pipeline(
         # they must accept the same malformed ones.
         ops = [unwrap_params(_coerce_op(o)) for o in ops]
 
-        # Validate all ops before touching the file or creating a snapshot
+        # Validate all ops before touching the file or creating a snapshot.
+        # validate_ops below is what actually names a bad op, against the same
+        # vocabulary; reaching this branch means the handler table and the
+        # validator have drifted apart, so say that rather than blaming the
+        # caller for a name the catalog told them to use.
         unknown_ops = [op.get("op", "") for op in ops if op.get("op", "") not in handler_map]
         if unknown_ops:
             return {
                 "success": False,
-                "error": f"Unknown op(s): {unknown_ops}",
-                "hint": f"Valid ops: {', '.join(sorted(handler_map.keys()))}",
+                "error": f"No handler registered for op(s): {unknown_ops}",
+                "hint": "Call list_patch_ops() for the ops this server can run.",
                 "applied": 0,
-                "progress": [fail("Unknown op(s)", str(unknown_ops))],
+                "progress": [fail("No handler for op(s)", str(unknown_ops))],
                 "token_estimate": 20,
             }
 
