@@ -222,7 +222,7 @@ def check_outliers(
                 template=plotly_template(theme),
                 height=450,
             )
-            abs_p, fname = _save_chart(fig, output_path, "outliers", path, open_after, theme)
+            abs_p, fname = _save_chart(fig, output_path, "outliers", path, open_after, theme, progress)
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))
@@ -359,7 +359,7 @@ def scan_nulls_zeros(
                 template=plotly_template(theme),
                 height=max(300, len(cols) * 30 + 100),
             )
-            abs_p, fname = _save_chart(fig, output_path, "nulls_zeros", path, open_after, theme)
+            abs_p, fname = _save_chart(fig, output_path, "nulls_zeros", path, open_after, theme, progress)
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))

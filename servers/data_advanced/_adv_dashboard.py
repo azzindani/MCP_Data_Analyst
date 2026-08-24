@@ -29,6 +29,7 @@ from _adv_helpers import (
     css_dashboard,
     css_vars,
     device_mode_js,
+    extension_note,
     fail,
     get_output_path,
     infer_agg,
@@ -298,6 +299,8 @@ def generate_dashboard(
 
         # Resolved first: the <head> references plotly.min.js in this directory.
         out = get_output_path(output_path, path, "dashboard", "html")
+        if note := extension_note(output_path, out):
+            progress.append(warn("Output extension changed", note))
 
         h: list[str] = []
         h.append(_dash_head(_css, dashboard_title, out.parent))

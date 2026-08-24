@@ -34,12 +34,14 @@ from _adv_helpers import (
     css_report,
     css_vars,
     device_mode_js,
+    extension_note,
     fail,
     get_output_path,
     is_numeric_col,
     ok,
     plotly_script_tag,
     theme_plot_colors,
+    warn,
 )
 
 from shared.data_alerts import alerts_html, compute_alerts
@@ -171,6 +173,8 @@ def run_eda(
 
         # Resolved first: the <head> references plotly.min.js in this directory.
         out = get_output_path(output_path, path, "eda", "html")
+        if note := extension_note(output_path, out):
+            progress.append(warn("Output extension changed", note))
 
         html_content = _build_eda_html(
             df,

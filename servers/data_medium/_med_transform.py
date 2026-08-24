@@ -38,6 +38,7 @@ from shared.patch_validator import unwrap_params, validate_ops
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
+from shared.small_sample import is_missing
 from shared.version_control import restore as _restore
 from shared.version_control import snapshot
 
@@ -536,6 +537,21 @@ def run_cleaning_pipeline(
 
         progress.append(ok(f"Saved {out.name}", f"{len(ops)} ops applied"))
 
+        # An op that ran without changing anything says so in a `note`.
+        # "applied: N" counts ops that executed, not ops that had an effect, so
+        # without this the two are indistinguishable from the top of the
+        # response: a fill_nulls over an all-null column came back under
+        # "applied: 1" with a hint inviting the caller to verify the changes.
+        no_effect = [entry for entry in summary if entry.get("note")]
+        for entry in no_effect:
+            progress.append(warn(f"{entry['op']} changed nothing", entry["note"]))
+
+        hint = "Call inspect_dataset() or read_column_stats() to verify the changes."
+        if no_effect:
+            hint = (
+                f"{len(no_effect)} of {len(ops)} op(s) ran without changing anything -- read `note` on each "
+                "entry of ops_with_no_effect before treating this file as cleaned."
+            )
         result = {
             "success": True,
             "op": "run_cleaning_pipeline",
@@ -544,9 +560,10 @@ def run_cleaning_pipeline(
             "output_path": str(out),
             "total_ops": len(ops),
             "applied": len(ops),
+            "ops_with_no_effect": no_effect,
             "summary": summary,
             "backup": backup,
-            "hint": "Call inspect_dataset() or read_column_stats() to verify the changes.",
+            "hint": hint,
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -602,30 +619,46 @@ def smart_impute(
             }
 
         imputation_plan = []
+        skipped_plan = []
         for col in target_cols:
             null_count = int(df[col].isna().sum())
             if null_count == 0:
                 continue
             s = df[col]
+            # Declared scalar: every branch below assigns one, and it keeps
+            # pd.isna() from being read as the Series-returning overload.
+            fill_val: object = None
             if pd.api.types.is_numeric_dtype(s):
                 strategy = "median"
                 fill_val = s.median()
             elif pd.api.types.is_datetime64_any_dtype(s):
                 strategy = "ffill"
-                fill_val = None
             else:
                 strategy = "mode"
                 mode_vals = s.mode()
                 fill_val = mode_vals.iloc[0] if len(mode_vals) > 0 else None
 
-            imputation_plan.append(
-                {
-                    "column": col,
-                    "strategy": strategy,
-                    "null_count": null_count,
-                    "fill_value": str(fill_val) if fill_val is not None else None,
-                }
-            )
+            entry = {
+                "column": col,
+                "strategy": strategy,
+                "null_count": null_count,
+                # The median of no numbers is NaN, and `str(nan)` is "nan" --
+                # a fill value that reads like one and fills nothing.
+                "fill_value": None if is_missing(fill_val) else str(fill_val),
+            }
+            # A column whose every value is null has nothing to impute *from*.
+            # The median of no numbers is NaN, and fillna(NaN) changes nothing,
+            # so this used to be reported as an imputed column that had in fact
+            # been left exactly as it was found -- the one case where the
+            # caller most needs to be told the tool could not help.
+            if not bool(s.notna().any()):
+                entry["skipped"] = True
+                entry["reason"] = (
+                    f"all {null_count} value(s) in '{col}' are null, so there is no {strategy} to fill from"
+                )
+                skipped_plan.append(entry)
+                continue
+            imputation_plan.append(entry)
 
         if dry_run:
             progress.append(info("Dry run — no changes written", path.name))
@@ -636,6 +669,8 @@ def smart_impute(
                 "file_path": str(path),
                 "would_change": imputation_plan,
                 "columns_to_impute": len(imputation_plan),
+                "skipped": skipped_plan,
+                "columns_skipped": len(skipped_plan),
                 "progress": progress,
             }
             result["token_estimate"] = _token_estimate(result)
@@ -670,18 +705,33 @@ def smart_impute(
             result=f"imputed {len(imputation_plan)} columns",
             backup=backup,
         )
+        if skipped_plan:
+            progress.append(
+                warn(
+                    "Columns left unchanged",
+                    f"{len(skipped_plan)} all-null column(s): {', '.join(e['column'] for e in skipped_plan)}",
+                )
+            )
         progress.append(ok(f"Imputed {path.name}", f"{len(imputation_plan)} columns filled"))
 
+        hint = "Call inspect_dataset() or read_column_stats() to verify the changes."
+        if skipped_plan and not imputation_plan:
+            hint = (
+                "Nothing was filled: every column with nulls is entirely null. "
+                "Drop those columns, or supply values from another source."
+            )
         result = {
             "success": True,
             "op": "smart_impute",
             "file_path": str(path),
             "imputed": imputation_plan,
             "columns_imputed": len(imputation_plan),
+            "skipped": skipped_plan,
+            "columns_skipped": len(skipped_plan),
             "output_file": out.name,
             "output_path": str(out),
             "backup": backup,
-            "hint": "Call inspect_dataset() or read_column_stats() to verify the changes.",
+            "hint": hint,
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)

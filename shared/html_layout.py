@@ -25,6 +25,28 @@ from shared.version_control import snapshot_if_exists
 # ---------------------------------------------------------------------------
 
 
+def extension_note(output_path: str, written: Path) -> str:
+    """Say that a requested extension was replaced, or "" when it was honoured.
+
+    get_output_path corrects an output_path whose extension contradicts the
+    format being written, which is right -- an HTML chart at `outliers.csv` is
+    a file that misrepresents itself. Doing it silently is the part that is
+    not: a caller who asked for CSV got HTML, a success, and no sentence
+    anywhere saying the request had been changed. The corrected name is in the
+    response, but only a reader who already suspects the substitution will
+    notice it.
+    """
+    if not output_path:
+        return ""
+    requested = Path(output_path).suffix
+    if not requested or requested.lower() == written.suffix.lower():
+        return ""
+    return (
+        f"output_path asked for '{requested}'; this tool writes {written.suffix.lstrip('.').upper()}, "
+        f"so it was saved as {written.name}"
+    )
+
+
 def get_output_path(
     output_path: str,
     input_path: Path | None,

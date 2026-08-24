@@ -26,7 +26,8 @@ from _adv_helpers import (
 )
 
 from shared.file_utils import embed_content, hint_for_error, resolve_path
-from shared.progress import info
+from shared.progress import info, warn
+from shared.small_sample import MIN_N_IQR
 from shared.version_control import snapshot_if_exists
 
 logger = logging.getLogger(__name__)
@@ -116,7 +117,21 @@ def generate_distribution_plot(
             showlegend=False,
         )
 
-        abs_p, fname = _save_chart(fig, output_path, "distributions", path, open_after, theme)
+        # A histogram of one value is one bar, and a box plot of one value draws
+        # its quartiles and both whiskers on top of each other. Both render, and
+        # both look like a distribution to anyone who does not read the axis --
+        # so the count each panel was drawn from is worth saying out loud.
+        value_counts = {c: int(df[c].notna().sum()) for c in cols_to_plot}
+        thin = {c: k for c, k in value_counts.items() if k < MIN_N_IQR}
+        if thin:
+            progress.append(
+                warn(
+                    "Too few values to show a distribution",
+                    ", ".join(f"{c}: {k} value(s)" for c, k in thin.items()),
+                )
+            )
+
+        abs_p, fname = _save_chart(fig, output_path, "distributions", path, open_after, theme, progress)
         progress.append(ok("Distribution plots saved", f"{fname} — {n} columns"))
 
         result = {
@@ -126,9 +141,16 @@ def generate_distribution_plot(
             "output_path": abs_p,
             "output_name": fname,
             "columns_plotted": cols_to_plot,
+            "values_plotted": value_counts,
+            "columns_too_few_values": sorted(thin),
             "chart_count": n * 2,
             "progress": progress,
         }
+        if thin:
+            result["hint"] = (
+                f"{len(thin)} of {n} column(s) have fewer than {MIN_N_IQR} values, so their box plots draw "
+                "every quartile on the same line. The chart is accurate; it is not a distribution."
+            )
         embed_content(result, Path(abs_p), return_content)
         result["token_estimate"] = _token_estimate(result)
         return result
@@ -207,7 +229,7 @@ def generate_correlation_heatmap(
             height=300 + 50 * len(numeric_cols),
         )
 
-        abs_p, fname = _save_chart(fig, output_path, "correlation_heatmap", path, open_after, theme)
+        abs_p, fname = _save_chart(fig, output_path, "correlation_heatmap", path, open_after, theme, progress)
         progress.append(ok("Correlation heatmap saved", f"{fname} — {len(numeric_cols)} columns"))
 
         result = {
@@ -305,7 +327,7 @@ def generate_pairwise_plot(
             height=calc_chart_height(len(cols_to_plot), mode="subplot"),
         )
 
-        abs_p, fname = _save_chart(fig, output_path, "pairwise", path, open_after, theme)
+        abs_p, fname = _save_chart(fig, output_path, "pairwise", path, open_after, theme, progress)
         progress.append(ok("Pairwise plot saved", f"{fname} — {len(cols_to_plot)} columns"))
 
         result = {
@@ -463,7 +485,7 @@ def generate_multi_chart(
             height=calc_chart_height(len(value_columns), mode="subplot"),
         )
 
-        abs_p, fname = _save_chart(fig, output_path, f"multi_{chart_type}", path, open_after, theme)
+        abs_p, fname = _save_chart(fig, output_path, f"multi_{chart_type}", path, open_after, theme, progress)
         progress.append(ok("Multi-chart saved", f"{fname} - {len(value_columns)} metrics"))
 
         result = {

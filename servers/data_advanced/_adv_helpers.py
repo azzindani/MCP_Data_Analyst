@@ -18,6 +18,7 @@ from shared.html_layout import (  # noqa: F401  (re-exported for sub-modules)
     PLOTLY_CFG_JS,
     css_dashboard,
     css_report,
+    extension_note,
     get_output_path,
     get_plotlyjs_script,
     plotly_layout_base,
@@ -85,9 +86,14 @@ def _save_chart(
     input_path: Path,
     open_after: bool,
     theme: str = "device",
+    progress: list | None = None,
 ) -> tuple[str, str]:
-    """Save plotly figure to themed responsive HTML."""
-    return _html_save_chart(fig, output_path, stem_suffix, input_path, theme, open_after, _open_file)
+    """Save plotly figure to themed responsive HTML.
+
+    `progress` is optional so the 18 existing call sites keep working; pass it
+    and the caller is told when an output_path extension had to be corrected.
+    """
+    return _html_save_chart(fig, output_path, stem_suffix, input_path, theme, open_after, _open_file, progress)
 
 
 def _dtype_label(series: pd.Series) -> str:

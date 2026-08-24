@@ -59,6 +59,7 @@ def _comparison_chart(
     input_path: Path,
     theme: str,
     open_after: bool,
+    progress: list,
 ) -> tuple[str, str]:
     """Plot each metric's current value against its reference, side by side.
 
@@ -89,7 +90,7 @@ def _comparison_chart(
         margin=dict(l=20, r=20, t=60, b=20),
         autosize=True,
     )
-    return _save_chart(fig, output_path, "period_comparison", input_path, open_after, theme)
+    return _save_chart(fig, output_path, "period_comparison", input_path, open_after, theme, progress)
 
 
 def period_comparison(
@@ -308,7 +309,7 @@ def period_comparison(
         # dropped, so the caller got success:true and no file.
         if output_path:
             chart_path, chart_name = _comparison_chart(
-                comparisons, metrics, str(cur_pd), str(ref_pd), output_path, path, theme, open_after
+                comparisons, metrics, str(cur_pd), str(ref_pd), output_path, path, theme, open_after, progress
             )
             if chart_path:
                 result["output_path"] = chart_path

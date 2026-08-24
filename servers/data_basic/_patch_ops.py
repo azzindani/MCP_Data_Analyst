@@ -325,7 +325,7 @@ def _op_fill_nulls(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     null_after = int(df[col].isna().sum()) if col in df.columns else 0
     filled = null_before - null_after
 
-    return df, {
+    summary = {
         "op": "fill_nulls",
         "column": col,
         "strategy": strategy,
@@ -338,6 +338,18 @@ def _op_fill_nulls(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
             else None
         ),
     }
+    # `filled: 0` is accurate, and it reads as "nothing needed filling". When
+    # the column had nulls and still has them, the op ran and could not do its
+    # job -- a different outcome that the count alone does not distinguish,
+    # least of all under a pipeline whose top line says `applied: 1`.
+    if null_before > 0 and filled == 0 and strategy != "drop" and col in df.columns:
+        if bool(df[col].notna().any()):
+            summary["note"] = f"{null_before} null(s) in '{col}' remain; {strategy} filled none of them"
+        else:
+            summary["note"] = (
+                f"'{col}' is entirely null, so there is no {strategy} to fill from; the column is unchanged"
+            )
+    return df, summary
 
 
 def _op_drop_duplicates(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:

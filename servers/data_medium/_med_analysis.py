@@ -171,7 +171,7 @@ def correlation_analysis(
                 template=plotly_template(theme),
                 height=calc_chart_height(len(cols), mode="heatmap"),
             )
-            abs_p, fname = _save_chart(fig, output_path, "correlation", path, open_after, theme)
+            abs_p, fname = _save_chart(fig, output_path, "correlation", path, open_after, theme, progress)
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))
@@ -1068,7 +1068,7 @@ def time_series_analysis(
                 template=plotly_template(theme),
                 height=calc_chart_height(len(value_columns), mode="subplot"),
             )
-            abs_p, fname = _save_chart(fig, output_path, "time_series", path, open_after, theme)
+            abs_p, fname = _save_chart(fig, output_path, "time_series", path, open_after, theme, progress)
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))
@@ -1265,7 +1265,7 @@ def cohort_analysis(
                 template=plotly_template(theme),
                 height=calc_chart_height(len(row_keys), mode="heatmap"),
             )
-            abs_p, fname = _save_chart(fig, output_path, "cohort", path, open_after, theme)
+            abs_p, fname = _save_chart(fig, output_path, "cohort", path, open_after, theme, progress)
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))

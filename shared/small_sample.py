@@ -92,6 +92,22 @@ def rounded(value: Any, digits: int = 4) -> float | None:
     return None if number is None else round(number, digits)
 
 
+def is_missing(value: Any) -> bool:
+    """True for None, NaN and NaT -- a scalar that is not a value.
+
+    `finite()` cannot stand in for this where the value may legitimately be
+    text: the mode of a string column is a string, and float("West") raises.
+    NaN is the only thing not equal to itself, which covers numpy scalars and
+    pandas' NaT without importing either.
+    """
+    if value is None:
+        return True
+    try:
+        return bool(value != value)
+    except Exception:  # noqa: BLE001 - an array compares elementwise; not a scalar, not missing
+        return False
+
+
 def is_significant(p: Any, alpha: float = 0.05) -> bool | None:
     """True/False at `alpha`, or None when there is no p-value to judge."""
     number = finite(p)

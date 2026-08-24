@@ -34,12 +34,14 @@ from _adv_helpers import (
     css_report,
     css_vars,
     device_mode_js,
+    extension_note,
     fail,
     get_output_path,
     is_numeric_col,
     ok,
     plotly_script_tag,
     theme_plot_colors,
+    warn,
 )
 
 from shared.file_utils import embed_content, hint_for_error, resolve_path
@@ -113,6 +115,8 @@ def generate_auto_profile(
         # Resolved before the page is built: the <head> needs to know which
         # directory plotly.min.js is written into so it can reference it.
         out = get_output_path(output_path, path, "profile", "html")
+        if note := extension_note(output_path, out):
+            progress.append(warn("Output extension changed", note))
 
         h = []
         h.append(_profile_head_css(_profile_vars, out.parent))

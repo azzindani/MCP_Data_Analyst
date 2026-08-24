@@ -52,6 +52,7 @@ def _coefficient_chart(
     input_path: Path,
     theme: str,
     open_after: bool,
+    progress: list,
 ) -> tuple[str, str]:
     """Render the fitted coefficients with their confidence intervals.
 
@@ -97,7 +98,7 @@ def _coefficient_chart(
         autosize=True,
         showlegend=False,
     )
-    return _save_chart(fig, output_path, "regression", input_path, open_after, theme)
+    return _save_chart(fig, output_path, "regression", input_path, open_after, theme, progress)
 
 
 def regression_analysis(
@@ -349,7 +350,9 @@ def regression_analysis(
         # caller asked for a report, got success:true, and no file. Nothing in
         # the response said so either, because output_path was not echoed back.
         if output_path:
-            chart_path, chart_name = _coefficient_chart(coef_table, y_col, output_path, path, theme, open_after)
+            chart_path, chart_name = _coefficient_chart(
+                coef_table, y_col, output_path, path, theme, open_after, progress
+            )
             if chart_path:
                 result["output_path"] = chart_path
                 result["output_name"] = chart_name

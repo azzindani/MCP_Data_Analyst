@@ -302,7 +302,7 @@ def generate_chart(
         fig.update_layout(margin=dict(l=20, r=20, t=40, b=20), autosize=True)
         rows_plotted = len(chart_df)
 
-        abs_p, fname = _save_chart(fig, output_path, chart_type, path, open_after, theme)
+        abs_p, fname = _save_chart(fig, output_path, chart_type, path, open_after, theme, progress)
         progress.append(ok("Chart saved", f"{fname} ({rows_plotted} rows)"))
 
         result = {
@@ -710,7 +710,7 @@ def generate_geo_map(
             progress.append(info("Map type", f"choropleth, mode={loc_mode}, {rows_plotted} locations"))
 
         fig.update_layout(margin={"l": 0, "r": 0, "t": 40, "b": 0}, autosize=True)
-        abs_p, fname = _save_chart(fig, output_path, "geo_map", path, open_after, theme)
+        abs_p, fname = _save_chart(fig, output_path, "geo_map", path, open_after, theme, progress)
         progress.append(ok("Map saved", fname))
 
         result = {
@@ -869,7 +869,7 @@ def generate_3d_chart(
             rows_plotted = len(df)
 
         fig.update_layout(margin=dict(l=20, r=20, t=40, b=20), autosize=True)
-        abs_p, fname = _save_chart(fig, output_path, chart_type, path, open_after, theme)
+        abs_p, fname = _save_chart(fig, output_path, chart_type, path, open_after, theme, progress)
         progress.append(ok("3D chart saved", f"{fname} ({rows_plotted} rows)"))
 
         result = {

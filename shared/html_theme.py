@@ -6,8 +6,14 @@ import sys
 from pathlib import Path
 
 from shared.chart_page import apply_chart_margins, chart_page_html, take_page_title
-from shared.html_layout import VIEWPORT_META, get_output_path, get_plotlyjs_script  # noqa: F401  (re-exported)
+from shared.html_layout import (  # noqa: F401  (re-exported)
+    VIEWPORT_META,
+    extension_note,
+    get_output_path,
+    get_plotlyjs_script,
+)
 from shared.plotly_bundle import include_plotlyjs_for, plotly_script_tag  # noqa: F401  (re-exported)
+from shared.progress import warn as _warn
 
 # ---------------------------------------------------------------------------
 # Plotly template mapping
@@ -440,14 +446,22 @@ def save_chart(
     theme: str,
     open_after: bool,
     open_func,  # _open_file callable from the calling engine
+    progress: list | None = None,
 ) -> tuple[str, str]:
-    """Save Plotly fig as themed responsive HTML. Returns (abs_path, filename)."""
+    """Save Plotly fig as themed responsive HTML. Returns (abs_path, filename).
+
+    Pass `progress` and the caller is told when an output_path extension had to
+    be replaced. Every chart tool here writes HTML, so a request for `.csv` is
+    corrected -- which is right, and used to happen without a word.
+    """
     apply_fig_theme(fig, theme)
     apply_chart_margins(fig)
     # Before to_html, so the title is not rendered into the fragment as well.
     page_title = take_page_title(fig, stem_suffix)
 
     out = get_output_path(output_path, input_path, stem_suffix, "html")
+    if progress is not None and (note := extension_note(output_path, out)):
+        progress.append(_warn("Output extension changed", note))
 
     # Sidecar mode: the page gets <script src="plotly.min.js"> and the library
     # is written beside it once, so the page itself stays a few KB.
