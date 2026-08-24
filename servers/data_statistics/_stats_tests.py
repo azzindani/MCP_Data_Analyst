@@ -149,7 +149,9 @@ def _posthoc_pairs(groups: list, labels: list[str], kind: str, correction: str, 
                     "group_b": labels[j],
                     "statistic": round(float(res.statistic[i][j]), 4),
                     "p_value": round_p(float(res.pvalue[i][j])),
-                    "significant": bool(float(res.pvalue[i][j]) < alpha),
+                    # A pair involving a singleton group has no p-value of its
+                    # own even when the omnibus test that led here did.
+                    "significant": is_significant(res.pvalue[i][j], alpha),
                 }
             )
         return {
@@ -175,7 +177,7 @@ def _posthoc_pairs(groups: list, labels: list[str], kind: str, correction: str, 
     for entry, before, after in zip(pairs, raw, adjusted):
         entry["p_value"] = round_p(after)
         entry["p_value_raw"] = round_p(before)
-        entry["significant"] = bool(after < alpha)
+        entry["significant"] = is_significant(after, alpha)
     return {
         "method": "pairwise Mann-Whitney U",
         "correction": correction or "none",
