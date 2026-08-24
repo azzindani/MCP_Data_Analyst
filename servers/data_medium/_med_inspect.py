@@ -43,7 +43,7 @@ from _med_helpers import (
     is_numeric_col,
 )
 
-from shared.column_utils import condition_column, missing_column_error
+from shared.column_utils import condition_column, filter_operand_error, missing_column_error
 from shared.file_utils import count_data_rows as _count_data_rows
 from shared.file_utils import hint_for_error, resolve_path
 from shared.platform_utils import get_max_results, get_max_rows
@@ -768,7 +768,7 @@ def filter_rows(
 
         df = _read_csv(str(path))
 
-        for cond in conditions:
+        for i, cond in enumerate(conditions):
             col = condition_column(cond)
             if not col:
                 error, hint = missing_column_error(cond)
@@ -777,6 +777,19 @@ def filter_rows(
                     "error": error,
                     "hint": hint,
                     "progress": [fail("Condition names no column", ", ".join(str(k) for k in cond))],
+                    "token_estimate": 20,
+                }
+            # A condition with no operand used to compare every value against
+            # None: nothing matched, and the tool wrote an empty file under
+            # `success: true, rows_kept: 0`. Refuse it here, where the column
+            # check already happens and nothing has been written yet.
+            operand_error = filter_operand_error(cond, cond.get("op", "") or cond.get("operator", ""), i)
+            if operand_error:
+                return {
+                    "success": False,
+                    "error": operand_error,
+                    "hint": "Fix the condition above and retry. Nothing was written.",
+                    "progress": [fail("Incomplete condition", f"condition {i}")],
                     "token_estimate": 20,
                 }
             if col not in df.columns:

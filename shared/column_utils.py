@@ -186,6 +186,119 @@ def missing_column_error(cond: dict) -> tuple[str, str]:
     )
 
 
+# The operand each filter op compares against, and the key(s) it may arrive
+# under. Ops absent from this map compare against nothing (is_null, not_null).
+#
+# An earlier round taught `between`, `isin` and `regex` to name the key they
+# were missing, because those three read unusually-named keys (min/max, values,
+# pattern) and a caller could not guess them. The ten ops that read plain
+# `value` were left alone -- they were not the ones being debugged -- and they
+# are the ops everybody uses. So they kept doing this:
+#
+#     filter_dataset(f, [{"column": "spend", "op": "gt"}])
+#     -> error: 'value'
+#
+# The entire error is one quoted word. And in data-medium's filter_rows, which
+# reads the operand with cond.get("value") instead, it was worse than an
+# unhelpful error -- there was no error:
+#
+#     filter_rows(f, [{"column": "region", "op": "equals"}])
+#     -> success: true, rows_kept: 0
+#
+# Every value compared against None, nothing matched, and the tool wrote an
+# empty CSV over the caller's filtered output and reported it as a filter that
+# worked. A condition missing its operand is not a condition that excludes
+# everything; it is a condition nobody finished writing.
+FILTER_OPERANDS: dict[str, tuple[str, ...]] = {
+    "equals": ("value",),
+    "not_equals": ("value",),
+    "contains": ("value",),
+    "not_contains": ("value",),
+    "starts_with": ("value",),
+    "ends_with": ("value",),
+    "gt": ("value",),
+    "lt": ("value",),
+    "gte": ("value",),
+    "lte": ("value",),
+    "isin": ("values", "value"),
+    "not_isin": ("values", "value"),
+    "regex": ("pattern", "value"),
+    "between": ("min", "max", "value"),
+    "quantile_between": ("min", "max", "min_q", "max_q", "value"),
+    "date_range": ("start", "end"),
+}
+
+# Ops whose operand goes through float(); a non-numeric one raised
+# "float() argument must be a string or a real number, not 'NoneType'",
+# which names neither the column nor the condition it came from.
+_NUMERIC_FILTER_OPS: frozenset[str] = frozenset({"gt", "lt", "gte", "lte", "between", "quantile_between"})
+_RANGE_FILTER_OPS: frozenset[str] = frozenset({"between", "quantile_between"})
+
+
+def _is_number(value) -> bool:
+    if isinstance(value, bool):
+        return False
+    try:
+        float(value)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def filter_operand_error(cond: dict, op: str, index: int = -1) -> str:
+    """Why this condition cannot be evaluated, or "" if it can.
+
+    Checked before dispatch so a half-written condition is refused by name
+    rather than reaching float() or a bare subscript.
+    """
+    wanted = FILTER_OPERANDS.get(op)
+    if not wanted:
+        return ""  # is_null / not_null take no operand
+    where = f"Condition {index}" if index >= 0 else "This condition"
+    column = condition_column(cond) or "?"
+    present = [k for k in wanted if cond.get(k) is not None]
+
+    if op in _RANGE_FILTER_OPS:
+        pair = [k for k in wanted if k != "value"]
+        lo, hi = pair[0], pair[1]
+        both = cond.get(lo) is not None and cond.get(hi) is not None
+        value = cond.get("value")
+        as_pair = isinstance(value, list | tuple) and len(value) == 2
+        if not both and not as_pair:
+            return (
+                f"{where} ('{column}' {op}) needs both '{lo}' and '{hi}'. Its keys are: "
+                f"{', '.join(str(k) for k in cond) or 'none'}. "
+                f"Write it as {{'column': '{column}', 'op': '{op}', '{lo}': ..., '{hi}': ...}}, "
+                "or give 'value' as a two-item list."
+            )
+        bounds = list(value) if as_pair and not both else [cond.get(lo), cond.get(hi)]
+        bad = [b for b in bounds if not _is_number(b)]
+        if bad:
+            return f"{where} ('{column}' {op}) needs numeric bounds; got {bad!r}."
+        return ""
+
+    if op == "date_range":
+        if not present:
+            return (
+                f"{where} ('{column}' date_range) names neither 'start' nor 'end', so it would keep every row. "
+                f"Give at least one, as an ISO date."
+            )
+        return ""
+
+    if not present:
+        names = " or ".join(f"'{k}'" for k in wanted)
+        return (
+            f"{where} ('{column}' {op}) has no {names} to compare against. Its keys are: "
+            f"{', '.join(str(k) for k in cond) or 'none'}. "
+            f"Write it as {{'column': '{column}', 'op': '{op}', '{wanted[0]}': ...}}."
+        )
+
+    if op in _NUMERIC_FILTER_OPS and not _is_number(cond.get(present[0])):
+        return f"{where} ('{column}' {op}) needs a number to compare against; got {cond.get(present[0])!r}."
+
+    return ""
+
+
 def paired_numeric(df: pd.DataFrame, col_a: str, col_b: str) -> tuple[pd.Series, pd.Series]:
     """Two numeric columns as aligned pairs, dropping rows either one is null in.
 

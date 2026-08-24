@@ -25,7 +25,7 @@ from _med_transform import (  # type: ignore[import]
     smart_impute,
 )
 
-from shared.column_utils import condition_column, missing_column_error
+from shared.column_utils import condition_column, filter_operand_error, missing_column_error
 from shared.file_utils import atomic_write_text, hint_for_error, resolve_path
 from shared.file_utils import read_csv as _shared_read_csv
 from shared.platform_utils import get_max_rows
@@ -202,6 +202,19 @@ def filter_dataset(
             }
         df = _read_csv(str(path))
         before = len(df)
+
+        # Every condition is checked before any is applied: a half-written one
+        # used to reach the comparison and come back as the single word 'value'.
+        for i, cond in enumerate(conditions or []):
+            operand_error = filter_operand_error(cond, cond.get("op", "") or cond.get("operator", ""), i)
+            if operand_error:
+                return {
+                    "success": False,
+                    "error": operand_error,
+                    "hint": "Fix the condition above and retry. Nothing was written.",
+                    "progress": [fail("Incomplete condition", f"condition {i}")],
+                    "token_estimate": 20,
+                }
 
         # Apply all conditions (AND logic)
         if conditions:
