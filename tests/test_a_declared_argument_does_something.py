@@ -40,7 +40,13 @@ import pandas as pd
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-for _p in (str(ROOT), str(ROOT / "servers" / "data_statistics"), str(ROOT / "servers" / "data_medium")):
+for _p in (
+    str(ROOT),
+    str(ROOT / "servers" / "data_statistics"),
+    str(ROOT / "servers" / "data_medium"),
+    str(ROOT / "servers" / "data_advanced"),
+    str(ROOT / "servers" / "data_visual"),
+):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
@@ -261,3 +267,75 @@ class TestAnUnreadArgumentIsRefused:
         pd.DataFrame({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]}).to_csv(csv, index=False)
         r = adv.generate_dashboard(str(csv), output_path=str(tmp_path / "d.html"), open_after=False)
         assert r["success"] is True, r.get("error")
+
+
+# --- customize_chart annotations --------------------------------------------
+#
+# An annotation arrives as a bare dict, so no schema layer sees inside it. A
+# caller who wrote {"label": ..., "value": ...} got {"x": 0, "y": 0, "text": ""}
+# written into the chart, and a response saying "1 annotation(s) added" — an
+# empty label at the origin, reported as a change applied. Found by the
+# round-13 re-run, which decoded the rendered HTML rather than reading the
+# response.
+
+
+def _bar_chart(tmp_path) -> str:
+    from _adv_gencharts import generate_chart  # noqa: PLC0415
+
+    src = tmp_path / "src.csv"
+    src.write_text("device,spends\nDesktop,1250.5\nMobile,900.0\n")
+    out = tmp_path / "c.html"
+    r = generate_chart(
+        str(src),
+        chart_type="bar",
+        value_column="spends",
+        category_column="device",
+        output_path=str(out),
+        open_after=False,
+    )
+    assert r["success"] is True, r
+    return str(out)
+
+
+def test_an_annotation_label_reaches_the_chart(tmp_path):
+    from _adv_customize import customize_chart  # noqa: PLC0415
+
+    chart = _bar_chart(tmp_path)
+    r = customize_chart(chart, annotations=[{"text": "peak", "x": 0, "y": 1250.5}])
+    assert r["success"] is True
+    rendered = Path(r.get("output_path") or chart).read_text()
+    assert '"text": "peak"' in rendered
+    assert '"y": 1250.5' in rendered
+
+
+def test_label_is_accepted_as_an_alias_for_text(tmp_path):
+    """The spelling the sweep reached for, and the one that silently vanished."""
+    from _adv_customize import customize_chart  # noqa: PLC0415
+
+    chart = _bar_chart(tmp_path)
+    r = customize_chart(chart, annotations=[{"label": "single row n=1", "x": 0, "y": 1250.5}])
+    assert r["success"] is True
+    rendered = Path(r.get("output_path") or chart).read_text()
+    assert '"text": "single row n=1"' in rendered
+
+
+def test_an_unrecognised_annotation_key_is_named_not_dropped(tmp_path):
+    from _adv_customize import customize_chart  # noqa: PLC0415
+
+    chart = _bar_chart(tmp_path)
+    r = customize_chart(chart, annotations=[{"label": "peak", "value": 1250.5}])
+    assert r["success"] is True
+    warned = [p for p in r["progress"] if p.get("status") == "warn"]
+    assert any("value" in p.get("detail", "") for p in warned), warned
+
+
+def test_an_annotation_with_no_text_is_refused_by_name(tmp_path):
+    from _adv_customize import customize_chart  # noqa: PLC0415
+
+    chart = _bar_chart(tmp_path)
+    r = customize_chart(chart, annotations=[{"x": 0, "y": 1}])
+    assert r["success"] is False
+    assert "no text" in r["error"]
+    # The refusal has to say what it did get, or the caller cannot see the typo.
+    assert "'x', 'y'" in r["error"] or "['x', 'y']" in r["error"]
+    assert "label" in r["hint"]

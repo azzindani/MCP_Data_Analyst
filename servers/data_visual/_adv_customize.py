@@ -17,7 +17,7 @@ for _p in (str(_ROOT), _ADV):
 
 from shared.file_utils import atomic_write_text, embed_content, hint_for_error, resolve_path
 from shared.plotly_payload import decode_array, encode_array, scan_balanced, split_newplot
-from shared.progress import fail, info, ok
+from shared.progress import fail, info, ok, warn
 
 logger = logging.getLogger(__name__)
 
@@ -228,19 +228,61 @@ def customize_chart(
             progress.append(info("Value labels", "enabled"))
 
         if annotations:
-            layout["annotations"] = [
-                {
-                    "x": ann.get("x", 0),
-                    "y": ann.get("y", 0),
-                    "text": ann.get("text", ""),
-                    "showarrow": ann.get("showarrow", True),
-                    "arrowhead": 2,
-                    "font": {"size": 12},
-                }
-                for ann in annotations
-            ]
-            changes_applied.append(f"{len(annotations)} annotation(s) added")
-            progress.append(info("Annotations", f"{len(annotations)} added"))
+            # An annotation arrives as a bare dict, so no schema layer can check
+            # its keys: a caller who wrote {"label": "...", "value": 1250.5}
+            # got {"x": 0, "y": 0, "text": ""} and the response said
+            # "1 annotation(s) added". An empty label at the origin, reported as
+            # a change applied. `label` is accepted as the alias it clearly is,
+            # and an annotation with no text at all is refused by name rather
+            # than drawn blank.
+            _ALIASES = {"label": "text", "caption": "text", "note": "text"}
+            built: list[dict] = []
+            unknown_keys: set[str] = set()
+            for index, ann in enumerate(annotations):
+                if not isinstance(ann, dict):
+                    return {
+                        "success": False,
+                        "op": "customize_chart",
+                        "error": f"annotations[{index}] is {type(ann).__name__}, not an object.",
+                        "hint": 'Each annotation is {"text": "...", "x": <x>, "y": <y>}.',
+                        "progress": [*progress, fail("Invalid annotation", str(ann)[:60])],
+                        "token_estimate": 30,
+                    }
+                normalised = {_ALIASES.get(k, k): v for k, v in ann.items()}
+                unknown_keys |= {k for k in normalised if k not in {"x", "y", "text", "showarrow"}}
+                text = str(normalised.get("text", "")).strip()
+                if not text:
+                    return {
+                        "success": False,
+                        "op": "customize_chart",
+                        "error": (
+                            f"annotations[{index}] has no text: got keys {sorted(ann)}. "
+                            "An annotation with no text draws an empty label."
+                        ),
+                        "hint": 'Use {"text": "your label", "x": <x>, "y": <y>}; `label` is accepted for `text`.',
+                        "progress": [*progress, fail("Annotation has no text", str(sorted(ann)))],
+                        "token_estimate": 40,
+                    }
+                built.append(
+                    {
+                        "x": normalised.get("x", 0),
+                        "y": normalised.get("y", 0),
+                        "text": text,
+                        "showarrow": normalised.get("showarrow", True),
+                        "arrowhead": 2,
+                        "font": {"size": 12},
+                    }
+                )
+            layout["annotations"] = built
+            if unknown_keys:
+                progress.append(
+                    warn(
+                        "Unrecognised annotation keys ignored",
+                        f"{sorted(unknown_keys)} — accepted: x, y, text, showarrow",
+                    )
+                )
+            changes_applied.append(f"{len(built)} annotation(s) added")
+            progress.append(info("Annotations", f"{len(built)} added"))
 
         if not changes_applied:
             return {
