@@ -139,24 +139,6 @@ def settle_verdict(result: dict, reason: str, *, flag: str = "significant") -> d
     return result
 
 
-def band_label(value: Any, bands: list[tuple[float, str]], otherwise: str) -> str | None:
-    """Name a band of `value`, or None when `value` is not a real number.
-
-    `bands` is read in order as (upper_exclusive_bound, label) for descending
-    thresholds; the first band whose bound `value` is below wins. Written this
-    way so the NaN check cannot be skipped by an `if/elif` chain that ends in a
-    bare `else`, which is how "approximately symmetric" came to describe a
-    single row.
-    """
-    number = finite(value)
-    if number is None:
-        return None
-    for bound, name in bands:
-        if number < bound:
-            return name
-    return otherwise
-
-
 # --- refusing before the maths ----------------------------------------------
 
 

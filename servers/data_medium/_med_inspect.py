@@ -1162,11 +1162,11 @@ def extended_stats(
 
             # Skewness & kurtosis. Both are NaN below n=3 (skew) and n=4
             # (kurtosis), and NaN fails every comparison in an if/elif chain, so
-            # the old chain fell through to its `else` and called a single row
+            # the chain fell through to its `else` and called a single row
             # "approximately symmetric" with "approximately normal tails" -- two
             # confident shape descriptions sitting beside the honest `null`s
-            # that the same row produced for std and variance. band_label
-            # returns None instead, because it checks the number first.
+            # that the same row produced for std and variance. The `finite`
+            # check goes first, where a fall-through cannot reach past it.
             skew = float(series.skew())
             kurt = float(series.kurtosis())
 
