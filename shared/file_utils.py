@@ -312,3 +312,40 @@ def hint_for_error(exc: Exception, fallback: str) -> str:
             "the header, or trim_empty() to drop the junk, then retry."
         )
     return fallback
+
+
+def no_rows_error(op: str, df: pd.DataFrame, path_name: str, what: str) -> dict | None:
+    """Refuse a frame that has columns and no rows, before the maths starts.
+
+    A header row and no data rows is an ordinary thing to be handed: a filter
+    that matched nothing, an export with no results, a query run too early. It
+    is not a broken file, so the CSV parses and every guard that checks for a
+    missing or zero-byte file lets it through -- and the failure surfaces much
+    later, out of a library, in its own words:
+
+        regression_analysis  "zero-size array to reduction operation maximum
+                              which has no identity"
+        generate_dashboard   "cannot convert float NaN to integer"
+
+    Both were reported with a hint about the arguments and the file path, which
+    is where a caller would then go looking. Neither was wrong about anything
+    except the cause. Returns None when the frame has rows, so the caller reads
+    as `if (err := no_rows_error(...)): return err`.
+    """
+    if len(df) > 0:
+        return None
+    from shared.progress import fail
+
+    return {
+        "success": False,
+        "op": op,
+        "error": f"{path_name} has {len(df.columns)} column(s) and no data rows.",
+        "hint": (
+            f"{what} needs at least one row. Check the filter or export that produced "
+            "this file — inspect_dataset() will confirm the row count."
+        ),
+        "rows": 0,
+        "columns": len(df.columns),
+        "progress": [fail("No data rows", path_name)],
+        "token_estimate": 40,
+    }

@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 from shared.arg_alias import missing, pick, pick_list
-from shared.file_utils import hint_for_error, resolve_path
+from shared.file_utils import hint_for_error, no_rows_error, resolve_path
 from shared.file_utils import read_csv as _read_csv
 from shared.progress import fail, info, ok, warn
 from shared.stats_format import format_p, round_p
@@ -140,6 +140,8 @@ def regression_analysis(
             }
 
         df = _read_csv(str(path))
+        if err := no_rows_error("regression_analysis", df, path.name, "Fitting a model"):
+            return err
 
         if model_type not in ("ols", "logistic"):
             return {
