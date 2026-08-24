@@ -30,11 +30,36 @@ def compute_alerts(
     rows: int,
     dup_count: int,
 ) -> list[dict]:
-    """Return every data-quality alert for `df`, worst first in reading order."""
+    """Return every data-quality alert for `df`, worst first in reading order.
+
+    Alerts a single row cannot support are not raised. With one row every
+    column holds exactly one unique value and its top category is 100% of the
+    column, by arithmetic rather than by any property of the data -- and each
+    CONSTANT alert costs 8 points, so a clean one-row file with no nulls and no
+    duplicates scored 0/100 off 31 of them, under a panel reading "no issues".
+
+    ml-medium's check_data_quality had the same defect and was fixed earlier
+    the same day; this is its Data_Analyst counterpart, and the fix had not
+    crossed repos. Both reports built on these alerts -- run_eda and
+    generate_dashboard -- inherited it.
+    """
     alerts: list[dict] = []
 
+    # A column of nulls is genuinely empty whatever the row count, so that half
+    # of the old `<= 1` test stays; the constant half needs a second row before
+    # "constant" describes the data rather than the shape of the frame.
     for c in df.columns:
-        if df[c].nunique(dropna=True) <= 1:
+        n_unique = int(df[c].nunique(dropna=True))
+        if n_unique == 0:
+            alerts.append(
+                {
+                    "col": c,
+                    "type": "ALL NULL",
+                    "sev": "error",
+                    "msg": f"'{c}' has no values at all — every row is null.",
+                }
+            )
+        elif n_unique == 1 and rows > 1:
             alerts.append(
                 {
                     "col": c,
@@ -90,7 +115,9 @@ def compute_alerts(
             )
 
     for c in cat_cols:
-        if df[c].notna().sum() > 0:
+        # `rows > 1` for the same reason as CONSTANT above: the top category of
+        # a one-row column is 100% of it, always.
+        if rows > 1 and df[c].notna().sum() > 0:
             top_pct = round(df[c].value_counts(normalize=True).iloc[0] * 100, 1)
             if top_pct > 90:
                 alerts.append(

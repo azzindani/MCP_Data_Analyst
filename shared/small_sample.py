@@ -50,6 +50,14 @@ MIN_N_IQR = 4
 # regression_analysis's error message with nothing about sample size in it.
 MIN_N_SHAPIRO = 3
 
+# Any two points lie on a line, so a correlation over fewer than three pairs is
+# +-1 by construction however unrelated the columns are -- a property of the
+# count, not of the data. Applies equally to a chart that depicts a
+# relationship: a scatter matrix or a correlation heatmap drawn from one row is
+# a picture of nothing, and renders as a blank or zero-valued grid that reads
+# like a measured absence of correlation.
+MIN_N_CORRELATION = 3
+
 
 def min_n_for_zscore(threshold: float = 3.0) -> int:
     """Smallest n where some point *could* exceed `threshold` standard deviations.

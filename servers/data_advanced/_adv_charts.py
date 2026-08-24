@@ -27,7 +27,7 @@ from _adv_helpers import (
 
 from shared.file_utils import embed_content, hint_for_error, resolve_path
 from shared.progress import info, warn
-from shared.small_sample import MIN_N_IQR
+from shared.small_sample import MIN_N_CORRELATION, MIN_N_IQR
 from shared.version_control import snapshot_if_exists
 
 logger = logging.getLogger(__name__)
@@ -229,6 +229,18 @@ def generate_correlation_heatmap(
             height=300 + 50 * len(numeric_cols),
         )
 
+        # A chart that depicts a relationship needs enough points to have one.
+        # Below MIN_N_CORRELATION every pair lies on a line, and the rendered
+        # grid comes out blank or zero-valued -- which reads as a measured
+        # absence of correlation rather than as nothing having been measured.
+        # generate_distribution_plot got this warning in the same round; its
+        # two siblings in this file did not, and the re-run caught the gap.
+        rows_used = int(len(df))
+        if rows_used < MIN_N_CORRELATION:
+            progress.append(
+                warn("Too few rows for a correlation", f"{rows_used} row(s); every coefficient is undefined")
+            )
+
         abs_p, fname = _save_chart(fig, output_path, "correlation_heatmap", path, open_after, theme, progress)
         progress.append(ok("Correlation heatmap saved", f"{fname} — {len(numeric_cols)} columns"))
 
@@ -240,8 +252,15 @@ def generate_correlation_heatmap(
             "output_name": fname,
             "columns": numeric_cols,
             "method": method,
+            "rows_used": rows_used,
             "progress": progress,
         }
+        if rows_used < MIN_N_CORRELATION:
+            result["hint"] = (
+                f"Drawn from {rows_used} row(s). A correlation needs at least {MIN_N_CORRELATION} pairs to "
+                "mean anything, so every cell in this grid is undefined -- the chart is not showing weak "
+                "correlation, it is showing none that could be computed."
+            )
         embed_content(result, Path(abs_p), return_content)
         result["token_estimate"] = _token_estimate(result)
         return result
@@ -327,6 +346,12 @@ def generate_pairwise_plot(
             height=calc_chart_height(len(cols_to_plot), mode="subplot"),
         )
 
+        rows_used = int(len(df))
+        if rows_used < MIN_N_CORRELATION:
+            progress.append(
+                warn("Too few rows for a pairwise plot", f"{rows_used} row(s); no panel can show a relationship")
+            )
+
         abs_p, fname = _save_chart(fig, output_path, "pairwise", path, open_after, theme, progress)
         progress.append(ok("Pairwise plot saved", f"{fname} — {len(cols_to_plot)} columns"))
 
@@ -337,8 +362,14 @@ def generate_pairwise_plot(
             "output_path": abs_p,
             "output_name": fname,
             "columns_plotted": cols_to_plot,
+            "rows_used": rows_used,
             "progress": progress,
         }
+        if rows_used < MIN_N_CORRELATION:
+            result["hint"] = (
+                f"Drawn from {rows_used} row(s). Any two points lie on a line, so no panel here shows a "
+                f"relationship; {MIN_N_CORRELATION}+ rows are needed before the scatter means anything."
+            )
         embed_content(result, Path(abs_p), return_content)
         result["token_estimate"] = _token_estimate(result)
         return result
