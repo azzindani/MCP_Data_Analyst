@@ -120,7 +120,15 @@ def test_detect_anomalies_withholds_the_same_verdict(tmp_path):
     assert col["iqr_outliers"] is None
     assert col["zscore_outliers"] is None
     assert r["columns_undetermined"] == ["spend"]
-    assert "not a finding" in r["hint"]
+    assert r["anomaly_count"] is None
+    assert "nothing to act on" in r["hint"]
+    # The saved file must not carry a verdict the response withholds: a
+    # `_iqr_flag` column of False says "checked, found nothing".
+    written = out.read_text().splitlines()[0]
+    assert "_iqr_flag" not in written
+    assert "_zscore_flag" not in written
+    assert "_anomaly_score" not in written
+    assert "spend" in written
 
 
 def test_detect_anomalies_threshold_moves_the_boundary(tmp_path):

@@ -1195,8 +1195,13 @@ def extended_stats(
             # Percentiles
             pct_vals = {f"p{p:g}": round(float(series.quantile(p / 100)), 4) for p in pcts}
 
-            # Coefficient of variation
-            cv = round(std_val / mean_val, 4) if mean_val != 0 else None
+            # Coefficient of variation. `rounded`, not `round`, because it is
+            # std over mean and std is NaN below two values -- so a column with
+            # a non-zero mean produced NaN here and carried it all the way into
+            # the response as the bare JSON token. The zero-mean guard beside it
+            # hid how narrow the escape was: `spends` has mean 0 and came back
+            # null, while `impressions` had mean 2 and came back NaN.
+            cv = rounded(std_val / mean_val) if mean_val != 0 else None
 
             # CI for the mean (t-distribution)
             ci = None

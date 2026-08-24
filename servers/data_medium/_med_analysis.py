@@ -1350,7 +1350,11 @@ def detect_anomalies(
                 # sample -- see MIN_N_IQR. A flag column of all False and a
                 # count of zero describe the row count, not the data.
                 if len(clean) < MIN_N_IQR:
-                    result_df[f"{col}_iqr_flag"] = False
+                    # No flag column at all, rather than a column of False. The
+                    # JSON says this column has no verdict; a saved file that
+                    # says False for every row says "checked, found nothing",
+                    # and the two must not disagree. The re-run caught exactly
+                    # this: null in the response, concrete False in the CSV.
                     col_summary["iqr_outliers"] = None
                     col_summary["iqr_status"] = (
                         f"undetermined at n={len(clean)}: the 1.5*IQR fence cannot fall inside a sample "
@@ -1376,7 +1380,6 @@ def detect_anomalies(
                 # below min_n_z the scan cannot reach `threshold` whatever the
                 # values are.
                 if len(clean) < min_n_z:
-                    result_df[f"{col}_zscore_flag"] = False
                     col_summary["zscore_outliers"] = None
                     col_summary["zscore_threshold"] = threshold
                     col_summary["zscore_status"] = (
@@ -1402,10 +1405,12 @@ def detect_anomalies(
         flag_cols = [c for c in result_df.columns if c.endswith("_iqr_flag") or c.endswith("_zscore_flag")]
         if flag_cols:
             result_df["_anomaly_score"] = result_df[flag_cols].sum(axis=1)
+            anomaly_count = int((result_df["_anomaly_score"] > 0).sum())
         else:
-            result_df["_anomaly_score"] = 0
-
-        anomaly_count = int((result_df["_anomaly_score"] > 0).sum())
+            # Nothing was judged, so there is no score to write. A `_anomaly_score`
+            # column of zeros would tell every later reader of this file that the
+            # rows were checked and came back clean.
+            anomaly_count = None
 
         out = str(resolve_path(output_path)) if output_path else str(path.parent / f"{path.stem}_anomalies.csv")
         result_df.to_csv(out, index=False)
@@ -1418,18 +1423,15 @@ def detect_anomalies(
                     f"{len(undetermined_shown)} column(s) undetermined: {', '.join(undetermined_shown)}",
                 )
             )
-        progress.append(
-            ok(
-                f"Anomaly detection on {path.name}",
-                f"{anomaly_count}/{len(df)} anomalous rows, saved to {Path(out).name}",
-            )
-        )
+        scored = "no columns could be scored" if anomaly_count is None else f"{anomaly_count}/{len(df)} anomalous rows"
+        progress.append(ok(f"Anomaly detection on {path.name}", f"{scored}, saved to {Path(out).name}"))
 
         hint = "Call apply_patch() or run_cleaning_pipeline() to act on findings."
-        if undetermined_shown and len(undetermined_shown) == len(numeric_cols):
+        if anomaly_count is None:
             hint = (
-                "No column had enough rows for an anomaly verdict, so anomaly_count of 0 is not a finding. "
-                "columns_undetermined lists them; each carries the n it had."
+                "No column had enough rows for an anomaly verdict, so there is nothing to act on. "
+                "columns_undetermined lists them, each with the n it had. The saved file carries the "
+                "rows and no flag columns, because there was no verdict to record."
             )
         result = {
             "success": True,

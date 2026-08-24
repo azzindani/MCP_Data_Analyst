@@ -1481,6 +1481,15 @@ def anomaly_csv(tmp_path) -> Path:
     return f
 
 
+@pytest.fixture()
+def wide_anomaly_csv(tmp_path) -> Path:
+    """Enough rows that the 3-sigma method can actually flag something."""
+    f = tmp_path / "wide_anomaly.csv"
+    body = "\n".join("10,100" for _ in range(14))
+    f.write_text(f"A,B\n{body}\n1000,99\n11,9999\n")
+    return f
+
+
 class TestDetectAnomalies:
     def test_iqr(self, anomaly_csv):
         r = detect_anomalies(str(anomaly_csv), method="iqr")
@@ -1495,9 +1504,15 @@ class TestDetectAnomalies:
         assert "A" in r["per_column"]
         assert "zscore_outliers" in r["per_column"]["A"]
 
-    def test_both_flags_in_output(self, anomaly_csv, tmp_path):
+    def test_both_flags_in_output(self, wide_anomaly_csv, tmp_path):
+        # Was `anomaly_csv`, which has 7 rows. A 3-sigma scan cannot flag
+        # anything below 11 -- the largest z any of n points can reach is
+        # (n-1)/sqrt(n) -- so no _zscore_flag column is written there any more,
+        # and asserting one existed was asserting a column that could only ever
+        # have said False. This fixture has enough rows for both methods to
+        # reach a real verdict.
         out = tmp_path / "flagged.csv"
-        r = detect_anomalies(str(anomaly_csv), method="both", output_path=str(out))
+        r = detect_anomalies(str(wide_anomaly_csv), method="both", output_path=str(out))
         assert r["success"] is True
         assert out.exists()
         df = pd.read_csv(str(out))
