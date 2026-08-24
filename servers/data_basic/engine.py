@@ -897,15 +897,30 @@ def apply_patch(
             backup=backup,
         )
 
+        # An op that ran and could not do its job says so in a `note`.
+        # "applied" counts ops that executed, not ops that had an effect --
+        # the same distinction run_cleaning_pipeline draws, and these two
+        # tools share their op handlers, so they should draw it the same way.
+        no_effect = [entry for entry in results if entry.get("note")]
+        for entry in no_effect:
+            progress.append(warn(f"{entry['op']} changed nothing", entry["note"]))
+
+        hint = "Call read_column_stats() or inspect_dataset() to verify the changes."
+        if no_effect:
+            hint = (
+                f"{len(no_effect)} of {len(ops)} op(s) ran without changing anything -- read `note` on each "
+                "entry of ops_with_no_effect before treating this file as patched."
+            )
         result = {
             "success": True,
             "op": "apply_patch",
             "file_path": str(path),
             "applied": len(ops),
+            "ops_with_no_effect": no_effect,
             "results": results,
             "backup": backup,
             "changed_file": bool(backup),
-            "hint": ("Call read_column_stats() or inspect_dataset() to verify the changes."),
+            "hint": hint,
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)

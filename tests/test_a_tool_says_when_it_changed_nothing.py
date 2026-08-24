@@ -32,6 +32,9 @@ from _adv_charts import generate_distribution_plot  # noqa: E402
 from _med_inspect import check_outliers  # noqa: E402
 from _med_transform import run_cleaning_pipeline, smart_impute  # noqa: E402
 
+# Fully qualified: the bare name `engine` resolves to data_advanced's, which
+# this file also puts on sys.path for _adv_charts.
+from servers.data_basic.engine import apply_patch  # noqa: E402
 from shared.html_layout import extension_note  # noqa: E402
 
 
@@ -162,3 +165,51 @@ def test_a_real_distribution_plot_carries_no_warning(tmp_path):
     r = generate_distribution_plot(str(src), output_path=str(tmp_path / "d.html"), open_after=False)
     assert r["columns_too_few_values"] == []
     assert "not a distribution" not in r.get("hint", "")
+
+
+# --- normalize: a column it cannot transform must survive it -----------------
+
+
+def test_normalize_does_not_zero_a_column_it_cannot_scale(tmp_path):
+    """min-max over a constant column is 0/0, and this op rewrites the file.
+
+    It substituted 0.0, so `spends` holding 7, 7, 7 came back 0, 0, 0 under
+    success:true -- three real values replaced by a placeholder for an
+    undefined result. A single-valued column is not rare: a filtered slice, a
+    one-campaign export, a flag that happens not to vary.
+    """
+    f = tmp_path / "flat.csv"
+    f.write_text("name,spends\nA,7\nB,7\nC,7\n")
+    r = apply_patch(str(f), ops=[{"op": "normalize", "column": "spends", "method": "minmax"}])
+
+    assert r["success"] is True
+    assert f.read_text() == "name,spends\nA,7\nB,7\nC,7\n"
+    assert r["changed_file"] is False
+    entry = r["results"][0]
+    assert entry["skipped"] is True
+    assert "no spread" in entry["note"]
+    assert len(r["ops_with_no_effect"]) == 1
+    assert "without changing anything" in r["hint"]
+
+
+def test_normalize_zscore_survives_a_single_row(tmp_path):
+    """At n=1 the sample sd is NaN, not 0 -- `== 0` missed it and wrote NaN."""
+    f = tmp_path / "one.csv"
+    f.write_text("name,spends\nWest,7\n")
+    r = apply_patch(str(f), ops=[{"op": "normalize", "column": "spends", "method": "zscore"}])
+
+    assert r["success"] is True
+    assert f.read_text() == "name,spends\nWest,7\n"
+    assert r["results"][0]["skipped"] is True
+
+
+def test_normalize_still_scales_a_column_that_varies(tmp_path):
+    f = tmp_path / "vary.csv"
+    f.write_text("name,spends\nA,1\nB,5\nC,9\n")
+    r = apply_patch(str(f), ops=[{"op": "normalize", "column": "spends", "method": "minmax"}])
+
+    assert r["success"] is True
+    assert r["changed_file"] is True
+    assert r["ops_with_no_effect"] == []
+    assert "skipped" not in r["results"][0]
+    assert f.read_text().splitlines()[1:] == ["A,0.0", "B,0.5", "C,1.0"]

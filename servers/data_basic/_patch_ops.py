@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from shared.small_sample import rounded
+
 _ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
@@ -388,35 +390,57 @@ def _op_normalize(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     method = op.get("method", "minmax")
     clean = df[col].dropna()
 
+    # A column with no spread cannot be normalised: min-max is 0/0 and z-score
+    # divides by a zero (or, at one row, an undefined) standard deviation. Both
+    # branches used to substitute 0.0 -- and this op rewrites the caller's file,
+    # so `spends` holding 7, 7, 7 came back 0, 0, 0 under success:true. Three
+    # real values replaced by a placeholder for an undefined result, and no way
+    # to tell from the response that anything had been lost.
+    #
+    # A single-valued column is not rare: a filtered slice, a single-campaign
+    # export, a flag that happens not to vary. Leaving it alone and saying so is
+    # the only option that does not destroy data the tool cannot transform.
     if method == "minmax":
         mn = float(clean.min())
         mx = float(clean.max())
         denom = mx - mn
-        if denom == 0:
-            df[col] = df[col].where(df[col].isna(), 0.0)
-        else:
-            df[col] = (df[col] - mn) / denom
-        return df, {
+        summary = {
             "op": "normalize",
             "column": col,
             "method": method,
-            "min": round(mn, 4),
-            "max": round(mx, 4),
+            "min": rounded(mn),
+            "max": rounded(mx),
         }
+        if not denom > 0:
+            summary["skipped"] = True
+            summary["note"] = (
+                f"'{col}' has no spread (min == max == {mn}), so min-max normalisation is 0/0. The column is unchanged."
+            )
+            return df, summary
+        df[col] = (df[col] - mn) / denom
+        return df, summary
     elif method == "zscore":
         mean_val = float(clean.mean())
         std_val = float(clean.std())
-        if std_val == 0:
-            df[col] = df[col].where(df[col].isna(), 0.0)
-        else:
-            df[col] = (df[col] - mean_val) / std_val
-        return df, {
+        summary = {
             "op": "normalize",
             "column": col,
             "method": method,
-            "mean": round(mean_val, 4),
-            "std": round(std_val, 4),
+            "mean": rounded(mean_val),
+            "std": rounded(std_val),
         }
+        # `not std_val > 0` rather than `== 0`: at one row the sample standard
+        # deviation is NaN, which is not equal to zero, and the division then
+        # wrote NaN over every value instead of 0.
+        if not std_val > 0:
+            summary["skipped"] = True
+            summary["note"] = (
+                f"'{col}' has {'no spread' if len(clean) > 1 else 'a single value'}, so a z-score is "
+                f"{'0/0' if len(clean) > 1 else 'undefined'}. The column is unchanged."
+            )
+            return df, summary
+        df[col] = (df[col] - mean_val) / std_val
+        return df, summary
     else:
         raise ValueError(f"Unknown normalize method: '{method}'. Valid: minmax, zscore")
 
