@@ -191,14 +191,14 @@ class TestListWorkspaceFiles:
 class TestSaveWorkspacePipeline:
     def test_success(self, ws_base):
         create_workspace("pipe_ws", base_dir=str(ws_base))
-        ops = [{"op": "drop_nulls"}]
+        ops = [{"op": "drop_duplicates"}]
         r = save_workspace_pipeline("pipe_ws", "clean", ops, base_dir=str(ws_base))
         assert r["success"] is True
         assert r["op_count"] == 1
 
     def test_context_field(self, ws_base):
         create_workspace("pipe_ctx", base_dir=str(ws_base))
-        ops = [{"op": "drop_nulls"}, {"op": "strip_whitespace", "column": "Region"}]
+        ops = [{"op": "drop_duplicates"}, {"op": "clean_text", "scope": "values", "operations": ["strip"]}]
         r = save_workspace_pipeline("pipe_ctx", "my_pipe", ops, base_dir=str(ws_base))
         ctx = r["context"]
         assert ctx["op"] == "save_workspace_pipeline"
@@ -206,7 +206,7 @@ class TestSaveWorkspacePipeline:
 
     def test_handover_suggests_run(self, ws_base):
         create_workspace("pipe_ho", base_dir=str(ws_base))
-        ops = [{"op": "drop_nulls"}]
+        ops = [{"op": "drop_duplicates"}]
         r = save_workspace_pipeline("pipe_ho", "pipe_a", ops, base_dir=str(ws_base))
         ho = r["handover"]
         tools = [s["tool"] for s in ho["suggested_next"]]
@@ -215,7 +215,7 @@ class TestSaveWorkspacePipeline:
 
     def test_pipeline_visible_after_open(self, ws_base):
         create_workspace("pipe_vis", base_dir=str(ws_base))
-        ops = [{"op": "drop_nulls"}]
+        ops = [{"op": "drop_duplicates"}]
         save_workspace_pipeline("pipe_vis", "vis_pipe", ops, base_dir=str(ws_base))
         r = open_workspace("pipe_vis", base_dir=str(ws_base))
         assert "vis_pipe" in r["saved_pipelines"]
@@ -230,7 +230,7 @@ class TestRunWorkspacePipeline:
     def test_dry_run_success(self, ws_base, sample_csv):
         create_workspace("run_ws", base_dir=str(ws_base))
         register_workspace_file("run_ws", str(sample_csv), alias="raw", base_dir=str(ws_base))
-        ops = [{"op": "drop_nulls"}]
+        ops = [{"op": "drop_duplicates"}]
         save_workspace_pipeline("run_ws", "pipe", ops, base_dir=str(ws_base))
         r = run_workspace_pipeline(
             "run_ws",
@@ -248,7 +248,7 @@ class TestRunWorkspacePipeline:
         # context/handover only attached on non-dry-run success
         create_workspace("dry_ws", base_dir=str(ws_base))
         register_workspace_file("dry_ws", str(sample_csv), alias="raw", base_dir=str(ws_base))
-        ops = [{"op": "drop_nulls"}]
+        ops = [{"op": "drop_duplicates"}]
         save_workspace_pipeline("dry_ws", "p", ops, base_dir=str(ws_base))
         r = run_workspace_pipeline(
             "dry_ws",
@@ -292,7 +292,7 @@ class TestE2EWorkspaceServer:
         # carry_forward path uses workspace: prefix
         assert r2["handover"]["carry_forward"]["file_path"] == "workspace:e2e/raw_sales"
 
-        r3 = save_workspace_pipeline("e2e", "clean", [{"op": "drop_nulls"}], base_dir=str(ws_base))
+        r3 = save_workspace_pipeline("e2e", "clean", [{"op": "drop_duplicates"}], base_dir=str(ws_base))
         assert r3["success"] is True
 
         r4 = run_workspace_pipeline(

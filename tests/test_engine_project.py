@@ -197,9 +197,16 @@ class TestListWorkspaceFiles:
 
 
 class TestSaveWorkspacePipeline:
+    # These fixtures used to save {"op": "drop_nulls"} and
+    # {"op": "strip_whitespace"}. Neither op exists -- the real names are
+    # drop_duplicates and clean_text -- so every template saved here was one
+    # run_workspace_pipeline would have refused. Nothing caught it because
+    # save_workspace_pipeline stored whatever it was handed and no test ran
+    # what it saved. That is the defect these fixtures were demonstrating
+    # without anyone noticing; see test_a_saved_pipeline_is_a_runnable_one.
     def test_save_success(self, project_base):
         create_workspace("pipe_proj", base_dir=str(project_base))
-        ops = [{"op": "drop_nulls"}, {"op": "strip_whitespace", "column": "Region"}]
+        ops = [{"op": "drop_duplicates"}, {"op": "clean_text", "scope": "values", "operations": ["strip"]}]
         r = save_workspace_pipeline(
             "pipe_proj", "clean_step", ops, description="Basic cleaning", base_dir=str(project_base)
         )
@@ -209,14 +216,14 @@ class TestSaveWorkspacePipeline:
 
     def test_pipeline_visible_after_open(self, project_base):
         create_workspace("pipe_vis", base_dir=str(project_base))
-        ops = [{"op": "drop_nulls"}]
+        ops = [{"op": "drop_duplicates"}]
         save_workspace_pipeline("pipe_vis", "my_pipeline", ops, base_dir=str(project_base))
         r_open = open_workspace("pipe_vis", base_dir=str(project_base))
         assert "my_pipeline" in r_open["saved_pipelines"]
 
     def test_handover_suggests_run(self, project_base):
         create_workspace("pipe_ho", base_dir=str(project_base))
-        ops = [{"op": "drop_nulls"}]
+        ops = [{"op": "drop_duplicates"}]
         r = save_workspace_pipeline("pipe_ho", "pipe_a", ops, base_dir=str(project_base))
         tools = [s["tool"] for s in r["handover"]["suggested_next"]]
         assert "run_workspace_pipeline" in tools
@@ -231,7 +238,7 @@ class TestRunWorkspacePipeline:
     def test_dry_run(self, project_base, sales_csv):
         create_workspace("run_proj", base_dir=str(project_base))
         register_workspace_file("run_proj", str(sales_csv), alias="raw_sales", base_dir=str(project_base))
-        ops = [{"op": "drop_nulls"}]
+        ops = [{"op": "drop_duplicates"}]
         save_workspace_pipeline("run_proj", "clean_pipe", ops, base_dir=str(project_base))
         r = run_workspace_pipeline(
             "run_proj",

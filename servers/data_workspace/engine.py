@@ -9,6 +9,7 @@ from pathlib import Path
 
 from shared.file_utils import hint_for_error
 from shared.handover import make_context, make_handover
+from shared.patch_validator import validate_ops
 from shared.progress import fail, info, ok, warn  # noqa: F401
 from shared.project_utils import (
     create_manifest,
@@ -372,6 +373,25 @@ def save_workspace_pipeline(
     """Save named pipeline template (list of apply_patch op dicts)."""
     progress = []
     try:
+        # A template was stored exactly as given, so {"op": "teleport"} saved
+        # cleanly and the refusal arrived later, from run_workspace_pipeline,
+        # about a template the caller had already been told was good. The ops
+        # run through apply_patch, so they are checked by apply_patch's
+        # validator -- here, where the mistake is still on screen.
+        errors = validate_ops(ops)
+        if errors:
+            return {
+                "success": False,
+                "op": "save_workspace_pipeline",
+                "error": "; ".join(errors),
+                "hint": (
+                    "Fix the ops above and save again. Nothing was stored. "
+                    "list_patch_ops() prints every op and its fields."
+                ),
+                "progress": [fail("Invalid ops", str(errors))],
+                "token_estimate": 30,
+            }
+
         record = _save_pipeline_util(workspace_name, pipeline_name, ops, description, base_dir)
         progress.append(ok(f"Saved pipeline '{pipeline_name}'", f"{len(ops)} ops"))
         result = {
