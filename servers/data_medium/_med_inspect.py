@@ -49,6 +49,7 @@ from shared.file_utils import hint_for_error, resolve_path
 from shared.platform_utils import get_max_results, get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
+from shared.small_sample import MIN_N_IQR, MIN_N_SHAPIRO, finite, min_n_for_zscore, rounded, shapiro_p
 from shared.version_control import snapshot
 
 logger = logging.getLogger(__name__)
@@ -98,37 +99,70 @@ def check_outliers(
 
         results = {}
         cols_with_outliers = 0
+        undetermined_cols: set[str] = set()
+        min_n_std = min_n_for_zscore(3.0)
         for col in numeric_cols:
             clean = df[col].dropna()
             if len(clean) == 0:
                 continue
-            r: dict = {}
+            r: dict = {"n": int(len(clean))}
             if method in ("iqr", "both"):
-                q1 = float(clean.quantile(th1))
-                q3 = float(clean.quantile(th3))
-                iqr = q3 - q1
-                lower = q1 - 1.5 * iqr
-                upper = q3 + 1.5 * iqr
-                count = int(((clean < lower) | (clean > upper)).sum())
-                r["has_outliers_iqr"] = count > 0
-                r["outlier_count_iqr"] = count
-                r["lower_limit_iqr"] = round(lower, 4)
-                r["upper_limit_iqr"] = round(upper, 4)
-                if count > 0:
-                    cols_with_outliers += 1
+                # Below four values the 1.5*IQR fence always lands outside the
+                # sample, whatever the values are -- see MIN_N_IQR. "0 outliers"
+                # there states a property of the row count, dressed as a finding
+                # about the data.
+                if len(clean) < MIN_N_IQR:
+                    r["has_outliers_iqr"] = None
+                    r["outlier_count_iqr"] = None
+                    r["iqr_status"] = (
+                        f"undetermined at n={len(clean)}: the 1.5*IQR fence cannot fall inside a sample "
+                        f"smaller than {MIN_N_IQR}, so no value could have been flagged"
+                    )
+                    undetermined_cols.add(col)
+                else:
+                    q1 = float(clean.quantile(th1))
+                    q3 = float(clean.quantile(th3))
+                    iqr = q3 - q1
+                    lower = q1 - 1.5 * iqr
+                    upper = q3 + 1.5 * iqr
+                    count = int(((clean < lower) | (clean > upper)).sum())
+                    r["has_outliers_iqr"] = count > 0
+                    r["outlier_count_iqr"] = count
+                    r["lower_limit_iqr"] = round(lower, 4)
+                    r["upper_limit_iqr"] = round(upper, 4)
+                    if iqr == 0:
+                        # Enough rows but no spread: zero is a real answer, and
+                        # the bounds still sit on the data rather than around it.
+                        r["iqr_status"] = "zero spread: q1 == q3, so the fence has no width"
+                    if count > 0:
+                        cols_with_outliers += 1
 
             if method in ("std", "both"):
-                mean_v = float(clean.mean())
-                std_v = float(clean.std()) if len(clean) > 1 else 0
-                lower_s = mean_v - 3 * std_v
-                upper_s = mean_v + 3 * std_v
-                count_s = int(((clean < lower_s) | (clean > upper_s)).sum())
-                r["has_outliers_std"] = count_s > 0
-                r["outlier_count_std"] = count_s
-                r["lower_limit_std"] = round(lower_s, 4)
-                r["upper_limit_std"] = round(upper_s, 4)
-                if count_s > 0 and method == "std":
-                    cols_with_outliers += 1
+                # The largest z-score any of n points can reach is (n-1)/sqrt(n),
+                # which first exceeds 3 at n=11. Below that a 3-sigma scan is
+                # guaranteed to find nothing.
+                if len(clean) < min_n_std:
+                    r["has_outliers_std"] = None
+                    r["outlier_count_std"] = None
+                    r["std_status"] = (
+                        f"undetermined at n={len(clean)}: the largest z-score attainable by any of n points "
+                        f"is (n-1)/sqrt(n), which first exceeds 3 at n={min_n_std}"
+                    )
+                    undetermined_cols.add(col)
+                else:
+                    mean_v = float(clean.mean())
+                    std_v = float(clean.std())
+                    lower_s = mean_v - 3 * std_v
+                    upper_s = mean_v + 3 * std_v
+                    count_s = int(((clean < lower_s) | (clean > upper_s)).sum())
+                    r["has_outliers_std"] = count_s > 0
+                    r["outlier_count_std"] = count_s
+                    r["lower_limit_std"] = round(lower_s, 4)
+                    r["upper_limit_std"] = round(upper_s, 4)
+                    if std_v == 0:
+                        r["std_status"] = "zero spread: every value is identical, so the bounds have no width"
+                    if count_s > 0 and method == "std":
+                        cols_with_outliers += 1
 
             results[col] = r
 
@@ -139,6 +173,14 @@ def check_outliers(
             results = {k: results[k] for k in keys}
             progress.append(warn("Results truncated", f"Showing first {max_r} columns"))
 
+        undetermined_shown = sorted(undetermined_cols & set(results))
+        if undetermined_shown:
+            progress.append(
+                warn(
+                    "Sample too small to detect outliers",
+                    f"{len(undetermined_shown)} column(s) undetermined: {', '.join(undetermined_shown)}",
+                )
+            )
         progress.append(
             ok(
                 f"Checked outliers in {path.name}",
@@ -146,6 +188,12 @@ def check_outliers(
             )
         )
 
+        hint = "Call apply_patch() with op=cap_outliers or run_cleaning_pipeline() to act on findings."
+        if undetermined_shown and not cols_with_outliers:
+            hint = (
+                "No column had enough rows for an outlier verdict, so there is nothing to act on. "
+                "columns_undetermined lists them; each carries the n it had."
+            )
         result: dict = {
             "success": True,
             "op": "check_outliers",
@@ -153,9 +201,10 @@ def check_outliers(
             "method": method,
             "scanned_columns": len(results),
             "columns_with_outliers": cols_with_outliers,
+            "columns_undetermined": undetermined_shown,
             "results": results,
             "truncated": truncated,
-            "hint": "Call apply_patch() with op=cap_outliers or run_cleaning_pipeline() to act on findings.",
+            "hint": hint,
             "progress": progress,
         }
 
@@ -1111,11 +1160,19 @@ def extended_stats(
             std_val = float(series.std())
             median_val = float(series.median())
 
-            # Skewness & kurtosis
-            skew = float(series.skew()) if _scipy_ok else float(series.skew())
+            # Skewness & kurtosis. Both are NaN below n=3 (skew) and n=4
+            # (kurtosis), and NaN fails every comparison in an if/elif chain, so
+            # the old chain fell through to its `else` and called a single row
+            # "approximately symmetric" with "approximately normal tails" -- two
+            # confident shape descriptions sitting beside the honest `null`s
+            # that the same row produced for std and variance. band_label
+            # returns None instead, because it checks the number first.
+            skew = float(series.skew())
             kurt = float(series.kurtosis())
 
-            if skew > 1:
+            if finite(skew) is None:
+                skew_label = None
+            elif skew > 1:
                 skew_label = "strongly right-skewed"
             elif skew > 0.5:
                 skew_label = "moderately right-skewed"
@@ -1126,7 +1183,9 @@ def extended_stats(
             else:
                 skew_label = "approximately symmetric"
 
-            if kurt > 3:
+            if finite(kurt) is None:
+                kurt_label = None
+            elif kurt > 3:
                 kurt_label = "leptokurtic (heavy tails)"
             elif kurt < -1:
                 kurt_label = "platykurtic (light tails)"
@@ -1153,34 +1212,44 @@ def extended_stats(
             # MAD (median absolute deviation)
             mad = float((series - median_val).abs().median())
 
-            # Distribution shape hint
-            if _scipy_ok:
-                try:
-                    _, p_norm = scipy_stats.shapiro(series.sample(min(n, 5000), random_state=42))
-                    shape_hint = (
-                        f"likely normal (Shapiro p>{p_norm:.2f})" if p_norm > 0.05 else "non-normal (Shapiro p<0.05)"
-                    )
-                except Exception:
-                    shape_hint = "unknown"
-            else:
+            # Distribution shape hint. Shapiro-Wilk needs three values; below
+            # that scipy raises rather than returning NaN, and `nan > 0.05` is
+            # False either way -- so a single row used to be reported as
+            # "non-normal (Shapiro p<0.05)", a test result for a test that
+            # cannot be run on one number.
+            if not _scipy_ok:
                 shape_hint = "install scipy for distribution test"
+            else:
+                p_norm = shapiro_p(series.to_numpy(), scipy_stats)
+                if p_norm is None:
+                    shape_hint = (
+                        f"undetermined: Shapiro-Wilk needs at least {MIN_N_SHAPIRO} values, this column has {n}"
+                    )
+                elif p_norm > 0.05:
+                    shape_hint = f"likely normal (Shapiro p>{p_norm:.2f})"
+                else:
+                    shape_hint = "non-normal (Shapiro p<0.05)"
 
             stats_out[col] = {
                 "n": n,
                 "null_count": int(df[col].isna().sum()),
-                "mean": round(mean_val, 4),
-                "median": round(median_val, 4),
-                "std": round(std_val, 4),
-                "variance": round(float(series.var()), 4),
-                "mad": round(mad, 4),
+                "mean": rounded(mean_val),
+                "median": rounded(median_val),
+                # std/variance/skew/kurtosis are undefined at the small n each
+                # needs. `round(nan, 4)` is still NaN, which json.dumps writes as
+                # the bare token NaN -- not valid JSON, and read as a number by
+                # some clients. None says "not computed" in a way JSON can carry.
+                "std": rounded(std_val),
+                "variance": rounded(float(series.var())),
+                "mad": rounded(mad),
                 "min": round(float(series.min()), 4),
                 "max": round(float(series.max()), 4),
                 "range": round(float(series.max() - series.min()), 4),
                 "iqr": round(float(series.quantile(0.75) - series.quantile(0.25)), 4),
                 "cv": cv,
-                "skewness": round(skew, 4),
+                "skewness": rounded(skew),
                 "skewness_label": skew_label,
-                "kurtosis": round(kurt, 4),
+                "kurtosis": rounded(kurt),
                 "kurtosis_label": kurt_label,
                 "percentiles": pct_vals,
                 "confidence_interval": ci,

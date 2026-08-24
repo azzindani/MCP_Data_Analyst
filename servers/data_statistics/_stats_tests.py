@@ -19,6 +19,13 @@ from shared.arg_alias import missing, pick
 from shared.file_utils import read_csv as _read_csv
 from shared.file_utils import resolve_path
 from shared.progress import fail, info, ok, warn
+from shared.small_sample import (
+    MIN_N_SHAPIRO,
+    is_significant,
+    need_n,
+    rounded,
+    undetermined_because,
+)
 from shared.stats_format import format_p, round_p
 
 try:
@@ -61,6 +68,26 @@ _SIBLING_TEST_NAMES = {
     "ttest": "t_test",
     "correlation": "pearson",
 }
+
+
+class _SampleTooSmall(Exception):
+    """Carries a ready-made refusal out of whichever test branch raised it.
+
+    The seventeen branches each build their samples differently, so the size
+    check has to live inside the branch. Raising rather than returning keeps it
+    to one line there, and the handler sits above the general `except Exception`
+    so a refusal that names n is not reworded into "Check column names".
+    """
+
+    def __init__(self, payload: dict) -> None:
+        super().__init__(payload.get("error", "sample too small"))
+        self.payload = payload
+
+
+def _require(test_name: str, sizes: dict[str, int], minimum: int, demand: str = "", hint: str = "") -> None:
+    err = need_n("statistical_test", test_name, sizes, minimum, hint=hint, demand=demand)
+    if err:
+        raise _SampleTooSmall(err)
 
 
 def _interpret_p(p: float, alpha: float) -> str:
@@ -249,6 +276,15 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
         # --- Normality tests ---
         if test == "shapiro_wilk":
             a = _get_series(column_a, "column_a")
+            # Below three values scipy does not return NaN here -- it raises
+            # `'float' object has no attribute 'dtype'` from inside its own
+            # NaN-policy wrapper, which says nothing about sample size.
+            _require(
+                "Shapiro-Wilk",
+                {f"non-null values in '{column_a}'": len(a)},
+                MIN_N_SHAPIRO,
+                hint="Shapiro-Wilk is undefined below 3 values. Use extended_stats() to see the column's count.",
+            )
             stat, p = scipy_stats.shapiro(a.values)
             statistic, p_value = float(stat), float(p)
             interp = "Normally distributed" if p >= alpha else "Not normally distributed"
@@ -256,8 +292,10 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
 
         elif test == "ks":
             a = _get_series(column_a, "column_a")
+            _require("Kolmogorov-Smirnov", {f"non-null values in '{column_a}'": len(a)}, 2)
             if column_b and column_b in df.columns:
                 b = _get_series(column_b, "column_b")
+                _require("Kolmogorov-Smirnov", {f"non-null values in '{column_b}'": len(b)}, 2)
                 stat, p = scipy_stats.ks_2samp(a.values, b.values, alternative=alternative)
             else:
                 stat, p = scipy_stats.kstest(a.values, "norm", alternative=alternative)
@@ -266,6 +304,16 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
 
         elif test == "anderson":
             a = _get_series(column_a, "column_a")
+            # This branch returns its own dict below, so the undetermined-verdict
+            # backstop at the end never sees it: a NaN statistic here would
+            # compare False against the critical value and print "Cannot reject
+            # normality", which is the same sentence a large normal sample gets.
+            _require(
+                "Anderson-Darling",
+                {f"non-null values in '{column_a}'": len(a)},
+                MIN_N_SHAPIRO,
+                hint="Anderson-Darling needs 3+ values. Use extended_stats() to see the column's count.",
+            )
             result = scipy_stats.anderson(a.values, dist="norm")
             statistic = float(result.statistic)
             # Use 5% significance level index (index 2)
@@ -294,6 +342,12 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
                     raise ValueError(f"Need at least 2 groups in '{group_column}'.")
                 g1 = pd.to_numeric(df.loc[df[group_column] == groups[0], column_a], errors="coerce").dropna()
                 g2 = pd.to_numeric(df.loc[df[group_column] == groups[1], column_a], errors="coerce").dropna()
+                _require(
+                    "Independent t-test",
+                    {f"group '{groups[0]}'": len(g1), f"group '{groups[1]}'": len(g2)},
+                    2,
+                    hint="A t-test compares variances, so each group needs 2+ values.",
+                )
                 stat, p = scipy_stats.ttest_ind(g1.values, g2.values, alternative=alternative)
                 statistic, p_value = float(stat), float(p)
                 if compute_effect_size:
@@ -306,6 +360,12 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
                     effect_size = {"cohens_d": round(d, 4), "interpretation": _cohens_d_label(d)}
             else:
                 b = _get_series(column_b, "column_b")
+                _require(
+                    "Independent t-test",
+                    {f"'{column_a}'": len(a), f"'{column_b}'": len(b)},
+                    2,
+                    hint="A t-test compares variances, so each column needs 2+ non-null values.",
+                )
                 stat, p = scipy_stats.ttest_ind(a.values, b.values, alternative=alternative)
                 statistic, p_value = float(stat), float(p)
                 if compute_effect_size:
@@ -320,6 +380,12 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
             a = _get_series(column_a, "column_a")
             b = _get_series(column_b, "column_b")
             common_idx = a.index.intersection(b.index)
+            _require(
+                "Paired t-test",
+                {"complete pairs": len(common_idx)},
+                2,
+                hint="A paired test needs 2+ rows where both columns are non-null.",
+            )
             stat, p = scipy_stats.ttest_rel(a[common_idx].values, b[common_idx].values, alternative=alternative)
             statistic, p_value = float(stat), float(p)
             if compute_effect_size:
@@ -330,6 +396,12 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
 
         elif test == "one_sample_t":
             a = _get_series(column_a, "column_a")
+            _require(
+                "One-sample t-test",
+                {f"non-null values in '{column_a}'": len(a)},
+                2,
+                hint="The test divides by the sample standard deviation, which is undefined for a single value.",
+            )
             stat, p = scipy_stats.ttest_1samp(a.values, hypothesized_mean, alternative=alternative)
             statistic, p_value = float(stat), float(p)
             if compute_effect_size:
@@ -346,6 +418,27 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
                 pd.to_numeric(df.loc[df[group_column] == g, column_a], errors="coerce").dropna().values
                 for g in df[group_column].dropna().unique()
             ]
+            _require(
+                "One-way ANOVA",
+                {f"groups in '{group_column}'": len(groups_data)},
+                2,
+                demand="at least 2 groups to compare",
+                hint="Use value_counts() on the group column to see how many distinct groups the data has.",
+            )
+            # Not "every group needs 2 values" -- a singleton group is fine. The
+            # requirement is residual degrees of freedom, total values minus
+            # number of groups, which is the denominator of the within-group
+            # mean square.
+            _require(
+                "One-way ANOVA",
+                {
+                    "residual degrees of freedom (values minus groups)": sum(len(g) for g in groups_data)
+                    - len(groups_data)
+                },
+                1,
+                demand="at least 1 residual degree of freedom",
+                hint="Every group holding exactly one value leaves nothing to compare within groups.",
+            )
             stat, p = scipy_stats.f_oneway(*groups_data)
             statistic, p_value = float(stat), float(p)
             if compute_effect_size:
@@ -366,6 +459,13 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
                     f"chi_square requires column_a and column_b (categorical). Available: {list(df.columns)}"
                 )
             ct = pd.crosstab(df[column_a], df[column_b if column_b else group_column])
+            _require(
+                "Chi-square test",
+                {"table rows": ct.shape[0], "table columns": ct.shape[1]},
+                2,
+                demand="a contingency table of at least 2x2",
+                hint="Use value_counts() on both columns to see how many categories each one has.",
+            )
             chi2, p, dof, _ = scipy_stats.chi2_contingency(ct)
             statistic, p_value = float(chi2), float(p)
             if compute_effect_size:
@@ -395,12 +495,24 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
                 groups = df[group_column].dropna().unique()
                 g1 = pd.to_numeric(df.loc[df[group_column] == groups[0], column_a], errors="coerce").dropna()
                 g2 = pd.to_numeric(df.loc[df[group_column] == groups[1], column_a], errors="coerce").dropna()
+                _require(
+                    "Mann-Whitney U",
+                    {f"group '{groups[0]}'": len(g1), f"group '{groups[1]}'": len(g2)},
+                    2,
+                    hint="One value per group cannot rank against another; give each group 2+ values.",
+                )
                 stat, p = scipy_stats.mannwhitneyu(g1.values, g2.values, alternative=alternative)
                 if compute_effect_size:
                     r = float(1 - 2 * stat / (len(g1) * len(g2))) if (len(g1) * len(g2)) > 0 else 0.0
                     effect_size = {"rank_biserial_r": round(r, 4), "interpretation": _r_label(abs(r))}
             else:
                 b = _get_series(column_b, "column_b")
+                _require(
+                    "Mann-Whitney U",
+                    {f"'{column_a}'": len(a), f"'{column_b}'": len(b)},
+                    2,
+                    hint="One value per column cannot rank against another; give each column 2+ values.",
+                )
                 stat, p = scipy_stats.mannwhitneyu(a.values, b.values, alternative=alternative)
                 if compute_effect_size:
                     r = float(1 - 2 * stat / (len(a) * len(b))) if (len(a) * len(b)) > 0 else 0.0
@@ -412,6 +524,12 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
             a = _get_series(column_a, "column_a")
             b = _get_series(column_b, "column_b")
             common_idx = a.index.intersection(b.index)
+            _require(
+                "Wilcoxon signed-rank",
+                {"complete pairs": len(common_idx)},
+                2,
+                hint="A signed-rank test ranks the paired differences, so it needs 2+ complete pairs.",
+            )
             stat, p = scipy_stats.wilcoxon(a[common_idx].values, b[common_idx].values, alternative=alternative)
             statistic, p_value = float(stat), float(p)
             if compute_effect_size:
@@ -428,6 +546,13 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
                 pd.to_numeric(df.loc[df[group_column] == g, column_a], errors="coerce").dropna().values
                 for g in df[group_column].dropna().unique()
             ]
+            _require(
+                "Kruskal-Wallis",
+                {f"groups in '{group_column}'": len(groups_data)},
+                2,
+                demand="at least 2 groups to compare",
+                hint="Use value_counts() on the group column to see how many distinct groups the data has.",
+            )
             stat, p = scipy_stats.kruskal(*groups_data)
             statistic, p_value = float(stat), float(p)
             if compute_effect_size:
@@ -455,6 +580,23 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
                 a = _get_series(column_a, "column_a")
                 b = _get_series(column_b, "column_b")
                 groups_data = [a.values, b.values]
+            _require(
+                "Levene's test",
+                {"groups": len(groups_data)},
+                2,
+                demand="at least 2 groups whose variances it can compare",
+                hint="Give levene either a group_column with 2+ groups, or column_a and column_b.",
+            )
+            _require(
+                "Levene's test",
+                {
+                    "residual degrees of freedom (values minus groups)": sum(len(g) for g in groups_data)
+                    - len(groups_data)
+                },
+                1,
+                demand="at least 1 residual degree of freedom",
+                hint="Every group holding exactly one value leaves no spread to compare.",
+            )
             stat, p = scipy_stats.levene(*groups_data)
             statistic, p_value = float(stat), float(p)
             progress.append(ok("Levene's test", _interpret_p(p_value, alpha)))
@@ -464,6 +606,12 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
             a = _get_series(column_a, "column_a")
             b = _get_series(column_b, "column_b")
             common_idx = a.index.intersection(b.index)
+            _require(
+                "Pearson correlation",
+                {"complete pairs": len(common_idx)},
+                3,
+                hint="Any two points lie on a line, so the coefficient is +-1 by construction below 3 complete pairs.",
+            )
             stat, p = scipy_stats.pearsonr(a[common_idx].values, b[common_idx].values)
             statistic, p_value = float(stat), float(p)
             if compute_effect_size:
@@ -478,6 +626,12 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
             a = _get_series(column_a, "column_a")
             b = _get_series(column_b, "column_b")
             common_idx = a.index.intersection(b.index)
+            _require(
+                "Spearman correlation",
+                {"complete pairs": len(common_idx)},
+                3,
+                hint="Any two points lie on a line, so the coefficient is +-1 by construction below 3 complete pairs.",
+            )
             stat, p = scipy_stats.spearmanr(a[common_idx].values, b[common_idx].values)
             statistic, p_value = float(stat), float(p)
             if compute_effect_size:
@@ -488,6 +642,12 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
             a = _get_series(column_a, "column_a")
             b = _get_series(column_b, "column_b")
             common_idx = a.index.intersection(b.index)
+            _require(
+                "Kendall's tau",
+                {"complete pairs": len(common_idx)},
+                3,
+                hint="Any two points lie on a line, so the coefficient is +-1 by construction below 3 complete pairs.",
+            )
             stat, p = scipy_stats.kendalltau(a[common_idx].values, b[common_idx].values)
             statistic, p_value = float(stat), float(p)
             if compute_effect_size:
@@ -498,6 +658,12 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
             a = _get_series(column_a, "column_a")
             b = _get_series(column_b, "column_b") if column_b and column_b in df.columns else None
             n1 = len(a)
+            _require(
+                "Proportion Z-test",
+                {f"non-null values in '{column_a}'": n1},
+                2,
+                hint="A proportion from a single observation is either 0 or 1, so the z-statistic is degenerate.",
+            )
             p1 = float(a.mean())
             if b is not None:
                 n2 = len(b)
@@ -512,13 +678,22 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
             statistic, p_value = z, p_val
             progress.append(ok("Proportion Z-test", _interpret_p(p_value, alpha)))
 
-        reject_null = bool(p_value < alpha) if not np.isnan(p_value) else False
-        interpretation = f"{'Reject' if reject_null else 'Fail to reject'} H0: {_interpret_p(p_value, alpha)}"
+        # A NaN p-value used to be reported as reject_null: False under "Fail to
+        # reject H0", which is the same answer a large sample with no effect
+        # gets. The line already knew the p-value was missing -- it tested for
+        # it -- and then chose the negative verdict anyway. Failing to reject is
+        # a finding; having nothing to reject with is not.
+        reject_null = is_significant(p_value, alpha)
+        if reject_null is None:
+            interpretation = undetermined_because(f"{len(df)} row(s) in {path.name}")
+            progress.append(warn("Verdict withheld", interpretation))
+        else:
+            interpretation = f"{'Reject' if reject_null else 'Fail to reject'} H0: {_interpret_p(p_value, alpha)}"
 
         result: dict = {
             "success": True,
             "test": test,
-            "statistic": round(statistic, 6) if not np.isnan(statistic) else None,
+            "statistic": rounded(statistic, 6),
             "p_value": round_p(p_value) if not np.isnan(p_value) else None,
             "alpha": alpha,
             "reject_null": reject_null,
@@ -526,6 +701,8 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
             "alternative": alternative,
             "progress": progress,
         }
+        if reject_null is None:
+            result["undetermined"] = True
         if effect_size:
             result["effect_size"] = effect_size
         if posthoc_result:
@@ -533,6 +710,8 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
         result["token_estimate"] = len(str(result)) // 4
         return result
 
+    except _SampleTooSmall as too_small:
+        return too_small.payload
     except ImportError:
         return {
             "success": False,

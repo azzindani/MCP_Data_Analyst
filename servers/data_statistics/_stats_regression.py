@@ -21,6 +21,7 @@ from shared.arg_alias import missing, pick, pick_list
 from shared.file_utils import hint_for_error, no_rows_error, resolve_path
 from shared.file_utils import read_csv as _read_csv
 from shared.progress import fail, info, ok, warn
+from shared.small_sample import MIN_N_SHAPIRO, is_significant, rounded, shapiro_p
 from shared.stats_format import format_p, round_p
 
 try:
@@ -65,7 +66,12 @@ def _coefficient_chart(
     except ImportError:
         return "", ""
 
-    names = list(coef_table)
+    # A collinear predictor can leave a coefficient or an interval edge with no
+    # value at all, and the error-bar arithmetic below would raise on None.
+    # Nothing to plot is not a reason to fail the whole regression.
+    names = [n for n in coef_table if all(coef_table[n][k] is not None for k in ("coef", "ci_lower", "ci_upper"))]
+    if not names:
+        return "", ""
     coefs = [coef_table[n]["coef"] for n in names]
     # Error bars are the distance from the point to each CI edge, not the edges.
     plus = [coef_table[n]["ci_upper"] - coef_table[n]["coef"] for n in names]
@@ -189,6 +195,32 @@ def regression_analysis(
 
         X = sm.add_constant(X_df, has_constant="add")
 
+        # A fit needs more observations than it has coefficients to estimate. At
+        # or below that count the surface passes exactly through every point:
+        # ssr is 0, the residual mean square is 0/0, and r_squared, every
+        # p-value and the F statistic all come back NaN. scipy.stats.shapiro on
+        # those residuals then raised `'float' object has no attribute 'dtype'`
+        # from inside its own NaN-policy wrapper, and that was the message the
+        # caller got -- naming neither the sample size nor the model.
+        n_params = int(X.shape[1])
+        residual_df = int(len(y)) - n_params
+        if residual_df <= 0:
+            names = ", ".join(str(c) for c in X.columns)
+            return {
+                "success": False,
+                "op": "regression_analysis",
+                "error": (
+                    f"{len(y)} usable row(s) cannot support {n_params} coefficient(s) ({names}); "
+                    f"that leaves {residual_df} residual degrees of freedom."
+                ),
+                "hint": (
+                    f"Give regression_analysis more than {n_params} rows where {y_col} and every x_col are "
+                    "non-null, or fit fewer predictors."
+                ),
+                "progress": [*progress, fail("Not enough rows to fit", f"{len(y)} row(s), {n_params} coefficient(s)")],
+                "token_estimate": 40,
+            }
+
         if model_type == "ols":
             model = sm.OLS(y, X).fit()
         else:
@@ -200,13 +232,15 @@ def regression_analysis(
             if param == "const":
                 continue
             coef_table[param] = {
-                "coef": round(float(model.params[param]), 6),
-                "std_err": round(float(model.bse[param]), 6),
-                "t_or_z": round(float(model.tvalues[param]), 4),
+                "coef": rounded(model.params[param], 6),
+                "std_err": rounded(model.bse[param], 6),
+                "t_or_z": rounded(model.tvalues[param]),
                 "p_value": round_p(float(model.pvalues[param])),
-                "ci_lower": round(float(model.conf_int().loc[param, 0]), 6),
-                "ci_upper": round(float(model.conf_int().loc[param, 1]), 6),
-                "significant": bool(model.pvalues[param] < 0.05),
+                "ci_lower": rounded(model.conf_int().loc[param, 0], 6),
+                "ci_upper": rounded(model.conf_int().loc[param, 1], 6),
+                # None, not False: a coefficient whose p-value is missing was
+                # not found insignificant, it was not tested.
+                "significant": is_significant(model.pvalues[param]),
             }
 
         significant_predictors = [p for p, v in coef_table.items() if v["significant"]]
@@ -230,6 +264,7 @@ def regression_analysis(
         result_data: dict = {
             "model_type": model_type,
             "observations": int(model.nobs),
+            "residual_df": residual_df,
             "coefficients": coef_table,
             "significant_predictors": significant_predictors,
             "vif": vif_data,
@@ -239,46 +274,59 @@ def regression_analysis(
             residuals = model.resid
             result_data.update(
                 {
-                    "r_squared": round(float(model.rsquared), 4),
-                    "adj_r_squared": round(float(model.rsquared_adj), 4),
-                    "rmse": round(float(np.sqrt(model.mse_resid)), 4),
-                    "mae": round(float(np.abs(residuals).mean()), 4),
-                    "f_statistic": round(float(model.fvalue), 4),
-                    "f_pvalue": round(float(model.f_pvalue), 6),
-                    "aic": round(float(model.aic), 2),
-                    "bic": round(float(model.bic), 2),
+                    "r_squared": rounded(model.rsquared),
+                    "adj_r_squared": rounded(model.rsquared_adj),
+                    "rmse": rounded(np.sqrt(model.mse_resid)),
+                    "mae": rounded(np.abs(residuals).mean()),
+                    "f_statistic": rounded(model.fvalue),
+                    "f_pvalue": round_p(float(model.f_pvalue)),
+                    "aic": rounded(model.aic, 2),
+                    "bic": rounded(model.bic, 2),
                 }
             )
-            # Diagnostics
-            normality_p = float("nan")
-            if _SCIPY_OK:
-                _, normality_p = _scipy_stats.shapiro(residuals.values[: min(5000, len(residuals))])
+            # Diagnostics. `bool(normality_p >= 0.05)` on a NaN is False, so a
+            # residual sample too small to test used to be reported as
+            # "normal": false -- a diagnostic failure the model never earned.
+            normality_p = shapiro_p(residuals.values, _scipy_stats) if _SCIPY_OK else None
+            normality: dict = {
+                "test": "shapiro_wilk",
+                "p_value": round_p(normality_p),
+                "normal": None if normality_p is None else bool(normality_p >= 0.05),
+            }
+            if normality_p is None:
+                normality["status"] = (
+                    f"undetermined: Shapiro-Wilk needs at least {MIN_N_SHAPIRO} residuals, this fit has "
+                    f"{len(residuals)}"
+                )
             result_data["diagnostics"] = {
-                "normality_of_residuals": {
-                    "test": "shapiro_wilk",
-                    "p_value": round_p(float(normality_p)),
-                    "normal": bool(normality_p >= 0.05),
-                },
+                "normality_of_residuals": normality,
                 "multicollinearity": vif_data,
             }
         else:
             result_data.update(
                 {
-                    "pseudo_r_squared": round(float(model.prsquared), 4),
-                    "log_likelihood": round(float(model.llf), 4),
-                    "aic": round(float(model.aic), 2),
-                    "bic": round(float(model.bic), 2),
+                    "pseudo_r_squared": rounded(model.prsquared),
+                    "log_likelihood": rounded(model.llf),
+                    "aic": rounded(model.aic, 2),
+                    "bic": rounded(model.bic, 2),
                 }
             )
 
         # Insight
+        untested = [p for p, v in coef_table.items() if v["significant"] is None]
         if significant_predictors:
-            top = max(coef_table, key=lambda p: abs(coef_table[p]["coef"]))
-            coef_val = coef_table[top]["coef"]
+            top = max(significant_predictors, key=lambda p: abs(coef_table[p]["coef"] or 0.0))
+            coef_val = coef_table[top]["coef"] or 0.0
             direction = "positive" if coef_val > 0 else "negative"
+            top_p = coef_table[top]["p_value"]
             result_data["insight"] = (
-                f"'{top}' is the strongest predictor (β={coef_val:.4f}, {direction} effect, "
-                f"p={coef_table[top]['p_value']:.4f})."
+                f"'{top}' is the strongest predictor (β={coef_val:.4f}, {direction} effect, p={format_p(top_p)})."
+            )
+        elif untested and len(untested) == len(coef_table):
+            # "No significant predictors" is a finding. Not having tested any of
+            # them is not the same finding.
+            result_data["insight"] = (
+                f"No predictor could be tested: {len(untested)} coefficient(s) came back without a p-value."
             )
         else:
             result_data["insight"] = "No significant predictors found at α=0.05."

@@ -56,6 +56,16 @@ from shared.column_utils import infer_agg, is_numeric_col, paired_numeric
 from shared.file_utils import hint_for_error, resolve_path
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
+from shared.small_sample import (
+    MIN_N_IQR,
+    MIN_N_SHAPIRO,
+    is_significant,
+    min_n_for_zscore,
+    need_n,
+    rounded,
+    settle_verdict,
+    shapiro_p,
+)
 from shared.stats_format import format_p, round_p
 
 logger = logging.getLogger(__name__)
@@ -257,34 +267,41 @@ def statistical_tests(
             normality: dict = {}
             for col in num_cols:
                 s = pd.to_numeric(df[col], errors="coerce").dropna()
-                if len(s) >= 3:
-                    try:
-                        _st, _pv = scipy_stats.shapiro(s.sample(min(len(s), 5000), random_state=42))
-                        normality[col] = {
-                            "p_value": round_p(float(_pv)),
-                            "normal": bool(float(_pv) >= 0.05),
-                        }
-                    except Exception:
-                        pass
+                # `normal` is None, not False, when Shapiro-Wilk could not run:
+                # a column too short to test is not a column that failed it.
+                _pv = shapiro_p(s.to_numpy(), scipy_stats)
+                normality[col] = {
+                    "n": int(len(s)),
+                    "p_value": round_p(_pv) if _pv is not None else None,
+                    "normal": None if _pv is None else bool(_pv >= 0.05),
+                }
             correlations: list = []
             for i, ca in enumerate(num_cols):
                 for cb in num_cols[i + 1 :]:
                     try:
                         _a, _b = paired_numeric(df, ca, cb)
+                        # Two points always lie on a line, so pearsonr returns
+                        # r=+-1 for them however unrelated the columns are. That
+                        # is a property of the count, not of the data, and it
+                        # sorts to the top of a list captioned "top
+                        # correlations".
+                        if len(_a) < 3:
+                            continue
                         _r, _p = scipy_stats.pearsonr(_a, _b)
                         correlations.append(
                             {
                                 "col_a": ca,
                                 "col_b": cb,
-                                "r": round(float(_r), 3),
+                                "r": rounded(_r, 3),
                                 "p_value": round_p(float(_p)),
-                                "significant": bool(float(_p) < 0.05),
+                                "significant": is_significant(_p),
                                 "n": int(len(_a)),
                             }
                         )
                     except Exception:
                         pass
-            correlations.sort(key=lambda x: abs(x["r"]), reverse=True)
+            # A constant column gives r=NaN, which `rounded` reports as None.
+            correlations.sort(key=lambda x: abs(x["r"] or 0.0), reverse=True)
             progress.append(ok(f"Auto-scan on {path.name}", f"{len(num_cols)} numeric cols"))
             result = {
                 "success": True,
@@ -338,10 +355,18 @@ def statistical_tests(
                     "progress": [fail("Invalid t-test params", "")],
                     "token_estimate": 20,
                 }
+            if err := need_n(
+                "statistical_tests",
+                "Independent t-test",
+                {"group 1": len(g1), "group 2": len(g2)},
+                2,
+                hint="A t-test compares variances, so each group needs 2+ values. Use describe() to see the counts.",
+            ):
+                return err
             stat, pval = scipy_stats.ttest_ind(g1, g2)
             test_result = {
                 "test": "Independent t-test",
-                "statistic": round(float(stat), 4),
+                "statistic": rounded(stat),
                 "p_value": round_p(float(pval)),
                 "significant": float(pval) < 0.05,
                 "interpretation": (
@@ -361,10 +386,35 @@ def statistical_tests(
                     "token_estimate": 20,
                 }
             groups_data = [grp[column_a].dropna().values for _, grp in df.groupby(group_column)]
+            if err := need_n(
+                "statistical_tests",
+                "One-Way ANOVA",
+                {f"groups in '{group_column}'": len(groups_data)},
+                2,
+                demand="at least 2 groups to compare",
+                hint="Use value_counts() on the group column to see how many distinct groups the data has.",
+            ):
+                return err
+            # ANOVA does not need every group to have variance -- a singleton
+            # group is legitimate. What it needs is residual degrees of freedom:
+            # total values minus number of groups, the denominator of the
+            # within-group mean square. At zero, F is a division by zero.
+            if err := need_n(
+                "statistical_tests",
+                "One-Way ANOVA",
+                {
+                    "residual degrees of freedom (values minus groups)": sum(len(g) for g in groups_data)
+                    - len(groups_data)
+                },
+                1,
+                demand="at least 1 residual degree of freedom",
+                hint="Every group holding exactly one value leaves nothing to compare within groups.",
+            ):
+                return err
             stat, pval = scipy_stats.f_oneway(*groups_data)
             test_result = {
                 "test": "One-Way ANOVA",
-                "statistic": round(float(stat), 4),
+                "statistic": rounded(stat),
                 "p_value": round_p(float(pval)),
                 "groups": int(df[group_column].nunique()),
                 "significant": float(pval) < 0.05,
@@ -385,10 +435,19 @@ def statistical_tests(
                     "token_estimate": 20,
                 }
             ct = pd.crosstab(df[column_a], df[column_b])
+            if err := need_n(
+                "statistical_tests",
+                "Chi-Square Test of Independence",
+                {f"distinct values in '{column_a}'": ct.shape[0], f"distinct values in '{column_b}'": ct.shape[1]},
+                2,
+                demand="a contingency table of at least 2x2",
+                hint="Use value_counts() on both columns to see how many categories each one has.",
+            ):
+                return err
             stat, pval, dof, expected = scipy_stats.chi2_contingency(ct)
             test_result = {
                 "test": "Chi-Square Test of Independence",
-                "statistic": round(float(stat), 4),
+                "statistic": rounded(stat),
                 "p_value": round_p(float(pval)),
                 "degrees_of_freedom": int(dof),
                 "significant": float(pval) < 0.05,
@@ -412,10 +471,18 @@ def statistical_tests(
             # first null, which turned r=0.9256 into r=0.0015 on the reference
             # dataset -- see paired_numeric.
             a, b = paired_numeric(df, column_a, column_b)
+            if err := need_n(
+                "statistical_tests",
+                "Pearson Correlation",
+                {"complete pairs": len(a)},
+                3,
+                hint="Any two points lie on a line, so r is +-1 by construction below 3 pairs.",
+            ):
+                return err
             stat, pval = scipy_stats.pearsonr(a, b)
             test_result = {
                 "test": "Pearson Correlation",
-                "statistic": round(float(stat), 4),
+                "statistic": rounded(stat),
                 "p_value": round_p(float(pval)),
                 "n": int(len(a)),
                 "rows_dropped": int(len(df) - len(a)),
@@ -437,14 +504,23 @@ def statistical_tests(
                     "token_estimate": 20,
                 }
             series = pd.to_numeric(df[column_a], errors="coerce").dropna()
+            if err := need_n(
+                "statistical_tests",
+                "Shapiro-Wilk normality test",
+                {f"non-null values in '{column_a}'": len(series)},
+                MIN_N_SHAPIRO,
+                hint="Shapiro-Wilk is undefined below 3 values. Use describe() to see how many the column has.",
+            ):
+                return err
             stat, pval = scipy_stats.shapiro(series.sample(min(len(series), 5000), random_state=42))
             test_result = {
                 "test": "Shapiro-Wilk normality test",
-                "statistic": round(float(stat), 4),
+                "statistic": rounded(stat),
                 "p_value": round_p(float(pval)),
-                "significant": float(pval) < 0.05,
+                "significant": is_significant(pval),
                 "interpretation": (
-                    f"Data in '{column_a}' is {'NOT ' if float(pval) < 0.05 else ''}normally distributed (p={'<' if float(pval) < 0.05 else '≥'}0.05)"
+                    f"Data in '{column_a}' is {'NOT ' if is_significant(pval) else ''}normally distributed "
+                    f"(p={'<' if is_significant(pval) else '≥'}0.05)"
                 ),
             }
 
@@ -458,10 +534,21 @@ def statistical_tests(
                     "token_estimate": 20,
                 }
             series = pd.to_numeric(df[column_a], errors="coerce").dropna()
+            # The reference distribution is fitted from the sample itself, so a
+            # sample with no spread gives it a zero standard deviation and every
+            # comparison against it is NaN.
+            if err := need_n(
+                "statistical_tests",
+                "Kolmogorov-Smirnov normality test",
+                {f"non-null values in '{column_a}'": len(series)},
+                3,
+                hint="KS compares the sample against a normal fitted to its own mean and sd; both need 3+ values.",
+            ):
+                return err
             stat, pval = scipy_stats.kstest(series, "norm", args=(float(series.mean()), float(series.std())))
             test_result = {
                 "test": "Kolmogorov-Smirnov normality test",
-                "statistic": round(float(stat), 4),
+                "statistic": rounded(stat),
                 "p_value": round_p(float(pval)),
                 "significant": float(pval) < 0.05,
                 "interpretation": (
@@ -485,6 +572,14 @@ def statistical_tests(
                     "progress": [fail("Invalid params", "")],
                     "token_estimate": 20,
                 }
+            if err := need_n(
+                "statistical_tests",
+                "Mann-Whitney U test",
+                {"group 1": len(g1), "group 2": len(g2)},
+                2,
+                hint="One value per group cannot rank against another; give each group 2+ values.",
+            ):
+                return err
             stat, pval = scipy_stats.mannwhitneyu(g1, g2, alternative="two-sided")
             n1, n2 = len(g1), len(g2)
             r_biserial = round(1 - 2 * float(stat) / (n1 * n2), 4) if n1 * n2 > 0 else None
@@ -493,7 +588,7 @@ def statistical_tests(
             )
             test_result = {
                 "test": "Mann-Whitney U test",
-                "statistic": round(float(stat), 4),
+                "statistic": rounded(stat),
                 "p_value": round_p(float(pval)),
                 "significant": float(pval) < 0.05,
                 "interpretation": "Groups differ significantly (p<0.05)"
@@ -512,6 +607,15 @@ def statistical_tests(
                     "token_estimate": 20,
                 }
             groups_data = [grp[column_a].dropna().values for _, grp in df.groupby(group_column)]
+            if err := need_n(
+                "statistical_tests",
+                "Kruskal-Wallis test",
+                {f"groups in '{group_column}'": len(groups_data)},
+                2,
+                demand="at least 2 groups to compare",
+                hint="Use value_counts() on the group column to see how many distinct groups the data has.",
+            ):
+                return err
             stat, pval = scipy_stats.kruskal(*groups_data)
             n_total = sum(len(g) for g in groups_data)
             eta_sq = (
@@ -521,7 +625,7 @@ def statistical_tests(
             )
             test_result = {
                 "test": "Kruskal-Wallis test",
-                "statistic": round(float(stat), 4),
+                "statistic": rounded(stat),
                 "p_value": round_p(float(pval)),
                 "groups": int(df[group_column].nunique()),
                 "significant": float(pval) < 0.05,
@@ -535,6 +639,14 @@ def statistical_tests(
             if column_a and column_b:
                 # Paired, so the pairs have to be real rows -- see paired_numeric.
                 a, b = paired_numeric(df, column_a, column_b)
+                if err := need_n(
+                    "statistical_tests",
+                    "Wilcoxon signed-rank test",
+                    {"complete pairs": len(a)},
+                    2,
+                    hint="A signed-rank test ranks the paired differences, so it needs 2+ pairs.",
+                ):
+                    return err
                 stat, pval = scipy_stats.wilcoxon(a, b)
             else:
                 return {
@@ -546,7 +658,7 @@ def statistical_tests(
                 }
             test_result = {
                 "test": "Wilcoxon signed-rank test",
-                "statistic": round(float(stat), 4),
+                "statistic": rounded(stat),
                 "p_value": round_p(float(pval)),
                 "significant": float(pval) < 0.05,
                 "interpretation": "Paired differences are significant (p<0.05)"
@@ -564,10 +676,31 @@ def statistical_tests(
                     "token_estimate": 20,
                 }
             groups_data = [grp[column_a].dropna().values for _, grp in df.groupby(group_column)]
+            if err := need_n(
+                "statistical_tests",
+                "Levene's test for equal variances",
+                {f"groups in '{group_column}'": len(groups_data)},
+                2,
+                demand="at least 2 groups whose variances it can compare",
+                hint="Use value_counts() on the group column to see how many distinct groups the data has.",
+            ):
+                return err
+            if err := need_n(
+                "statistical_tests",
+                "Levene's test for equal variances",
+                {
+                    "residual degrees of freedom (values minus groups)": sum(len(g) for g in groups_data)
+                    - len(groups_data)
+                },
+                1,
+                demand="at least 1 residual degree of freedom",
+                hint="Every group holding exactly one value leaves no spread to compare.",
+            ):
+                return err
             stat, pval = scipy_stats.levene(*groups_data)
             test_result = {
                 "test": "Levene's test for equal variances",
-                "statistic": round(float(stat), 4),
+                "statistic": rounded(stat),
                 "p_value": round_p(float(pval)),
                 "significant": float(pval) < 0.05,
                 "interpretation": "Variances are NOT equal (p<0.05)"
@@ -596,7 +729,7 @@ def statistical_tests(
             stat, pval = scipy_stats.fisher_exact(ct.values)
             test_result = {
                 "test": "Fisher's exact test",
-                "odds_ratio": round(float(stat), 4),
+                "odds_ratio": rounded(stat),
                 "p_value": round_p(float(pval)),
                 "significant": float(pval) < 0.05,
                 "interpretation": "Significant association (p<0.05)"
@@ -613,15 +746,25 @@ def statistical_tests(
                 "token_estimate": 20,
             }
 
+        # The per-test guards above refuse the sample sizes that are known to
+        # produce no p-value. This catches whatever gets past them -- a
+        # degenerate spread, a scipy edge case, a test added later -- because a
+        # missing p-value must never be reported as "not significant".
+        test_result = settle_verdict(test_result, f"{len(df)} row(s) in {path.name}")
+        if test_result.get("undetermined"):
+            progress.append(warn("Verdict withheld", test_result["interpretation"]))
         progress.append(ok(f"Statistical test on {path.name}", test_result.get("test", test_type)))
 
+        hint = "Call apply_patch() or run_cleaning_pipeline() to act on findings."
+        if test_result.get("undetermined"):
+            hint = "There is no finding to act on. Re-run the test on a sample large enough to produce a p-value."
         result = {
             "success": True,
             "op": "statistical_tests",
             "file_path": str(path),
             "test_type": test_type,
             **test_result,
-            "hint": "Call apply_patch() or run_cleaning_pipeline() to act on findings.",
+            "hint": hint,
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -1196,33 +1339,63 @@ def detect_anomalies(
         result_df = df.copy()
         per_column_summary = {}
 
+        min_n_z = min_n_for_zscore(threshold)
+        undetermined_cols: set[str] = set()
         for col in numeric_cols:
             clean = df[col].dropna()
-            col_summary: dict = {"column": col}
+            col_summary: dict = {"column": col, "n": int(len(clean))}
 
             if method in ("iqr", "both"):
-                q1 = clean.quantile(0.25)
-                q3 = clean.quantile(0.75)
-                iqr = q3 - q1
-                lower = q1 - 1.5 * iqr
-                upper = q3 + 1.5 * iqr
-                iqr_flag = (df[col] < lower) | (df[col] > upper)
-                result_df[f"{col}_iqr_flag"] = iqr_flag.fillna(False)
-                col_summary["iqr_outliers"] = int(iqr_flag.sum())
-                col_summary["iqr_lower"] = round(float(lower), 4)
-                col_summary["iqr_upper"] = round(float(upper), 4)
+                # Under four values the 1.5*IQR fence always lands outside the
+                # sample -- see MIN_N_IQR. A flag column of all False and a
+                # count of zero describe the row count, not the data.
+                if len(clean) < MIN_N_IQR:
+                    result_df[f"{col}_iqr_flag"] = False
+                    col_summary["iqr_outliers"] = None
+                    col_summary["iqr_status"] = (
+                        f"undetermined at n={len(clean)}: the 1.5*IQR fence cannot fall inside a sample "
+                        f"smaller than {MIN_N_IQR}"
+                    )
+                    undetermined_cols.add(col)
+                else:
+                    q1 = clean.quantile(0.25)
+                    q3 = clean.quantile(0.75)
+                    iqr = q3 - q1
+                    lower = q1 - 1.5 * iqr
+                    upper = q3 + 1.5 * iqr
+                    iqr_flag = (df[col] < lower) | (df[col] > upper)
+                    result_df[f"{col}_iqr_flag"] = iqr_flag.fillna(False)
+                    col_summary["iqr_outliers"] = int(iqr_flag.sum())
+                    col_summary["iqr_lower"] = rounded(lower)
+                    col_summary["iqr_upper"] = rounded(upper)
+                    if float(iqr) == 0.0:
+                        col_summary["iqr_status"] = "zero spread: q1 == q3, so the fence has no width"
 
             if method in ("zscore", "both"):
-                mean_v = clean.mean()
-                std_v = clean.std() if len(clean) > 1 else 0
-                if std_v > 0:
-                    zscores = (df[col] - mean_v) / std_v
-                    zscore_flag = zscores.abs() > threshold
+                # The largest z any of n points can reach is (n-1)/sqrt(n), so
+                # below min_n_z the scan cannot reach `threshold` whatever the
+                # values are.
+                if len(clean) < min_n_z:
+                    result_df[f"{col}_zscore_flag"] = False
+                    col_summary["zscore_outliers"] = None
+                    col_summary["zscore_threshold"] = threshold
+                    col_summary["zscore_status"] = (
+                        f"undetermined at n={len(clean)}: the largest z-score attainable by any of n points "
+                        f"is (n-1)/sqrt(n), which first exceeds {threshold} at n={min_n_z}"
+                    )
+                    undetermined_cols.add(col)
                 else:
-                    zscore_flag = pd.Series([False] * len(df), index=df.index)
-                result_df[f"{col}_zscore_flag"] = zscore_flag.fillna(False)
-                col_summary["zscore_outliers"] = int(zscore_flag.sum())
-                col_summary["zscore_threshold"] = threshold
+                    mean_v = clean.mean()
+                    std_v = clean.std()
+                    if std_v > 0:
+                        zscores = (df[col] - mean_v) / std_v
+                        zscore_flag = zscores.abs() > threshold
+                    else:
+                        zscore_flag = pd.Series([False] * len(df), index=df.index)
+                        col_summary["zscore_status"] = "zero spread: every value is identical, so every z is 0"
+                    result_df[f"{col}_zscore_flag"] = zscore_flag.fillna(False)
+                    col_summary["zscore_outliers"] = int(zscore_flag.sum())
+                    col_summary["zscore_threshold"] = threshold
 
             per_column_summary[col] = col_summary
 
@@ -1237,6 +1410,14 @@ def detect_anomalies(
         out = str(resolve_path(output_path)) if output_path else str(path.parent / f"{path.stem}_anomalies.csv")
         result_df.to_csv(out, index=False)
 
+        undetermined_shown = sorted(undetermined_cols)
+        if undetermined_shown:
+            progress.append(
+                warn(
+                    "Sample too small to detect anomalies",
+                    f"{len(undetermined_shown)} column(s) undetermined: {', '.join(undetermined_shown)}",
+                )
+            )
         progress.append(
             ok(
                 f"Anomaly detection on {path.name}",
@@ -1244,6 +1425,12 @@ def detect_anomalies(
             )
         )
 
+        hint = "Call apply_patch() or run_cleaning_pipeline() to act on findings."
+        if undetermined_shown and len(undetermined_shown) == len(numeric_cols):
+            hint = (
+                "No column had enough rows for an anomaly verdict, so anomaly_count of 0 is not a finding. "
+                "columns_undetermined lists them; each carries the n it had."
+            )
         result = {
             "success": True,
             "op": "detect_anomalies",
@@ -1252,10 +1439,11 @@ def detect_anomalies(
             "total_rows": len(df),
             "anomaly_count": anomaly_count,
             "columns_scanned": len(numeric_cols),
+            "columns_undetermined": undetermined_shown,
             "per_column": per_column_summary,
             "output_path": out,
             "output_name": Path(out).name,
-            "hint": "Call apply_patch() or run_cleaning_pipeline() to act on findings.",
+            "hint": hint,
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
