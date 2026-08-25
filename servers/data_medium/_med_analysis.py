@@ -17,6 +17,7 @@ import pandas as pd
 try:
     import plotly.colors as px_colors
     import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
 
     from shared.html_theme import calc_chart_height, plotly_template
 
@@ -1023,8 +1024,21 @@ def time_series_analysis(
         }
 
         if _PLOTLY_AVAILABLE:
-            fig = go.Figure()
             x_vals = [str(i) for i in resampled.index]
+            # One row per series, each with its own y-axis. Sharing one axis
+            # meant the largest series set it and the rest lay flat along the
+            # bottom: impressions and link_clicks together over the real dataset
+            # -- a 30:1 spread on weekly sums -- drew link_clicks across 2
+            # pixels and its forecast across 0, a straight red line at zero for
+            # a series that runs from 0 to 13,641 with a shape of its own. The
+            # height was already being computed with mode="subplot"; the
+            # subplots were the part that was missing.
+            fig = make_subplots(
+                rows=len(value_columns),
+                cols=1,
+                shared_xaxes=True,
+                subplot_titles=list(value_columns),
+            )
             # Plotly's own qualitative cycle, pinned per column so a series and
             # its forecast are drawn in the same colour.
             palette = px_colors.qualitative.Plotly
@@ -1038,7 +1052,9 @@ def time_series_analysis(
                         mode="lines+markers",
                         legendgroup=col,
                         line=dict(color=colour),
-                    )
+                    ),
+                    row=i + 1,
+                    col=1,
                 )
                 # The forecast was computed, returned in forecast_values, and
                 # never drawn -- while the hint said to open the file "for the
@@ -1057,17 +1073,22 @@ def time_series_analysis(
                             legendgroup=col,
                             line=dict(color=colour, dash="dash"),
                             marker=dict(symbol="circle-open"),
-                        )
+                        ),
+                        row=i + 1,
+                        col=1,
                     )
             fig.update_layout(
                 title=(
                     f"Time Series — {path.name} (period={period})"
                     + (f", {forecast_periods}-period forecast dashed" if forecast_values_map else "")
                 ),
-                xaxis_title=date_column,
                 template=plotly_template(theme),
                 height=calc_chart_height(len(value_columns), mode="subplot"),
             )
+            # Only the bottom panel carries the date label; shared_xaxes hides
+            # the ticks on the rest, and a title under a hidden axis is a title
+            # floating in the middle of the figure.
+            fig.update_xaxes(title_text=date_column, row=len(value_columns), col=1)
             abs_p, fname = _save_chart(fig, output_path, "time_series", path, open_after, theme, progress)
             result["output_path"] = abs_p
             result["output_name"] = fname
