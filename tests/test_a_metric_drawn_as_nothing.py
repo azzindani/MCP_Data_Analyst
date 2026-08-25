@@ -167,8 +167,7 @@ class TestTheNumbersAreUnchanged:
         monthly = df.dropna(subset=["Date"]).set_index("Date").to_period("M")
         totals = monthly.groupby(monthly.index)[METRICS].sum()
         expected = {
-            metric: float(totals.loc[[p for p in totals.index if str(p) == "2019-12"][0], metric])
-            for metric in METRICS
+            metric: float(totals.loc[[p for p in totals.index if str(p) == "2019-12"][0], metric]) for metric in METRICS
         }
         data, _ = figure_of(wide)
         drawn = sorted(round(float(t["y"][0]), 2) for t in data if (t.get("x") or [None])[0] == "2019-12")
