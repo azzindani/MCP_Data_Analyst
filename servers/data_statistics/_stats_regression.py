@@ -101,6 +101,20 @@ def _coefficient_chart(
     return _save_chart(fig, output_path, "regression", input_path, open_after, theme, progress)
 
 
+def _equation(y_col: str, intercept: dict, coef_table: dict) -> str:
+    """The fitted model as one line a caller can read straight off."""
+    if not intercept and not coef_table:
+        return ""
+    parts = [f"{intercept.get('coef', 0)}"] if intercept else []
+    for name, v in coef_table.items():
+        coef = v["coef"]
+        if coef is None:
+            continue
+        sign = "-" if coef < 0 else "+"
+        parts.append(f"{sign} {abs(coef)}*{name}" if parts else f"{coef}*{name}")
+    return f"{y_col} = " + " ".join(parts)
+
+
 def regression_analysis(
     file_path: str,
     y_col: str = "",
@@ -172,9 +186,78 @@ def regression_analysis(
 
         # Build feature matrix
         data = df[[y_col] + x_cols].dropna()
+        # to_numeric(errors="coerce") turns a text target into NaN and drops it.
+        # A string y_col therefore arrived at the degrees-of-freedom guard below
+        # as "0 usable row(s) cannot support 3 coefficient(s)" -- a message about
+        # sample size, for a file with 16,834 complete rows whose only problem
+        # was that the target is words. The caller is sent to find more rows
+        # that already exist.
+        rows_in_file = int(len(df))
+        dropped_null = rows_in_file - int(len(data))
+        before = int(len(data))
         y = pd.to_numeric(data[y_col], errors="coerce").dropna()
+        dropped_text = before - int(len(y))
+        if before and not len(y):
+            sample = [str(v) for v in df[y_col].dropna().unique()[:4]]
+            distinct = int(df[y_col].nunique())
+            return {
+                "success": False,
+                "op": "regression_analysis",
+                "error": (
+                    f"'{y_col}' holds no numbers: all {before} value(s) are non-numeric "
+                    f"({distinct} distinct, e.g. {', '.join(sample)})."
+                ),
+                "hint": (
+                    f"Regression needs a numeric target. Encode it first with apply_patch() "
+                    f"op=label_encode column={y_col}"
+                    + (
+                        ", then fit model_type=logistic against the 0/1 column."
+                        if distinct == 2
+                        else f" -- but {distinct} classes is not a regression target; "
+                        "pick a numeric column, or a two-class one for logistic."
+                    )
+                ),
+                "progress": [*progress, fail("Target is not numeric", f"{y_col}: {distinct} distinct values")],
+                "token_estimate": 60,
+            }
+        # Rows leave the fit in two places -- dropna() on the null side and
+        # to_numeric() on the text side -- and neither said so. The response
+        # carried `observations`, which is what survived, with nothing to
+        # compare it against.
+        if dropped_null or dropped_text:
+            causes = []
+            if dropped_null:
+                causes.append(f"{dropped_null} with a null in {y_col} or an x_col")
+            if dropped_text:
+                causes.append(f"{dropped_text} where {y_col} is not a number")
+            progress.append(
+                warn(
+                    f"Fitting {len(y)} of {rows_in_file} row(s)",
+                    "; ".join(causes),
+                )
+            )
         data = data.loc[y.index]
         y = y.loc[data.index]
+
+        if model_type == "logistic":
+            classes = sorted(str(v) for v in pd.unique(y))
+            if len(classes) != 2:
+                return {
+                    "success": False,
+                    "op": "regression_analysis",
+                    "error": (
+                        f"Logistic regression needs a two-class target; '{y_col}' has "
+                        f"{len(classes)} distinct value(s)"
+                        + (f": {', '.join(classes[:6])}" if len(classes) <= 6 else "")
+                        + "."
+                    ),
+                    "hint": (
+                        f"Use model_type=ols for a continuous target, or derive a 0/1 column with "
+                        f"apply_patch() op=conditional_assign on {y_col}."
+                    ),
+                    "progress": [*progress, fail("Target is not binary", f"{y_col}: {len(classes)} classes")],
+                    "token_estimate": 60,
+                }
 
         X_df = data[x_cols].copy()
 
@@ -246,6 +329,25 @@ def regression_analysis(
 
         significant_predictors = [p for p, v in coef_table.items() if v["significant"]]
 
+        # The constant is fitted, it is in every prediction the model makes, and
+        # the loop above skipped it -- so the response carried "coefficients"
+        # from which no prediction could be reproduced. An independent refit of
+        # the sweep's own call put the intercept at 3.7095, a number nothing in
+        # the response mentioned. It is reported beside the predictors rather
+        # than among them, because significant_predictors is a list of
+        # predictors and the intercept is not one.
+        intercept: dict = {}
+        if "const" in model.params.index:
+            intercept = {
+                "coef": rounded(model.params["const"], 6),
+                "std_err": rounded(model.bse["const"], 6),
+                "t_or_z": rounded(model.tvalues["const"]),
+                "p_value": round_p(float(model.pvalues["const"])),
+                "ci_lower": rounded(model.conf_int().loc["const", 0], 6),
+                "ci_upper": rounded(model.conf_int().loc["const", 1], 6),
+                "significant": is_significant(model.pvalues["const"]),
+            }
+
         # VIF for multicollinearity
         vif_data: dict = {}
         try:
@@ -266,7 +368,12 @@ def regression_analysis(
             "model_type": model_type,
             "observations": int(model.nobs),
             "residual_df": residual_df,
+            "rows_in_file": rows_in_file,
+            "rows_dropped_null": dropped_null,
+            "rows_dropped_non_numeric": dropped_text,
             "coefficients": coef_table,
+            "intercept": intercept,
+            "equation": _equation(y_col, intercept, coef_table),
             "significant_predictors": significant_predictors,
             "vif": vif_data,
         }
