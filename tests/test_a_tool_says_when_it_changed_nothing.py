@@ -40,13 +40,13 @@ from shared.html_layout import extension_note  # noqa: E402
 
 def _all_null(tmp_path) -> Path:
     f = tmp_path / "all_null.csv"
-    f.write_text("name,spend\nWest,\nEast,\n")
+    f.write_text("name,spend\nWest,\nEast,\n", encoding="utf-8")
     return f
 
 
 def _mixed(tmp_path) -> Path:
     f = tmp_path / "mixed.csv"
-    f.write_text("name,spend\nWest,10\nEast,\nNorth,30\n")
+    f.write_text("name,spend\nWest,10\nEast,\nNorth,30\n", encoding="utf-8")
     return f
 
 
@@ -74,12 +74,12 @@ def test_smart_impute_still_fills_what_it_can(tmp_path):
     assert r["columns_imputed"] == 1
     assert r["columns_skipped"] == 0
     assert r["imputed"][0]["fill_value"] == "20.0"
-    assert "20.0" in out.read_text()
+    assert "20.0" in out.read_text(encoding="utf-8")
 
 
 def test_smart_impute_dry_run_separates_the_two_lists(tmp_path):
     f = tmp_path / "both.csv"
-    f.write_text("a,b\n1,\n,\n3,\n")
+    f.write_text("a,b\n1,\n,\n3,\n", encoding="utf-8")
     r = smart_impute(str(f), dry_run=True, open_after=False)
     assert r["columns_to_impute"] == 1
     assert r["would_change"][0]["column"] == "a"
@@ -131,7 +131,7 @@ def test_extension_note_only_speaks_when_the_request_was_changed(tmp_path):
 
 def test_a_chart_tool_says_it_wrote_html_instead(tmp_path):
     src = tmp_path / "data.csv"
-    src.write_text("spend\n1\n2\n3\n4\n5\n")
+    src.write_text("spend\n1\n2\n3\n4\n5\n", encoding="utf-8")
     r = check_outliers(str(src), output_path=str(tmp_path / "wanted.csv"), open_after=False)
     assert r["success"] is True
     assert r["output_name"] == "wanted.html"
@@ -141,7 +141,7 @@ def test_a_chart_tool_says_it_wrote_html_instead(tmp_path):
 
 def test_a_chart_tool_stays_quiet_when_the_extension_matched(tmp_path):
     src = tmp_path / "data.csv"
-    src.write_text("spend\n1\n2\n3\n4\n5\n")
+    src.write_text("spend\n1\n2\n3\n4\n5\n", encoding="utf-8")
     r = check_outliers(str(src), output_path=str(tmp_path / "wanted.html"), open_after=False)
     assert not any("extension" in p["message"].lower() for p in r["progress"])
 
@@ -151,7 +151,7 @@ def test_a_chart_tool_stays_quiet_when_the_extension_matched(tmp_path):
 
 def test_a_one_row_distribution_plot_says_what_it_drew(tmp_path):
     src = tmp_path / "one.csv"
-    src.write_text("spend,clicks\n120,4\n")
+    src.write_text("spend,clicks\n120,4\n", encoding="utf-8")
     r = generate_distribution_plot(str(src), output_path=str(tmp_path / "d.html"), open_after=False)
     assert r["success"] is True
     assert r["values_plotted"] == {"spend": 1, "clicks": 1}
@@ -179,11 +179,11 @@ def test_normalize_does_not_zero_a_column_it_cannot_scale(tmp_path):
     one-campaign export, a flag that happens not to vary.
     """
     f = tmp_path / "flat.csv"
-    f.write_text("name,spends\nA,7\nB,7\nC,7\n")
+    f.write_text("name,spends\nA,7\nB,7\nC,7\n", encoding="utf-8")
     r = apply_patch(str(f), ops=[{"op": "normalize", "column": "spends", "method": "minmax"}])
 
     assert r["success"] is True
-    assert f.read_text() == "name,spends\nA,7\nB,7\nC,7\n"
+    assert f.read_text(encoding="utf-8") == "name,spends\nA,7\nB,7\nC,7\n"
     assert r["changed_file"] is False
     entry = r["results"][0]
     assert entry["skipped"] is True
@@ -195,21 +195,21 @@ def test_normalize_does_not_zero_a_column_it_cannot_scale(tmp_path):
 def test_normalize_zscore_survives_a_single_row(tmp_path):
     """At n=1 the sample sd is NaN, not 0 -- `== 0` missed it and wrote NaN."""
     f = tmp_path / "one.csv"
-    f.write_text("name,spends\nWest,7\n")
+    f.write_text("name,spends\nWest,7\n", encoding="utf-8")
     r = apply_patch(str(f), ops=[{"op": "normalize", "column": "spends", "method": "zscore"}])
 
     assert r["success"] is True
-    assert f.read_text() == "name,spends\nWest,7\n"
+    assert f.read_text(encoding="utf-8") == "name,spends\nWest,7\n"
     assert r["results"][0]["skipped"] is True
 
 
 def test_normalize_still_scales_a_column_that_varies(tmp_path):
     f = tmp_path / "vary.csv"
-    f.write_text("name,spends\nA,1\nB,5\nC,9\n")
+    f.write_text("name,spends\nA,1\nB,5\nC,9\n", encoding="utf-8")
     r = apply_patch(str(f), ops=[{"op": "normalize", "column": "spends", "method": "minmax"}])
 
     assert r["success"] is True
     assert r["changed_file"] is True
     assert r["ops_with_no_effect"] == []
     assert "skipped" not in r["results"][0]
-    assert f.read_text().splitlines()[1:] == ["A,0.0", "B,0.5", "C,1.0"]
+    assert f.read_text(encoding="utf-8").splitlines()[1:] == ["A,0.0", "B,0.5", "C,1.0"]

@@ -39,7 +39,7 @@ MESSY = "  Total Spends , Campaign Type ,Clicks\n10,Awareness,3\n20,Performance,
 @pytest.fixture()
 def messy(tmp_path: Path) -> Path:
     p = tmp_path / "export.csv"
-    p.write_text(MESSY)
+    p.write_text(MESSY, encoding="utf-8")
     return p
 
 
@@ -60,7 +60,7 @@ class TestNormalizeHeadersCanRedirect:
 
     def test_the_source_is_untouched(self, messy: Path, tmp_path: Path):
         engine.normalize_headers(str(messy), output_path=str(tmp_path / "clean.csv"))
-        assert messy.read_text() == MESSY
+        assert messy.read_text(encoding="utf-8") == MESSY
 
     def test_no_snapshot_when_the_source_is_not_the_target(self, messy: Path, tmp_path: Path):
         r = engine.normalize_headers(str(messy), output_path=str(tmp_path / "clean.csv"))
@@ -84,7 +84,7 @@ class TestTrimEmptyCanRedirect:
     @pytest.fixture()
     def padded(self, tmp_path: Path) -> Path:
         p = tmp_path / "padded.csv"
-        p.write_text("a,b,c\n1,,3\n,,\n2,,4\n")
+        p.write_text("a,b,c\n1,,3\n,,\n2,,4\n", encoding="utf-8")
         return p
 
     def test_it_writes_the_trimmed_copy_elsewhere(self, padded: Path, tmp_path: Path):
@@ -113,7 +113,7 @@ class TestPromoteHeaderCanRedirect:
     @pytest.fixture()
     def preamble(self, tmp_path: Path) -> Path:
         p = tmp_path / "preamble.csv"
-        p.write_text("Quarterly export,,\nspends,clicks,device\n10,3,mobile\n20,4,desktop\n")
+        p.write_text("Quarterly export,,\nspends,clicks,device\n10,3,mobile\n20,4,desktop\n", encoding="utf-8")
         return p
 
     def test_it_writes_the_promoted_copy_elsewhere(self, preamble: Path, tmp_path: Path):

@@ -198,7 +198,7 @@ class TestTheOpIsDiscoverableAndValidated:
 
     def test_the_vocabulary_has_exactly_one_definition(self):
         """The handler imports GROUP_AGGS; it must not redefine it."""
-        src = (Path(__file__).parent.parent / "servers" / "data_basic" / "_patch_ops.py").read_text()
+        src = (Path(__file__).parent.parent / "servers" / "data_basic" / "_patch_ops.py").read_text(encoding="utf-8")
         assert "GROUP_AGGS = " not in src, "the handler is redefining the validator's vocabulary"
         assert "GROUP_AGGS" in src
 

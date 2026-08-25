@@ -24,7 +24,7 @@ def ws_base(tmp_path) -> Path:
 @pytest.fixture()
 def sample_csv(tmp_path) -> Path:
     f = tmp_path / "sales.csv"
-    f.write_text("Region,Revenue\nWest,5000\nEast,7500\nSouth,2100\n")
+    f.write_text("Region,Revenue\nWest,5000\nEast,7500\nSouth,2100\n", encoding="utf-8")
     return f
 
 
@@ -174,7 +174,7 @@ class TestListWorkspaceFiles:
 
     def test_stage_filter(self, ws_base, sample_csv, tmp_path):
         f2 = tmp_path / "other.csv"
-        f2.write_text("A,B\n1,2\n")
+        f2.write_text("A,B\n1,2\n", encoding="utf-8")
         create_workspace("filter_ws", base_dir=str(ws_base))
         register_workspace_file("filter_ws", str(sample_csv), alias="raw_f", stage="raw", base_dir=str(ws_base))
         register_workspace_file("filter_ws", str(f2), alias="work_f", stage="working", base_dir=str(ws_base))

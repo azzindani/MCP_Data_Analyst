@@ -40,7 +40,7 @@ from shared.data_alerts import compute_alerts, quality_score  # noqa: E402
 def _csv(tmp_path, n_rows: int) -> Path:
     f = tmp_path / f"rows_{n_rows}.csv"
     rows = "\n".join(f"West,{i * 10},{i * 3}" for i in range(1, n_rows + 1))
-    f.write_text(f"region,spend,clicks\n{rows}\n")
+    f.write_text(f"region,spend,clicks\n{rows}\n", encoding="utf-8")
     return f
 
 

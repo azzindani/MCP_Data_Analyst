@@ -76,7 +76,7 @@ def test_the_catalog_is_not_quietly_shrinking():
 def csv(tmp_path):
     f = tmp_path / "in.csv"
     rows = "\n".join(f"West,{i * 10}" for i in range(1, 7))
-    f.write_text(f"region,spend\n{rows}\n")
+    f.write_text(f"region,spend\n{rows}\n", encoding="utf-8")
     return f
 
 
@@ -93,7 +93,7 @@ def test_an_op_the_catalog_lists_runs_in_the_pipeline(tmp_path, csv, op, extra):
     r = run_cleaning_pipeline(str(csv), ops=[{"op": op, **extra}], output_path=str(out))
     assert r["success"] is True, r.get("error")
     assert r["applied"] == 1
-    assert out.exists() and out.read_text().strip()
+    assert out.exists() and out.read_text(encoding="utf-8").strip()
 
 
 def test_a_genuinely_unknown_op_is_still_refused(tmp_path, csv):
@@ -112,9 +112,9 @@ def test_the_two_tools_agree_on_every_op(tmp_path):
     """Read the files, not the responses: the point of one table is one result."""
     src = tmp_path / "src.csv"
     rows = [f"West {i % 3},{i * 10},{i * 3},2024-01-{i:02d},2024-02-{i:02d},a-{i}" for i in range(1, 13)]
-    src.write_text("region,spend,clicks,d1,d2,code\n" + "\n".join(rows) + "\n")
+    src.write_text("region,spend,clicks,d1,d2,code\n" + "\n".join(rows) + "\n", encoding="utf-8")
     other = tmp_path / "other.csv"
-    other.write_text(src.read_text())
+    other.write_text(src.read_text(encoding="utf-8"))
 
     ops = {
         "drop_column": {"columns": ["code"]},
@@ -193,7 +193,7 @@ def test_the_two_tools_agree_on_every_op(tmp_path):
             failures.append(f"{name}: apply_patch refused -- {p.get('error')}")
             continue
 
-        if piped.read_text() != patched.read_text():
+        if piped.read_text(encoding="utf-8") != patched.read_text(encoding="utf-8"):
             failures.append(f"{name}: the two tools wrote different files")
 
     assert not failures, "\n".join(failures)

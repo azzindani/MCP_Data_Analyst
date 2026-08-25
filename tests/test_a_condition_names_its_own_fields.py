@@ -67,7 +67,7 @@ def test_the_catalog_names_the_condition_fields():
 def test_a_condition_written_the_obvious_way_runs(tmp_path, csv, symbol, label_key):
     r = _run(csv, tmp_path, [{"column": "spend", "op": symbol, "value": 50, label_key: "hi"}])
     assert r["success"] is True, r.get("error")
-    written = (tmp_path / "out.csv").read_text()
+    written = (tmp_path / "out.csv").read_text(encoding="utf-8")
     # 20 and 40 below the threshold, 60/80/100 above -- read the file, since the
     # response would say "1 condition applied" either way.
     assert written.count("lo") == 2

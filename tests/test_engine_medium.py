@@ -44,7 +44,8 @@ from servers.data_medium.engine import (
 @pytest.fixture()
 def outlier_csv(tmp_path) -> Path:
     f = tmp_path / "outlier_data.csv"
-    f.write_text("""Region,Revenue,Units,Discount
+    f.write_text(
+        """Region,Revenue,Units,Discount
 West,5000,10,0.1
 West,4800,9,0.12
 East,7500,15,0.05
@@ -59,14 +60,17 @@ East,50000,100,0.01
 South,,3,0.15
 North,4900,11,0.09
 West,5100,10,0.11
-""")
+""",
+        encoding="utf-8",
+    )
     return f
 
 
 @pytest.fixture()
 def agg_csv(tmp_path) -> Path:
     f = tmp_path / "sales_agg.csv"
-    f.write_text("""Region,Product,Revenue,Units_Sold,Quarter
+    f.write_text(
+        """Region,Product,Revenue,Units_Sold,Quarter
 West,Widget A,5000,10,Q1
 West,Widget B,3200,8,Q1
 East,Widget A,7500,15,Q2
@@ -77,39 +81,48 @@ East,Widget B,3000,7,Q4
 South,Widget A,2500,6,Q4
 North,Widget C,1800,4,Q1
 West,Widget C,4200,9,Q2
-""")
+""",
+        encoding="utf-8",
+    )
     return f
 
 
 @pytest.fixture()
 def geo_json(tmp_path) -> Path:
     f = tmp_path / "states.geojson"
-    f.write_text("""{
+    f.write_text(
+        """{
   "type": "FeatureCollection",
   "features": [
     {"type":"Feature","properties":{"name":"California","code":"CA"},"geometry":{"type":"Polygon","coordinates":[[[-120,35],[-120,40],[-115,40],[-115,35],[-120,35]]]}},
     {"type":"Feature","properties":{"name":"Texas","code":"TX"},"geometry":{"type":"Polygon","coordinates":[[[-105,26],[-105,36],[-95,36],[-95,26],[-105,26]]]}},
     {"type":"Feature","properties":{"name":"New York","code":"NY"},"geometry":{"type":"Polygon","coordinates":[[[-80,40],[-80,45],[-72,45],[-72,40],[-80,40]]]}}
   ]
-}""")
+}""",
+        encoding="utf-8",
+    )
     return f
 
 
 @pytest.fixture()
 def geo_csv(tmp_path) -> Path:
     f = tmp_path / "geo_data.csv"
-    f.write_text("""State,Population
+    f.write_text(
+        """State,Population
 California,39500000
 Texas,29000000
 New York,19450000
-""")
+""",
+        encoding="utf-8",
+    )
     return f
 
 
 @pytest.fixture()
 def workflow_csv(tmp_path) -> Path:
     f = tmp_path / "workflow_data.csv"
-    f.write_text("""Region,Product,Revenue,Units,Discount
+    f.write_text(
+        """Region,Product,Revenue,Units,Discount
 West,Widget A,5000,10,0.1
 west,widget a,4800,9,0.12
 East,Widget B,,15,0.05
@@ -119,7 +132,9 @@ West,Widget A,5000,10,0.1
 East,Widget A,7500,15,0.05
 South,Widget C,1900,4,0.25
 North,Widget A,5100,13,0.07
-""")
+""",
+        encoding="utf-8",
+    )
     return f
 
 
@@ -347,7 +362,7 @@ class TestEnrichWithGeo:
         before ever reaching gpd.read_file(), same as data_basic's
         load_geo_dataset already does."""
         not_geo = tmp_path / "not_geo.csv"
-        not_geo.write_text("a,b\n1,2\n")
+        not_geo.write_text("a,b\n1,2\n", encoding="utf-8")
         r = enrich_with_geo(str(geo_csv), str(not_geo), join_column="State", geo_join_column="a")
         assert r["success"] is False
         assert "hint" in r
@@ -357,7 +372,7 @@ class TestEnrichWithGeo:
         """When output_path is given, enrich_with_geo writes there instead of
         in-place — it must not waste a snapshot on the untouched input.
         Regression test for a bug where the snapshot ran unconditionally."""
-        before = Path(str(geo_csv)).read_text()
+        before = Path(str(geo_csv)).read_text(encoding="utf-8")
         out = tmp_path / "enriched.csv"
         r = enrich_with_geo(
             str(geo_csv),
@@ -369,7 +384,7 @@ class TestEnrichWithGeo:
         if not r["success"]:
             pytest.skip(f"geopandas not installed: {r['error']}")
         assert not r["backup"]
-        assert Path(str(geo_csv)).read_text() == before
+        assert Path(str(geo_csv)).read_text(encoding="utf-8") == before
         assert out.exists()
 
 
@@ -380,14 +395,17 @@ class TestEnrichWithGeo:
 
 class TestRunCleaningPipeline:
     def _write_pipeline_csv(self, path):
-        path.write_text("""Region,Revenue,Units,Discount
+        path.write_text(
+            """Region,Revenue,Units,Discount
 West,5000,10,0.1
 west,500,1,0.3
 East,7500,15,0.05
 South,,5,0.2
 North,4800,12,0.08
 West,5000,10,0.1
-""")
+""",
+            encoding="utf-8",
+        )
 
     def test_dry_run(self, tmp_path):
         f = tmp_path / "pipeline.csv"
@@ -429,12 +447,15 @@ West,5000,10,0.1
 
     def test_failure_rollback(self, tmp_path):
         f = tmp_path / "pipeline.csv"
-        f.write_text("""Region,Revenue,Units
+        f.write_text(
+            """Region,Revenue,Units
 West,5000,10
 East,7500,15
 South,2100,5
-""")
-        before = f.read_text()
+""",
+            encoding="utf-8",
+        )
+        before = f.read_text(encoding="utf-8")
         r = run_cleaning_pipeline(
             str(f),
             [
@@ -443,7 +464,7 @@ South,2100,5
             ],
         )
         assert r["success"] is False
-        assert f.read_text() == before
+        assert f.read_text(encoding="utf-8") == before
 
     def test_file_not_found(self, tmp_path):
         r = run_cleaning_pipeline(
@@ -499,7 +520,8 @@ class TestFullWorkflow:
 @pytest.fixture()
 def numeric_csv(tmp_path) -> Path:
     f = tmp_path / "numeric.csv"
-    f.write_text("""Region,Revenue,Units,Score
+    f.write_text(
+        """Region,Revenue,Units,Score
 West,5000,10,0.9
 East,7500,15,0.7
 South,2100,5,0.5
@@ -508,14 +530,17 @@ West,6000,12,0.85
 East,3000,7,0.6
 South,2500,6,0.55
 North,1800,4,0.4
-""")
+""",
+        encoding="utf-8",
+    )
     return f
 
 
 @pytest.fixture()
 def cat_csv(tmp_path) -> Path:
     f = tmp_path / "categories.csv"
-    f.write_text("""Region,Product,Revenue
+    f.write_text(
+        """Region,Product,Revenue
 West,Widget A,5000
 West,Widget B,3200
 East,Widget A,7500
@@ -524,14 +549,17 @@ North,Widget A,4800
 West,Widget A,6000
 East,Widget B,3000
 South,Widget A,2500
-""")
+""",
+        encoding="utf-8",
+    )
     return f
 
 
 @pytest.fixture()
 def date_csv(tmp_path) -> Path:
     f = tmp_path / "timeseries.csv"
-    f.write_text("""Date,Revenue,Units
+    f.write_text(
+        """Date,Revenue,Units
 2023-01-15,5000,10
 2023-02-10,6200,12
 2023-03-05,4800,9
@@ -540,14 +568,17 @@ def date_csv(tmp_path) -> Path:
 2023-06-08,6800,13
 2023-07-03,7200,15
 2023-08-19,5900,12
-""")
+""",
+        encoding="utf-8",
+    )
     return f
 
 
 @pytest.fixture()
 def cohort_csv(tmp_path) -> Path:
     f = tmp_path / "cohort.csv"
-    f.write_text("""Cohort,Date,Revenue
+    f.write_text(
+        """Cohort,Date,Revenue
 A,2023-01-15,500
 A,2023-02-10,620
 A,2023-03-05,480
@@ -556,18 +587,23 @@ B,2023-03-05,550
 B,2023-04-20,610
 C,2023-03-05,400
 C,2023-04-20,350
-""")
+""",
+        encoding="utf-8",
+    )
     return f
 
 
 @pytest.fixture()
 def right_csv(tmp_path) -> Path:
     f = tmp_path / "right.csv"
-    f.write_text("""Region,Manager
+    f.write_text(
+        """Region,Manager
 West,Alice
 East,Bob
 North,Carol
-""")
+""",
+        encoding="utf-8",
+    )
     return f
 
 
@@ -772,7 +808,7 @@ class TestFilterRows:
         assert r["rows_after"] >= 1
 
     def test_dry_run(self, cat_csv):
-        before = Path(str(cat_csv)).read_text()
+        before = Path(str(cat_csv)).read_text(encoding="utf-8")
         r = filter_rows(
             str(cat_csv),
             [{"column": "Region", "op": "equals", "value": "West"}],
@@ -781,7 +817,7 @@ class TestFilterRows:
         )
         assert r["success"] is True
         assert r["dry_run"] is True
-        assert Path(str(cat_csv)).read_text() == before
+        assert Path(str(cat_csv)).read_text(encoding="utf-8") == before
 
     def test_missing_column(self, cat_csv):
         r = filter_rows(
@@ -807,7 +843,7 @@ class TestFilterRows:
         """filter_rows always writes to a separate output file — it must not
         waste a snapshot on the input, which it never overwrites. Regression
         test for a bug where every call snapshotted the source unconditionally."""
-        before = Path(str(cat_csv)).read_text()
+        before = Path(str(cat_csv)).read_text(encoding="utf-8")
         r = filter_rows(
             str(cat_csv),
             [{"column": "Region", "op": "equals", "value": "West"}],
@@ -815,7 +851,7 @@ class TestFilterRows:
         )
         assert r["success"] is True
         assert not r["backup"]
-        assert Path(str(cat_csv)).read_text() == before
+        assert Path(str(cat_csv)).read_text(encoding="utf-8") == before
 
 
 # ---------------------------------------------------------------------------
@@ -884,21 +920,24 @@ class TestAutoDetectSchema:
 
 class TestSmartImpute:
     def _make_csv_with_nulls(self, path):
-        path.write_text("""Region,Revenue,Units
+        path.write_text(
+            """Region,Revenue,Units
 West,5000,10
 East,,15
 South,2100,
 North,4800,12
-""")
+""",
+            encoding="utf-8",
+        )
 
     def test_dry_run(self, tmp_path):
         f = tmp_path / "nulls.csv"
         self._make_csv_with_nulls(f)
-        before = f.read_text()
+        before = f.read_text(encoding="utf-8")
         r = smart_impute(str(f), dry_run=True, open_after=False)
         assert r["success"] is True
         assert r["dry_run"] is True
-        assert f.read_text() == before
+        assert f.read_text(encoding="utf-8") == before
 
     def test_impute(self, tmp_path):
         f = tmp_path / "nulls.csv"
@@ -930,11 +969,11 @@ North,4800,12
         not waste a snapshot on the input it never overwrites."""
         f = tmp_path / "nulls.csv"
         self._make_csv_with_nulls(f)
-        before = f.read_text()
+        before = f.read_text(encoding="utf-8")
         r = smart_impute(str(f), open_after=False)
         assert r["success"] is True
         assert not r["backup"]
-        assert f.read_text() == before
+        assert f.read_text(encoding="utf-8") == before
 
 
 # ---------------------------------------------------------------------------
@@ -957,7 +996,7 @@ class TestMergeDatasets:
         assert "Manager" in df.columns
 
     def test_dry_run(self, cat_csv, right_csv):
-        before = Path(str(cat_csv)).read_text()
+        before = Path(str(cat_csv)).read_text(encoding="utf-8")
         r = merge_datasets(
             str(cat_csv),
             str(right_csv),
@@ -968,7 +1007,7 @@ class TestMergeDatasets:
         )
         assert r["success"] is True
         assert r["dry_run"] is True
-        assert Path(str(cat_csv)).read_text() == before
+        assert Path(str(cat_csv)).read_text(encoding="utf-8") == before
 
     def test_auto_detect_key(self, cat_csv, right_csv):
         r = merge_datasets(str(cat_csv), str(right_csv), open_after=False)
@@ -996,7 +1035,7 @@ class TestMergeDatasets:
         """merge_datasets always writes to a '_merged' suffixed file (or an
         explicit output_path) — it must not waste a snapshot on the left input
         it never overwrites."""
-        before = Path(str(cat_csv)).read_text()
+        before = Path(str(cat_csv)).read_text(encoding="utf-8")
         r = merge_datasets(
             str(cat_csv),
             str(right_csv),
@@ -1006,7 +1045,7 @@ class TestMergeDatasets:
         )
         assert r["success"] is True
         assert not r["backup"]
-        assert Path(str(cat_csv)).read_text() == before
+        assert Path(str(cat_csv)).read_text(encoding="utf-8") == before
 
     def test_warns_when_a_join_multiplies_rows(self, tmp_path):
         """A fan-out under the hard row ceiling still succeeds, and the caller
@@ -1107,7 +1146,9 @@ class TestFeatureEngineering:
         sweep on the full Ad_Data.csv. date_parts must sniff-and-parse
         string columns the same way auto_detect_schema already does."""
         f = tmp_path / "dated.csv"
-        f.write_text("Date,Region,Revenue\n2019-10-16,West,5000\n2019-11-02,East,3200\n2020-01-15,South,2100\n")
+        f.write_text(
+            "Date,Region,Revenue\n2019-10-16,West,5000\n2019-11-02,East,3200\n2020-01-15,South,2100\n", encoding="utf-8"
+        )
         r = feature_engineering(str(f), features=["date_parts"], open_after=False)
         assert r["success"] is True
         assert {"Date_year", "Date_month", "Date_day", "Date_dayofweek"} <= set(r["new_columns"])
@@ -1120,11 +1161,11 @@ class TestFeatureEngineering:
         assert out.loc[0, "Date"] == "2019-10-16"
 
     def test_dry_run(self, cat_csv):
-        before = Path(str(cat_csv)).read_text()
+        before = Path(str(cat_csv)).read_text(encoding="utf-8")
         r = feature_engineering(str(cat_csv), features=["bins"], dry_run=True, open_after=False)
         assert r["success"] is True
         assert r["dry_run"] is True
-        assert Path(str(cat_csv)).read_text() == before
+        assert Path(str(cat_csv)).read_text(encoding="utf-8") == before
 
     def test_invalid_feature(self, cat_csv):
         r = feature_engineering(str(cat_csv), features=["invalid_feature"], open_after=False)
@@ -1137,11 +1178,11 @@ class TestFeatureEngineering:
     def test_does_not_snapshot_untouched_input(self, cat_csv):
         """feature_engineering always writes to a '_features' suffixed file —
         it must not waste a snapshot on the input it never overwrites."""
-        before = Path(str(cat_csv)).read_text()
+        before = Path(str(cat_csv)).read_text(encoding="utf-8")
         r = feature_engineering(str(cat_csv), features=["bins"], open_after=False)
         assert r["success"] is True
         assert not r["backup"]
-        assert Path(str(cat_csv)).read_text() == before
+        assert Path(str(cat_csv)).read_text(encoding="utf-8") == before
 
 
 # ---------------------------------------------------------------------------
@@ -1329,7 +1370,7 @@ def long_date_csv(tmp_path) -> Path:
         units = 10 + i // 3 + random.randint(-2, 2)
         rows.append(f"{dt},{max(100, rev)},{max(1, units)}")
     f = tmp_path / "long_ts.csv"
-    f.write_text("\n".join(rows))
+    f.write_text("\n".join(rows), encoding="utf-8")
     return f
 
 
@@ -1380,7 +1421,7 @@ class TestTimeSeriesADF:
             seasonal = 1000 if i % 4 in (2, 3) else 500
             rows.append(f"{dt},{3000 + seasonal + i * 50}")
         f = tmp_path / "quarterly_ts.csv"
-        f.write_text("\n".join(rows))
+        f.write_text("\n".join(rows), encoding="utf-8")
 
         r = time_series_analysis(
             str(f),
@@ -1433,7 +1474,8 @@ def text_csv(tmp_path) -> Path:
         "1,hello world foo bar,user@example.com\n"
         "2,foo baz qux,admin@test.org\n"
         "3,hello foo world,\n"
-        "4,,other@domain.net\n"
+        "4,,other@domain.net\n",
+        encoding="utf-8",
     )
     return f
 
@@ -1477,7 +1519,7 @@ class TestAnalyzeTextColumn:
 @pytest.fixture()
 def anomaly_csv(tmp_path) -> Path:
     f = tmp_path / "anomaly_data.csv"
-    f.write_text("A,B\n10,100\n11,105\n12,98\n9,102\n10,103\n1000,99\n11,9999\n")
+    f.write_text("A,B\n10,100\n11,105\n12,98\n9,102\n10,103\n1000,99\n11,9999\n", encoding="utf-8")
     return f
 
 
@@ -1486,7 +1528,7 @@ def wide_anomaly_csv(tmp_path) -> Path:
     """Enough rows that the 3-sigma method can actually flag something."""
     f = tmp_path / "wide_anomaly.csv"
     body = "\n".join("10,100" for _ in range(14))
-    f.write_text(f"A,B\n{body}\n1000,99\n11,9999\n")
+    f.write_text(f"A,B\n{body}\n1000,99\n11,9999\n", encoding="utf-8")
     return f
 
 
@@ -1533,21 +1575,21 @@ class TestDetectAnomalies:
 @pytest.fixture()
 def compare_csv_a(tmp_path) -> Path:
     f = tmp_path / "a.csv"
-    f.write_text("Region,Revenue,Units\nWest,5000,10\nEast,7500,15\nSouth,2100,5\n")
+    f.write_text("Region,Revenue,Units\nWest,5000,10\nEast,7500,15\nSouth,2100,5\n", encoding="utf-8")
     return f
 
 
 @pytest.fixture()
 def compare_csv_b(tmp_path) -> Path:
     f = tmp_path / "b.csv"
-    f.write_text("Region,Revenue,Units\nWest,5000,10\nEast,7500,15\nSouth,2100,5\n")
+    f.write_text("Region,Revenue,Units\nWest,5000,10\nEast,7500,15\nSouth,2100,5\n", encoding="utf-8")
     return f
 
 
 @pytest.fixture()
 def compare_csv_c(tmp_path) -> Path:
     f = tmp_path / "c.csv"
-    f.write_text("Region,Revenue,Manager\nWest,5000,Alice\nEast,9000,Bob\n")
+    f.write_text("Region,Revenue,Manager\nWest,5000,Alice\nEast,9000,Bob\n", encoding="utf-8")
     return f
 
 
@@ -1595,7 +1637,8 @@ def stats_csv(tmp_path) -> Path:
         "2500,6,0.55\n"
         "1800,4,0.4\n"
         "9000,20,0.95\n"
-        "4200,9,0.65\n"
+        "4200,9,0.65\n",
+        encoding="utf-8",
     )
     return f
 
@@ -1693,7 +1736,7 @@ def resample_csv(tmp_path) -> Path:
         "2023-03-18,1300,13,West",
         "2023-03-25,1050,10,East",
     ]
-    f.write_text("\n".join(rows) + "\n")
+    f.write_text("\n".join(rows) + "\n", encoding="utf-8")
     return f
 
 
@@ -1782,28 +1825,28 @@ class TestResampleTimeseries:
 @pytest.fixture()
 def csv_a(tmp_path) -> Path:
     f = tmp_path / "a.csv"
-    f.write_text("Region,Revenue\nWest,5000\nEast,7500\n")
+    f.write_text("Region,Revenue\nWest,5000\nEast,7500\n", encoding="utf-8")
     return f
 
 
 @pytest.fixture()
 def csv_b(tmp_path) -> Path:
     f = tmp_path / "b.csv"
-    f.write_text("Region,Revenue\nSouth,2100\nNorth,4800\n")
+    f.write_text("Region,Revenue\nSouth,2100\nNorth,4800\n", encoding="utf-8")
     return f
 
 
 @pytest.fixture()
 def csv_c_extra_col(tmp_path) -> Path:
     f = tmp_path / "c.csv"
-    f.write_text("Region,Revenue,Manager\nMidwest,3000,Alice\n")
+    f.write_text("Region,Revenue,Manager\nMidwest,3000,Alice\n", encoding="utf-8")
     return f
 
 
 @pytest.fixture()
 def csv_wide(tmp_path) -> Path:
     f = tmp_path / "wide.csv"
-    f.write_text("Score,Grade\n90,A\n80,B\n")
+    f.write_text("Score,Grade\n90,A\n80,B\n", encoding="utf-8")
     return f
 
 
@@ -1852,7 +1895,7 @@ class TestConcatDatasets:
         from pathlib import Path
 
         csv_b_path = Path(str(csv_b))
-        csv_b_path.write_text("Region,Revenue\nS,1\nN,2\nX,3\n")
+        csv_b_path.write_text("Region,Revenue\nS,1\nN,2\nX,3\n", encoding="utf-8")
         r = concat_datasets([str(csv_a), str(csv_b_path)], direction="columns")
         assert r["success"] is False
         assert "hint" in r
@@ -1899,7 +1942,7 @@ def twogroup_csv(tmp_path) -> Path:
         rows.append(f"{random.randint(50, 80)},A")
     for _ in range(20):
         rows.append(f"{random.randint(60, 90)},B")
-    f.write_text("\n".join(rows) + "\n")
+    f.write_text("\n".join(rows) + "\n", encoding="utf-8")
     return f
 
 
@@ -1917,7 +1960,9 @@ def normal_csv(tmp_path) -> Path:
 @pytest.fixture()
 def contingency_csv(tmp_path) -> Path:
     f = tmp_path / "contingency.csv"
-    f.write_text("Treatment,Outcome\nA,Success\nA,Success\nA,Failure\nB,Success\nB,Failure\nB,Failure\n")
+    f.write_text(
+        "Treatment,Outcome\nA,Success\nA,Success\nA,Failure\nB,Success\nB,Failure\nB,Failure\n", encoding="utf-8"
+    )
     return f
 
 
@@ -1990,7 +2035,8 @@ def filter_ext_csv(tmp_path) -> Path:
         "East,7500,2023-06-20\n"
         "South,2100,2023-03-10\n"
         "North,4800,2023-09-05\n"
-        "West,3000,2023-11-22\n"
+        "West,3000,2023-11-22\n",
+        encoding="utf-8",
     )
     return f
 

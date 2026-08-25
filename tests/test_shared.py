@@ -85,7 +85,7 @@ def test_get_max_results_returns_int():
 
 def test_resolve_path_absolute(tmp_path):
     p = tmp_path / "test.csv"
-    p.write_text("a,b\n1,2")
+    p.write_text("a,b\n1,2", encoding="utf-8")
     resolved = resolve_path(str(p))
     assert resolved == p.resolve()
 
@@ -93,7 +93,7 @@ def test_resolve_path_absolute(tmp_path):
 def test_resolve_path_relative(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     p = tmp_path / "rel.csv"
-    p.write_text("a")
+    p.write_text("a", encoding="utf-8")
     resolved = resolve_path("rel.csv")
     assert resolved.is_absolute()
 
@@ -101,28 +101,28 @@ def test_resolve_path_relative(tmp_path, monkeypatch):
 def test_resolve_path_normalizes_dotdot(tmp_path):
     # resolve() collapses .. so the returned path never contains traversal components
     p = tmp_path / "sub" / ".." / "test.csv"
-    (tmp_path / "test.csv").write_text("a")
+    (tmp_path / "test.csv").write_text("a", encoding="utf-8")
     resolved = resolve_path(str(p))
     assert ".." not in resolved.parts
 
 
 def test_resolve_path_allowed_extensions_ok(tmp_path):
     p = tmp_path / "data.csv"
-    p.write_text("a")
+    p.write_text("a", encoding="utf-8")
     resolved = resolve_path(str(p), allowed_extensions=(".csv", ".json"))
     assert resolved == p.resolve()
 
 
 def test_resolve_path_allowed_extensions_rejected(tmp_path):
     p = tmp_path / "data.exe"
-    p.write_text("x")
+    p.write_text("x", encoding="utf-8")
     with pytest.raises(ValueError, match="not allowed"):
         resolve_path(str(p), allowed_extensions=(".csv",))
 
 
 def test_get_default_output_dir_with_input(tmp_path):
     p = tmp_path / "data.csv"
-    p.write_text("a")
+    p.write_text("a", encoding="utf-8")
     out = get_default_output_dir(str(p))
     assert out == tmp_path
 
@@ -136,14 +136,14 @@ def test_get_default_output_dir_no_input():
 def test_atomic_write_text(tmp_path):
     target = tmp_path / "out.txt"
     atomic_write_text(target, "hello world")
-    assert target.read_text() == "hello world"
+    assert target.read_text(encoding="utf-8") == "hello world"
 
 
 def test_atomic_write_text_overwrites(tmp_path):
     target = tmp_path / "out.txt"
-    target.write_text("old")
+    target.write_text("old", encoding="utf-8")
     atomic_write_text(target, "new")
-    assert target.read_text() == "new"
+    assert target.read_text(encoding="utf-8") == "new"
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +153,7 @@ def test_atomic_write_text_overwrites(tmp_path):
 
 def test_snapshot_creates_backup(tmp_path):
     f = tmp_path / "data.csv"
-    f.write_text("a,b\n1,2")
+    f.write_text("a,b\n1,2", encoding="utf-8")
     backup = snapshot(str(f))
     assert Path(backup).exists()
     assert ".mcp_versions" in backup
@@ -161,29 +161,29 @@ def test_snapshot_creates_backup(tmp_path):
 
 def test_snapshot_content_matches(tmp_path):
     f = tmp_path / "data.csv"
-    f.write_text("original content")
+    f.write_text("original content", encoding="utf-8")
     backup = snapshot(str(f))
-    assert Path(backup).read_text() == "original content"
+    assert Path(backup).read_text(encoding="utf-8") == "original content"
 
 
 def test_restore_overwrites_file(tmp_path):
     f = tmp_path / "data.csv"
-    f.write_text("original")
+    f.write_text("original", encoding="utf-8")
     backup = snapshot(str(f))
-    f.write_text("modified")
+    f.write_text("modified", encoding="utf-8")
     restore(str(f), backup)
-    assert f.read_text() == "original"
+    assert f.read_text(encoding="utf-8") == "original"
 
 
 def test_list_versions_empty(tmp_path):
     f = tmp_path / "data.csv"
-    f.write_text("x")
+    f.write_text("x", encoding="utf-8")
     assert list_versions(str(f)) == []
 
 
 def test_list_versions_after_snapshot(tmp_path):
     f = tmp_path / "data.csv"
-    f.write_text("x")
+    f.write_text("x", encoding="utf-8")
     snapshot(str(f))
     snapshot(str(f))
     versions = list_versions(str(f))
@@ -192,7 +192,7 @@ def test_list_versions_after_snapshot(tmp_path):
 
 def test_list_versions_newest_first(tmp_path):
     f = tmp_path / "data.csv"
-    f.write_text("x")
+    f.write_text("x", encoding="utf-8")
     _ = snapshot(str(f))
     _ = snapshot(str(f))
     versions = list_versions(str(f))
@@ -273,7 +273,7 @@ def test_validate_ops_valid_drop_duplicates():
 
 def test_append_and_read_receipt(tmp_path):
     f = tmp_path / "data.csv"
-    f.write_text("a,b\n1,2")
+    f.write_text("a,b\n1,2", encoding="utf-8")
     append_receipt(str(f), tool="apply_patch", args={"ops": []}, result="ok")
     entries = read_receipt_log(str(f), last_n=10)
     assert len(entries) == 1
@@ -282,7 +282,7 @@ def test_append_and_read_receipt(tmp_path):
 
 def test_receipt_descending_order(tmp_path):
     f = tmp_path / "data.csv"
-    f.write_text("a")
+    f.write_text("a", encoding="utf-8")
     append_receipt(str(f), "tool_a", {}, "first")
     append_receipt(str(f), "tool_b", {}, "second")
     entries = read_receipt_log(str(f), last_n=10)
@@ -292,7 +292,7 @@ def test_receipt_descending_order(tmp_path):
 
 def test_receipt_last_n(tmp_path):
     f = tmp_path / "data.csv"
-    f.write_text("a")
+    f.write_text("a", encoding="utf-8")
     for i in range(5):
         append_receipt(str(f), f"tool_{i}", {}, str(i))
     entries = read_receipt_log(str(f), last_n=3)
@@ -301,7 +301,7 @@ def test_receipt_last_n(tmp_path):
 
 def test_receipt_no_file(tmp_path):
     f = tmp_path / "no_receipt.csv"
-    f.write_text("a")
+    f.write_text("a", encoding="utf-8")
     entries = read_receipt_log(str(f))
     assert entries == []
 
@@ -332,7 +332,7 @@ class TestGetOutputPath:
         input_dir = tmp_path / "input_dir"
         input_dir.mkdir()
         input_file = input_dir / "data.csv"
-        input_file.write_text("a")
+        input_file.write_text("a", encoding="utf-8")
         result = get_output_path("", input_file, "chart", "html")
         assert result.parent.is_dir()
 

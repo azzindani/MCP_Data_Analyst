@@ -40,7 +40,7 @@ class TestCustomizeChartBasic:
         result = customize_chart(str(bar_chart), title="Revenue by Region", output_path=str(out))
         assert result["success"] is True
         assert "title → 'Revenue by Region'" in result["changes_applied"]
-        assert "Revenue by Region" in out.read_text()
+        assert "Revenue by Region" in out.read_text(encoding="utf-8")
 
     def test_no_params_is_an_error(self, bar_chart: Path):
         result = customize_chart(str(bar_chart))
@@ -54,7 +54,7 @@ class TestCustomizeChartBasic:
 
     def test_wrong_file_type(self, tmp_path: Path):
         bad = tmp_path / "notes.txt"
-        bad.write_text("hello")
+        bad.write_text("hello", encoding="utf-8")
         result = customize_chart(str(bad), title="X")
         assert result["success"] is False
 
@@ -94,15 +94,15 @@ class TestCustomizedChartStillRenders:
         out = tmp_path / "out.html"
         result = customize_chart(str(bar_chart), title="Revenue by Region", output_path=str(out))
         assert result["success"] is True
-        traces, layout = _parsed(out.read_text())
+        traces, layout = _parsed(out.read_text(encoding="utf-8"))
         assert traces
         assert "title" not in layout
-        assert _heading(out.read_text()) == "Revenue by Region"
+        assert _heading(out.read_text(encoding="utf-8")) == "Revenue by Region"
 
     def test_title_does_not_leak_into_axis_titles(self, bar_chart: Path, tmp_path: Path):
         out = tmp_path / "out.html"
         customize_chart(str(bar_chart), title="Only The Chart", output_path=str(out))
-        _, layout = _parsed(out.read_text())
+        _, layout = _parsed(out.read_text(encoding="utf-8"))
         for axis in ("xaxis", "yaxis"):
             axis_title = layout.get(axis, {}).get("title")
             text = axis_title.get("text") if isinstance(axis_title, dict) else axis_title
@@ -112,8 +112,8 @@ class TestCustomizedChartStillRenders:
         out = tmp_path / "out.html"
         result = customize_chart(str(bar_chart), title="T", x_label="Region", y_label="Revenue", output_path=str(out))
         assert result["success"] is True
-        _, layout = _parsed(out.read_text())
-        assert _heading(out.read_text()) == "T"
+        _, layout = _parsed(out.read_text(encoding="utf-8"))
+        assert _heading(out.read_text(encoding="utf-8")) == "T"
         assert layout["xaxis"]["title"]["text"] == "Region"
         assert layout["yaxis"]["title"]["text"] == "Revenue"
 
@@ -132,7 +132,7 @@ class TestCustomizedChartStillRenders:
             output_path=str(out),
         )
         assert result["success"] is True
-        traces, layout = _parsed(out.read_text())
+        traces, layout = _parsed(out.read_text(encoding="utf-8"))
         assert traces
         assert layout["width"] == 900 and layout["height"] == 600
         assert layout["annotations"][0]["text"] == "peak"
@@ -144,15 +144,15 @@ class TestCustomizedChartStillRenders:
         customize_chart(str(bar_chart), title="First", output_path=str(once))
         result = customize_chart(str(once), title="Second", output_path=str(twice))
         assert result["success"] is True
-        _, layout = _parsed(twice.read_text())
+        _, layout = _parsed(twice.read_text(encoding="utf-8"))
         assert layout
-        assert _heading(twice.read_text()) == "Second"
+        assert _heading(twice.read_text(encoding="utf-8")) == "Second"
 
     def test_colors_reach_the_bars(self, bar_chart: Path, tmp_path: Path):
         out = tmp_path / "out.html"
         result = customize_chart(str(bar_chart), color_scheme=["#abcdef", "#fedcba"], output_path=str(out))
         assert result["success"] is True
-        traces, _ = _parsed(out.read_text())
+        traces, _ = _parsed(out.read_text(encoding="utf-8"))
         assert traces[0]["marker"]["color"][0] == "#abcdef"
 
     def test_sorting_an_integer_valued_chart_works(self, tmp_path: Path):
@@ -161,13 +161,13 @@ class TestCustomizedChartStillRenders:
         from servers.data_visual._adv_customize import _decode_plotly_y
 
         csv = tmp_path / "ints.csv"
-        csv.write_text("Region,Revenue\nNorth,3\nSouth,9\nEast,1\nWest,7\n")
+        csv.write_text("Region,Revenue\nNorth,3\nSouth,9\nEast,1\nWest,7\n", encoding="utf-8")
         chart = tmp_path / "ints.html"
         generate_chart(str(csv), "bar", "Revenue", category_column="Region", output_path=str(chart), open_after=False)
         out = tmp_path / "sorted.html"
         result = customize_chart(str(chart), sort_bars="asc", output_path=str(out))
         assert result["success"] is True
-        traces, _ = _parsed(out.read_text())
+        traces, _ = _parsed(out.read_text(encoding="utf-8"))
         assert _decode_plotly_y(traces[0]["y"]) == [1, 3, 7, 9]
 
     def test_corrupt_chart_is_rejected_not_silently_written(self, tmp_path: Path):
@@ -189,7 +189,7 @@ class TestCustomizeChartSortBars:
 
         from servers.data_visual._adv_customize import _decode_plotly_y, _extract_plotly_json
 
-        html = out.read_text()
+        html = out.read_text(encoding="utf-8")
         _, _, data_str, _, _ = _extract_plotly_json(html)
         trace = json.loads(data_str)[0]
         values = _decode_plotly_y(trace["y"])
@@ -204,7 +204,7 @@ class TestCustomizeChartSortBars:
 
         from servers.data_visual._adv_customize import _decode_plotly_y, _extract_plotly_json
 
-        html = out.read_text()
+        html = out.read_text(encoding="utf-8")
         _, _, data_str, _, _ = _extract_plotly_json(html)
         trace = json.loads(data_str)[0]
         values = _decode_plotly_y(trace["y"])
@@ -227,7 +227,7 @@ class TestCustomizeChartHighlight:
 
         from servers.data_visual._adv_customize import _extract_plotly_json
 
-        html = out.read_text()
+        html = out.read_text(encoding="utf-8")
         _, _, data_str, _, _ = _extract_plotly_json(html)
         trace = json.loads(data_str)[0]
         colors = trace["marker"]["color"]

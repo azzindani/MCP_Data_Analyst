@@ -30,7 +30,7 @@ from _stats_regression import regression_analysis  # noqa: E402
 def _csv(tmp_path, n_rows: int) -> Path:
     f = tmp_path / f"rows_{n_rows}.csv"
     rows = "\n".join(f"{i},{i * 3 + (i % 3)}" for i in range(1, n_rows + 1))
-    f.write_text(f"spend,clicks\n{rows}\n")
+    f.write_text(f"spend,clicks\n{rows}\n", encoding="utf-8")
     return f
 
 
@@ -58,7 +58,7 @@ def test_a_fit_that_cannot_test_its_coefficients_says_so(tmp_path):
     """Every p-value missing is not the same as no predictor being significant."""
     # Three rows, two predictors -> three coefficients, zero residual df.
     f = tmp_path / "wide.csv"
-    f.write_text("spend,views,clicks\n1,2,3\n4,5,6\n7,9,10\n")
+    f.write_text("spend,views,clicks\n1,2,3\n4,5,6\n7,9,10\n", encoding="utf-8")
     r = regression_analysis(str(f), y_col="clicks", x_cols=["spend", "views"], open_after=False)
     assert r["success"] is False
     assert "0 residual degrees of freedom" in r["error"]

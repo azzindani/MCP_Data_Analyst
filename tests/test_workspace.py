@@ -144,7 +144,7 @@ def test_ws_backward_compat_get_dir(tmp_path):
 def test_ws_load_manifest_workspace_json(monkeypatch, tmp_path):
     monkeypatch.setenv("MCP_WORKSPACE_DIR", str(tmp_path))
     csv = tmp_path / "data.csv"
-    csv.write_text("a,b\n1,2\n")
+    csv.write_text("a,b\n1,2\n", encoding="utf-8")
     _make_workspace(tmp_path, "ws1", "mydata", csv)
     m = load_manifest("ws1")
     assert m["name"] == "ws1"
@@ -154,7 +154,7 @@ def test_ws_load_manifest_workspace_json(monkeypatch, tmp_path):
 def test_ws_load_manifest_legacy_project_json(monkeypatch, tmp_path):
     monkeypatch.setenv("MCP_WORKSPACE_DIR", str(tmp_path))
     csv = tmp_path / "data.csv"
-    csv.write_text("a,b\n1,2\n")
+    csv.write_text("a,b\n1,2\n", encoding="utf-8")
     _make_legacy_workspace(tmp_path, "legacyws", "raw_data", csv)
     m = load_manifest("legacyws")
     assert "raw_data" in m["files"]
@@ -196,7 +196,7 @@ def test_ws_create_manifest_round_trip(monkeypatch, tmp_path):
 def test_ws_register_file_success(monkeypatch, tmp_path):
     monkeypatch.setenv("MCP_WORKSPACE_DIR", str(tmp_path))
     csv = tmp_path / "out.csv"
-    csv.write_text("a,b\n1,2\n3,4\n")
+    csv.write_text("a,b\n1,2\n3,4\n", encoding="utf-8")
     _empty_workspace(tmp_path, "reg_ws")
     m = register_file("reg_ws", str(csv), "clean", stage="working")
     assert "clean" in m["files"]
@@ -207,7 +207,7 @@ def test_ws_register_file_all_stages(monkeypatch, tmp_path):
     monkeypatch.setenv("MCP_WORKSPACE_DIR", str(tmp_path))
     for stage in ("raw", "working", "trial", "output"):
         csv = tmp_path / f"{stage}.csv"
-        csv.write_text("a\n1\n")
+        csv.write_text("a\n1\n", encoding="utf-8")
         _empty_workspace(tmp_path, f"ws_{stage}")
         m = register_file(f"ws_{stage}", str(csv), "f", stage=stage)
         assert m["files"]["f"]["stage"] == stage
@@ -216,7 +216,7 @@ def test_ws_register_file_all_stages(monkeypatch, tmp_path):
 def test_ws_register_file_persisted(monkeypatch, tmp_path):
     monkeypatch.setenv("MCP_WORKSPACE_DIR", str(tmp_path))
     csv = tmp_path / "f.csv"
-    csv.write_text("x\n1\n")
+    csv.write_text("x\n1\n", encoding="utf-8")
     _empty_workspace(tmp_path, "persist_ws")
     register_file("persist_ws", str(csv), "alias1")
     m = load_manifest("persist_ws")
@@ -245,7 +245,7 @@ def test_ws_register_file_missing_file(monkeypatch, tmp_path):
 def test_ws_resolve_alias_workspace_prefix(monkeypatch, tmp_path):
     monkeypatch.setenv("MCP_WORKSPACE_DIR", str(tmp_path))
     csv = tmp_path / "data.csv"
-    csv.write_text("a,b\n1,2\n")
+    csv.write_text("a,b\n1,2\n", encoding="utf-8")
     _make_workspace(tmp_path, "resws", "mycsv", csv)
     assert resolve_alias("workspace:resws/mycsv") == csv.resolve()
 
@@ -253,7 +253,7 @@ def test_ws_resolve_alias_workspace_prefix(monkeypatch, tmp_path):
 def test_ws_resolve_alias_project_prefix(monkeypatch, tmp_path):
     monkeypatch.setenv("MCP_WORKSPACE_DIR", str(tmp_path))
     csv = tmp_path / "data.csv"
-    csv.write_text("a,b\n1,2\n")
+    csv.write_text("a,b\n1,2\n", encoding="utf-8")
     _make_workspace(tmp_path, "legws", "mycsv", csv)
     assert resolve_alias("project:legws/mycsv") == csv.resolve()
 
@@ -265,21 +265,21 @@ def test_ws_resolve_alias_relative_path(monkeypatch, tmp_path):
     sub = ws_dir / "data" / "working"
     sub.mkdir(parents=True)
     csv = sub / "clean.csv"
-    csv.write_text("a,b\n1,2\n")
+    csv.write_text("a,b\n1,2\n", encoding="utf-8")
     manifest = {
         "name": "relws",
         "files": {"clean": {"path": "data/working/clean.csv", "stage": "working"}},
         "pipelines": {},
         "pipeline_history": [],
     }
-    (ws_dir / "workspace.json").write_text(json.dumps(manifest))
+    (ws_dir / "workspace.json").write_text(json.dumps(manifest), encoding="utf-8")
     result = resolve_alias("workspace:relws/clean")
     assert result == csv.resolve()
 
 
 def test_ws_resolve_alias_no_prefix_passthrough(tmp_path):
     csv = tmp_path / "data.csv"
-    csv.write_text("a,b\n1,2\n")
+    csv.write_text("a,b\n1,2\n", encoding="utf-8")
     assert resolve_alias(str(csv)) == csv.resolve()
 
 
@@ -298,7 +298,7 @@ def test_ws_resolve_alias_workspace_not_found(monkeypatch, tmp_path):
 def test_ws_resolve_alias_alias_not_found(monkeypatch, tmp_path):
     monkeypatch.setenv("MCP_WORKSPACE_DIR", str(tmp_path))
     csv = tmp_path / "data.csv"
-    csv.write_text("a,b\n1,2\n")
+    csv.write_text("a,b\n1,2\n", encoding="utf-8")
     _make_workspace(tmp_path, "ws_noa", "real_alias", csv)
     with pytest.raises(ValueError, match="not found"):
         resolve_alias("workspace:ws_noa/wrong_alias")

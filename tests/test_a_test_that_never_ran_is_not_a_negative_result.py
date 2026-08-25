@@ -31,14 +31,14 @@ from _stats_tests import statistical_test  # noqa: E402
 @pytest.fixture()
 def one_row(tmp_path) -> Path:
     f = tmp_path / "one_row.csv"
-    f.write_text("region,spend,clicks\nWest,120,4\n")
+    f.write_text("region,spend,clicks\nWest,120,4\n", encoding="utf-8")
     return f
 
 
 @pytest.fixture()
 def two_rows(tmp_path) -> Path:
     f = tmp_path / "two_rows.csv"
-    f.write_text("region,spend,clicks\nWest,120,4\nEast,80,9\n")
+    f.write_text("region,spend,clicks\nWest,120,4\nEast,80,9\n", encoding="utf-8")
     return f
 
 
@@ -84,7 +84,7 @@ def test_medium_never_says_not_significant_without_a_p_value(one_row):
 def test_medium_still_reaches_a_verdict_on_a_real_sample(tmp_path):
     f = tmp_path / "many.csv"
     rows = "\n".join(f"West,{i},{i * 3}" for i in range(1, 41))
-    f.write_text(f"region,spend,clicks\n{rows}\n")
+    f.write_text(f"region,spend,clicks\n{rows}\n", encoding="utf-8")
     r = statistical_tests(str(f), test_type="correlation", column_a="spend", column_b="clicks")
     assert r["success"] is True
     assert r["significant"] is True
@@ -138,7 +138,7 @@ def test_shapiro_below_three_values_is_a_refusal_not_a_scipy_crash(two_rows):
 def test_statistics_still_reaches_a_verdict_on_a_real_sample(tmp_path):
     f = tmp_path / "many.csv"
     rows = "\n".join(f"West,{i},{i * 3}" for i in range(1, 41))
-    f.write_text(f"region,spend,clicks\n{rows}\n")
+    f.write_text(f"region,spend,clicks\n{rows}\n", encoding="utf-8")
     r = statistical_test(str(f), test="pearson", column_a="spend", column_b="clicks")
     assert r["success"] is True
     assert r["reject_null"] is True
@@ -154,7 +154,8 @@ def test_a_singleton_group_does_not_block_anova(tmp_path):
     """
     f = tmp_path / "groups.csv"
     f.write_text(
-        "region,spend\nWest,5000\nWest,3200\nWest,6000\nEast,7500\nEast,3000\nSouth,2100\nSouth,2500\nNorth,4800\n"
+        "region,spend\nWest,5000\nWest,3200\nWest,6000\nEast,7500\nEast,3000\nSouth,2100\nSouth,2500\nNorth,4800\n",
+        encoding="utf-8",
     )
     r = statistical_tests(str(f), test_type="anova", column_a="spend", group_column="region")
     assert r["success"] is True

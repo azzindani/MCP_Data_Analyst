@@ -24,7 +24,7 @@ from servers.data_workspace.engine import (
 @pytest.fixture()
 def sales_csv(tmp_path) -> Path:
     f = tmp_path / "sales.csv"
-    f.write_text("Region,Revenue,Units\nWest,5000,10\nEast,7500,15\nSouth,2100,5\nNorth,4800,12\n")
+    f.write_text("Region,Revenue,Units\nWest,5000,10\nEast,7500,15\nSouth,2100,5\nNorth,4800,12\n", encoding="utf-8")
     return f
 
 
@@ -175,7 +175,7 @@ class TestListWorkspaceFiles:
     def test_filter_by_stage(self, project_base, sales_csv, tmp_path):
         create_workspace("stage_proj", base_dir=str(project_base))
         sales2 = tmp_path / "sales2.csv"
-        sales2.write_text("A,B\n1,2\n")
+        sales2.write_text("A,B\n1,2\n", encoding="utf-8")
         register_workspace_file("stage_proj", str(sales_csv), alias="raw_file", stage="raw", base_dir=str(project_base))
         register_workspace_file(
             "stage_proj", str(sales2), alias="work_file", stage="working", base_dir=str(project_base)
@@ -274,7 +274,7 @@ class TestE2EWorkspaceWorkflow:
     def test_full_workflow(self, project_base, tmp_path):
         """Create workspace, register file, save pipeline, dry-run it."""
         f = tmp_path / "data_raw.csv"
-        f.write_text("Region,Revenue\nWest,5000\nEast,\nSouth,2100\nNorth,4800\n")
+        f.write_text("Region,Revenue\nWest,5000\nEast,\nSouth,2100\nNorth,4800\n", encoding="utf-8")
 
         r_create = create_workspace("analytics", base_dir=str(project_base))
         assert r_create["success"] is True
@@ -297,7 +297,7 @@ class TestE2EWorkspaceWorkflow:
         assert "raw_data" in r_open["aliases"]
         assert "clean_revenue" in r_open["saved_pipelines"]
 
-        original_content = f.read_text()
+        original_content = f.read_text(encoding="utf-8")
         r_run = run_workspace_pipeline(
             "analytics",
             "clean_revenue",
@@ -308,14 +308,14 @@ class TestE2EWorkspaceWorkflow:
         )
         assert r_run["success"] is True
         assert r_run["dry_run"] is True
-        assert f.read_text() == original_content
+        assert f.read_text(encoding="utf-8") == original_content
 
     def test_run_pipeline_does_not_mutate_input(self, project_base, tmp_path):
         """A real (non-dry-run) pipeline execution must leave the input file untouched
         and write only the transformed output — regression test for a bug where
         run_workspace_pipeline applied ops to input_path before copying it."""
         f = tmp_path / "raw_revenue.csv"
-        f.write_text("Region,Revenue\nWest,5000\nEast,\nSouth,2100\nNorth,4800\n")
+        f.write_text("Region,Revenue\nWest,5000\nEast,\nSouth,2100\nNorth,4800\n", encoding="utf-8")
         original_bytes = f.read_bytes()
 
         create_workspace("mutate_check", base_dir=str(project_base))
@@ -336,18 +336,18 @@ class TestE2EWorkspaceWorkflow:
 
         output_path = Path(r_run["output_path"])
         assert output_path.exists()
-        assert "East" in output_path.read_text()
+        assert "East" in output_path.read_text(encoding="utf-8")
         # the null Revenue for East must have been filled in the OUTPUT, not left as blank
-        out_df_lines = output_path.read_text().splitlines()
+        out_df_lines = output_path.read_text(encoding="utf-8").splitlines()
         east_line = next(line for line in out_df_lines if line.startswith("East,"))
         assert east_line != "East,"
 
     def test_list_files_after_registration(self, project_base, tmp_path):
         """Register two files, list by stage, confirm counts."""
         f_raw = tmp_path / "raw.csv"
-        f_raw.write_text("A,B\n1,2\n3,4\n")
+        f_raw.write_text("A,B\n1,2\n3,4\n", encoding="utf-8")
         f_work = tmp_path / "work.csv"
-        f_work.write_text("A,B\n5,6\n7,8\n")
+        f_work.write_text("A,B\n5,6\n7,8\n", encoding="utf-8")
 
         create_workspace("list_test", base_dir=str(project_base))
         register_workspace_file("list_test", str(f_raw), alias="raw_f", stage="raw", base_dir=str(project_base))

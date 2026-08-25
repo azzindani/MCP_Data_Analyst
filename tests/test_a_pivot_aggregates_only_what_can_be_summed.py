@@ -189,7 +189,7 @@ class TestTruncationTellsTheTruth:
 class TestTheCapIsOneNumber:
     def test_the_source_does_not_carry_a_second_hardcoded_cap(self):
         """`_response_cap = 10` beside get_max_rows() is what caused this."""
-        src = (Path(__file__).parent.parent / "servers" / "data_medium" / "_med_report.py").read_text()
+        src = (Path(__file__).parent.parent / "servers" / "data_medium" / "_med_report.py").read_text(encoding="utf-8")
         body = src.split("def pivot_table", 1)[1].split("\ndef ", 1)[0]
         assert "_response_cap" not in body, "a second cap is back"
         assert "head(max_r)" in body, body[:0]

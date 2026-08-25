@@ -179,7 +179,7 @@ class TestTheSizeBackstop:
 class TestNonHtmlIsPassedThroughUnchanged:
     def test_a_csv_is_embedded_verbatim(self, tmp_path: Path):
         csv = tmp_path / "d.csv"
-        csv.write_text("a,b\n1,2\n")
+        csv.write_text("a,b\n1,2\n", encoding="utf-8")
         result = _inline(csv)
         assert base64.b64decode(result["content_base64"]) == csv.read_bytes()
 

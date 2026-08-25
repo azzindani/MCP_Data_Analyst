@@ -33,7 +33,7 @@ def normal_csv(tmp_path) -> Path:
         rows.append(f"A,{v:.2f}")
     for v in group_b:
         rows.append(f"B,{v:.2f}")
-    f.write_text("\n".join(rows))
+    f.write_text("\n".join(rows), encoding="utf-8")
     return f
 
 
@@ -51,7 +51,7 @@ def regression_csv(tmp_path) -> Path:
     rows = ["y,x1,x2"]
     for yi, xi1, xi2 in zip(y, x1, x2):
         rows.append(f"{yi:.4f},{xi1:.4f},{xi2:.4f}")
-    f.write_text("\n".join(rows))
+    f.write_text("\n".join(rows), encoding="utf-8")
     return f
 
 
@@ -69,7 +69,7 @@ def logistic_csv(tmp_path) -> Path:
     rows = ["label,feature"]
     for yi, xi in zip(y, x):
         rows.append(f"{yi},{xi:.4f}")
-    f.write_text("\n".join(rows))
+    f.write_text("\n".join(rows), encoding="utf-8")
     return f
 
 
@@ -86,7 +86,7 @@ def monthly_sales_csv(tmp_path) -> Path:
         rev = base_rev + i * 200 + (500 if i % 3 == 0 else 0)
         units = base_units + i * 2
         rows.append(f"{dt},{rev},{units}")
-    f.write_text("\n".join(rows))
+    f.write_text("\n".join(rows), encoding="utf-8")
     return f
 
 
@@ -105,7 +105,8 @@ def categorical_csv(tmp_path) -> Path:
         "B,Success\n"
         "B,Failure\n"
         "A,Success\n"
-        "B,Failure\n"
+        "B,Failure\n",
+        encoding="utf-8",
     )
     return f
 
@@ -436,7 +437,7 @@ class TestE2EStatisticalPipeline:
         for i in range(12):
             dt = datetime.date(2023, i + 1, 15)
             rows.append(f"{dt},{7000 + i * 100}")
-        f.write_text("\n".join(rows))
+        f.write_text("\n".join(rows), encoding="utf-8")
 
         # Period comparison: current vs previous year
         r_comp = period_comparison(

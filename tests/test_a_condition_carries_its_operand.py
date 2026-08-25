@@ -50,7 +50,7 @@ BOTH = pytest.mark.parametrize("filter_tool", [filter_dataset, filter_rows], ids
 def csv(tmp_path):
     f = tmp_path / "in.csv"
     rows = "\n".join(f"W{i % 2},{i * 10},2024-01-{i:02d}" for i in range(1, 9))
-    f.write_text(f"region,spend,d1\n{rows}\n")
+    f.write_text(f"region,spend,d1\n{rows}\n", encoding="utf-8")
     return f
 
 
@@ -137,7 +137,7 @@ def test_a_complete_condition_filters_as_before(tmp_path, csv, filter_tool, cond
     out = tmp_path / "out.csv"
     r = filter_tool(str(csv), [cond], output_path=str(out))
     assert r["success"] is True, r.get("error")
-    assert len(out.read_text().strip().splitlines()) - 1 == kept
+    assert len(out.read_text(encoding="utf-8").strip().splitlines()) - 1 == kept
 
 
 def test_an_operandless_op_needs_no_operand():

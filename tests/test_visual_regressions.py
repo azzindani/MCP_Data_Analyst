@@ -48,7 +48,9 @@ def dated_csv(tmp_path: Path) -> Path:
     """Rows deliberately out of date order, with the largest value in the middle,
     so a value-sort and a date-sort produce visibly different charts."""
     csv = tmp_path / "dated.csv"
-    csv.write_text("day,amount\n2024-03-01,10\n2024-01-01,50\n2024-05-01,20\n2024-02-01,90\n2024-04-01,30\n")
+    csv.write_text(
+        "day,amount\n2024-03-01,10\n2024-01-01,50\n2024-05-01,20\n2024-02-01,90\n2024-04-01,30\n", encoding="utf-8"
+    )
     return csv
 
 
@@ -131,7 +133,7 @@ class TestGeoMapRefusesNonCoordinates:
 
     def test_real_coordinates_still_plot(self, tmp_path: Path):
         csv = tmp_path / "cities.csv"
-        csv.write_text("name,lat,lon,pop\nOslo,59.91,10.75,700000\nLima,-12.05,-77.04,9700000\n")
+        csv.write_text("name,lat,lon,pop\nOslo,59.91,10.75,700000\nLima,-12.05,-77.04,9700000\n", encoding="utf-8")
         out = tmp_path / "map.html"
         result = generate_geo_map(str(csv), output_path=str(out), open_after=False)
         assert result["success"] is True
@@ -139,7 +141,7 @@ class TestGeoMapRefusesNonCoordinates:
 
     def test_longitude_outside_180_is_rejected(self, tmp_path: Path):
         csv = tmp_path / "bad.csv"
-        csv.write_text("lat,lon\n45.0,5000.0\n12.0,7000.0\n")
+        csv.write_text("lat,lon\n45.0,5000.0\n12.0,7000.0\n", encoding="utf-8")
         result = generate_geo_map(str(csv), open_after=False)
         assert result["success"] is False
         assert "longitude" in result["error"]
@@ -185,7 +187,7 @@ class TestChartsFillTheirPage:
         from servers.data_advanced.engine import generate_3d_chart
 
         csv = tmp_path / "xyz.csv"
-        csv.write_text("x,y,z\n1,2,3\n4,5,6\n7,8,9\n2,4,6\n")
+        csv.write_text("x,y,z\n1,2,3\n4,5,6\n7,8,9\n2,4,6\n", encoding="utf-8")
         out = tmp_path / "3d.html"
         result = generate_3d_chart(str(csv), "scatter_3d", "x", "y", "z", output_path=str(out), open_after=False)
         assert result["success"] is True
@@ -198,7 +200,7 @@ class TestChartsFillTheirPage:
         from servers.data_advanced.engine import generate_3d_chart
 
         csv = tmp_path / "xyz.csv"
-        csv.write_text("x,y,z\n1,2,3\n4,5,6\n7,8,9\n2,4,6\n")
+        csv.write_text("x,y,z\n1,2,3\n4,5,6\n7,8,9\n2,4,6\n", encoding="utf-8")
         out = tmp_path / "3d.html"
         generate_3d_chart(str(csv), "scatter_3d", "x", "y", "z", output_path=str(out), open_after=False)
         title = _page_heading(out)

@@ -35,7 +35,8 @@ except ImportError:
 @pytest.fixture()
 def rich_csv(tmp_path) -> Path:
     f = tmp_path / "rich_data.csv"
-    f.write_text("""Region,Product,Revenue,Units_Sold,Order_Date,Discount,Customer_Score
+    f.write_text(
+        """Region,Product,Revenue,Units_Sold,Order_Date,Discount,Customer_Score
 West,Widget A,5000,10,2024-01-15,0.1,85
 West,Widget B,3200,8,2024-02-20,0.12,72
 East,Widget A,7500,15,2024-03-10,0.05,91
@@ -51,7 +52,9 @@ South,Widget B,1500,3,2024-12-10,0.3,45
 North,Widget A,5500,14,2024-01-25,0.06,82
 West,Widget B,2800,7,2024-02-14,0.11,68
 East,Widget C,3500,8,2024-03-28,0.13,75
-""")
+""",
+        encoding="utf-8",
+    )
     return f
 
 
@@ -484,7 +487,7 @@ class TestRunEda:
 
     def test_duplicate_rows_reported(self, tmp_path):
         f = tmp_path / "dups.csv"
-        f.write_text("A,B\n1,2\n1,2\n3,4\n")
+        f.write_text("A,B\n1,2\n1,2\n3,4\n", encoding="utf-8")
         r = run_eda(str(f), open_after=False)
         assert r["success"] is True
         assert r["duplicate_rows"] == 1
@@ -514,7 +517,8 @@ def latlon_csv(tmp_path) -> Path:
         "Los Angeles,34.0522,-118.2437,3979576\n"
         "Chicago,41.8781,-87.6298,2693976\n"
         "Houston,29.7604,-95.3698,2320268\n"
-        "Phoenix,33.4484,-112.0740,1680992\n"
+        "Phoenix,33.4484,-112.0740,1680992\n",
+        encoding="utf-8",
     )
     return f
 
@@ -522,7 +526,10 @@ def latlon_csv(tmp_path) -> Path:
 @pytest.fixture()
 def country_csv(tmp_path) -> Path:
     f = tmp_path / "country_data.csv"
-    f.write_text("country,Revenue\nUnited States,50000\nGermany,30000\nFrance,25000\nJapan,20000\nBrazil,15000\n")
+    f.write_text(
+        "country,Revenue\nUnited States,50000\nGermany,30000\nFrance,25000\nJapan,20000\nBrazil,15000\n",
+        encoding="utf-8",
+    )
     return f
 
 
@@ -579,7 +586,7 @@ class TestGenerateGeoMap:
 
     def test_no_geo_columns_fails(self, tmp_path):
         f = tmp_path / "nongeo.csv"
-        f.write_text("Name,Score\nAlice,90\nBob,85\n")
+        f.write_text("Name,Score\nAlice,90\nBob,85\n", encoding="utf-8")
         r = generate_geo_map(str(f))
         assert r["success"] is False
         assert "hint" in r

@@ -32,7 +32,8 @@ def sales_csv(tmp_path) -> Path:
         "East,Widget B,3000,7,Q4\n"
         "South,Widget A,2500,6,Q4\n"
         "North,Widget C,1800,4,Q1\n"
-        "West,Widget C,4200,9,Q2\n"
+        "West,Widget C,4200,9,Q2\n",
+        encoding="utf-8",
     )
     return f
 
@@ -46,7 +47,8 @@ def wide_csv(tmp_path) -> Path:
         "West,5000,4200,6000,3200\n"
         "East,7500,7500,4800,3000\n"
         "South,2100,2100,1800,2500\n"
-        "North,4800,4800,4800,1800\n"
+        "North,4800,4800,4800,1800\n",
+        encoding="utf-8",
     )
     return f
 
@@ -55,7 +57,7 @@ def wide_csv(tmp_path) -> Path:
 def full_name_csv(tmp_path) -> Path:
     """CSV with compound column for split tests."""
     f = tmp_path / "names.csv"
-    f.write_text("FullName,Score\nAlice Smith,95\nBob Jones,88\nCarol White,72\n")
+    f.write_text("FullName,Score\nAlice Smith,95\nBob Jones,88\nCarol White,72\n", encoding="utf-8")
     return f
 
 
@@ -69,7 +71,8 @@ def date_sales_csv(tmp_path) -> Path:
         "2023-03-20,3200,East\n"
         "2023-06-05,7500,West\n"
         "2023-09-10,4800,South\n"
-        "2023-12-25,2100,North\n"
+        "2023-12-25,2100,North\n",
+        encoding="utf-8",
     )
     return f
 
@@ -149,7 +152,7 @@ class TestFilterDataset:
 
     def test_not_null_filter(self, tmp_path):
         f = tmp_path / "nulls.csv"
-        f.write_text("Name,Score\nAlice,90\nBob,\nCarol,85\n")
+        f.write_text("Name,Score\nAlice,90\nBob,\nCarol,85\n", encoding="utf-8")
         r = filter_dataset(str(f), conditions=[{"column": "Score", "op": "not_null"}])
         assert r["success"] is True
         assert r["after_rows"] == 2
@@ -251,7 +254,7 @@ class TestReshapeDataset:
         assert "Region" in df.columns
 
     def test_dry_run_no_change(self, wide_csv):
-        original_content = wide_csv.read_text()
+        original_content = wide_csv.read_text(encoding="utf-8")
         r = reshape_dataset(
             str(wide_csv),
             mode="melt",
@@ -261,7 +264,7 @@ class TestReshapeDataset:
         )
         assert r["success"] is True
         assert r["dry_run"] is True
-        assert wide_csv.read_text() == original_content
+        assert wide_csv.read_text(encoding="utf-8") == original_content
 
     def test_file_not_found(self, tmp_path):
         r = reshape_dataset(str(tmp_path / "missing.csv"), mode="melt")
@@ -402,7 +405,8 @@ class TestE2ETransformPipeline:
             "West,Widget B,3200,8\n"
             "East,Widget A,7500,15\n"
             "East,Widget B,3000,7\n"
-            "South,Widget A,2100,5\n"
+            "South,Widget A,2100,5\n",
+            encoding="utf-8",
         )
 
         # Step 1: Filter to West only
@@ -427,7 +431,9 @@ class TestE2ETransformPipeline:
     def test_reshape_then_aggregate(self, tmp_path):
         """Melt wide data, then aggregate by quarter."""
         wide = tmp_path / "wide_data.csv"
-        wide.write_text("Region,Q1,Q2,Q3\nWest,5000,4000,6000\nEast,7500,8000,5000\nSouth,2000,2500,1800\n")
+        wide.write_text(
+            "Region,Q1,Q2,Q3\nWest,5000,4000,6000\nEast,7500,8000,5000\nSouth,2000,2500,1800\n", encoding="utf-8"
+        )
 
         # Melt wide → long (using custom column names Quarter/Revenue)
         r_reshape = reshape_dataset(
@@ -455,7 +461,8 @@ class TestE2ETransformPipeline:
             "Clothing,Shirt,45,200\n"
             "Clothing,Pants,80,150\n"
             "Electronics,Tablet,350,80\n"
-            "Clothing,Jacket,120,60\n"
+            "Clothing,Jacket,120,60\n",
+            encoding="utf-8",
         )
 
         # Filter: Category = Electronics AND Price < 700, sort by Price desc

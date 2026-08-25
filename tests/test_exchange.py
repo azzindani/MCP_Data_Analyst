@@ -140,7 +140,7 @@ def test_html_output_path_explicit_argument_still_wins(monkeypatch, tmp_path):
 def test_public_url_for_file_under_output_dir(remote_mode):
     remote_mode.mkdir(parents=True, exist_ok=True)
     chart = remote_mode / "sales_eda.html"
-    chart.write_text("<html></html>")
+    chart.write_text("<html></html>", encoding="utf-8")
     assert public_url_for(chart) == "https://files.example.test/data/sales_eda.html"
 
 
@@ -153,7 +153,7 @@ def test_public_url_encodes_and_keeps_subdirectories(remote_mode):
 
 def test_public_url_empty_for_file_outside_output_dir(remote_mode, tmp_path):
     outside = tmp_path / "private.html"
-    outside.write_text("x")
+    outside.write_text("x", encoding="utf-8")
     assert public_url_for(outside) == ""
 
 
@@ -166,7 +166,7 @@ def test_public_url_empty_when_not_configured(monkeypatch, tmp_path):
 def test_attach_public_url_only_sets_key_when_resolvable(remote_mode, tmp_path):
     remote_mode.mkdir(parents=True, exist_ok=True)
     inside = remote_mode / "a.html"
-    inside.write_text("x")
+    inside.write_text("x", encoding="utf-8")
     assert attach_public_url({"success": True}, inside)["public_url"].endswith("/a.html")
     assert "public_url" not in attach_public_url({"success": True}, tmp_path / "b.html")
 
@@ -174,7 +174,7 @@ def test_attach_public_url_only_sets_key_when_resolvable(remote_mode, tmp_path):
 def test_embed_content_attaches_public_url_without_return_content(remote_mode):
     remote_mode.mkdir(parents=True, exist_ok=True)
     chart = remote_mode / "c.html"
-    chart.write_text("<html>hi</html>")
+    chart.write_text("<html>hi</html>", encoding="utf-8")
     result = embed_content({"success": True, "op": "generate_chart"}, chart, False)
     assert result["public_url"] == "https://files.example.test/data/c.html"
     assert "content_base64" not in result
@@ -183,7 +183,7 @@ def test_embed_content_attaches_public_url_without_return_content(remote_mode):
 def test_embed_content_skips_failed_results(remote_mode):
     remote_mode.mkdir(parents=True, exist_ok=True)
     chart = remote_mode / "d.html"
-    chart.write_text("x")
+    chart.write_text("x", encoding="utf-8")
     assert "public_url" not in embed_content({"success": False}, chart, True)
 
 

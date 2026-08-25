@@ -37,7 +37,8 @@ def chart_csv(tmp_path: Path) -> Path:
     csv.write_text(
         "region,month,revenue\n"
         "West,2024-01,5000\nEast,2024-01,7500\nNorth,2024-01,3200\n"
-        "West,2024-02,6100\nEast,2024-02,8200\nNorth,2024-02,2900\n"
+        "West,2024-02,6100\nEast,2024-02,8200\nNorth,2024-02,2900\n",
+        encoding="utf-8",
     )
     return csv
 

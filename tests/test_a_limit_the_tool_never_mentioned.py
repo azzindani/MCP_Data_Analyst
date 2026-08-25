@@ -117,7 +117,8 @@ def _geojson(path: Path, label_key: str) -> Path:
                     }
                 ],
             }
-        )
+        ),
+        encoding="utf-8",
     )
     return path
 

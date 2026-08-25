@@ -118,7 +118,7 @@ def ods_file(tmp_path) -> Path:
 def dirty_csv(tmp_path) -> Path:
     """CSV with padded headers, whitespace-only rows, and empty trailing rows."""
     p = tmp_path / "dirty.csv"
-    p.write_text(" Name ,  Revenue , Category \n,, \nAlice,100,A\nBob,200,B\n,, \n")
+    p.write_text(" Name ,  Revenue , Category \n,, \nAlice,100,A\nBob,200,B\n,, \n", encoding="utf-8")
     return p
 
 
@@ -126,7 +126,7 @@ def dirty_csv(tmp_path) -> Path:
 def no_header_csv(tmp_path) -> Path:
     """CSV where row 0 is garbage and row 1 is the real header."""
     p = tmp_path / "no_header.csv"
-    p.write_text("garbage,garbage,garbage\nName,Value,Tag\nAlice,100,A\nBob,200,B\n")
+    p.write_text("garbage,garbage,garbage\nName,Value,Tag\nAlice,100,A\nBob,200,B\n", encoding="utf-8")
     return p
 
 
@@ -134,7 +134,7 @@ def no_header_csv(tmp_path) -> Path:
 def simple_csv(tmp_path) -> Path:
     """Clean 2-row CSV for basic error and edge-case tests."""
     p = tmp_path / "data.csv"
-    p.write_text("Name,Value,Category\nAlice,100,A\nBob,200,B\n")
+    p.write_text("Name,Value,Category\nAlice,100,A\nBob,200,B\n", encoding="utf-8")
     return p
 
 
@@ -164,7 +164,7 @@ class TestListSheets:
 
     def test_wrong_extension(self, tmp_path):
         f = tmp_path / "data.csv"
-        f.write_text("a,b\n1,2\n")
+        f.write_text("a,b\n1,2\n", encoding="utf-8")
         r = list_sheets(str(f))
         assert r["success"] is False
         assert "hint" in r
@@ -243,7 +243,7 @@ class TestExtractSheet:
 
     def test_wrong_extension(self, tmp_path):
         f = tmp_path / "data.csv"
-        f.write_text("a,b\n1,2\n")
+        f.write_text("a,b\n1,2\n", encoding="utf-8")
         r = extract_sheet(str(f))
         assert r["success"] is False
         assert "hint" in r
@@ -313,7 +313,7 @@ class TestExtractAllSheets:
 
     def test_wrong_extension(self, tmp_path):
         f = tmp_path / "data.csv"
-        f.write_text("a,b\n1,2\n")
+        f.write_text("a,b\n1,2\n", encoding="utf-8")
         r = extract_all_sheets(str(f))
         assert r["success"] is False
 
@@ -353,7 +353,7 @@ class TestDetectTables:
 
     def test_wrong_extension(self, tmp_path):
         f = tmp_path / "data.csv"
-        f.write_text("a,b\n1,2\n")
+        f.write_text("a,b\n1,2\n", encoding="utf-8")
         r = detect_tables(str(f))
         assert r["success"] is False
 
@@ -421,7 +421,7 @@ class TestExtractTable:
 
     def test_wrong_extension(self, tmp_path):
         f = tmp_path / "data.csv"
-        f.write_text("a,b\n1,2\n")
+        f.write_text("a,b\n1,2\n", encoding="utf-8")
         r = extract_table(str(f))
         assert r["success"] is False
 
@@ -458,12 +458,12 @@ class TestNormalizeHeaders:
         assert "backup" in r
 
     def test_dry_run(self, dirty_csv):
-        original = dirty_csv.read_text()
+        original = dirty_csv.read_text(encoding="utf-8")
         r = normalize_headers(str(dirty_csv), dry_run=True)
         assert r["success"] is True
         assert r["dry_run"] is True
         assert "would_change" in r
-        assert dirty_csv.read_text() == original
+        assert dirty_csv.read_text(encoding="utf-8") == original
 
     def test_progress_present(self, dirty_csv):
         r = normalize_headers(str(dirty_csv))
@@ -480,7 +480,7 @@ class TestNormalizeHeaders:
 
     def test_deduplication(self, tmp_path):
         f = tmp_path / "dup.csv"
-        f.write_text("Value,Value,Value\n1,2,3\n")
+        f.write_text("Value,Value,Value\n1,2,3\n", encoding="utf-8")
         r = normalize_headers(str(f))
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -520,11 +520,11 @@ class TestTrimEmpty:
         assert "backup" in r
 
     def test_dry_run(self, dirty_csv):
-        original = dirty_csv.read_text()
+        original = dirty_csv.read_text(encoding="utf-8")
         r = trim_empty(str(dirty_csv), dry_run=True)
         assert r["success"] is True
         assert r["dry_run"] is True
-        assert dirty_csv.read_text() == original
+        assert dirty_csv.read_text(encoding="utf-8") == original
 
     def test_progress_present(self, dirty_csv):
         r = trim_empty(str(dirty_csv))
@@ -569,12 +569,12 @@ class TestPromoteHeader:
         assert "backup" in r
 
     def test_dry_run(self, no_header_csv):
-        original = no_header_csv.read_text()
+        original = no_header_csv.read_text(encoding="utf-8")
         r = promote_header(str(no_header_csv), row_index=1, dry_run=True)
         assert r["success"] is True
         assert r["dry_run"] is True
         assert "would_change" in r
-        assert no_header_csv.read_text() == original
+        assert no_header_csv.read_text(encoding="utf-8") == original
 
     def test_progress_present(self, no_header_csv):
         r = promote_header(str(no_header_csv), row_index=1)
@@ -643,7 +643,7 @@ class TestFlattenMergedCells:
 
     def test_wrong_extension(self, tmp_path):
         f = tmp_path / "data.csv"
-        f.write_text("a,b\n1,2\n")
+        f.write_text("a,b\n1,2\n", encoding="utf-8")
         r = flatten_merged_cells(str(f))
         assert r["success"] is False
         assert "hint" in r

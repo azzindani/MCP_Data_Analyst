@@ -50,14 +50,14 @@ class TestLoadDataset:
 
     def test_wrong_extension(self, tmp_path):
         f = tmp_path / "data.xlsx"
-        f.write_text("fake")
+        f.write_text("fake", encoding="utf-8")
         r = load_dataset(str(f))
         assert r["success"] is False
         assert ".xlsx" in r["error"]
 
     def test_empty_file(self, tmp_path):
         f = tmp_path / "empty.csv"
-        f.write_text("")
+        f.write_text("", encoding="utf-8")
         r = load_dataset(str(f))
         assert r["success"] is False
 
@@ -169,7 +169,7 @@ class TestReadColumnStats:
 
     def test_all_nulls_no_crash(self, tmp_path):
         f = tmp_path / "nulls.csv"
-        f.write_text("A,B\n,\n,\n,\n")
+        f.write_text("A,B\n,\n,\n,\n", encoding="utf-8")
         r = read_column_stats(str(f), "A")
         assert r["success"] is True
         assert r["null_count"] == 3
@@ -387,7 +387,7 @@ class TestApplyPatch:
         assert "Pacific" in df["Region"].values
 
     def test_dry_run_no_changes(self, simple_csv):
-        original_content = simple_csv.read_text()
+        original_content = simple_csv.read_text(encoding="utf-8")
         r = apply_patch(
             str(simple_csv),
             [{"op": "fill_nulls", "column": "Revenue", "strategy": "mean"}],
@@ -396,7 +396,7 @@ class TestApplyPatch:
         assert r["success"] is True
         assert r["dry_run"] is True
         assert "would_change" in r
-        assert simple_csv.read_text() == original_content  # file unchanged
+        assert simple_csv.read_text(encoding="utf-8") == original_content  # file unchanged
 
     def test_unknown_op_rejected(self, simple_csv):
         r = apply_patch(str(simple_csv), [{"op": "explode_table"}])
@@ -435,22 +435,22 @@ class TestApplyPatch:
 
 class TestRestoreVersion:
     def test_restore_most_recent(self, simple_csv):
-        _ = simple_csv.read_text()
+        _ = simple_csv.read_text(encoding="utf-8")
         apply_patch(str(simple_csv), [{"op": "drop_column", "columns": ["Discount"]}])
-        assert "Discount" not in simple_csv.read_text()
+        assert "Discount" not in simple_csv.read_text(encoding="utf-8")
         r = restore_version(str(simple_csv))
         assert r["success"] is True
-        assert "Discount" in simple_csv.read_text()
+        assert "Discount" in simple_csv.read_text(encoding="utf-8")
 
     def test_restore_content_matches_backup(self, simple_csv):
-        original_content = simple_csv.read_text()
+        original_content = simple_csv.read_text(encoding="utf-8")
         apply_patch(str(simple_csv), [{"op": "drop_duplicates"}])
         restore_version(str(simple_csv))
-        assert simple_csv.read_text() == original_content
+        assert simple_csv.read_text(encoding="utf-8") == original_content
 
     def test_restore_no_backups(self, tmp_path):
         f = tmp_path / "fresh.csv"
-        f.write_text("a,b\n1,2")
+        f.write_text("a,b\n1,2", encoding="utf-8")
         r = restore_version(str(f))
         assert r["success"] is False
         assert "hint" in r
@@ -521,7 +521,7 @@ class TestReadReceipt:
 class TestApplyPatchNewOps:
     def test_normalize_minmax(self, tmp_path):
         f = tmp_path / "data.csv"
-        f.write_text("Value\n10\n20\n30\n40\n50\n")
+        f.write_text("Value\n10\n20\n30\n40\n50\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "normalize", "column": "Value", "method": "minmax"}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -534,7 +534,7 @@ class TestApplyPatchNewOps:
 
     def test_normalize_zscore(self, tmp_path):
         f = tmp_path / "data.csv"
-        f.write_text("Value\n10\n20\n30\n40\n50\n")
+        f.write_text("Value\n10\n20\n30\n40\n50\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "normalize", "column": "Value", "method": "zscore"}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -542,7 +542,7 @@ class TestApplyPatchNewOps:
 
     def test_label_encode(self, tmp_path):
         f = tmp_path / "data.csv"
-        f.write_text("Color\nRed\nBlue\nGreen\nRed\nBlue\n")
+        f.write_text("Color\nRed\nBlue\nGreen\nRed\nBlue\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "label_encode", "column": "Color"}])
         assert r["success"] is True
         res = r["results"][0]
@@ -559,7 +559,7 @@ class TestApplyPatchNewOps:
 
     def test_extract_regex(self, tmp_path):
         f = tmp_path / "data.csv"
-        f.write_text("Text\nOrder123\nItem456\nNoMatch\n")
+        f.write_text("Text\nOrder123\nItem456\nNoMatch\n", encoding="utf-8")
         r = apply_patch(
             str(f),
             [
@@ -583,7 +583,7 @@ class TestApplyPatchNewOps:
 
     def test_date_diff_days(self, tmp_path):
         f = tmp_path / "data.csv"
-        f.write_text("Start,End\n2024-01-10,2024-01-01\n2024-03-15,2024-03-01\n")
+        f.write_text("Start,End\n2024-01-10,2024-01-01\n2024-03-15,2024-03-01\n", encoding="utf-8")
         r = apply_patch(
             str(f),
             [
@@ -608,7 +608,7 @@ class TestApplyPatchNewOps:
 
     def test_rank_column(self, tmp_path):
         f = tmp_path / "data.csv"
-        f.write_text("Score\n30\n10\n20\n10\n")
+        f.write_text("Score\n30\n10\n20\n10\n", encoding="utf-8")
         r = apply_patch(
             str(f),
             [
@@ -642,7 +642,7 @@ class TestApplyPatchNewOps:
 class TestApplyPatchFilterSort:
     def test_sort_ascending(self, tmp_path):
         f = tmp_path / "sort.csv"
-        f.write_text("Score,Name\n30,C\n10,A\n20,B\n")
+        f.write_text("Score,Name\n30,C\n10,A\n20,B\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "sort", "by": ["Score"], "ascending": True}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -650,7 +650,7 @@ class TestApplyPatchFilterSort:
 
     def test_sort_descending(self, tmp_path):
         f = tmp_path / "sort.csv"
-        f.write_text("Score,Name\n30,C\n10,A\n20,B\n")
+        f.write_text("Score,Name\n30,C\n10,A\n20,B\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "sort", "by": ["Score"], "ascending": False}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -658,7 +658,7 @@ class TestApplyPatchFilterSort:
 
     def test_filter_isin(self, tmp_path):
         f = tmp_path / "isin.csv"
-        f.write_text("Region,Revenue\nWest,100\nEast,200\nNorth,300\n")
+        f.write_text("Region,Revenue\nWest,100\nEast,200\nNorth,300\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "filter_isin", "column": "Region", "values": ["West", "East"]}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -667,7 +667,7 @@ class TestApplyPatchFilterSort:
 
     def test_filter_not_isin(self, tmp_path):
         f = tmp_path / "isin.csv"
-        f.write_text("Region,Revenue\nWest,100\nEast,200\nNorth,300\n")
+        f.write_text("Region,Revenue\nWest,100\nEast,200\nNorth,300\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "filter_not_isin", "column": "Region", "values": ["West"]}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -676,7 +676,7 @@ class TestApplyPatchFilterSort:
 
     def test_filter_between(self, tmp_path):
         f = tmp_path / "between.csv"
-        f.write_text("Score\n5\n15\n25\n35\n")
+        f.write_text("Score\n5\n15\n25\n35\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "filter_between", "column": "Score", "min": 10, "max": 30}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -684,7 +684,7 @@ class TestApplyPatchFilterSort:
 
     def test_filter_date_range(self, tmp_path):
         f = tmp_path / "dates.csv"
-        f.write_text("Date,Value\n2023-01-01,1\n2023-06-01,2\n2024-01-01,3\n")
+        f.write_text("Date,Value\n2023-01-01,1\n2023-06-01,2\n2024-01-01,3\n", encoding="utf-8")
         r = apply_patch(
             str(f),
             [{"op": "filter_date_range", "column": "Date", "start": "2023-01-01", "end": "2023-12-31"}],
@@ -695,7 +695,7 @@ class TestApplyPatchFilterSort:
 
     def test_filter_regex(self, tmp_path):
         f = tmp_path / "regex.csv"
-        f.write_text("Code\nABC123\nXYZ456\nABC789\n")
+        f.write_text("Code\nABC123\nXYZ456\nABC789\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "filter_regex", "column": "Code", "pattern": "^ABC"}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -713,7 +713,7 @@ class TestApplyPatchFilterSort:
 
     def test_filter_top_n(self, tmp_path):
         f = tmp_path / "topn.csv"
-        f.write_text("Score\n10\n30\n20\n50\n40\n")
+        f.write_text("Score\n10\n30\n20\n50\n40\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "filter_top_n", "column": "Score", "n": 3, "keep": "top"}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -722,7 +722,7 @@ class TestApplyPatchFilterSort:
 
     def test_dedup_subset(self, tmp_path):
         f = tmp_path / "dup.csv"
-        f.write_text("A,B,C\n1,x,10\n1,x,20\n2,y,30\n")
+        f.write_text("A,B,C\n1,x,10\n1,x,20\n2,y,30\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "dedup_subset", "columns": ["A", "B"], "keep": "first"}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -732,7 +732,7 @@ class TestApplyPatchFilterSort:
 class TestApplyPatchNumericTransforms:
     def test_log_transform_log1p(self, tmp_path):
         f = tmp_path / "log.csv"
-        f.write_text("Value\n0\n9\n99\n")
+        f.write_text("Value\n0\n9\n99\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "log_transform", "column": "Value", "method": "log1p"}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -743,7 +743,7 @@ class TestApplyPatchNumericTransforms:
 
     def test_sqrt_transform(self, tmp_path):
         f = tmp_path / "sqrt.csv"
-        f.write_text("Value\n4\n9\n16\n")
+        f.write_text("Value\n4\n9\n16\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "sqrt_transform", "column": "Value"}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -752,7 +752,7 @@ class TestApplyPatchNumericTransforms:
 
     def test_robust_scale(self, tmp_path):
         f = tmp_path / "robust.csv"
-        f.write_text("Value\n10\n20\n30\n40\n50\n")
+        f.write_text("Value\n10\n20\n30\n40\n50\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "robust_scale", "column": "Value"}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -761,7 +761,7 @@ class TestApplyPatchNumericTransforms:
 
     def test_winsorize(self, tmp_path):
         f = tmp_path / "winsor.csv"
-        f.write_text("Value\n1\n2\n3\n4\n5\n6\n7\n8\n9\n100\n")
+        f.write_text("Value\n1\n2\n3\n4\n5\n6\n7\n8\n9\n100\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "winsorize", "column": "Value", "upper_q": 0.9}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -769,7 +769,7 @@ class TestApplyPatchNumericTransforms:
 
     def test_bin_column(self, tmp_path):
         f = tmp_path / "bin.csv"
-        f.write_text("Score\n10\n30\n50\n70\n90\n")
+        f.write_text("Score\n10\n30\n50\n70\n90\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "bin_column", "column": "Score", "bins": 3}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -785,7 +785,7 @@ class TestApplyPatchNumericTransforms:
 
     def test_clip_values(self, tmp_path):
         f = tmp_path / "clip.csv"
-        f.write_text("Value\n-10\n5\n50\n")
+        f.write_text("Value\n-10\n5\n50\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "clip_values", "column": "Value", "min": 0, "max": 10}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -794,7 +794,7 @@ class TestApplyPatchNumericTransforms:
 
     def test_round_values(self, tmp_path):
         f = tmp_path / "round.csv"
-        f.write_text("Value\n3.14159\n2.71828\n1.41421\n")
+        f.write_text("Value\n3.14159\n2.71828\n1.41421\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "round_values", "column": "Value", "decimals": 2}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -802,7 +802,7 @@ class TestApplyPatchNumericTransforms:
 
     def test_abs_values(self, tmp_path):
         f = tmp_path / "abs.csv"
-        f.write_text("Value\n-5\n3\n-7\n")
+        f.write_text("Value\n-5\n3\n-7\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "abs_values", "column": "Value"}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -812,7 +812,7 @@ class TestApplyPatchNumericTransforms:
 class TestApplyPatchEncoding:
     def test_ordinal_encode(self, tmp_path):
         f = tmp_path / "ordinal.csv"
-        f.write_text("Size\nSmall\nMedium\nLarge\nSmall\n")
+        f.write_text("Size\nSmall\nMedium\nLarge\nSmall\n", encoding="utf-8")
         r = apply_patch(
             str(f),
             [{"op": "ordinal_encode", "column": "Size", "order": ["Small", "Medium", "Large"]}],
@@ -825,7 +825,7 @@ class TestApplyPatchEncoding:
 
     def test_binary_encode_categorical(self, tmp_path):
         f = tmp_path / "binary.csv"
-        f.write_text("Flag\nyes\nno\nyes\nno\n")
+        f.write_text("Flag\nyes\nno\nyes\nno\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "binary_encode", "column": "Flag", "value": "yes"}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -835,7 +835,7 @@ class TestApplyPatchEncoding:
 
     def test_frequency_encode(self, tmp_path):
         f = tmp_path / "freq.csv"
-        f.write_text("Color\nRed\nBlue\nRed\nGreen\nRed\n")
+        f.write_text("Color\nRed\nBlue\nRed\nGreen\nRed\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "frequency_encode", "column": "Color"}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -850,7 +850,7 @@ class TestApplyPatchTemporal:
     @pytest.fixture()
     def ts_csv(self, tmp_path):
         f = tmp_path / "ts.csv"
-        f.write_text("Value\n10\n20\n30\n40\n50\n")
+        f.write_text("Value\n10\n20\n30\n40\n50\n", encoding="utf-8")
         return f
 
     def test_lag(self, ts_csv):
@@ -908,7 +908,7 @@ class TestApplyPatchTemporal:
 class TestApplyPatchStructural:
     def test_column_math(self, tmp_path):
         f = tmp_path / "math.csv"
-        f.write_text("A,B\n10,5\n20,4\n30,3\n")
+        f.write_text("A,B\n10,5\n20,4\n30,3\n", encoding="utf-8")
         r = apply_patch(str(f), [{"op": "column_math", "formula": "A * B", "target_column": "Product"}])
         assert r["success"] is True
         df = pd.read_csv(str(f))
@@ -917,7 +917,7 @@ class TestApplyPatchStructural:
 
     def test_conditional_assign(self, tmp_path):
         f = tmp_path / "cond.csv"
-        f.write_text("Score\n90\n60\n40\n75\n")
+        f.write_text("Score\n90\n60\n40\n75\n", encoding="utf-8")
         r = apply_patch(
             str(f),
             [
@@ -941,7 +941,7 @@ class TestApplyPatchStructural:
 
     def test_split_column(self, tmp_path):
         f = tmp_path / "split.csv"
-        f.write_text("FullName\nJohn Doe\nJane Smith\nBob Jones\n")
+        f.write_text("FullName\nJohn Doe\nJane Smith\nBob Jones\n", encoding="utf-8")
         r = apply_patch(
             str(f),
             [{"op": "split_column", "column": "FullName", "delimiter": " ", "new_columns": ["First", "Last"]}],
@@ -955,7 +955,7 @@ class TestApplyPatchStructural:
 
     def test_combine_columns(self, tmp_path):
         f = tmp_path / "combine.csv"
-        f.write_text("First,Last\nJohn,Doe\nJane,Smith\n")
+        f.write_text("First,Last\nJohn,Doe\nJane,Smith\n", encoding="utf-8")
         r = apply_patch(
             str(f),
             [{"op": "combine_columns", "columns": ["First", "Last"], "delimiter": " ", "new_column": "FullName"}],
@@ -967,7 +967,7 @@ class TestApplyPatchStructural:
 
     def test_regex_replace(self, tmp_path):
         f = tmp_path / "regex.csv"
-        f.write_text("Code\nABC-DEF\nXYZ-GHI\n")  # non-numeric so result stays string
+        f.write_text("Code\nABC-DEF\nXYZ-GHI\n", encoding="utf-8")  # non-numeric so result stays string
         r = apply_patch(
             str(f),
             [{"op": "regex_replace", "column": "Code", "pattern": r"-", "replacement": "_"}],
@@ -979,7 +979,7 @@ class TestApplyPatchStructural:
 
     def test_str_slice(self, tmp_path):
         f = tmp_path / "slice.csv"
-        f.write_text("Code\nABC123\nXYZ456\n")
+        f.write_text("Code\nABC123\nXYZ456\n", encoding="utf-8")
         # str_slice writes to new_column (default: Code_slice), not in-place
         r = apply_patch(
             str(f),
@@ -993,7 +993,7 @@ class TestApplyPatchStructural:
 
     def test_melt(self, tmp_path):
         f = tmp_path / "wide.csv"
-        f.write_text("ID,Q1,Q2,Q3\n1,100,200,300\n2,400,500,600\n")
+        f.write_text("ID,Q1,Q2,Q3\n1,100,200,300\n2,400,500,600\n", encoding="utf-8")
         r = apply_patch(
             str(f),
             [{"op": "melt", "id_vars": ["ID"], "value_vars": ["Q1", "Q2", "Q3"]}],
@@ -1007,9 +1007,9 @@ class TestApplyPatchStructural:
 
     def test_concat_file(self, tmp_path):
         f = tmp_path / "main.csv"
-        f.write_text("A,B\n1,2\n3,4\n")
+        f.write_text("A,B\n1,2\n3,4\n", encoding="utf-8")
         extra = tmp_path / "extra.csv"
-        extra.write_text("A,B\n5,6\n7,8\n")
+        extra.write_text("A,B\n5,6\n7,8\n", encoding="utf-8")
         r = apply_patch(
             str(f),
             [{"op": "concat_file", "file_path": str(extra), "direction": "rows"}],
@@ -1104,7 +1104,7 @@ class TestListPatchOps:
 def positive_csv(tmp_path) -> Path:
     """CSV with strictly positive values (required for Box-Cox)."""
     f = tmp_path / "positive.csv"
-    f.write_text("id,sales,cost\n1,100,50\n2,200,80\n3,300,120\n4,400,150\n5,500,200\n")
+    f.write_text("id,sales,cost\n1,100,50\n2,200,80\n3,300,120\n4,400,150\n5,500,200\n", encoding="utf-8")
     return f
 
 
@@ -1112,7 +1112,7 @@ def positive_csv(tmp_path) -> Path:
 def mixed_sign_csv(tmp_path) -> Path:
     """CSV with mixed positive/negative values (for Yeo-Johnson only)."""
     f = tmp_path / "mixed.csv"
-    f.write_text("id,score\n1,-50\n2,-10\n3,0\n4,30\n5,100\n6,200\n")
+    f.write_text("id,score\n1,-50\n2,-10\n3,0\n4,30\n5,100\n6,200\n", encoding="utf-8")
     return f
 
 
@@ -1200,7 +1200,9 @@ class TestE2EFourToolPattern:
     def test_locate_inspect_patch_verify(self, tmp_path):
         """Full LOCATE→INSPECT→PATCH→VERIFY cycle using nulls in revenue column."""
         f = tmp_path / "sales.csv"
-        f.write_text("Region,Revenue,Units\nWest,5000,10\nEast,,15\nSouth,2100,5\nNorth,4800,12\nWest,,9\n")
+        f.write_text(
+            "Region,Revenue,Units\nWest,5000,10\nEast,,15\nSouth,2100,5\nNorth,4800,12\nWest,,9\n", encoding="utf-8"
+        )
 
         # LOCATE — find columns with nulls
         r_locate = search_columns(str(f), has_nulls=True)
@@ -1226,7 +1228,7 @@ class TestE2EFourToolPattern:
         """E2E: detect skewed column → boxcox transform → verify dtype changes."""
         f = tmp_path / "skewed.csv"
         # Create right-skewed data
-        f.write_text("id,amount\n1,1\n2,2\n3,3\n4,5\n5,8\n6,13\n7,21\n8,34\n9,55\n10,89\n")
+        f.write_text("id,amount\n1,1\n2,2\n3,3\n4,5\n5,8\n6,13\n7,21\n8,34\n9,55\n10,89\n", encoding="utf-8")
 
         # Inspect original
         r_pre = read_column_stats(str(f), "amount")

@@ -41,7 +41,7 @@ from shared.small_sample import MIN_N_IQR, min_n_for_zscore  # noqa: E402
 def _csv(tmp_path, n_rows: int) -> Path:
     f = tmp_path / f"rows_{n_rows}.csv"
     rows = "\n".join(f"{i * 10}" for i in range(1, n_rows + 1))
-    f.write_text(f"spend\n{rows}\n")
+    f.write_text(f"spend\n{rows}\n", encoding="utf-8")
     return f
 
 
@@ -81,7 +81,7 @@ def test_iqr_stays_undetermined_below_four_rows(tmp_path, n_rows):
 def test_iqr_reports_a_real_count_from_four_rows(tmp_path):
     """Four is the first size where a point can sit outside the fence."""
     f = tmp_path / "four.csv"
-    f.write_text("spend\n0\n0\n0\n100\n")
+    f.write_text("spend\n0\n0\n0\n100\n", encoding="utf-8")
     col = check_outliers(str(f), method="iqr", open_after=False)["results"]["spend"]
     assert col["outlier_count_iqr"] == 1
     assert col["has_outliers_iqr"] is True
@@ -96,7 +96,7 @@ def test_three_sigma_stays_undetermined_below_eleven_rows(tmp_path, n_rows):
 
 def test_three_sigma_reports_a_real_count_from_eleven_rows(tmp_path):
     f = tmp_path / "eleven.csv"
-    f.write_text("spend\n" + "1\n" * 10 + "1000\n")
+    f.write_text("spend\n" + "1\n" * 10 + "1000\n", encoding="utf-8")
     col = check_outliers(str(f), method="std", open_after=False)["results"]["spend"]
     assert col["outlier_count_std"] == 1
 
@@ -104,7 +104,7 @@ def test_three_sigma_reports_a_real_count_from_eleven_rows(tmp_path):
 def test_a_constant_column_with_enough_rows_still_answers_zero(tmp_path):
     """Zero spread over 20 rows is a real "no outliers", and says why."""
     f = tmp_path / "flat.csv"
-    f.write_text("spend\n" + "7\n" * 20)
+    f.write_text("spend\n" + "7\n" * 20, encoding="utf-8")
     col = check_outliers(str(f), open_after=False)["results"]["spend"]
     assert col["outlier_count_iqr"] == 0
     assert col["outlier_count_std"] == 0
@@ -124,7 +124,7 @@ def test_detect_anomalies_withholds_the_same_verdict(tmp_path):
     assert "nothing to act on" in r["hint"]
     # The saved file must not carry a verdict the response withholds: a
     # `_iqr_flag` column of False says "checked, found nothing".
-    written = out.read_text().splitlines()[0]
+    written = out.read_text(encoding="utf-8").splitlines()[0]
     assert "_iqr_flag" not in written
     assert "_zscore_flag" not in written
     assert "_anomaly_score" not in written
@@ -163,7 +163,7 @@ def test_extended_stats_does_not_label_a_nan(tmp_path):
 
 def test_extended_stats_still_labels_a_real_distribution(tmp_path):
     f = tmp_path / "skewed.csv"
-    f.write_text("spend\n" + "\n".join(["1"] * 30 + ["500", "600", "700"]) + "\n")
+    f.write_text("spend\n" + "\n".join(["1"] * 30 + ["500", "600", "700"]) + "\n", encoding="utf-8")
     stats = extended_stats(str(f))["stats"]["spend"]
     assert stats["skewness"] is not None
     assert "skewed" in stats["skewness_label"]

@@ -66,7 +66,7 @@ class TestTheRaggedFileIsAccepted:
         r = engine.promote_header(str(ragged), row_index=2, output_path=str(out))
         assert r["success"] is True, r.get("error")
         assert r["new_headers"] == ["Date", "product", "spends"]
-        assert out.read_text() == "Date,product,spends\n2019-10-16,P1,0\n2019-10-17,P2,5\n"
+        assert out.read_text(encoding="utf-8") == "Date,product,spends\n2019-10-16,P1,0\n2019-10-17,P2,5\n"
 
     @pytest.mark.parametrize("tool", ["trim_empty", "normalize_headers"])
     def test_the_other_cleaners_read_it(self, ragged, tmp_path, tool):

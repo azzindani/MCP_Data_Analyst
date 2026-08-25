@@ -283,7 +283,7 @@ def _bar_chart(tmp_path) -> str:
     from _adv_gencharts import generate_chart  # noqa: PLC0415
 
     src = tmp_path / "src.csv"
-    src.write_text("device,spends\nDesktop,1250.5\nMobile,900.0\n")
+    src.write_text("device,spends\nDesktop,1250.5\nMobile,900.0\n", encoding="utf-8")
     out = tmp_path / "c.html"
     r = generate_chart(
         str(src),
@@ -303,7 +303,7 @@ def test_an_annotation_label_reaches_the_chart(tmp_path):
     chart = _bar_chart(tmp_path)
     r = customize_chart(chart, annotations=[{"text": "peak", "x": 0, "y": 1250.5}])
     assert r["success"] is True
-    rendered = Path(r.get("output_path") or chart).read_text()
+    rendered = Path(r.get("output_path") or chart).read_text(encoding="utf-8")
     assert '"text": "peak"' in rendered
     assert '"y": 1250.5' in rendered
 
@@ -315,7 +315,7 @@ def test_label_is_accepted_as_an_alias_for_text(tmp_path):
     chart = _bar_chart(tmp_path)
     r = customize_chart(chart, annotations=[{"label": "single row n=1", "x": 0, "y": 1250.5}])
     assert r["success"] is True
-    rendered = Path(r.get("output_path") or chart).read_text()
+    rendered = Path(r.get("output_path") or chart).read_text(encoding="utf-8")
     assert '"text": "single row n=1"' in rendered
 
 
