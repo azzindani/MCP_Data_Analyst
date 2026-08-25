@@ -329,6 +329,12 @@ def compute_aggregations(
 # run_cleaning_pipeline helpers
 # ---------------------------------------------------------------------------
 
+# one_hot's two limits, named rather than inline so the response can quote them.
+# Ten levels keeps a single column from adding hundreds; five columns keeps one
+# call from doubling the frame's width. Both are reported when they bite.
+_ONE_HOT_MAX_LEVELS = 10
+_ONE_HOT_MAX_COLUMNS = 5
+
 # Distinctive params that uniquely identify an op when "op" is omitted/malformed.
 _OP_SIGNATURES: list[tuple[frozenset[str], str]] = [
     (frozenset({"dtype"}), "cast_column"),
@@ -1008,6 +1014,8 @@ def feature_engineering(
             }
 
         new_columns = []
+        one_hot_encoded: list[str] = []
+        one_hot_skipped: dict[str, str] = {}
 
         if "date_parts" in requested:
             date_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])]
@@ -1051,14 +1059,36 @@ def feature_engineering(
                 except Exception:
                     pass
 
+        # Two limits sat here and neither was ever reported: text columns with
+        # more than ten distinct values were skipped, and of whatever survived
+        # only the first five were encoded. On the reference dataset that meant
+        # 5 of 12 text columns encoded, a response reading "8 new columns", and
+        # nothing at all about the seven it declined -- a caller who asked for
+        # one-hot encoding got a partly encoded frame and no way to know.
+        #
+        # Both limits stay: one-hot on 16,834 distinct creative names is not
+        # what anyone means. What changes is that the tool says so.
         if "one_hot" in requested:
-            cat_cols = [
-                c for c in df.columns if _is_string_col(df[c]) and df[c].nunique() <= 10 and c not in new_columns
-            ]
-            for col in cat_cols[:5]:
+            text_cols = [c for c in df.columns if _is_string_col(df[c]) and c not in new_columns]
+            too_many = {c: int(df[c].nunique()) for c in text_cols if df[c].nunique() > _ONE_HOT_MAX_LEVELS}
+            cat_cols = [c for c in text_cols if c not in too_many]
+            over_cap = cat_cols[_ONE_HOT_MAX_COLUMNS:]
+            for col in cat_cols[:_ONE_HOT_MAX_COLUMNS]:
                 dummies = pd.get_dummies(df[col], prefix=col, drop_first=False).astype(int)
                 df = pd.concat([df, dummies], axis=1)
                 new_columns.extend(dummies.columns.tolist())
+                one_hot_encoded.append(col)
+            for col, levels in too_many.items():
+                one_hot_skipped[col] = f"{levels} distinct values, above the {_ONE_HOT_MAX_LEVELS} one-hot allows"
+            for col in over_cap:
+                one_hot_skipped[col] = f"only the first {_ONE_HOT_MAX_COLUMNS} eligible columns are encoded per call"
+            if one_hot_skipped:
+                progress.append(
+                    warn(
+                        f"{len(one_hot_skipped)} column(s) not one-hot encoded",
+                        "; ".join(f"{c}: {why}" for c, why in one_hot_skipped.items()),
+                    )
+                )
 
         if dry_run:
             progress.append(info("Dry run — no changes written", path.name))
@@ -1100,6 +1130,10 @@ def feature_engineering(
             "features_applied": list(requested),
             "new_columns": new_columns,
             "columns_added": len(new_columns),
+            # Which text columns one_hot actually reached, and why it left the
+            # rest alone. Empty unless one_hot was requested.
+            "one_hot_encoded": one_hot_encoded,
+            "one_hot_skipped": one_hot_skipped,
             "output_file": out.name,
             "output_path": str(out),
             "backup": backup,

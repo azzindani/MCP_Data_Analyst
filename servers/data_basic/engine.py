@@ -433,16 +433,42 @@ def load_geo_dataset(
 
         gdf = gpd.read_file(str(path))
 
+        # rename_column names the NEW name; the old one is hardcoded as "name",
+        # which the schema does not say and the docstring does not mention. On a
+        # GeoJSON whose label column is called anything else the argument did
+        # nothing at all, silently -- a sweep renaming "site" got a file
+        # byte-identical to the no-argument call and a success either way.
+        renamed_from = ""
         if rename_column:
             if "name" in gdf.columns:
                 gdf = gdf.rename(columns={"name": rename_column})
+                renamed_from = "name"
+            else:
+                progress.append(
+                    warn(
+                        "rename_column had nothing to rename",
+                        f"it renames a column called 'name', and this file has none. Columns: {list(gdf.columns)}",
+                    )
+                )
 
+        # Names that are not in the file were dropped from the keep list without
+        # comment, so asking to keep a misspelled column quietly kept fewer
+        # columns than requested.
+        missing_keep: list[str] = []
         if keep_columns:
             geo_col = gdf.geometry.name
+            missing_keep = [c for c in keep_columns if c not in gdf.columns]
             cols_to_keep = [c for c in keep_columns if c in gdf.columns]
             if geo_col not in cols_to_keep:
                 cols_to_keep.append(geo_col)
             gdf = gdf[cols_to_keep]
+            if missing_keep:
+                progress.append(
+                    warn(
+                        f"{len(missing_keep)} requested column(s) are not in the file",
+                        f"{', '.join(missing_keep)} — kept {', '.join(cols_to_keep)}",
+                    )
+                )
 
         sample_rows = gdf.head(2).copy()
         geo_col = gdf.geometry.name
@@ -463,6 +489,10 @@ def load_geo_dataset(
             "columns": list(gdf.columns),
             "crs": crs,
             "geometry_type": geometry_type,
+            # Empty when rename_column did nothing, so the caller can tell a
+            # rename that happened from one that had no column to act on.
+            "renamed_from": renamed_from,
+            "columns_not_found": missing_keep,
             "sample": sample,
             "progress": progress,
         }
