@@ -393,7 +393,14 @@ def save_workspace_pipeline(
             }
 
         record = _save_pipeline_util(workspace_name, pipeline_name, ops, description, base_dir)
-        progress.append(ok(f"Saved pipeline '{pipeline_name}'", f"{len(ops)} ops"))
+        # This writes pipelines/<name>.json and updates workspace.json, and said
+        # so nowhere: no path in the response, no artifact in the context. A
+        # caller was told "Saved pipeline 'prep' (3 ops)" and had nothing to
+        # open. Both file-writing siblings here report what they wrote --
+        # register_workspace_file names the file it registered and
+        # run_workspace_pipeline returns output_path.
+        pipeline_path = record.get("path", "")
+        progress.append(ok(f"Saved pipeline '{pipeline_name}'", f"{len(ops)} ops → {Path(pipeline_path).name}"))
         result = {
             "success": True,
             "op": "save_workspace_pipeline",
@@ -402,11 +409,13 @@ def save_workspace_pipeline(
             "op_count": len(ops),
             "description": description,
             "created": record.get("created", ""),
+            "output_path": pipeline_path,
             "progress": progress,
         }
         result["context"] = make_context(
             "save_workspace_pipeline",
             f"Saved pipeline '{pipeline_name}' ({len(ops)} ops) in workspace '{workspace_name}'.",
+            artifacts=[{"type": "json", "path": pipeline_path, "role": "pipeline"}],
         )
         result["handover"] = make_handover(
             "PREPARE",

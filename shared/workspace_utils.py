@@ -232,6 +232,11 @@ def save_pipeline(
     }
     manifest["updated"] = datetime.now(UTC).isoformat()
     save_manifest(manifest, workspace_name, base_dir)
+    # Where it landed, so the caller can be told. The record went back without
+    # it, so save_workspace_pipeline had nothing to report and was the one tool
+    # here that writes a file and names no path -- both of its file-writing
+    # siblings return theirs.
+    pipeline_record["path"] = str(pipeline_path)
     return pipeline_record
 
 
