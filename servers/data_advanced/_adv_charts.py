@@ -25,7 +25,7 @@ from _adv_helpers import (
     plotly_template,
 )
 
-from shared.file_utils import embed_content, error_text, hint_for_error, resolve_path
+from shared.file_utils import embed_content, error_text, hint_for_error, normalise_export_format, resolve_path
 from shared.progress import info, warn
 from shared.small_sample import MIN_N_CORRELATION, MIN_N_IQR
 from shared.version_control import snapshot_if_exists
@@ -575,11 +575,16 @@ def export_data(
         df = _read_csv(str(path))
 
         valid_formats = {"csv", "json", "excel"}
+        # The format is named "excel" and the file it writes is called .xlsx, so
+        # both spellings arrive from callers. convert_file on the ingest server
+        # had the identical gap; it was fixed there first and this sibling went
+        # on refusing `xlsx` until a sweep tried it. One table now, in shared.
+        format = normalise_export_format(format)
         if format not in valid_formats:
             return {
                 "success": False,
                 "error": f"Invalid format: {format}",
-                "hint": f"Valid formats: {', '.join(sorted(valid_formats))}",
+                "hint": f"Valid formats: {', '.join(sorted(valid_formats))} (xlsx is accepted for excel).",
                 "progress": [fail("Invalid format", format)],
                 "token_estimate": 20,
             }

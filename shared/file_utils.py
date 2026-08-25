@@ -35,6 +35,7 @@ __all__ = [
     "atomic_write_text",
     "attach_public_url",
     "embed_content",
+    "EXPORT_FORMAT_ALIASES",
     "error_text",
     "fetch_url",
     "get_default_output_dir",
@@ -43,6 +44,7 @@ __all__ = [
     "hint_for_error",
     "is_url",
     "missing_name",
+    "normalise_export_format",
     "public_url_for",
     "read_csv",
     "resolve_path",
@@ -375,6 +377,33 @@ def _self_contained(path: Path, data: bytes, result: dict[str, Any]) -> bytes:
 
 def _theme_of(chart_html: str) -> str:
     return "light" if "background:#ffffff" in chart_html.replace(" ", "") else "dark"
+
+
+# The word every export tool here uses for a workbook is "excel", and the file
+# it produces is called .xlsx. Both spellings reach these tools from callers,
+# and the fleet's own messages use both -- data_ingest's refusals said "convert
+# to xlsx first" about a tool that only accepted "excel".
+#
+# One table, in shared, because there were two tools with this vocabulary and
+# fixing one of them left the other refusing `xlsx` for another half a day.
+# Aliases rather than a rename: "excel" has always worked and every existing
+# caller passes it.
+EXPORT_FORMAT_ALIASES = {
+    "xlsx": "excel",
+    "xls": "excel",
+    "ods": "excel",
+    "spreadsheet": "excel",
+    "workbook": "excel",
+}
+
+
+def normalise_export_format(value: str) -> str:
+    """The canonical name for an output format, or the value unchanged.
+
+    Unknown values pass through so the caller's own spelling is what the
+    refusal quotes back at them.
+    """
+    return EXPORT_FORMAT_ALIASES.get(value.strip().lower(), value)
 
 
 def missing_name(exc: Exception) -> str | None:

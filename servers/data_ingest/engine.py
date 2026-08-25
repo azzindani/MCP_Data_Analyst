@@ -20,6 +20,7 @@ from shared.file_utils import (
     error_text,
     get_default_output_dir,
     hint_for_error,
+    normalise_export_format,
     resolve_path,
 )
 from shared.platform_utils import get_max_results
@@ -35,12 +36,10 @@ _ALL_INPUT_EXTS = {".xlsx", ".ods", ".csv", ".json", ".parquet"}
 _OUTPUT_FMTS = {"csv", "json", "parquet", "excel"}
 _FMT_EXT = {"csv": ".csv", "json": ".json", "parquet": ".parquet", "excel": ".xlsx"}
 
-# The format is named "excel" and the file it produces is called .xlsx, and this
-# module's own refusals said "convert to xlsx first" -- so a caller following
-# the hint wrote output_format="xlsx" and was told it was unknown. The word the
-# tool emits has to be a word it accepts. Aliases rather than a rename: "excel"
-# has always worked and every existing caller passes it.
-_FMT_ALIASES = {"xlsx": "excel", "xls": "excel", "ods": "excel", "spreadsheet": "excel"}
+# The alias table lives in shared, not here. It was here first, and export_data
+# on the data_advanced server -- same vocabulary, same "excel" for a file called
+# .xlsx -- went on refusing `xlsx` for another half a day because the fix had a
+# copy rather than a home.
 
 
 def _token_estimate(obj: object) -> int:
@@ -1229,7 +1228,7 @@ def convert_file(
                 "progress": [fail("Unsupported input", ext)],
                 "token_estimate": 20,
             }
-        output_format = _FMT_ALIASES.get(output_format.strip().lower(), output_format)
+        output_format = normalise_export_format(output_format)
         if output_format not in _OUTPUT_FMTS:
             return {
                 "success": False,
