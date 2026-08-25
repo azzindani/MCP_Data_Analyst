@@ -274,7 +274,17 @@ def _self_contained(path: Path, data: bytes, result: dict[str, Any]) -> bytes:
             "open it -- the file itself renders on its own."
         )
         return data
-    result["content_note"] = "Static self-contained rendering; use public_url for the interactive chart."
+    # A report holds several figures and only one can be drawn this way, so say
+    # which of the two things the caller is holding. "use public_url for the
+    # interactive chart" read the same either way.
+    figures = text.count('class="plotly-graph-div"')
+    if figures > 1:
+        result["content_note"] = (
+            f"Static self-contained rendering of 1 of this page's {figures} figures; "
+            "use public_url or output_path for the whole report."
+        )
+    else:
+        result["content_note"] = "Static self-contained rendering; use public_url for the interactive chart."
     return rendered.encode("utf-8")
 
 
