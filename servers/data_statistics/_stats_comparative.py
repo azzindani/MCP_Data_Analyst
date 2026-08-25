@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import sys
 from pathlib import Path
 
@@ -66,29 +67,68 @@ def _comparison_chart(
     Grouped bars rather than the percentage deltas: the deltas are already in
     the response as numbers, and what a chart adds is the magnitudes they came
     from -- a +300% move on a base of 2 reads very differently next to its bar.
+
+    One panel per metric, each with its own y-axis, because that reasoning only
+    holds while the metrics share a scale. On a single axis the largest metric
+    sets it and the rest collapse into the baseline: comparing impressions,
+    link_clicks and clicks over one real month of the ad dataset -- a 170:1
+    spread -- drew link_clicks at 0 and 4 pixels beside a 456-pixel bar. The
+    caller had named link_clicks as a thing to compare and the chart showed
+    nothing for it, under success: true. Measured off the rendered page rather
+    than judged by eye.
+
+    One metric is still one panel, which is the chart this always drew.
     """
     try:
         import plotly.graph_objects as go  # type: ignore[import-untyped]
         from _med_helpers import _save_chart  # type: ignore[import]
+        from plotly.subplots import make_subplots  # type: ignore[import-untyped]
     except ImportError:
         return "", ""
 
-    # With group_by, one entry per group; label the axis accordingly.
+    # With group_by, one entry per group; label the panel accordingly.
     labels = [f"{c.get('group', '')} {m}".strip() for c in comparisons for m in metrics]
     current = [c[m]["current"] for c in comparisons for m in metrics]
     reference = [c[m]["reference"] for c in comparisons for m in metrics]
+    if not labels:
+        return "", ""
 
-    fig = go.Figure(
-        [
-            go.Bar(name=reference_period, x=labels, y=reference, marker_color="#8b949e"),
-            go.Bar(name=current_period, x=labels, y=current, marker_color="#58a6ff"),
-        ]
-    )
+    cols = min(len(labels), 3)
+    rows = math.ceil(len(labels) / cols)
+    fig = make_subplots(rows=rows, cols=cols, subplot_titles=labels)
+
+    for i in range(len(labels)):
+        row, col = divmod(i, cols)
+        for name, value, colour, group in (
+            (reference_period, reference[i], "#8b949e", "reference"),
+            (current_period, current[i], "#58a6ff", "current"),
+        ):
+            fig.add_trace(
+                go.Bar(
+                    name=name,
+                    x=[name],
+                    y=[value],
+                    marker_color=colour,
+                    # One legend entry per period, not one per panel.
+                    showlegend=i == 0,
+                    legendgroup=group,
+                ),
+                row=row + 1,
+                col=col + 1,
+            )
+
+    # A period name is "2019-11", which plotly reads as a date the moment it is
+    # an x value rather than a series name -- the panels came back with a date
+    # axis running Oct 27 to Dec 8 and the two bars placed along it. They are
+    # two labels, not two instants.
+    fig.update_xaxes(type="category")
     fig.update_layout(
-        barmode="group",
         title=f"{current_period} vs {reference_period}",
-        margin=dict(l=20, r=20, t=60, b=20),
-        autosize=True,
+        margin=dict(l=20, r=20, t=80, b=20),
+        # A panel grid has to grow with its row count; a single row keeps the
+        # responsive height every other chart on this server uses.
+        autosize=rows == 1,
+        height=None if rows == 1 else 260 * rows + 120,
     )
     return _save_chart(fig, output_path, "period_comparison", input_path, open_after, theme, progress)
 
