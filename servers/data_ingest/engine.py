@@ -35,9 +35,43 @@ _ALL_INPUT_EXTS = {".xlsx", ".ods", ".csv", ".json", ".parquet"}
 _OUTPUT_FMTS = {"csv", "json", "parquet", "excel"}
 _FMT_EXT = {"csv": ".csv", "json": ".json", "parquet": ".parquet", "excel": ".xlsx"}
 
+# The format is named "excel" and the file it produces is called .xlsx, and this
+# module's own refusals said "convert to xlsx first" -- so a caller following
+# the hint wrote output_format="xlsx" and was told it was unknown. The word the
+# tool emits has to be a word it accepts. Aliases rather than a rename: "excel"
+# has always worked and every existing caller passes it.
+_FMT_ALIASES = {"xlsx": "excel", "xls": "excel", "ods": "excel", "spreadsheet": "excel"}
+
 
 def _token_estimate(obj: object) -> int:
     return len(str(obj)) // 4
+
+
+def _needs_a_workbook(op: str, ext: str) -> dict:
+    """The refusal every sheet tool here gives a .csv, written once.
+
+    It was written five times, with five different pieces of advice, and three
+    of them sent the caller to a tool that refuses for exactly the same reason:
+    extract_sheet said "use list_sheets() first" (list_sheets rejects a .csv
+    too), and detect_tables and extract_table both said "use extract_sheet() to
+    get a CSV first" -- to a caller who is holding a CSV, about a tool that
+    needs a workbook. Following any of the three arrives back here.
+
+    Two of the five were right, and both named convert_file(). That is the tool
+    that turns a CSV into a workbook, so it is the one all five name now, with
+    the argument spelled out: the format is called "excel", which is not the
+    word these hints used to use.
+    """
+    return {
+        "success": False,
+        "error": f"Expected .xlsx or .ods, got {ext!r}",
+        "hint": (
+            'Use convert_file(file_path, output_format="excel") to make a workbook from a '
+            f"CSV, JSON or Parquet file, then call {op}() on that."
+        ),
+        "progress": [fail("Wrong file type", ext)],
+        "token_estimate": 30,
+    }
 
 
 def _widest_row(path: Path) -> int:
@@ -219,13 +253,7 @@ def list_sheets(file_path: str) -> dict:
             }
         ext = path.suffix.lower()
         if ext not in _XLSX_EXTS:
-            return {
-                "success": False,
-                "error": f"Expected .xlsx or .ods, got {ext!r}",
-                "hint": "Use convert_file() to convert CSV/JSON/Parquet to xlsx first.",
-                "progress": [fail("Wrong file type", ext)],
-                "token_estimate": 20,
-            }
+            return _needs_a_workbook("list_sheets", ext)
 
         if ext == ".ods":
             xl = pd.ExcelFile(str(path), engine="odf")
@@ -302,13 +330,7 @@ def extract_sheet(
             }
         ext = path.suffix.lower()
         if ext not in _XLSX_EXTS:
-            return {
-                "success": False,
-                "error": f"Expected .xlsx or .ods, got {ext!r}",
-                "hint": "Use list_sheets() first to inspect available sheets.",
-                "progress": [fail("Wrong file type", ext)],
-                "token_estimate": 20,
-            }
+            return _needs_a_workbook("extract_sheet", ext)
 
         # Resolve sheet name
         if ext == ".ods":
@@ -419,13 +441,7 @@ def extract_all_sheets(file_path: str, output_dir: str = "", dry_run: bool = Fal
             }
         ext = path.suffix.lower()
         if ext not in _XLSX_EXTS:
-            return {
-                "success": False,
-                "error": f"Expected .xlsx or .ods, got {ext!r}",
-                "hint": "Use convert_file() to convert to xlsx first.",
-                "progress": [fail("Wrong file type", ext)],
-                "token_estimate": 20,
-            }
+            return _needs_a_workbook("extract_all_sheets", ext)
 
         out_dir = Path(output_dir) if output_dir else get_default_output_dir(str(path))
 
@@ -513,13 +529,7 @@ def detect_tables(file_path: str, sheet: str = "", min_rows: int = 2, min_cols: 
             }
         ext = path.suffix.lower()
         if ext not in _XLSX_EXTS:
-            return {
-                "success": False,
-                "error": f"Expected .xlsx or .ods, got {ext!r}",
-                "hint": "Use extract_sheet() to get a CSV first, then call detect_tables.",
-                "progress": [fail("Wrong file type", ext)],
-                "token_estimate": 20,
-            }
+            return _needs_a_workbook("detect_tables", ext)
 
         import openpyxl
 
@@ -598,13 +608,7 @@ def extract_table(
             }
         ext = path.suffix.lower()
         if ext not in _XLSX_EXTS:
-            return {
-                "success": False,
-                "error": f"Expected .xlsx or .ods, got {ext!r}",
-                "hint": "Use extract_sheet() first to get a CSV.",
-                "progress": [fail("Wrong file type", ext)],
-                "token_estimate": 20,
-            }
+            return _needs_a_workbook("extract_table", ext)
 
         import openpyxl
 
@@ -1188,11 +1192,12 @@ def convert_file(
                 "progress": [fail("Unsupported input", ext)],
                 "token_estimate": 20,
             }
+        output_format = _FMT_ALIASES.get(output_format.strip().lower(), output_format)
         if output_format not in _OUTPUT_FMTS:
             return {
                 "success": False,
                 "error": f"Unknown output_format {output_format!r}",
-                "hint": f"Valid formats: {', '.join(sorted(_OUTPUT_FMTS))}",
+                "hint": f"Valid formats: {', '.join(sorted(_OUTPUT_FMTS))} (xlsx is accepted for excel).",
                 "progress": [fail("Unknown output format", output_format)],
                 "token_estimate": 20,
             }
