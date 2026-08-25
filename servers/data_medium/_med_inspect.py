@@ -101,6 +101,12 @@ def check_outliers(
         cols_with_outliers = 0
         undetermined_cols: set[str] = set()
         min_n_std = min_n_for_zscore(3.0)
+        # "Flags anomalous rows" is the last clause of this tool's docstring and
+        # nothing row-level was ever produced: counts per column, limits per
+        # column, and a box plot. A caller asked for the flagged rows by giving
+        # output_path=outliers.csv and got an HTML chart. The masks exist inside
+        # this loop already -- keeping them is what makes the sentence true.
+        flags: dict[str, pd.Series] = {}
         for col in numeric_cols:
             clean = df[col].dropna()
             if len(clean) == 0:
@@ -125,7 +131,10 @@ def check_outliers(
                     iqr = q3 - q1
                     lower = q1 - 1.5 * iqr
                     upper = q3 + 1.5 * iqr
-                    count = int(((clean < lower) | (clean > upper)).sum())
+                    hit = (clean < lower) | (clean > upper)
+                    count = int(hit.sum())
+                    if count:
+                        flags.setdefault(col, pd.Series(False, index=df.index)).loc[clean.index] |= hit
                     r["has_outliers_iqr"] = count > 0
                     r["outlier_count_iqr"] = count
                     r["lower_limit_iqr"] = round(lower, 4)
@@ -154,7 +163,10 @@ def check_outliers(
                     std_v = float(clean.std())
                     lower_s = mean_v - 3 * std_v
                     upper_s = mean_v + 3 * std_v
-                    count_s = int(((clean < lower_s) | (clean > upper_s)).sum())
+                    hit_s = (clean < lower_s) | (clean > upper_s)
+                    count_s = int(hit_s.sum())
+                    if count_s:
+                        flags.setdefault(col, pd.Series(False, index=df.index)).loc[clean.index] |= hit_s
                     r["has_outliers_std"] = count_s > 0
                     r["outlier_count_std"] = count_s
                     r["lower_limit_std"] = round(lower_s, 4)
@@ -207,6 +219,33 @@ def check_outliers(
             "hint": hint,
             "progress": progress,
         }
+
+        # The rows themselves, bounded, each saying which columns flagged it.
+        # A count tells a caller how many there are; this tells them which.
+        flagged_rows: list[dict] = []
+        flagged_total = 0
+        if flags:
+            per_row: dict = {}
+            for col, mask in flags.items():
+                for idx in df.index[mask]:
+                    per_row.setdefault(int(idx), []).append(col)
+            flagged_total = len(per_row)
+            for idx in sorted(per_row)[:max_r]:
+                flagged_rows.append({"row": idx, "columns": sorted(per_row[idx])})
+        result["flagged_rows"] = flagged_rows
+        result["flagged_rows_total"] = flagged_total
+        result["flagged_rows_truncated"] = flagged_total > len(flagged_rows)
+        if flagged_total:
+            shown = (
+                f"{len(flagged_rows)} of {flagged_total}" if flagged_total > len(flagged_rows) else str(flagged_total)
+            )
+            progress.append(ok(f"Flagged {flagged_total} anomalous row(s)", f"listing {shown}"))
+        if flagged_total > len(flagged_rows):
+            result["hint"] = (
+                f"{flagged_total} row(s) were flagged and the first {len(flagged_rows)} are listed. "
+                "Use filter_rows() on the columns named here to page through the rest, or "
+                "apply_patch() with op=cap_outliers to act on all of them."
+            )
 
         if _PLOTLY_AVAILABLE and results:
             scanned = list(results.keys())
