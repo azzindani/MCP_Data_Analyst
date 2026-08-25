@@ -61,6 +61,7 @@ def _token_estimate(obj) -> int:
 
 
 from shared.file_utils import read_csv as _read_csv  # noqa: E402
+from shared.file_utils import read_csv_preserving_ids as _read_csv_for_write  # noqa: E402
 
 
 def _dtype_label(series: pd.Series) -> str:
@@ -797,7 +798,12 @@ def apply_patch(
                 "token_estimate": 30,
             }
 
-        df = _read_csv(str(path))
+        # This tool rewrites the caller's own file in place, so a column pandas
+        # re-typed on the way in is written back re-typed -- and a zero-padded
+        # identifier does not survive the round trip. Adding one computed column
+        # to a five-column file turned employee_id 0007 into 7 and zip 01970
+        # into 1970, under success: true, in columns no op named.
+        df = _read_csv_for_write(str(path))
 
         if dry_run:
             # Ring-2 shell: accumulate errors from ring-1 _apply_op raises (H4).

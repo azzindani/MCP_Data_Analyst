@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import mimetypes
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -102,6 +103,7 @@ def read_csv(
     encoding: str = "utf-8",
     separator: str = ",",
     max_rows: int = 0,
+    dtype_overrides: dict[str, type] | None = None,
 ) -> pd.DataFrame:
     """Read CSV with automatic encoding and bad-line fallback.
 
@@ -109,10 +111,16 @@ def read_csv(
     utf-8-sig (BOM), cp1252 (Windows/Excel), then latin-1 (never fails).
     On tokenization errors (mismatched field counts) retries with
     on_bad_lines='skip' to drop malformed rows.
+
+    `dtype_overrides` pins named columns to a dtype instead of letting pandas
+    infer one -- see read_csv_preserving_ids, which uses it to keep a
+    zero-padded identifier out of an int64.
     """
     kwargs: dict = {"sep": separator, "low_memory": False}
     if max_rows > 0:
         kwargs["nrows"] = max_rows
+    if dtype_overrides:
+        kwargs["dtype"] = dtype_overrides
 
     def _try_encs(extra: dict) -> pd.DataFrame:
         kw = {**kwargs, **extra}
@@ -139,6 +147,80 @@ def read_csv(
 
     df.columns = df.columns.str.strip()
     return df
+
+
+# A field whose first character is a zero followed by another digit. `0.5` is a
+# number; `01970` is a ZIP code that pandas will hand back as 1970.
+_PADDED_NUMBER = re.compile(r"^[+-]?0[0-9]")
+
+
+def padded_id_columns(
+    file_path: str,
+    df: pd.DataFrame,
+    encoding: str = "utf-8",
+    separator: str = ",",
+) -> list[str]:
+    """Columns pandas made numeric whose text had a leading zero.
+
+    A zero-padded field is an identifier wearing a number's clothes: ZIP codes,
+    employee numbers, account and product codes, phone numbers. pandas reads the
+    column as int64 and the padding is gone before any tool sees the frame, so a
+    tool that writes the frame back writes `1970` where the file said `01970`.
+
+    Detecting it needs the original text, and the original text is only in the
+    file, so this re-reads -- but only the columns that were parsed as numbers,
+    which is where the loss can be, and only for callers that are about to write
+    the frame back over the caller's own file. Reading every column as text and
+    converting by hand was measured at five times the cost of pandas' own
+    inference, and sampling the first N rows would miss a padded value further
+    down, which is the same silent corruption with a smaller window.
+
+    Returns the column names to re-read as `str`. Never raises: a file that
+    cannot be re-read leaves the frame exactly as pandas parsed it.
+    """
+    numeric = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    if not numeric:
+        return []
+    try:
+        raw = pd.read_csv(
+            file_path,
+            encoding=encoding,
+            sep=separator,
+            usecols=numeric,
+            dtype=str,
+            keep_default_na=False,
+            low_memory=False,
+        )
+    except Exception:
+        return []
+    raw.columns = raw.columns.str.strip()
+    return [c for c in numeric if c in raw.columns and raw[c].str.match(_PADDED_NUMBER).any()]
+
+
+def read_csv_preserving_ids(
+    file_path: str,
+    encoding: str = "utf-8",
+    separator: str = ",",
+    max_rows: int = 0,
+) -> pd.DataFrame:
+    """read_csv, with zero-padded identifier columns kept as text.
+
+    For tools that write the frame back over the file they read. Everything
+    else should use read_csv: the extra work is a second pass over the numeric
+    columns, worth paying to avoid rewriting a caller's file and not worth
+    paying to compute a mean.
+    """
+    df = read_csv(file_path, encoding=encoding, separator=separator, max_rows=max_rows)
+    padded = padded_id_columns(file_path, df, encoding=encoding, separator=separator)
+    if not padded:
+        return df
+    return read_csv(
+        file_path,
+        encoding=encoding,
+        separator=separator,
+        max_rows=max_rows,
+        dtype_overrides={c: str for c in padded},
+    )
 
 
 def count_data_rows(path: Path | str) -> int:
