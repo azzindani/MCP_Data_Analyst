@@ -70,28 +70,45 @@ def split_newplot(html: str) -> tuple[str, str, str, str, str, str]:
     Returns (before, call_prefix, data_str, separator, layout_str, after); the six
     pieces concatenate back into `html` exactly.
     """
-    call = re.search(r"Plotly\.newPlot\(", html)
-    if call is None:
+    # Search from the end. A self-contained page inlines plotly.min.js, and the
+    # library's own source contains `Plotly.newPlot(` long before the page's
+    # real call to it -- taking the first match parsed the minified bundle,
+    # failed, and every caller of this silently fell back. The page's own call
+    # is the last one, and each candidate is checked by actually scanning it, so
+    # neither ordering nor a stray mention in a title can pick the wrong one.
+    calls = list(re.finditer(r"Plotly\.newPlot\(", html))
+    if not calls:
         raise ValueError("Could not find Plotly.newPlot call in HTML. Not a valid Plotly chart HTML.")
 
-    data_start = html.find("[", call.end())
-    if data_start == -1:
-        raise ValueError("Plotly.newPlot call has no trace array.")
-    data_end = scan_balanced(html, data_start)
+    last_error: Exception | None = None
+    for call in reversed(calls):
+        try:
+            data_start = html.find("[", call.end())
+            if data_start == -1:
+                raise ValueError("Plotly.newPlot call has no trace array.")
+            data_end = scan_balanced(html, data_start)
 
-    layout_start = html.find("{", data_end)
-    if layout_start == -1:
-        raise ValueError("Plotly.newPlot call has no layout object.")
-    layout_end = scan_balanced(html, layout_start)
+            layout_start = html.find("{", data_end)
+            if layout_start == -1:
+                raise ValueError("Plotly.newPlot call has no layout object.")
+            layout_end = scan_balanced(html, layout_start)
 
-    return (
-        html[: call.start()],
-        html[call.start() : data_start],
-        html[data_start:data_end],
-        html[data_end:layout_start],
-        html[layout_start:layout_end],
-        html[layout_end:],
-    )
+            json.loads(html[data_start:data_end])
+            json.loads(html[layout_start:layout_end])
+        except (ValueError, json.JSONDecodeError) as exc:
+            last_error = exc
+            continue
+
+        return (
+            html[: call.start()],
+            html[call.start() : data_start],
+            html[data_start:data_end],
+            html[data_end:layout_start],
+            html[layout_start:layout_end],
+            html[layout_end:],
+        )
+
+    raise ValueError(f"No parsable Plotly.newPlot payload in HTML: {last_error}")
 
 
 def load_figure(html: str) -> tuple[list, dict]:

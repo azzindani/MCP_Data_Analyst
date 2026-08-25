@@ -171,7 +171,8 @@ def run_eda(
                 s["zero_count"] = int((df[s["column"]] == 0).sum())
                 s["zero_pct"] = round(s["zero_count"] / rows * 100, 2) if rows > 0 else 0
 
-        # Resolved first: the <head> references plotly.min.js in this directory.
+        # Resolved first: the output path decides where the page is written,
+        # and the <head> is assembled around it.
         out = get_output_path(output_path, path, "eda", "html")
         if note := extension_note(output_path, out):
             progress.append(warn("Output extension changed", note))

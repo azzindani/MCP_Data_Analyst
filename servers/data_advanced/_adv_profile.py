@@ -112,8 +112,8 @@ def generate_auto_profile(
         _profile_vars = css_vars(theme)
         _plot_bg, _font_color, ap_accent = theme_plot_colors(theme)
 
-        # Resolved before the page is built: the <head> needs to know which
-        # directory plotly.min.js is written into so it can reference it.
+        # Resolved before the page is built, because the <head> is assembled
+        # around it.
         out = get_output_path(output_path, path, "profile", "html")
         if note := extension_note(output_path, out):
             progress.append(warn("Output extension changed", note))

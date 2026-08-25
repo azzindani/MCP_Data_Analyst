@@ -297,7 +297,8 @@ def generate_dashboard(
         else:
             geo_land_c, geo_ocean_c, geo_coast_c = "#e8ede6", "#c8ddef", "#aabbc8"
 
-        # Resolved first: the <head> references plotly.min.js in this directory.
+        # Resolved first: the output path decides where the page is written,
+        # and the <head> is assembled around it.
         out = get_output_path(output_path, path, "dashboard", "html")
         if note := extension_note(output_path, out):
             progress.append(warn("Output extension changed", note))

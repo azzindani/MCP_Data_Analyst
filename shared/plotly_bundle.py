@@ -1,86 +1,90 @@
 """Where a generated page gets Plotly from, shared verbatim by DA and ML.
 
-The library is 4.85 MB. Inlining it into every artifact made a one-chart page
-4.86 MB and a report 6 MB, and the two repos did not even agree on when to do
-it: Data Analyst inlined it in reports but referenced a sidecar from charts,
-Machine Learning inlined it in both. One sweep of 124 artifacts carried the same
-4.85 MB of JavaScript dozens of times over.
+**A file this server writes has to render on its own.** That is the rule this
+module exists to keep, and it was broken by the thing it used to do.
 
-Worse than the disk cost, `return_content=True` base64-encodes whatever is on
-disk, so asking a tool for the bytes of an ML chart put **6.21 MB of base64 in a
-single tool result** -- measured against the live server, not estimated. No
-client has room for that.
+The library is 4.85 MB, so pages referenced it from a `plotly.min.js` sidecar
+written once per output directory: a chart page was 12 KB instead of 4.86 MB.
+That is right for a directory served whole and wrong for everything else. The
+artifact is the deliverable, and the deliverable travelled alone constantly --
+downloaded on its own, copied somewhere else, attached to a message, opened from
+a path the sidecar was never in. Every one of those is a page with a title, an
+empty bordered box where the chart should be, and `Plotly is not defined` in a
+console nobody has open. It fails silently, and it failed on every chart this
+fleet produced.
 
-So every page in both repos now loads `plotly.min.js` from beside itself, and
-the sidecar is written once per output directory. A page is a few KB; the
-library is paid for once. For the caller that has no filesystem in common with
-this server, `_self_contained` in file_utils swaps in a self-contained SVG
-rendering, and `MAX_EMBED_BYTES` stops anything oversized being encoded at all.
+So the bundle is inlined again, unconditionally. A page costs 4.86 MB on disk
+and works everywhere, including offline, which is this fleet's founding
+constraint.
+
+The size problem the sidecar was solving is real, but it is a problem about
+**what travels in a tool result**, not about what is on disk, and it has its own
+answer: `_self_contained` in file_utils swaps in the few-KB SVG drawing from
+`svg_chart` for the copy returned inline, and `MAX_EMBED_BYTES` refuses anything
+oversized outright. Those two keep working here -- they key off the page being a
+Plotly page, not off how it loads the library, so the disk copy can be fat and
+the response stays small.
 
 Keep this file identical in both repos -- `md5sum */shared/plotly_bundle.py`.
 """
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
-# Anything larger than this is not worth base64-encoding into a tool result.
-# A sidecar page is a few KB, so this only ever trips on something unexpected --
-# it is the backstop that keeps a 6 MB response from being possible at all.
+# Anything larger than this is not worth base64-encoding into a tool result. A
+# self-contained chart page is over it by definition, which is why the response
+# path substitutes an SVG rendering rather than the file's own bytes.
 MAX_EMBED_BYTES = 2_000_000
 
-# What plotly's own to_html calls the two modes, reused so callers can pass the
+# What plotly's own to_html calls the mode, reused so callers can pass the
 # return value straight through as include_plotlyjs.
-SIDECAR = "directory"
 INLINE = True
 
+# The sidecar is no longer written. The name stays because pages produced before
+# this change still reference it, and `references_sidecar` is how they are
+# recognised.
 _SIDECAR_NAME = "plotly.min.js"
-_SIDECAR_TAG = f'<script src="{_SIDECAR_NAME}"></script>'
 
 
-def ensure_plotly_js(output_dir: Path) -> bool:
-    """Copy plotly.min.js beside the page, once. True when it is there.
+def include_plotlyjs_for(output_dir: Path) -> bool:
+    """Value to pass as plotly's `include_plotlyjs` for a page in output_dir.
 
-    False means the package copy could not be found, and the caller must inline
-    the bundle instead -- a page that references a script that is not there is a
-    blank page, and this server has no network to fall back on.
+    Always inline: the page must carry its own library. The argument is kept so
+    that call sites read as a policy question rather than a hardcoded True, and
+    so there is one place to change if this is ever revisited.
     """
-    target = Path(output_dir) / _SIDECAR_NAME
-    if target.exists():
-        return True
-    try:
-        import plotly as _plotly
-
-        src = Path(_plotly.__file__).parent / "package_data" / _SIDECAR_NAME
-        if not src.exists():
-            return False
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(str(src), str(target))
-        return True
-    except Exception:
-        return False
-
-
-def include_plotlyjs_for(output_dir: Path):
-    """Value to pass as plotly's `include_plotlyjs` for a page in output_dir."""
-    return SIDECAR if ensure_plotly_js(output_dir) else INLINE
+    del output_dir
+    return INLINE
 
 
 def plotly_script_tag(output_dir: Path) -> str:
-    """Return the <script> tag for a hand-assembled page written to output_dir.
+    """The `<script>` tag for a hand-assembled page written to output_dir.
 
-    Reports build their own <head> rather than going through plotly's to_html,
-    so they need the tag itself. Falls back to the inline bundle on the same
-    terms as include_plotlyjs_for.
+    Reports build their own `<head>` rather than going through plotly's to_html,
+    so they need the tag itself. One tag per page, with every figure rendered
+    `include_plotlyjs=False`, so a twelve-figure report carries the library once.
     """
-    if ensure_plotly_js(output_dir):
-        return _SIDECAR_TAG
+    del output_dir
     from plotly.offline import get_plotlyjs
 
     return f"<script>{get_plotlyjs()}</script>"
 
 
 def references_sidecar(html: str) -> bool:
-    """True when this page needs plotly.min.js sitting next to it to render."""
+    """True when this page needs plotly.min.js sitting next to it to render.
+
+    Only pages written before the sidecar was removed. Kept so that one of them
+    is still recognised and handled rather than shipped as a blank chart.
+    """
     return f'src="{_SIDECAR_NAME}"' in html
+
+
+def is_plotly_page(html: str) -> bool:
+    """True when this page draws its chart with Plotly, however it loads it.
+
+    The test used to be `references_sidecar`, which meant the response-side
+    substitution silently stopped applying the moment a page started inlining
+    its library -- and inlining is now what every page does.
+    """
+    return "plotly-graph-div" in html or "Plotly.newPlot" in html

@@ -25,7 +25,7 @@ from shared.exchange import (
     public_url_for,
     url_fetch_enabled,
 )
-from shared.plotly_bundle import MAX_EMBED_BYTES
+from shared.plotly_bundle import MAX_EMBED_BYTES, is_plotly_page
 
 __all__ = [
     "count_data_rows",
@@ -243,11 +243,15 @@ def embed_content(result: dict[str, Any], path: Path, return_content: bool) -> d
 def _self_contained(path: Path, data: bytes, result: dict[str, Any]) -> bytes:
     """Return bytes that render on their own, for a caller with no filesystem.
 
-    A chart page loads `plotly.min.js` from beside itself — right for a directory
-    served as a whole, worthless to a caller handed only the bytes, where it is a
-    blank page reading "Plotly is not defined". The interactive file on disk is
-    left alone; `output_path` and `public_url` still point at it. Only the copy
-    travelling in the response is swapped for a self-contained drawing.
+    The file on disk carries its own copy of Plotly and renders anywhere. That
+    makes it 4.86 MB, which is 6.5 MB base64-encoded and far past any budget for
+    content returned inline in a tool result. The interactive file is left alone
+    -- `output_path` and `public_url` still point at it -- and only the copy
+    travelling in the response is swapped for a few-KB SVG drawing.
+
+    The test used to be `'src="plotly.min.js"' in text`, which stopped matching
+    the moment pages went back to inlining the library: the substitution would
+    have silently switched itself off and let the 6 MB response return.
     """
     if path.suffix.lower() not in (".html", ".htm"):
         return data
@@ -255,7 +259,7 @@ def _self_contained(path: Path, data: bytes, result: dict[str, Any]) -> bytes:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
         return data
-    if 'src="plotly.min.js"' not in text:
+    if not is_plotly_page(text):
         return data
 
     from shared.svg_chart import standalone_html
@@ -265,8 +269,9 @@ def _self_contained(path: Path, data: bytes, result: dict[str, Any]) -> bytes:
         # Nothing safe to draw. Say so rather than returning a page that looks
         # like a chart and shows nothing.
         result["content_note"] = (
-            "This chart type has no self-contained form; the returned HTML needs "
-            "plotly.min.js from the same directory. Use public_url to view it."
+            "This chart type has no self-contained SVG form, and the interactive "
+            "page is too large to return inline. Use public_url or output_path to "
+            "open it -- the file itself renders on its own."
         )
         return data
     result["content_note"] = "Static self-contained rendering; use public_url for the interactive chart."

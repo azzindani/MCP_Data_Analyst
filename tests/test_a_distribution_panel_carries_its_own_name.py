@@ -30,30 +30,23 @@ from pathlib import Path
 import pytest
 
 from servers.data_visual import engine as dv
+from shared.plotly_payload import load_figure
 
 COLUMNS = ["spends", "impressions", "clicks"]
 
 
-def _json_at(text: str, start: int) -> tuple[object, int]:
-    """Decode one JSON value beginning at `start`; return it and the index after it.
-
-    A regex over generated HTML is how a helper in this repo sat broken and
-    unnoticed for months -- Plotly's own whitespace defeated it. The decoder
-    that will actually read the value is the one that should find its extent.
-    """
-    return json.JSONDecoder().raw_decode(text, start)
-
-
 def figure_of(html_path: str) -> dict:
-    """The Plotly figure as the page hands it to the browser."""
+    """The Plotly figure as the page hands it to the browser.
+
+    This used to walk the page itself, taking the *first* `Plotly.newPlot(` it
+    found. That was a second copy of `shared/plotly_payload.py`, and it broke
+    the moment pages went back to carrying their own 4.85 MB of Plotly: the
+    library's own source contains that call long before the page's real one, so
+    the walk decoded minified JavaScript and raised JSONDecodeError. One
+    extractor, in the module that owns it.
+    """
     text = Path(html_path).read_text(encoding="utf-8")
-    call = text.index("Plotly.newPlot(")
-    cursor = text.index('"', call)
-    _div_id, cursor = _json_at(text, cursor)
-    cursor = text.index("[", cursor)
-    data, cursor = _json_at(text, cursor)
-    cursor = text.index("{", cursor)
-    layout, _ = _json_at(text, cursor)
+    data, layout = load_figure(text)
     return {"data": data, "layout": layout}
 
 

@@ -427,9 +427,10 @@ def data_table_html(rows: list[dict], max_rows: int = 50) -> str:
 
 
 # Kept as a name because callers and tests refer to it; the policy itself lives
-# in shared/plotly_bundle.py so both repos share one copy. The old version fell
-# back to "cdn", which in a server whose founding constraint is "works fully
-# offline" is a page that can never render. The shared one inlines instead.
+# in shared/plotly_bundle.py so both repos share one copy. It has been wrong in
+# both directions: it once fell back to "cdn", which in a server whose founding
+# constraint is "works fully offline" is a page that can never render, and then
+# to a directory sidecar, which is a page that renders only where it was born.
 _ensure_plotly_js = include_plotlyjs_for
 
 
@@ -463,8 +464,9 @@ def save_chart(
     if progress is not None and (note := extension_note(output_path, out)):
         progress.append(_warn("Output extension changed", note))
 
-    # Sidecar mode: the page gets <script src="plotly.min.js"> and the library
-    # is written beside it once, so the page itself stays a few KB.
+    # The page carries its own Plotly. It is 4.86 MB and it renders wherever it
+    # is opened -- the sidecar that kept it at 12 KB made every chart that
+    # travelled without its directory a blank box.
     include_js = include_plotlyjs_for(out.parent)
     chart_html = fig.to_html(
         include_plotlyjs=include_js,
