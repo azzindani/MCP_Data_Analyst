@@ -136,7 +136,11 @@ class TestARealMapStillDraws:
             open_after=False,
         )
         assert r["success"] is True, r.get("error")
-        assert [s for s in r["progress"] if s.get("status") == "warn"] == []
+        # Narrowed from "no warnings at all": every map now carries one saying
+        # its basemap is fetched at view time, which is about the file and not
+        # about this name. The claim here is that the *name* was accepted.
+        complaints = [s for s in r["progress"] if s.get("status") == "warn" and "network" not in s.get("message", "")]
+        assert complaints == [], complaints
 
     def test_iso3_codes_still_work(self, tmp_path: Path):
         path = write_csv(tmp_path / "iso.csv", ["iso3", "spends"], [["FRA", 1], ["JPN", 2]])

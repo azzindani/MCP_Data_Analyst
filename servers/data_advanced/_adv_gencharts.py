@@ -14,6 +14,7 @@ for _p in (str(_ROOT), _HERE):
 
 import pandas as pd
 from _adv_helpers import (
+    BASEMAP_NOTE,
     _detect_location_mode,
     _find_geo_cols,
     _read_csv,
@@ -25,6 +26,7 @@ from _adv_helpers import (
     is_numeric_col,
     ok,
     plotly_template,
+    remote_basemap_traces,
     warn,
 )
 
@@ -710,12 +712,23 @@ def generate_geo_map(
             progress.append(info("Map type", f"choropleth, mode={loc_mode}, {rows_plotted} locations"))
 
         fig.update_layout(margin={"l": 0, "r": 0, "t": 40, "b": 0}, autosize=True)
+        # Every other chart this server writes is complete once it is on disk.
+        # A map is not: plotly fetches its country outlines from cdn.plot.ly and
+        # tiled maps fetch tiles, so opening one offline gives a colour bar
+        # beside an empty rectangle under success: true. The geometry cannot be
+        # carried in the page without vendoring a world dataset, so what changes
+        # is that the caller is told before they open it.
+        basemap = remote_basemap_traces(fig)
+        if basemap:
+            progress.append(warn("Map needs a network connection to draw", BASEMAP_NOTE))
         abs_p, fname = _save_chart(fig, output_path, "geo_map", path, open_after, theme, progress)
         progress.append(ok("Map saved", fname))
 
         result = {
             "success": True,
             "op": "generate_geo_map",
+            "self_contained": not basemap,
+            "needs_network_for": basemap,
             "file_path": str(path),
             "map_type": map_type,
             "output_path": abs_p,
@@ -728,6 +741,8 @@ def generate_geo_map(
             "color_column": color_column,
             "progress": progress,
         }
+        if basemap:
+            result["hint"] = BASEMAP_NOTE
         embed_content(result, Path(abs_p), return_content)
         result["token_estimate"] = _token_estimate(result)
         return result

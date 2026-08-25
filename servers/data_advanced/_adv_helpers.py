@@ -42,7 +42,11 @@ from shared.html_theme import (
 from shared.html_theme import (
     save_chart as _html_save_chart,
 )
-from shared.plotly_bundle import plotly_script_tag  # noqa: F401  (re-exported for sub-modules)
+from shared.plotly_bundle import (  # noqa: F401  (re-exported for sub-modules)
+    BASEMAP_NOTE,
+    plotly_script_tag,
+    remote_basemap_traces,
+)
 from shared.progress import fail, info, ok, warn
 
 logger = logging.getLogger(__name__)

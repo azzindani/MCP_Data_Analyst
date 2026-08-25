@@ -80,6 +80,43 @@ def references_sidecar(html: str) -> bool:
     return f'src="{_SIDECAR_NAME}"' in html
 
 
+# Trace types whose *basemap* is fetched at view time, not carried in the page.
+# Inlining the library does not help these: a `geo` trace pulls its country
+# outlines from https://cdn.plot.ly/un/world_110m.json and a mapbox trace pulls
+# raster tiles, so on a machine with no network both draw a colour bar beside an
+# empty rectangle -- which is the same silent blank the sidecar produced, from a
+# different cause.
+REMOTE_BASEMAP_TRACES = frozenset(
+    {
+        "choropleth",
+        "scattergeo",
+        "choroplethmapbox",
+        "scattermapbox",
+        "densitymapbox",
+        "choroplethmap",
+        "scattermap",
+        "densitymap",
+    }
+)
+
+BASEMAP_NOTE = (
+    "The map outlines are fetched by the browser when the page is opened "
+    "(plotly loads its basemap from cdn.plot.ly, and tiled maps load tiles), so "
+    "this file needs a network connection to draw the map itself. The data, the "
+    "colour scale and everything else in the page are self-contained."
+)
+
+
+def remote_basemap_traces(fig) -> list[str]:
+    """The trace types in `fig` that will need the network to draw a basemap."""
+    kinds = []
+    for trace in getattr(fig, "data", ()) or ():
+        kind = str(getattr(trace, "type", "") or "")
+        if kind in REMOTE_BASEMAP_TRACES and kind not in kinds:
+            kinds.append(kind)
+    return kinds
+
+
 def is_plotly_page(html: str) -> bool:
     """True when this page draws its chart with Plotly, however it loads it.
 
