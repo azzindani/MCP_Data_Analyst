@@ -498,6 +498,36 @@ def reshape_dataset(
 # ---------------------------------------------------------------------------
 
 
+# What each aggregate_dataset mode actually reads, derived from its branch.
+# The three universal arguments -- file_path, mode, output_path, dry_run -- and
+# the row_column/col_column/values_column aliases are handled separately.
+_AGGREGATE_MODE_ARGS: dict[str, frozenset[str]] = {
+    "groupby": frozenset({"group_by", "agg", "sort_desc", "top_n"}),
+    "crosstab": frozenset({"row_col", "col_col", "values_col", "normalize"}),
+    "value_counts": frozenset({"columns", "top_n", "include_pct"}),
+    "describe": frozenset(),
+    "window": frozenset({"order_by", "columns", "group_by", "window", "window_agg"}),
+}
+
+# Compared against so that only an argument the caller actually changed is
+# reported -- passing top_n=0 to a mode that ignores top_n asked for nothing.
+_AGGREGATE_ARG_DEFAULTS: dict[str, object] = {
+    "group_by": None,
+    "agg": None,
+    "sort_desc": True,
+    "top_n": 0,
+    "row_col": "",
+    "col_col": "",
+    "values_col": "",
+    "normalize": "",
+    "columns": None,
+    "include_pct": True,
+    "order_by": "",
+    "window": 3,
+    "window_agg": "mean",
+}
+
+
 def aggregate_dataset(
     file_path: str,
     mode: str,
@@ -550,6 +580,46 @@ def aggregate_dataset(
                 "progress": [fail("Unknown mode", mode)],
                 "token_estimate": 20,
             }
+
+        # An argument can be perfectly valid for this tool and mean nothing to
+        # the mode it was sent with, and the schema cannot see the difference --
+        # it describes the tool, while the vocabulary is per mode. So
+        # strict_args passes it, the branch never reads it, and the caller is
+        # told the run succeeded:
+        #
+        #     aggregate_dataset(mode="value_counts", row_col="device")
+        #     -> success, and a frequency table of every object column
+        #
+        # which is not what was asked for and is indistinguishable from what
+        # was. The same shape already cost a wrong number once in window mode,
+        # where group_by was accepted and dropped -- see the note further down.
+        mode_args = _AGGREGATE_MODE_ARGS[mode]
+        given = {
+            "group_by": group_by,
+            "agg": agg,
+            "sort_desc": sort_desc,
+            "top_n": top_n,
+            "row_col": row_col,
+            "col_col": col_col,
+            "values_col": values_col,
+            "normalize": normalize,
+            "columns": columns,
+            "include_pct": include_pct,
+            "order_by": order_by,
+            "window": window,
+            "window_agg": window_agg,
+        }
+        ignored = sorted(k for k, v in given.items() if v != _AGGREGATE_ARG_DEFAULTS[k] and k not in mode_args)
+        if ignored:
+            reads = ", ".join(sorted(mode_args)) or "no mode-specific arguments"
+            return {
+                "success": False,
+                "error": f"mode='{mode}' does not read {', '.join(ignored)}.",
+                "hint": f"mode='{mode}' reads: {reads}. Drop the others, or pick the mode that reads them.",
+                "progress": [fail("Argument not read by this mode", ", ".join(ignored))],
+                "token_estimate": 30,
+            }
+
         path = resolve_path(file_path)
         if not path.exists():
             return {

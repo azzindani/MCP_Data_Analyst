@@ -871,11 +871,20 @@ def merge_datasets(
             right_on=right_on,
             how=how,
             suffixes=("", "_right"),
+            indicator="_merge_side",
         )
         if left_on != right_on and right_on in merged.columns:
             merged = merged.drop(columns=[right_on])
 
-        rows_matched = int(merged[left_on].notna().sum())
+        # This was `merged[left_on].notna().sum()` -- the count of rows whose
+        # JOIN KEY is present. On a left join the key comes from the left frame
+        # and is therefore never null, so `matched` was identical to
+        # `result_rows` on every call: three result rows of which two found a
+        # partner were reported as "matched: 3". The one number a caller checks
+        # to find out whether the join worked was the one number that could not
+        # say. pandas' own indicator answers it exactly.
+        rows_matched = int((merged["_merge_side"] == "both").sum())
+        merged = merged.drop(columns=["_merge_side"])
         fanout = _fanout_warning(len(left_df), len(right_df), len(merged), left_on, right_on)
         if fanout:
             progress.append(warn("Join fanned out", fanout))

@@ -195,6 +195,30 @@ def _stats_for_series(series: pd.Series, column: str) -> dict:
     }
 
 
+# The three groups search_columns filters by, and the spellings that mean one
+# of them unambiguously. Every alias on the left is a dtype label some tool in
+# this fleet prints -- pandas' own float64/int64/object, and the friendlier
+# int/float/str the schemas use -- so a caller reading a dtype out of one tool
+# and passing it to this one is using a name it taught them.
+DTYPE_FILTERS: frozenset[str] = frozenset({"numeric", "datetime", "object"})
+DTYPE_FILTER_ALIASES: dict[str, str] = {
+    "float": "numeric",
+    "float64": "numeric",
+    "int": "numeric",
+    "int64": "numeric",
+    "number": "numeric",
+    "numerical": "numeric",
+    "category": "object",
+    "categorical": "object",
+    "str": "object",
+    "string": "object",
+    "text": "object",
+    "date": "datetime",
+    "datetime64": "datetime",
+    "timestamp": "datetime",
+}
+
+
 def _search_df(
     df: pd.DataFrame,
     has_nulls: bool,
@@ -211,11 +235,22 @@ def _search_df(
         candidates = [c for c in candidates if name_contains.lower() in c.lower()]
 
     if dtype:
+        # The chain used to end here with no else, so anything outside these
+        # three was dropped and every column came back as a match:
+        #
+        #     search_columns(f, dtype="float64")  -> all 16 columns, success
+        #
+        # and float64 is not a wild guess -- it is exactly what load_dataset,
+        # inspect_dataset and this tool's own `dtypes` field report. The
+        # vocabulary the tool emits was not the vocabulary it accepted. The
+        # aliases below close that; DTYPE_FILTERS is what an unlisted value is
+        # refused against, one level up in search_columns.
+        dtype = DTYPE_FILTER_ALIASES.get(dtype.strip().lower(), dtype)
         if dtype == "numeric":
             candidates = [c for c in candidates if pd.api.types.is_numeric_dtype(df[c])]
         elif dtype == "datetime":
             candidates = [c for c in candidates if pd.api.types.is_datetime64_any_dtype(df[c])]
-        elif dtype == "object":
+        else:  # object -- validated by the caller, so this is the third of three
             candidates = [
                 c
                 for c in candidates
@@ -605,6 +640,21 @@ def search_columns(
                 "hint": "Check file_path is absolute and the file exists.",
                 "progress": [fail("File not found", path.name)],
                 "token_estimate": 20,
+            }
+
+        # A dtype this tool cannot filter by used to be ignored in silence, so
+        # the answer was every column and the caller had no way to tell that
+        # from a genuine match. Refused here, before the file is read.
+        if dtype and DTYPE_FILTER_ALIASES.get(dtype.strip().lower(), dtype) not in DTYPE_FILTERS:
+            return {
+                "success": False,
+                "error": f"Cannot filter by dtype '{dtype}'.",
+                "hint": (
+                    f"Use one of: {', '.join(sorted(DTYPE_FILTERS))}. "
+                    f"Concrete pandas names are accepted too ({', '.join(sorted(DTYPE_FILTER_ALIASES))})."
+                ),
+                "progress": [fail("Unknown dtype filter", dtype)],
+                "token_estimate": 30,
             }
 
         df = _read_csv(str(path))

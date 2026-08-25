@@ -132,7 +132,15 @@ def read_receipt(
 
 @mcp.tool(annotations=READS)
 def list_patch_ops(category: str = "") -> dict:
-    """List apply_patch ops. category: filtering numeric encoding temporal structural."""
+    """List apply_patch ops. Omit category to get all, grouped by category."""
+    # This used to name five categories -- filtering numeric encoding temporal
+    # structural -- and there are seven. The two it left out, `original` and
+    # `grouped`, hold the thirteen most-used ops (drop_column, clean_text,
+    # cast_column, fill_nulls, normalize, label_encode ...) and group_transform,
+    # so a caller filtering by the advertised names could not reach them. All
+    # seven will not fit in the 80-character docstring budget, so the fix is to
+    # stop teaching a partial list: the ungrouped call returns every category as
+    # a key, and an unknown category is refused with the real seven named.
     return engine.list_patch_ops(category)
 
 
