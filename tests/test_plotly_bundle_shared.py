@@ -50,7 +50,7 @@ from shared.plotly_bundle import (
 _EXTERNAL_REF = re.compile(r"""\b(?:src|href)\s*=\s*["']([^"']+)["']""", re.I)
 
 
-_SCRIPT_BODY = re.compile(r"<script\b[^>]*>.*?</script>", re.I | re.S)
+_SCRIPT_BODY = re.compile(r"(<script\b[^>]*>).*?</script>", re.I | re.S)
 
 
 def page_markup(html: str) -> str:
@@ -60,8 +60,16 @@ def page_markup(html: str) -> str:
     the browser has to go and fetch. The inlined library is 4.85 MB of minified
     JavaScript that mentions plotly.com and cdn.plot.ly in its own source, so
     scanning the raw text finds URLs no browser ever requests.
+
+    The opening tag is kept, and that is the whole point of the capture group.
+    Substituting the entire element threw away the `src` of a
+    `<script src="plotly.min.js">` together with the body it was attached to --
+    so this helper, written to prove the page needs nothing outside itself,
+    could not see the one reference that regression consists of. It passed
+    throughout, because the pages it was given genuinely inlined the library;
+    it would have passed just as quietly if they had stopped.
     """
-    return _SCRIPT_BODY.sub("<script></script>", html)
+    return _SCRIPT_BODY.sub(r"\1</script>", html)
 
 
 def external_refs(html: str) -> list[str]:
@@ -82,6 +90,44 @@ def _inline(path: Path) -> dict:
     result: dict = {"success": True}
     embed_content(result, path, True)
     return result
+
+
+class TestTheGuardCanStillFail:
+    """Prove external_refs() sees a sidecar, before trusting it to say there is none.
+
+    It did not. `page_markup` substituted the whole `<script ...>...</script>`
+    element, which deletes the tag's `src` along with its body, so a page
+    loading the library from `plotly.min.js` came back with no external
+    references at all -- from the helper written to detect exactly that. Every
+    assertion below it passed for the right reason and would have gone on
+    passing for the wrong one.
+
+    Found by giving a separate artifact checker the same four cases and
+    watching one of them not fire.
+    """
+
+    def test_a_script_src_is_a_reference(self):
+        assert external_refs('<script src="plotly.min.js"></script>') == ["plotly.min.js"]
+
+    def test_a_remote_script_src_is_a_reference(self):
+        assert external_refs('<script src="https://cdn.plot.ly/plotly.min.js"></script>') == [
+            "https://cdn.plot.ly/plotly.min.js"
+        ]
+
+    def test_a_stylesheet_is_a_reference(self):
+        assert external_refs('<link rel="stylesheet" href="theme.css">') == ["theme.css"]
+
+    def test_a_url_inside_a_script_body_is_not(self):
+        """The reason bodies are stripped at all: 4.85 MB of minified JS says plotly.com."""
+        assert external_refs('<script>var home="https://plotly.com/";</script>') == []
+
+    def test_an_inline_body_does_not_hide_the_tag_before_it(self):
+        """Both in one page -- the shape a real sidecar page has."""
+        page = '<script src="plotly.min.js"></script><script>Plotly.newPlot("c",[],{});</script>'
+        assert external_refs(page) == ["plotly.min.js"]
+
+    def test_data_uris_travel_with_the_file(self):
+        assert external_refs('<img src="data:image/png;base64,iVBOR">') == []
 
 
 class TestTheWrittenPageStandsAlone:
