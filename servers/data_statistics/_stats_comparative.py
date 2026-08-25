@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 from shared.arg_alias import missing, pick
-from shared.file_utils import hint_for_error, resolve_path
+from shared.file_utils import error_text, hint_for_error, resolve_path
 from shared.file_utils import read_csv as _read_csv
 from shared.progress import fail, info, ok, warn
 
@@ -325,7 +325,7 @@ def period_comparison(
         logger.exception("period_comparison error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             # The validation hint above lists H as valid; this one used to omit
             # it, so the tool contradicted itself about its own vocabulary.
             "hint": hint_for_error(exc, "Check date_col, metrics, and period_unit (D W M Q Y H, or MoM QoQ YoY)."),

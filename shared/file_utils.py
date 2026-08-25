@@ -34,11 +34,14 @@ __all__ = [
     "atomic_write_text",
     "attach_public_url",
     "embed_content",
+    "error_text",
     "fetch_url",
     "get_default_output_dir",
     "get_inbox_dir",
     "get_output_dir",
+    "hint_for_error",
     "is_url",
+    "missing_name",
     "public_url_for",
     "read_csv",
     "resolve_path",
@@ -292,6 +295,41 @@ def _theme_of(chart_html: str) -> str:
     return "light" if "background:#ffffff" in chart_html.replace(" ", "") else "dark"
 
 
+def missing_name(exc: Exception) -> str | None:
+    """The name a KeyError was raised for, or None if this is not one.
+
+    `str(KeyError("device"))` is `"'device'"` -- the name in quotes and nothing
+    else, no verb, no mention of a lookup, no mention of a column. Seventy-five
+    tools here put `str(exc)` in their `error` field, so asking any of them for
+    a column that is not in the file answers with the bare quoted word and a
+    hint that guesses at three possible causes. Whether it is a column or a
+    dict key depends on the caller, so this returns only the name and lets the
+    caller say which it was.
+    """
+    if not isinstance(exc, KeyError) or not exc.args:
+        return None
+    return str(exc.args[0])
+
+
+def error_text(exc: Exception) -> str:
+    """`str(exc)`, except for the one exception that renders as a bare word.
+
+    Every other exception here says what happened. A KeyError says `'device'`,
+    which reads as a value the tool is quoting back rather than as a name it
+    could not find, and gives the caller nothing to act on. The matching hint
+    names the alternatives; this makes the error field a sentence.
+    """
+    name = missing_name(exc)
+    if name is not None:
+        return f"No column or key named {name!r}."
+    if isinstance(exc, KeyError):
+        # KeyError() with no argument stringifies to "", which would put an
+        # empty error field in the response -- the one shape the contract has
+        # no reading for, since `error` is what the caller is shown on failure.
+        return "A lookup failed and did not say for what."
+    return str(exc)
+
+
 def hint_for_error(exc: Exception, fallback: str) -> str:
     """A hint that matches what actually went wrong, not what usually does.
 
@@ -304,7 +342,18 @@ def hint_for_error(exc: Exception, fallback: str) -> str:
 
     The fallback is still the domain hint, so nothing is lost where the guess
     was already right.
+
+    A KeyError is checked before the rest because it is the one exception whose
+    own text says nothing: the domain fallback for a chart tool is "Check
+    file_path, column names, and chart_type", which is three guesses at a
+    failure that already knows exactly which name it could not find.
     """
+    name = missing_name(exc)
+    if name is not None:
+        return (
+            f"Nothing here is named {name!r} -- check the column names you passed, and the keys "
+            "of any dict argument. inspect_dataset() lists this file's columns."
+        )
     if isinstance(exc, PermissionError):
         return (
             "Permission denied writing that path. Point output_path at a directory "

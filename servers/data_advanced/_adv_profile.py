@@ -44,7 +44,7 @@ from _adv_helpers import (
     warn,
 )
 
-from shared.file_utils import embed_content, hint_for_error, resolve_path
+from shared.file_utils import embed_content, error_text, hint_for_error, resolve_path
 
 logger = logging.getLogger(__name__)
 
@@ -219,7 +219,7 @@ def generate_auto_profile(
         logger.exception("generate_auto_profile error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,

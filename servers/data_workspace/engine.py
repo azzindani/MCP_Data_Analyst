@@ -7,7 +7,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from shared.file_utils import hint_for_error
+from shared.file_utils import error_text, hint_for_error
 from shared.handover import make_context, make_handover
 from shared.patch_validator import validate_ops
 from shared.progress import fail, info, ok, warn  # noqa: F401
@@ -121,7 +121,7 @@ def create_workspace(name: str, description: str = "", base_dir: str = "") -> di
         logger.exception("create_workspace error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check that base_dir is writable and name contains no special characters."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -191,7 +191,7 @@ def open_workspace(name: str, base_dir: str = "") -> dict:
     except FileNotFoundError as exc:
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": "Use create_workspace() to create a new workspace first.",
             "progress": [fail("Workspace not found", name)],
             "token_estimate": 20,
@@ -200,7 +200,7 @@ def open_workspace(name: str, base_dir: str = "") -> dict:
         logger.exception("open_workspace error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check that base_dir matches the one used when creating the workspace."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -277,14 +277,14 @@ def register_workspace_file(
         if f"Workspace '{workspace_name}'" in str(exc):
             return {
                 "success": False,
-                "error": str(exc),
+                "error": error_text(exc),
                 "hint": f"Use create_workspace('{workspace_name}') first, then register files into it.",
                 "progress": [fail("Workspace not found", workspace_name)],
                 "token_estimate": 20,
             }
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": "Check that file_path is an absolute path to an existing file.",
             "progress": [fail("File not found", file_path)],
             "token_estimate": 20,
@@ -293,7 +293,7 @@ def register_workspace_file(
         logger.exception("register_workspace_file error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Valid stages: raw working trial output."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -342,7 +342,7 @@ def list_workspace_files(workspace_name: str, stage: str = "", base_dir: str = "
     except FileNotFoundError as exc:
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": "Use create_workspace() first, then register_workspace_file() to add files.",
             "progress": [fail("Workspace not found", workspace_name)],
             "token_estimate": 20,
@@ -351,7 +351,7 @@ def list_workspace_files(workspace_name: str, stage: str = "", base_dir: str = "
         logger.exception("list_workspace_files error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check workspace_name and base_dir."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -426,7 +426,7 @@ def save_workspace_pipeline(
         logger.exception("save_workspace_pipeline error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(
                 exc, "ops must be a list of apply_patch op dicts. Use list_patch_ops() for reference."
             ),
@@ -569,7 +569,7 @@ def run_workspace_pipeline(
     except FileNotFoundError as exc:
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": "Use list_workspace_files() to check registered aliases.",
             "progress": [fail("Not found", str(exc))],
             "token_estimate": 20,
@@ -578,7 +578,7 @@ def run_workspace_pipeline(
         logger.exception("run_workspace_pipeline error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check pipeline_name, input_alias, and workspace configuration."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,

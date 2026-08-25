@@ -40,7 +40,7 @@ if _HERE not in sys.path:
 
 from _patch_ops import OP_HANDLERS, _parse_expr
 
-from shared.file_utils import atomic_write_text, hint_for_error, resolve_path
+from shared.file_utils import atomic_write_text, error_text, hint_for_error, resolve_path
 from shared.patch_validator import VALID_OPS, validate_ops
 from shared.platform_utils import get_max_results, get_max_rows
 from shared.progress import fail, info, ok, undo, warn
@@ -392,7 +392,7 @@ def load_dataset(
         logger.exception("load_dataset error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check that file_path is absolute and the file exists."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -515,7 +515,7 @@ def load_geo_dataset(
         logger.exception("load_geo_dataset error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Verify the file is a valid GeoJSON or shapefile."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -590,7 +590,7 @@ def inspect_dataset(
         logger.exception("inspect_dataset error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -651,7 +651,7 @@ def read_column_stats(
         logger.exception("read_column_stats error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Use inspect_dataset() first to verify column names."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -743,7 +743,7 @@ def search_columns(
         logger.exception("search_columns error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -809,7 +809,7 @@ def apply_patch(
                     dry_df, op_result = _apply_op(dry_df, op)
                     dry_results.append(op_result)
                 except Exception as exc:
-                    dry_errors.append({"op_index": i, "op": op.get("op", ""), "error": str(exc)})
+                    dry_errors.append({"op_index": i, "op": op.get("op", ""), "error": error_text(exc)})
             would_change = [{"op": op.get("op", ""), "params": op} for op in ops]
             result = {
                 "success": len(dry_errors) == 0,
@@ -839,7 +839,7 @@ def apply_patch(
                 results.append(op_result)
                 progress.append(ok(f"Applied {op_result.get('op', '?')}", str(op_result)))
             except Exception as exc:
-                op_errors.append({"op_index": i, "op": op.get("op", ""), "error": str(exc)})
+                op_errors.append({"op_index": i, "op": op.get("op", ""), "error": error_text(exc)})
                 progress.append(fail(f"Op {i} ({op.get('op', '?')}) failed", str(exc)))
 
         if op_errors:
@@ -911,7 +911,7 @@ def apply_patch(
         logger.exception("apply_patch error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Use restore_version() to undo if a snapshot was taken."),
             "backup": backup,
             "progress": [fail("Unexpected error", str(exc))],
@@ -1016,7 +1016,7 @@ def restore_version(
         logger.exception("restore_version error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check that the backup path is valid."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -1065,7 +1065,7 @@ def read_receipt(
         logger.exception("read_receipt error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path is absolute and the file exists."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -1208,7 +1208,7 @@ def list_patch_ops(category: str = "") -> dict:
     except Exception as exc:
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Call with no arguments to list all ops."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 10,

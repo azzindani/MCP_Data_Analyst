@@ -53,7 +53,7 @@ from _med_helpers import (
 )
 
 from shared.column_utils import infer_agg, is_numeric_col, paired_numeric
-from shared.file_utils import hint_for_error, resolve_path
+from shared.file_utils import error_text, hint_for_error, resolve_path
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.small_sample import (
@@ -185,7 +185,7 @@ def correlation_analysis(
         logger.exception("correlation_analysis error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -774,7 +774,7 @@ def statistical_tests(
         logger.exception("statistical_tests error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check column names and ensure numeric/categorical types are correct."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -1082,7 +1082,7 @@ def time_series_analysis(
         logger.exception("time_series_analysis error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check date_column is a datetime column and value_columns are numeric."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -1279,7 +1279,7 @@ def cohort_analysis(
         logger.exception("cohort_analysis error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check date_column is a datetime column and cohort_column exists."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -1455,7 +1455,7 @@ def detect_anomalies(
         logger.exception("detect_anomalies error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path is absolute and columns are numeric."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,

@@ -24,7 +24,7 @@ from _med_helpers import (
 from _patch_ops import OP_HANDLERS  # type: ignore[import-not-found]
 
 from shared.arg_alias import missing, pick, pick_list
-from shared.file_utils import hint_for_error, resolve_path
+from shared.file_utils import error_text, hint_for_error, resolve_path
 from shared.patch_validator import unwrap_params, validate_ops
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
@@ -209,7 +209,7 @@ def enrich_with_geo(
         logger.exception("enrich_with_geo error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file paths are absolute and join columns exist."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -318,7 +318,7 @@ def compute_aggregations(
         logger.exception("compute_aggregations error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path and column names are correct."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -567,7 +567,7 @@ def run_cleaning_pipeline(
         logger.exception("run_cleaning_pipeline error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Use restore_version to undo if a snapshot was taken."),
             "backup": backup,
             "progress": [fail("Unexpected error", str(exc))],
@@ -735,7 +735,7 @@ def smart_impute(
         logger.exception("smart_impute error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Use restore_version to undo if a snapshot was taken."),
             "backup": backup,
             "progress": [fail("Unexpected error", str(exc))],
@@ -966,7 +966,7 @@ def merge_datasets(
         logger.exception("merge_datasets error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Use restore_version to undo if a snapshot was taken."),
             "backup": backup,
             "progress": [fail("Unexpected error", str(exc))],
@@ -1147,7 +1147,7 @@ def feature_engineering(
         logger.exception("feature_engineering error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Use restore_version to undo if a snapshot was taken."),
             "backup": backup,
             "progress": [fail("Unexpected error", str(exc))],
@@ -1337,7 +1337,7 @@ def resample_timeseries(
         logger.exception("resample_timeseries error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Ensure date_col is parseable as datetime and value_cols are numeric."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -1455,7 +1455,7 @@ def concat_datasets(
         logger.exception("concat_datasets error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check all file_paths are absolute and point to valid CSVs."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,

@@ -25,7 +25,7 @@ from _adv_helpers import (
     plotly_template,
 )
 
-from shared.file_utils import embed_content, hint_for_error, resolve_path
+from shared.file_utils import embed_content, error_text, hint_for_error, resolve_path
 from shared.progress import info, warn
 from shared.small_sample import MIN_N_CORRELATION, MIN_N_IQR
 from shared.version_control import snapshot_if_exists
@@ -159,7 +159,7 @@ def generate_distribution_plot(
         logger.exception("generate_distribution_plot error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -269,7 +269,7 @@ def generate_correlation_heatmap(
         logger.exception("generate_correlation_heatmap error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -378,7 +378,7 @@ def generate_pairwise_plot(
         logger.exception("generate_pairwise_plot error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path and column names."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -537,7 +537,7 @@ def generate_multi_chart(
         logger.exception("generate_multi_chart error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path, column names, and chart_type."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -631,7 +631,7 @@ def export_data(
         logger.exception("export_data error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path and format."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,

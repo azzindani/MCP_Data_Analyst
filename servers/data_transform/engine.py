@@ -26,7 +26,7 @@ from _med_transform import (  # type: ignore[import]
 )
 
 from shared.column_utils import condition_column, filter_operand_error, missing_column_error
-from shared.file_utils import atomic_write_text, hint_for_error, resolve_path
+from shared.file_utils import atomic_write_text, error_text, hint_for_error, resolve_path
 from shared.file_utils import read_csv as _shared_read_csv
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
@@ -279,7 +279,7 @@ def filter_dataset(
         logger.exception("filter_dataset error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": f"Valid filter ops: {', '.join(sorted(_FILTER_OPS))}",
             "backup": backup or "",
             "progress": [fail("Unexpected error", str(exc))],
@@ -485,7 +485,7 @@ def reshape_dataset(
         logger.exception("reshape_dataset error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check mode and required parameters for each mode."),
             "backup": backup or "",
             "progress": [fail("Unexpected error", str(exc))],
@@ -847,7 +847,7 @@ def aggregate_dataset(
         logger.exception("aggregate_dataset error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(
                 exc, "Check mode and required parameters. Use inspect_dataset() to verify column names."
             ),

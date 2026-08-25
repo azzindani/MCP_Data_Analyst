@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 from shared.arg_alias import missing, pick, pick_list
-from shared.file_utils import hint_for_error, no_rows_error, resolve_path
+from shared.file_utils import error_text, hint_for_error, no_rows_error, resolve_path
 from shared.file_utils import read_csv as _read_csv
 from shared.progress import fail, info, ok, warn
 from shared.small_sample import MIN_N_SHAPIRO, is_significant, rounded, shapiro_p
@@ -474,7 +474,7 @@ def regression_analysis(
         logger.exception("regression_analysis error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(
                 exc,
                 "Check y_col and x_cols are numeric (or categorical for one-hot encoding). Use model_type: ols or logistic.",

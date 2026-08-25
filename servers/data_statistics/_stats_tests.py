@@ -16,8 +16,8 @@ import numpy as np
 import pandas as pd
 
 from shared.arg_alias import missing, pick
+from shared.file_utils import error_text, resolve_path
 from shared.file_utils import read_csv as _read_csv
-from shared.file_utils import resolve_path
 from shared.progress import fail, info, ok, warn
 from shared.small_sample import (
     MIN_N_SHAPIRO,
@@ -726,7 +726,7 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
         logger.exception("statistical_test error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": f"Check column names and test type. Valid tests: {', '.join(sorted(_VALID_TESTS))}",
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,

@@ -45,7 +45,7 @@ from _med_helpers import (
 
 from shared.column_utils import condition_column, filter_operand_error, missing_column_error
 from shared.file_utils import count_data_rows as _count_data_rows
-from shared.file_utils import hint_for_error, resolve_path
+from shared.file_utils import error_text, hint_for_error, resolve_path
 from shared.platform_utils import get_max_results, get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
@@ -275,7 +275,7 @@ def check_outliers(
         logger.exception("check_outliers error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -412,7 +412,7 @@ def scan_nulls_zeros(
         logger.exception("scan_nulls_zeros error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -547,7 +547,7 @@ def validate_dataset(
         logger.exception("validate_dataset error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -667,7 +667,7 @@ def auto_detect_schema(
         logger.exception("auto_detect_schema error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -917,7 +917,7 @@ def filter_rows(
         logger.exception("filter_rows error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": f"Valid ops: equals not_equals contains gt gte lt lte is_null not_null isin between date_range regex. Error: {exc}",
             "backup": backup,
             "progress": [fail("Unexpected error", str(exc))],
@@ -1011,7 +1011,7 @@ def sample_data(
         logger.exception("sample_data error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path is absolute and the file is a valid CSV."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -1128,7 +1128,7 @@ def analyze_text_column(
         logger.exception("analyze_text_column error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path is absolute, column exists, and is a text column."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -1338,7 +1338,7 @@ def extended_stats(
         logger.exception("extended_stats error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path is absolute and columns are numeric."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,

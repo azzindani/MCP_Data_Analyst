@@ -34,7 +34,7 @@ from _med_helpers import (
 
 from shared.arg_alias import missing as missing_arg
 from shared.arg_alias import pick
-from shared.file_utils import hint_for_error, resolve_path
+from shared.file_utils import error_text, hint_for_error, resolve_path
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
 
@@ -167,7 +167,7 @@ def cross_tabulate(
         logger.exception("cross_tabulate error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path and column names are correct."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -286,7 +286,7 @@ def pivot_table(
         logger.exception("pivot_table error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path and column names. values must be numeric for most agg_funcs."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -387,7 +387,7 @@ def value_counts(
         logger.exception("value_counts error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check file_path and column names are correct."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -620,7 +620,7 @@ def compare_datasets(
         logger.exception("compare_datasets error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check both file paths are absolute and point to valid CSV files."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,

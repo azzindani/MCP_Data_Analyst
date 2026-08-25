@@ -17,6 +17,7 @@ from shared.file_utils import (
     atomic_write,
     atomic_write_text,
     embed_content,
+    error_text,
     get_default_output_dir,
     hint_for_error,
     resolve_path,
@@ -267,7 +268,7 @@ def list_sheets(file_path: str) -> dict:
         logger.exception("list_sheets error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check that the file is a valid Excel or ODS file."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -390,7 +391,7 @@ def extract_sheet(
         logger.exception("extract_sheet error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "backup": backup,
             "hint": hint_for_error(exc, "Use list_sheets() to verify sheet names."),
             "progress": [fail("Unexpected error", str(exc))],
@@ -485,7 +486,7 @@ def extract_all_sheets(file_path: str, output_dir: str = "", dry_run: bool = Fal
         logger.exception("extract_all_sheets error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "backup": backup,
             "hint": hint_for_error(exc, "Use restore_version() on the input file if a snapshot was taken."),
             "progress": [fail("Unexpected error", str(exc))],
@@ -561,7 +562,7 @@ def detect_tables(file_path: str, sheet: str = "", min_rows: int = 2, min_cols: 
         logger.exception("detect_tables error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "hint": hint_for_error(exc, "Check the file is a valid Excel file."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -699,7 +700,7 @@ def extract_table(
         logger.exception("extract_table error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "backup": backup,
             "hint": hint_for_error(exc, "Call detect_tables() to verify table indices."),
             "progress": [fail("Unexpected error", str(exc))],
@@ -813,7 +814,7 @@ def normalize_headers(
         logger.exception("normalize_headers error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "backup": backup,
             "hint": hint_for_error(exc, "Use inspect_dataset() to verify column names first."),
             "progress": [fail("Unexpected error", str(exc))],
@@ -911,7 +912,7 @@ def trim_empty(file_path: str, output_path: str = "", dry_run: bool = False) -> 
         logger.exception("trim_empty error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "backup": backup,
             "hint": hint_for_error(exc, "Use inspect_dataset() to verify the file structure first."),
             "progress": [fail("Unexpected error", str(exc))],
@@ -1007,7 +1008,7 @@ def promote_header(file_path: str, row_index: int = 0, output_path: str = "", dr
         logger.exception("promote_header error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "backup": backup,
             "hint": hint_for_error(exc, "Use inspect_dataset() to verify row structure first."),
             "progress": [fail("Unexpected error", str(exc))],
@@ -1143,7 +1144,7 @@ def flatten_merged_cells(
         logger.exception("flatten_merged_cells error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "backup": backup,
             "hint": hint_for_error(exc, "Check the file is a valid .xlsx with merged cells."),
             "progress": [fail("Unexpected error", str(exc))],
@@ -1318,7 +1319,7 @@ def convert_file(
         logger.exception("convert_file error")
         return {
             "success": False,
-            "error": str(exc),
+            "error": error_text(exc),
             "backup": backup,
             "hint": f"Valid output formats: {', '.join(sorted(_OUTPUT_FMTS))}",
             "progress": [fail("Unexpected error", str(exc))],
