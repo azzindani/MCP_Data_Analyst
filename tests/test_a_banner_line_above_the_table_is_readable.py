@@ -109,7 +109,12 @@ class TestRowIndexCountsPhysicalLines:
         assert r["success"] is True, r.get("error")
         got = [h if not h.startswith("nan") else "Unnamed" for h in r["new_headers"]]
         assert got[0] == expected[0]
-        assert r["rows_dropped_above"] == row_index + 1
+        # What this class is about is that row_index counts physical lines from
+        # zero. It used to assert rows_dropped_above == row_index + 1, which
+        # pinned the off-by-one in that count as a side effect: the promoted row
+        # is not dropped, it becomes the columns, so the rows lost are the ones
+        # above it. See test_two_counts_that_described_something_else.
+        assert r["rows_dropped_above"] == row_index
 
 
 class TestTheHintNamesTheFix:

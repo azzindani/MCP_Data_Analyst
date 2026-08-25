@@ -91,6 +91,29 @@ def _first_row(path: Path) -> list[str]:
     return []
 
 
+def blank_line_count(path: Path) -> int:
+    """Physically blank lines in a CSV -- the ones pandas never shows anyone.
+
+    `read_csv` drops them before the frame exists (skip_blank_lines defaults to
+    True), so a tool that removes empty rows cannot count the ones it removed:
+    trim_empty reported rows_dropped 0 on a file with two blank lines above the
+    table and one below, having correctly written all three out of the result.
+
+    Reading with skip_blank_lines=False is not the fix. A leading blank line
+    then becomes the header row and pandas raises "No columns to parse from
+    file" -- so the tool would fail outright on the exact shape it exists to
+    repair, which is worse than a wrong count.
+
+    csv.reader rather than a line scan, so a blank line inside a quoted field
+    stays part of its row instead of being counted as an empty one.
+    """
+    try:
+        with open(path, newline="", encoding="utf-8", errors="replace") as fh:
+            return sum(1 for row in csv.reader(fh) if not row)
+    except OSError:
+        return 0
+
+
 def read_csv_ragged(path: Path, header: int | None = 0) -> pd.DataFrame:
     """Read a CSV whose rows disagree about how many fields they have.
 
@@ -110,6 +133,7 @@ def read_csv_ragged(path: Path, header: int | None = 0) -> pd.DataFrame:
     first, and the file is only re-scanned for its true width after pandas has
     already refused it. Short rows are then padded with NaN, which is what a
     spreadsheet shows for the same cells.
+
     """
     try:
         return pd.read_csv(str(path), header=header)
@@ -854,7 +878,14 @@ def trim_empty(file_path: str, output_path: str = "", dry_run: bool = False) -> 
             }
 
         df = read_csv_ragged(path)
-        rows_before = len(df)
+        # Blank lines are the thing this tool exists to remove, and the reader
+        # drops them before the frame exists -- so counting the frame counted
+        # everything except them. A file with two blank lines above the table
+        # and one below came back "rows_before: 16834, rows_dropped: 0" while
+        # the output correctly had all three gone. They are counted from the
+        # file instead; see blank_line_count for why not from the parse.
+        blank_lines = blank_line_count(path)
+        rows_before = len(df) + blank_lines
         cols_before = len(df.columns)
 
         df = df.replace(r"^\s*$", pd.NA, regex=True)
@@ -962,8 +993,14 @@ def promote_header(file_path: str, row_index: int = 0, output_path: str = "", dr
             }
 
         new_headers = [str(v) if pd.notna(v) else f"col_{i}" for i, v in enumerate(df.iloc[row_index])]
-        rows_dropped = row_index + 1
-        df = df.iloc[rows_dropped:].copy()
+        # The slice starts after the promoted row, so it removes row_index + 1
+        # rows from the frame -- but one of those is the header row itself, and
+        # it is not dropped: it becomes the columns. What the caller actually
+        # loses is whatever sat above it, which is exactly row_index. Reporting
+        # the slice width under the name `rows_dropped_above` said 2 for a file
+        # with one title line over the header.
+        rows_above = row_index
+        df = df.iloc[row_index + 1 :].copy()
         df.columns = new_headers
         df = df.reset_index(drop=True)
 
@@ -975,7 +1012,7 @@ def promote_header(file_path: str, row_index: int = 0, output_path: str = "", dr
                 "success": True,
                 "dry_run": True,
                 "op": "promote_header",
-                "would_change": {"new_headers": new_headers, "rows_dropped_above": rows_dropped},
+                "would_change": {"new_headers": new_headers, "rows_dropped_above": rows_above},
                 "would_write": str(out),
                 "progress": progress,
             }
@@ -994,7 +1031,7 @@ def promote_header(file_path: str, row_index: int = 0, output_path: str = "", dr
             result=f"promoted row {row_index} as header → {out.name}",
             backup=backup or "",
         )
-        progress.append(ok("Promoted header", f"row {row_index} → columns; {rows_dropped} row(s) dropped"))
+        progress.append(ok("Promoted header", f"row {row_index} → columns; {rows_above} row(s) above dropped"))
         result = {
             "success": True,
             "op": "promote_header",
@@ -1002,7 +1039,7 @@ def promote_header(file_path: str, row_index: int = 0, output_path: str = "", dr
             "output_path": str(out),
             "promoted_row_index": row_index,
             "new_headers": new_headers,
-            "rows_dropped_above": rows_dropped,
+            "rows_dropped_above": rows_above,
             "backup": backup or "",
             "progress": progress,
         }
