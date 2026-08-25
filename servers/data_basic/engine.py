@@ -123,6 +123,12 @@ def _inspect_df(df: pd.DataFrame) -> dict:
     }
 
 
+def _top_values(series: pd.Series, limit: int = 10) -> dict:
+    """The most frequent values and their counts, whatever the dtype."""
+    counts = series.value_counts().head(limit).to_dict()
+    return {str(k): int(v) for k, v in counts.items()}
+
+
 def _stats_for_series(series: pd.Series, column: str) -> dict:
     """Pure: dtype-appropriate stats dict for a Series. No I/O."""
     dtype = _dtype_label(series)
@@ -178,11 +184,17 @@ def _stats_for_series(series: pd.Series, column: str) -> dict:
             "iqr": round(iqr, 4) if iqr is not None else None,
             "outlier_count_iqr": outlier_iqr,
             "outlier_count_std": outlier_std,
+            # The docstring reads "mean median std min max nulls unique top"
+            # and the numeric branch produced neither of the last two, so the
+            # two things a caller asks for when a column is mostly one value
+            # were the two it could not get. Found by asking the sibling
+            # question of ml_basic's read_column_profile, which promised "top
+            # values" and returned them for categorical columns alone.
+            "unique_count": int(series.nunique()),
+            "top_values": _top_values(series),
         }
 
     # Categorical path
-    top_values = series.value_counts().head(10).to_dict()
-    top_values = {str(k): int(v) for k, v in top_values.items()}
     unique_count = int(series.nunique())
     return {
         "column": column,
@@ -191,7 +203,7 @@ def _stats_for_series(series: pd.Series, column: str) -> dict:
         "null_count": null_count,
         "null_pct": null_pct,
         "unique_count": unique_count,
-        "top_values": top_values,
+        "top_values": _top_values(series),
     }
 
 
