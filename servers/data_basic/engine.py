@@ -1021,7 +1021,12 @@ def restore_version(
                 }
             backup_name = matching[0]
         else:
-            # Most recent
+            # Most recent. This tool is annotated EDITS and there is no separate
+            # "list the versions" tool, so omitting the timestamp -- the natural
+            # way to ask what snapshots exist -- overwrites the file instead.
+            # The counter-snapshot below means nothing is lost, but the caller
+            # has to be told which snapshot was picked and that it was picked
+            # for want of an argument.
             backup_name = versions[0]
 
         backup_path = str(versions_dir / backup_name)
@@ -1032,6 +1037,13 @@ def restore_version(
 
         restore(str(path), backup_path)
         progress.append(ok(f"Restored {path.name}", backup_name))
+        if not timestamp:
+            progress.append(
+                warn(
+                    f"No timestamp given — restored the newest of {len(versions)}",
+                    "pass timestamp= from available_versions to pick another",
+                )
+            )
 
         # Restoring to a state the file already held changes nothing, and the
         # counter-snapshot of it is then a duplicate of the live file.
@@ -1059,7 +1071,17 @@ def restore_version(
             "file_path": str(path),
             "restored_from": backup_path,
             "available_versions": versions,
-            "hint": "Call inspect_dataset() to confirm the restored state.",
+            "newest_by_default": not timestamp,
+            "hint": (
+                (
+                    f"No timestamp was given, so the newest of {len(versions)} snapshot(s) was "
+                    f"written over {path.name}: {backup_name}. Pass timestamp= from "
+                    "available_versions to choose a different one. "
+                )
+                if not timestamp
+                else ""
+            )
+            + "Call inspect_dataset() to confirm the restored state.",
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)

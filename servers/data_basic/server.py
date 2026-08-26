@@ -117,7 +117,7 @@ def restore_version(
     file_path: str,
     timestamp: str = "",
 ) -> dict:
-    """Restore file to a snapshot. timestamp from backup filename."""
+    """Restore a snapshot. No timestamp overwrites with the newest."""
     return engine.restore_version(file_path, timestamp)
 
 
