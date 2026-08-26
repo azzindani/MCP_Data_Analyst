@@ -40,7 +40,7 @@ if _HERE not in sys.path:
 
 from _patch_ops import OP_HANDLERS, _parse_expr
 
-from shared.file_utils import atomic_write_text, error_text, hint_for_error, resolve_path
+from shared.file_utils import atomic_write_text, count_data_rows, error_text, hint_for_error, resolve_path
 from shared.patch_validator import VALID_OPS, validate_ops
 from shared.platform_utils import get_max_results, get_max_rows
 from shared.progress import fail, info, ok, undo, warn
@@ -349,11 +349,28 @@ def load_dataset(
                 "token_estimate": 30,
             }
 
+        # Every count below -- nulls, uniques, and the dtype pandas settles on
+        # -- describes the rows that were read, and with max_rows set that is
+        # the head of the file rather than the file. On the reference dataset
+        # the first null in link_clicks is at row 2,011, so max_rows=1000
+        # reports that column as having none, in the same flat shape a
+        # whole-file answer would use. A zero meaning "not looked at" is
+        # indistinguishable from "there are none".
+        #
+        # The sample is not widened -- reading it all is what the caller asked
+        # not to do -- but the response says what it counted. auto_detect_schema
+        # samples 1,000 rows by default and was corrected for this in an earlier
+        # round; this is the sibling that was missed.
+        total_rows = count_data_rows(path)
+        counted_from_sample = total_rows > len(df)
+
         if max_rows > 0:
             progress.append(
                 warn(
                     "Row sampling active",
-                    f"max_rows={max_rows}; constrained mode may apply",
+                    f"read {len(df):,} of {total_rows:,} rows; counts describe the sample"
+                    if counted_from_sample
+                    else f"max_rows={max_rows} covers the whole file ({total_rows:,} rows)",
                 )
             )
 
@@ -377,13 +394,21 @@ def load_dataset(
             "file": path.name,
             "file_path": str(path),
             "rows": len(df),
+            "total_rows": total_rows,
+            "counted_from_sample": counted_from_sample,
             "columns": len(df.columns),
             "dtypes": profile["dtypes"],
             "null_counts": profile["null_counts"],
             "unique_counts": profile["unique_counts"],
             "sample": profile["sample"],
             "encoding_used": encoding,
-            "hint": "Call search_columns() or inspect_dataset() to explore next.",
+            "hint": (
+                f"Counts come from the first {len(df):,} of {total_rows:,} rows, so a null or "
+                "unique count of 0 may only mean this sample. Call inspect_dataset() for the "
+                "whole column, or raise max_rows."
+                if counted_from_sample
+                else "Call search_columns() or inspect_dataset() to explore next."
+            ),
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
