@@ -269,6 +269,15 @@ def period_comparison(
         else:
             cur_pd = all_periods[-1]
 
+        # A period the data only partly covers still produces a clean-looking
+        # percentage, and most of that percentage is calendar. On the reference
+        # dataset the last month runs 2020-07-01 to 2020-07-07 against a full
+        # June, and this tool reported spends "down 78.84%" with nothing to say
+        # that seven days were being held against thirty. The arithmetic is
+        # right; read as a business decline it is wrong by roughly a factor of
+        # four. Round 16 found it by checking where the fixture ends.
+        data_start, data_end = df[date_col].min(), df[date_col].max()
+
         if compare_to == "previous":
             ref_pd = cur_pd - 1
         elif compare_to == "same_last_year":
@@ -333,6 +342,27 @@ def period_comparison(
 
         progress.append(ok("Period comparison", f"{cur_pd} vs {ref_pd}"))
 
+        # Days the data actually covers in each period, against the days the
+        # calendar gives it. Reported for both, because a run starting mid-month
+        # produces the same distortion with its sign flipped.
+        def _coverage(p) -> dict:
+            span_start, span_end = p.start_time, p.end_time
+            have_start = max(span_start, data_start)
+            have_end = min(span_end, data_end)
+            days_in = (span_end.normalize() - span_start.normalize()).days + 1
+            days_have = (
+                max(0, (have_end.normalize() - have_start.normalize()).days + 1) if have_end >= have_start else 0
+            )
+            return {
+                "period": str(p),
+                "days_in_period": int(days_in),
+                "days_with_data": int(min(days_have, days_in)),
+                "complete": bool(days_have >= days_in),
+            }
+
+        cur_cov, ref_cov = _coverage(cur_pd), _coverage(ref_pd)
+        partial = [c for c in (cur_cov, ref_cov) if not c["complete"]]
+
         result = {
             "success": True,
             "op": "period_comparison",
@@ -341,9 +371,20 @@ def period_comparison(
             "period_unit": period_unit,
             "metrics": metrics,
             "comparisons": comparisons,
+            "current_period_coverage": cur_cov,
+            "reference_period_coverage": ref_cov,
+            "partial_period": bool(partial),
             "all_periods_available": [str(p) for p in all_periods],
             "progress": progress,
         }
+        if partial:
+            worst = ", ".join(f"{c['period']} has {c['days_with_data']} of {c['days_in_period']} days" for c in partial)
+            progress.append(warn("Partial period compared", worst))
+            result["hint"] = (
+                f"{worst} — so a change of this size is partly calendar, not behaviour. "
+                "Compare complete periods (see all_periods_available), or divide each metric by "
+                "days_with_data to compare daily rates instead of totals."
+            )
 
         # Same defect as regression_analysis: output_path was accepted and then
         # dropped, so the caller got success:true and no file.
