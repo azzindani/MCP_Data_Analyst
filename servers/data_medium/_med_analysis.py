@@ -786,6 +786,51 @@ def statistical_tests(
 # time_series_analysis  (enhanced with exponential smoothing forecast)
 # ---------------------------------------------------------------------------
 
+# How many resampled points make one seasonal cycle at each sampling period.
+# STL needs two whole cycles, so period="W" wants two years of weekly data.
+_SEASONAL_CYCLE = {"M": 12, "Q": 4, "W": 52, "D": 7, "Y": 1}
+
+
+def _stl_skip(reason: str, available: int, needed: int, cycle: int) -> dict:
+    """Say why no decomposition was run for one column.
+
+    An empty "stl" used to be indistinguishable from a computed
+    seasonal_strength of 0.0, and the two mean opposite things: one is "the
+    tool never looked", the other is "there is genuinely no seasonality".
+    """
+    return {
+        "reason": reason,
+        "periods_available": int(available),
+        "periods_needed": int(needed),
+        "seasonal_cycle": int(cycle),
+    }
+
+
+def _ts_hint(results: dict, skipped: dict, period: str, try_period: str, has_plotly: bool) -> str:
+    """Lead with the missing decomposition; the chart note is the tail."""
+    parts = []
+    if skipped and not results:
+        why = next(iter(skipped.values()))["reason"]
+        parts.append(
+            f"No STL decomposition was run at period={period!r} ({why}), so an empty 'stl' does NOT "
+            "mean the series has no seasonality -- see stl_skipped."
+        )
+        if try_period:
+            parts.append(
+                f"Re-run with period={try_period!r}: a finer period gives both more points and a "
+                "shorter cycle, which is what STL needs."
+            )
+        else:
+            parts.append("A longer date range is the only way to decompose this series.")
+    elif skipped:
+        parts.append(f"{len(skipped)} column(s) were not decomposed -- see stl_skipped for each reason.")
+    parts.append(
+        "HTML chart saved -- open output_path for the history and the dashed forecast."
+        if has_plotly
+        else "plotly is not installed, so no chart was written; the numbers above are complete."
+    )
+    return " ".join(parts)
+
 
 def time_series_analysis(
     file_path: str,
@@ -906,12 +951,21 @@ def time_series_analysis(
 
         # STL decomposition, ACF/PACF, ADF stationarity test
         stl_results: dict = {}
+        stl_skipped: dict = {}
         acf_results: dict = {}
         adf_results: dict = {}
+        seasonal_period = _SEASONAL_CYCLE.get(period, 12)
+        stl_min_periods = max(4, 2 * seasonal_period)
         if _STATSMODELS_OK and adfuller is not None and acf is not None and pacf is not None and STL is not None:
             for col in value_columns:
                 ts = resampled[col].dropna()
                 if len(ts) < 4:
+                    stl_skipped[col] = _stl_skip(
+                        f"only {len(ts)} period(s) with data — too short for any decomposition",
+                        len(ts),
+                        stl_min_periods,
+                        seasonal_period,
+                    )
                     continue
 
                 # ADF stationarity test
@@ -942,8 +996,22 @@ def time_series_analysis(
 
                 # STL decomposition — report only strength metrics, not raw arrays
                 try:
-                    seasonal_period = {"M": 12, "Q": 4, "W": 52, "D": 7, "Y": 1}.get(period, 12)
-                    if len(ts) >= max(4, 2 * seasonal_period) and seasonal_period > 1:
+                    if seasonal_period <= 1:
+                        stl_skipped[col] = _stl_skip(
+                            f"a seasonal cycle is undefined when the data is already sampled by period={period!r}",
+                            len(ts),
+                            stl_min_periods,
+                            seasonal_period,
+                        )
+                    elif len(ts) < stl_min_periods:
+                        stl_skipped[col] = _stl_skip(
+                            f"the series resamples to {len(ts)} period(s); STL needs {stl_min_periods} "
+                            f"(two full cycles of {seasonal_period})",
+                            len(ts),
+                            stl_min_periods,
+                            seasonal_period,
+                        )
+                    else:
                         stl_fit = STL(ts, period=seasonal_period, robust=True).fit()
                         resid_var = float(stl_fit.resid.var())
                         seasonal_var = float((stl_fit.seasonal + stl_fit.resid).var())
@@ -956,10 +1024,40 @@ def time_series_analysis(
                                 float(max(0.0, 1 - resid_var / trend_var)) if trend_var else 0.0, 4
                             ),
                         }
-                except Exception:
-                    pass
+                except Exception as exc:
+                    stl_skipped[col] = _stl_skip(
+                        f"STL raised {type(exc).__name__}: {exc}", len(ts), stl_min_periods, seasonal_period
+                    )
         else:
             progress.append(info("statsmodels not installed", "pip install statsmodels for STL/ACF/ADF"))
+            for col in value_columns:
+                stl_skipped[col] = _stl_skip(
+                    "statsmodels is not installed", len(resampled[col].dropna()), stl_min_periods, seasonal_period
+                )
+
+        # If nothing decomposed, find a sampling period that actually would.
+        # A finer period clears the two-cycle bar from both directions: more
+        # points and a shorter cycle. That is the opposite of what a caller
+        # guesses, so name the period rather than saying "not enough data".
+        stl_try_period = ""
+        if stl_skipped and not stl_results and _STATSMODELS_OK and STL is not None:
+            for cand in ("D", "W", "M", "Q"):
+                cand_cycle = _SEASONAL_CYCLE[cand]
+                if cand_cycle <= 1 or cand == period:
+                    continue
+                try:
+                    n_cand = len(df[[value_columns[0]]].resample(_period_map.get(cand, cand)).sum())
+                except Exception:
+                    continue
+                if n_cand >= max(4, 2 * cand_cycle):
+                    stl_try_period = cand
+                    break
+            progress.append(
+                warn(
+                    "No STL decomposition",
+                    next(iter(stl_skipped.values()))["reason"],
+                )
+            )
 
         # Exponential smoothing forecast (pure pandas, no statsmodels)
         alpha = 0.3
@@ -1010,13 +1108,11 @@ def time_series_analysis(
             },
             "trend": trend_data,
             "stl": stl_results,
+            "stl_skipped": stl_skipped,
+            "stl_seasonal_cycle": seasonal_period,
             "acf": acf_results,
             "adf": adf_results,
-            "hint": (
-                "HTML chart saved — open output_path for the history and the dashed forecast."
-                if _PLOTLY_AVAILABLE
-                else "plotly is not installed, so no chart was written; the numbers above are complete."
-            ),
+            "hint": _ts_hint(stl_results, stl_skipped, period, stl_try_period, _PLOTLY_AVAILABLE),
             "forecast_periods": forecast_periods,
             "forecast_values": forecast_values_map,
             "forecast_dates": forecast_dates_map,
