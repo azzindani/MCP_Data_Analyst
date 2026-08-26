@@ -241,10 +241,18 @@ def check_outliers(
             )
             progress.append(ok(f"Flagged {flagged_total} anomalous row(s)", f"listing {shown}"))
         if flagged_total > len(flagged_rows):
+            # detect_anomalies() goes first because it is the only tool that
+            # puts the whole flag list in a file, and getting the rows out is
+            # what a caller passing output_path=outliers.csv is after. This
+            # tool's output_path is its chart, so that caller got an HTML box
+            # plot and a hint naming two tools that both make them rebuild the
+            # outlier condition by hand. Round 16 followed that path to the end
+            # and wrote: "the 3373 flagged rows exist ONLY in the reply text".
             result["hint"] = (
                 f"{flagged_total} row(s) were flagged and the first {len(flagged_rows)} are listed. "
-                "Use filter_rows() on the columns named here to page through the rest, or "
-                "apply_patch() with op=cap_outliers to act on all of them."
+                "detect_anomalies() writes every flagged row to a CSV -- this tool's output_path is "
+                "its chart, not the rows. Or use filter_rows() on the columns named here to page "
+                "through the rest, or apply_patch() with op=cap_outliers to act on all of them."
             )
 
         if _PLOTLY_AVAILABLE and results:
