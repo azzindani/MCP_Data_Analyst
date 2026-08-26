@@ -48,6 +48,34 @@ def _title_dict(text: str) -> dict:
     return {"text": text}
 
 
+# plotly reads a 3D figure's axis titles from layout.scene.xaxis, never from
+# the top-level layout.xaxis, and a figure with no axes reads them from nowhere.
+# Writing to the top level regardless put the label in the file -- where a grep
+# for it succeeds -- and nothing on the screen.
+_3D_TRACE_TYPES = frozenset({"scatter3d", "surface", "mesh3d", "cone", "streamtube", "volume", "isosurface"})
+_AXISLESS_TRACE_TYPES = frozenset(
+    {"pie", "sunburst", "treemap", "funnelarea", "icicle", "indicator", "sankey", "parcoords", "parcats"}
+)
+
+
+def _axis_home(traces: list, layout: dict) -> tuple[dict | None, str]:
+    """Where this figure's axis titles have to go to be read.
+
+    Returns the dict to write xaxis/yaxis into and a name for it, or
+    (None, the trace types) when the figure has no axes to label.
+    """
+    types = {str(t.get("type", "")) for t in traces if isinstance(t, dict)}
+    if types & _3D_TRACE_TYPES or isinstance(layout.get("scene"), dict):
+        scene = layout.get("scene")
+        if not isinstance(scene, dict):
+            scene = {}
+            layout["scene"] = scene
+        return scene, "3D scene"
+    if types and types <= _AXISLESS_TRACE_TYPES:
+        return None, ", ".join(sorted(t for t in types if t))
+    return layout, "cartesian"
+
+
 def _apply_value_labels(trace: dict) -> None:
     """Turn on printed values for one trace, respecting its plot type."""
     trace["textposition"] = "outside" if trace.get("type") == "bar" else "top center"
@@ -128,19 +156,31 @@ def customize_chart(
             changes_applied.append(f"title → '{title}'")
             progress.append(info("Title updated", title))
 
-        if x_label:
-            axis = layout.get("xaxis")
-            layout["xaxis"] = axis if isinstance(axis, dict) else {}
-            layout["xaxis"]["title"] = _title_dict(x_label)
-            changes_applied.append(f"x-axis label → '{x_label}'")
-            progress.append(info("X-axis label", x_label))
-
-        if y_label:
-            axis = layout.get("yaxis")
-            layout["yaxis"] = axis if isinstance(axis, dict) else {}
-            layout["yaxis"]["title"] = _title_dict(y_label)
-            changes_applied.append(f"y-axis label → '{y_label}'")
-            progress.append(info("Y-axis label", y_label))
+        if x_label or y_label:
+            home, kind = _axis_home(traces, layout)
+            if home is None:
+                # Saying "x-axis label → 'Spend'" about a pie chart is the same
+                # lie as writing it to the wrong object: the caller is told a
+                # change was applied and the picture does not have one.
+                return {
+                    "success": False,
+                    "op": "customize_chart",
+                    "error": f"A {kind} chart has no axes to label.",
+                    "hint": (
+                        "Drop x_label/y_label for this chart type, or set the axis titles when the "
+                        "chart is built with generate_chart()."
+                    ),
+                    "progress": [*progress, fail("No axes to label", kind)],
+                    "token_estimate": 30,
+                }
+            for key, label in (("xaxis", x_label), ("yaxis", y_label)):
+                if not label:
+                    continue
+                axis = home.get(key)
+                home[key] = axis if isinstance(axis, dict) else {}
+                home[key]["title"] = _title_dict(label)
+                changes_applied.append(f"{key[0]}-axis label → '{label}'")
+                progress.append(info(f"{key[0].upper()}-axis label", f"{label} (on the {kind} axes)"))
 
         if sort_bars:
             direction = sort_bars.lower()
