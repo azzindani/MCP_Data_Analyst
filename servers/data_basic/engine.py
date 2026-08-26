@@ -725,6 +725,21 @@ def search_columns(
                 "token_estimate": 30,
             }
 
+        # Accepting int64 as an alias for the numeric group is deliberate, but
+        # the widening was invisible: dtype="int64" answered with columns this
+        # same response labels float64, and nothing said the filter had been
+        # read as "numeric". A round-16 phase saw exactly that and reported the
+        # filter as broken -- which is the proof the disclosure was missing.
+        dtype_applied = DTYPE_FILTER_ALIASES.get(dtype.strip().lower(), dtype.strip().lower()) if dtype else ""
+        widened = bool(dtype) and dtype_applied != dtype.strip().lower()
+        if widened:
+            progress.append(
+                info(
+                    f"Filtered by '{dtype_applied}', not '{dtype.strip()}' exactly",
+                    f"this tool groups dtypes into {', '.join(sorted(DTYPE_FILTERS))}",
+                )
+            )
+
         df = _read_csv(str(path))
 
         # Ring-1 pure helper — no I/O
@@ -751,6 +766,7 @@ def search_columns(
             "null_counts": {c: null_counts[c] for c in candidates},
             "zero_counts": {c: zero_counts[c] for c in candidates},
             "dtypes": {c: dtypes_out[c] for c in candidates},
+            "dtype_filter": dtype_applied,
             "truncated": truncated,
             "progress": progress,
         }
@@ -762,6 +778,12 @@ def search_columns(
             )
         else:
             result["hint"] = "Call read_column_stats(file_path, column=<name>) to inspect each match."
+        if widened:
+            result["hint"] = (
+                f"'{dtype.strip()}' was read as the '{dtype_applied}' group, so the matches include "
+                f"every {dtype_applied} column whatever its exact dtype -- check the dtypes field to "
+                f"see each one. {result['hint']}"
+            )
         result["token_estimate"] = _token_estimate(result)
         return result
 
