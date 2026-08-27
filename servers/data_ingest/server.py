@@ -20,6 +20,7 @@ from starlette.responses import JSONResponse
 
 from servers.data_ingest import engine
 from shared.deploy_auth import build_oauth_bridge, build_token_verifier
+from shared.token_estimate import measure_responses
 from shared.tool_annotations import CREATES, EDITS, READS
 
 _VERSION = "0.2.1"  # keep in sync with pyproject.toml [project].version
@@ -153,6 +154,11 @@ def convert_file(
 ) -> dict:
     """Convert xlsx/ods/csv/json/parquet to csv/json/parquet/excel."""
     return engine.convert_file(file_path, output_format, output_path, sheet, dry_run, return_content)
+
+
+# Every tool above reports what its response actually costs; see
+# shared/token_estimate.py for why this is a choke point and not 325 edits.
+measure_responses(mcp)
 
 
 def main() -> None:

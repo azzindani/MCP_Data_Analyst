@@ -19,6 +19,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from shared.deploy_auth import build_oauth_bridge, build_token_verifier
+from shared.token_estimate import measure_responses
 from shared.tool_annotations import CREATES, EDITS
 
 try:
@@ -252,6 +253,11 @@ def enrich_with_geo(
 ) -> dict:
     """Merge dataset with geo data on location key. Saves enriched result."""
     return engine.enrich_with_geo(file_path, geo_file_path, join_column, geo_join_column, output_path, dry_run)
+
+
+# Every tool above reports what its response actually costs; see
+# shared/token_estimate.py for why this is a choke point and not 325 edits.
+measure_responses(mcp)
 
 
 def main() -> None:
