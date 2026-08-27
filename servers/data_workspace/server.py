@@ -20,6 +20,7 @@ from starlette.responses import JSONResponse
 
 from shared.arg_alias import missing, pick
 from shared.deploy_auth import build_oauth_bridge, build_token_verifier
+from shared.json_safe import sanitize_responses
 from shared.token_estimate import measure_responses
 from shared.tool_annotations import CREATES, READS
 
@@ -131,6 +132,9 @@ def run_workspace_pipeline(
 
 # Every tool above reports what its response actually costs; see
 # shared/token_estimate.py for why this is a choke point and not 325 edits.
+# Infinity and NaN are not JSON; strip them before the estimate is taken
+# so the number describes what actually goes on the wire.
+sanitize_responses(mcp)
 measure_responses(mcp)
 
 
