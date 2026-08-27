@@ -61,8 +61,10 @@ _AXISLESS_TRACE_TYPES = frozenset(
 def _axis_home(traces: list, layout: dict) -> tuple[dict | None, str]:
     """Where this figure's axis titles have to go to be read.
 
-    Returns the dict to write xaxis/yaxis into and a name for it, or
-    (None, the trace types) when the figure has no axes to label.
+    Returns the dict to write xaxis/yaxis (and zaxis, on a 3D scene) into and
+    a name for it, or (None, the trace types) when the figure has no axes to
+    label. The name matters to the caller: "3D scene" is the only kind that
+    has a z axis at all.
     """
     types = {str(t.get("type", "")) for t in traces if isinstance(t, dict)}
     if types & _3D_TRACE_TYPES or isinstance(layout.get("scene"), dict):
@@ -90,6 +92,7 @@ def customize_chart(
     title: str = "",
     x_label: str = "",
     y_label: str = "",
+    z_label: str = "",
     color_scheme: list[str] = None,
     sort_bars: str = "",
     highlight: list[str] = None,
@@ -156,7 +159,7 @@ def customize_chart(
             changes_applied.append(f"title → '{title}'")
             progress.append(info("Title updated", title))
 
-        if x_label or y_label:
+        if x_label or y_label or z_label:
             home, kind = _axis_home(traces, layout)
             if home is None:
                 # Saying "x-axis label → 'Spend'" about a pie chart is the same
@@ -173,7 +176,22 @@ def customize_chart(
                     "progress": [*progress, fail("No axes to label", kind)],
                     "token_estimate": 30,
                 }
-            for key, label in (("xaxis", x_label), ("yaxis", y_label)):
+            # A 3D figure has THREE axes. generate_3d_chart requires z_column,
+            # so the z axis is never optional in the data -- but this loop ran
+            # over two axes, so a 3D chart could be labelled on x and y and
+            # never on z. The scene branch above was added for 3D titles and
+            # carried two thirds of them.
+            if z_label and kind != "3D scene":
+                return {
+                    "success": False,
+                    "op": "customize_chart",
+                    "error": f"This is a {kind} figure and has no z axis to label.",
+                    "hint": (
+                        "Drop z_label, or pass a chart made by generate_3d_chart (chart_type scatter_3d or surface)."
+                    ),
+                    "progress": [*progress, fail("No z axis to label", kind)],
+                }
+            for key, label in (("xaxis", x_label), ("yaxis", y_label), ("zaxis", z_label)):
                 if not label:
                     continue
                 axis = home.get(key)
@@ -328,7 +346,7 @@ def customize_chart(
             return {
                 "success": False,
                 "error": "No customization parameters provided.",
-                "hint": "Provide at least one of: title, x_label, y_label, color_scheme, sort_bars, annotations, show_value_labels, width, height.",
+                "hint": "Provide at least one of: title, x_label, y_label, z_label, color_scheme, sort_bars, annotations, show_value_labels, width, height.",
                 "progress": [fail("Nothing to change", "")],
                 "token_estimate": 20,
             }

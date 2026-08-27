@@ -299,6 +299,7 @@ def customize_chart(
     title: str = "",
     x_label: str = "",
     y_label: str = "",
+    z_label: str = "",
     color_scheme: list[str] = None,
     sort_bars: str = "",
     highlight: list[str] = None,
@@ -310,20 +311,24 @@ def customize_chart(
     return_content: bool = False,
 ) -> dict:
     """Customize existing chart. changes: title labels colors annotations."""
+    # Keyword, not positional. Inserting z_label between y_label and
+    # color_scheme silently rebinds every argument after it when the call is
+    # positional -- the chart would have been "coloured" with the z label.
     return engine.customize_chart(
         chart_path,
         title,
-        x_label,
-        y_label,
-        color_scheme,
-        sort_bars,
-        highlight,
-        annotations,
-        show_value_labels,
-        width,
-        height,
-        output_path,
-        return_content,
+        x_label=x_label,
+        y_label=y_label,
+        z_label=z_label,
+        color_scheme=color_scheme,
+        sort_bars=sort_bars,
+        highlight=highlight,
+        annotations=annotations,
+        show_value_labels=show_value_labels,
+        width=width,
+        height=height,
+        output_path=output_path,
+        return_content=return_content,
     )
 
 
