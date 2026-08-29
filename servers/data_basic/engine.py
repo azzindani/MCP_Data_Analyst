@@ -45,7 +45,13 @@ from shared.patch_validator import VALID_OPS, validate_ops
 from shared.platform_utils import get_max_results, get_max_rows
 from shared.progress import fail, info, ok, undo, warn
 from shared.receipt import append_receipt, read_receipt_log
-from shared.version_control import discard_snapshot_if_unchanged, list_versions, restore, snapshot
+from shared.version_control import (
+    discard_snapshot_if_unchanged,
+    drop_snapshot_if_unwritten,
+    list_versions,
+    restore,
+    snapshot,
+)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
@@ -919,8 +925,17 @@ def apply_patch(
                 "op_errors": op_errors,
                 "applied": len(results),
                 "failed": len(op_errors),
-                "backup": backup,
-                "hint": ("Fix failing ops and retry. Call restore_version() if you want to reset to the snapshot."),
+                "backup": drop_snapshot_if_unwritten(backup, path, progress),
+                # The comment three lines above this branch reads "Do NOT write
+                # the modified df -- leave the original intact", and it is
+                # accurate: applied is 0 and the file never changes. Offering
+                # restore_version here answered a failed op with a rollback of
+                # unrelated work -- what round 18 spent a whole round removing
+                # from the Office fleet, still live in this repo.
+                "hint": (
+                    "Nothing was written -- the original file is intact, so there is nothing to undo. "
+                    "Each failing op is listed above with its reason. Fix them and call again."
+                ),
                 "file_path": str(path),
                 "progress": progress,
                 "token_estimate": _token_estimate(progress),
@@ -982,7 +997,7 @@ def apply_patch(
             "success": False,
             "error": error_text(exc),
             "hint": hint_for_error(exc, "Use restore_version() to undo if a snapshot was taken."),
-            "backup": backup,
+            "backup": drop_snapshot_if_unwritten(backup, path),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }

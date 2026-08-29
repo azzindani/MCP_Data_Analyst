@@ -31,7 +31,7 @@ from shared.file_utils import read_csv as _shared_read_csv
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
-from shared.version_control import snapshot
+from shared.version_control import drop_snapshot_if_unwritten, snapshot
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
@@ -285,7 +285,7 @@ def filter_dataset(
             # op vocabulary, and a bad op was answered with a list the error had
             # already printed. hint_for_error reads the message first.
             "hint": hint_for_error(exc, f"Valid filter ops: {', '.join(sorted(_FILTER_OPS))}"),
-            "backup": backup or "",
+            "backup": drop_snapshot_if_unwritten(backup, path),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -491,7 +491,7 @@ def reshape_dataset(
             "success": False,
             "error": error_text(exc),
             "hint": hint_for_error(exc, "Check mode and required parameters for each mode."),
-            "backup": backup or "",
+            "backup": drop_snapshot_if_unwritten(backup, path),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -855,7 +855,7 @@ def aggregate_dataset(
             "hint": hint_for_error(
                 exc, "Check mode and required parameters. Use inspect_dataset() to verify column names."
             ),
-            "backup": backup or "",
+            "backup": drop_snapshot_if_unwritten(backup, path),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }

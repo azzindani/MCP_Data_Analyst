@@ -26,7 +26,7 @@ from shared.file_utils import (
 from shared.platform_utils import get_max_results
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
-from shared.version_control import snapshot
+from shared.version_control import drop_snapshot_if_unwritten, snapshot
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
@@ -437,7 +437,7 @@ def extract_sheet(
         return {
             "success": False,
             "error": error_text(exc),
-            "backup": backup,
+            "backup": drop_snapshot_if_unwritten(backup, out),
             "hint": hint_for_error(exc, "Use list_sheets() to verify sheet names."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -728,7 +728,7 @@ def extract_table(
         return {
             "success": False,
             "error": error_text(exc),
-            "backup": backup,
+            "backup": drop_snapshot_if_unwritten(backup, out),
             "hint": hint_for_error(exc, "Call detect_tables() to verify table indices."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -842,7 +842,7 @@ def normalize_headers(
         return {
             "success": False,
             "error": error_text(exc),
-            "backup": backup,
+            "backup": drop_snapshot_if_unwritten(backup, path),
             "hint": hint_for_error(exc, "Use inspect_dataset() to verify column names first."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -947,7 +947,7 @@ def trim_empty(file_path: str, output_path: str = "", dry_run: bool = False) -> 
         return {
             "success": False,
             "error": error_text(exc),
-            "backup": backup,
+            "backup": drop_snapshot_if_unwritten(backup, path),
             "hint": hint_for_error(exc, "Use inspect_dataset() to verify the file structure first."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -1049,7 +1049,7 @@ def promote_header(file_path: str, row_index: int = 0, output_path: str = "", dr
         return {
             "success": False,
             "error": error_text(exc),
-            "backup": backup,
+            "backup": drop_snapshot_if_unwritten(backup, path),
             "hint": hint_for_error(exc, "Use inspect_dataset() to verify row structure first."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -1185,7 +1185,7 @@ def flatten_merged_cells(
         return {
             "success": False,
             "error": error_text(exc),
-            "backup": backup,
+            "backup": drop_snapshot_if_unwritten(backup, out),
             "hint": hint_for_error(exc, "Check the file is a valid .xlsx with merged cells."),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
@@ -1361,7 +1361,7 @@ def convert_file(
         return {
             "success": False,
             "error": error_text(exc),
-            "backup": backup,
+            "backup": drop_snapshot_if_unwritten(backup, out),
             "hint": f"Valid output formats: {', '.join(sorted(_OUTPUT_FMTS))}",
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,

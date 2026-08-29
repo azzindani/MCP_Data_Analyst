@@ -50,7 +50,7 @@ from shared.platform_utils import get_max_results, get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
 from shared.small_sample import MIN_N_IQR, MIN_N_SHAPIRO, finite, min_n_for_zscore, rounded, shapiro_p
-from shared.version_control import snapshot
+from shared.version_control import drop_snapshot_if_unwritten, snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -927,7 +927,7 @@ def filter_rows(
             "success": False,
             "error": error_text(exc),
             "hint": f"Valid ops: equals not_equals contains gt gte lt lte is_null not_null isin between date_range regex. Error: {exc}",
-            "backup": backup,
+            "backup": drop_snapshot_if_unwritten(backup, path),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }

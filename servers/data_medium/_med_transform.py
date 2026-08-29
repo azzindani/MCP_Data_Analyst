@@ -30,8 +30,8 @@ from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
 from shared.small_sample import is_missing
+from shared.version_control import drop_snapshot_if_unwritten, snapshot
 from shared.version_control import restore as _restore
-from shared.version_control import snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -514,7 +514,7 @@ def run_cleaning_pipeline(
                         else f"{path.name} was not modified. Fix the op and retry."
                     ),
                     "applied": i,
-                    "backup": backup,
+                    "backup": drop_snapshot_if_unwritten(backup, path, progress),
                     "progress": progress,
                     "token_estimate": _token_estimate(progress),
                 }
@@ -569,7 +569,7 @@ def run_cleaning_pipeline(
             "success": False,
             "error": error_text(exc),
             "hint": hint_for_error(exc, "Use restore_version to undo if a snapshot was taken."),
-            "backup": backup,
+            "backup": drop_snapshot_if_unwritten(backup, path),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -737,7 +737,7 @@ def smart_impute(
             "success": False,
             "error": error_text(exc),
             "hint": hint_for_error(exc, "Use restore_version to undo if a snapshot was taken."),
-            "backup": backup,
+            "backup": drop_snapshot_if_unwritten(backup, path),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -968,7 +968,7 @@ def merge_datasets(
             "success": False,
             "error": error_text(exc),
             "hint": hint_for_error(exc, "Use restore_version to undo if a snapshot was taken."),
-            "backup": backup,
+            "backup": drop_snapshot_if_unwritten(backup, path),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }
@@ -1149,7 +1149,7 @@ def feature_engineering(
             "success": False,
             "error": error_text(exc),
             "hint": hint_for_error(exc, "Use restore_version to undo if a snapshot was taken."),
-            "backup": backup,
+            "backup": drop_snapshot_if_unwritten(backup, path),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
         }

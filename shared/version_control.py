@@ -178,3 +178,39 @@ def discard_snapshot_if_unchanged(backup: str, live: str | Path) -> str:
     except Exception:
         # Never let tidying up fail an operation that already succeeded.
         return backup
+
+
+def drop_snapshot_if_unwritten(backup: str, live: str | Path, progress: list[dict] | None = None) -> str:
+    """discard_snapshot_if_unchanged for a FAILURE path, progress included.
+
+    Round 11 taught this repo that a snapshot of a file nothing changed is
+    waste, and wired discard_snapshot_if_unchanged into the paths that
+    SUCCEED without changing anything. The paths that fail never got it, and
+    there the copy is not merely redundant -- the response argues for using it:
+
+        apply_patch(ops=[{"op": "log_transform", "column": "name"}])
+        -> "applied": 0,
+           "error":   "1 op(s) failed",
+           "backup":  ".mcp_versions/d_2026-...csv.bak",
+           "hint":    "... Call restore_version() if you want to reset to the
+                       snapshot."
+
+    The code three lines above that return says, in a comment, "Do NOT write
+    the modified df -- leave the original intact." So the file is untouched,
+    the snapshot is a copy of a file that never changed, and the hint offers
+    to restore it -- the same advice round 18 spent a whole round removing from
+    the Office fleet, still live here.
+
+    Safe to call from any failure branch: the check is byte-for-byte against
+    the file as it stands now, so a write that got half way through leaves the
+    two different and keeps its snapshot, which is then the only good copy.
+    """
+    kept = discard_snapshot_if_unchanged(backup, live)
+    if kept or progress is None:
+        return kept
+    for entry in progress:
+        if str(entry.get("message", "")).startswith("Snapshot"):
+            entry["status"] = "info"
+            entry["message"] = "Snapshot discarded — nothing was written"
+            entry.pop("detail", None)
+    return kept
