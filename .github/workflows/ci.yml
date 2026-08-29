@@ -109,3 +109,5 @@ jobs:
           public-host: data.example.com
           mcp-path: /basic/mcp
           health-timeout: "180"
+          create-dirs: "oauth-state"
+          shared-dir: shared-files
