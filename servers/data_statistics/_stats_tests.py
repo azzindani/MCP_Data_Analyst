@@ -300,7 +300,14 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
                 _require("Kolmogorov-Smirnov", {f"non-null values in '{column_b}'": len(b)}, 2)
                 stat, p = scipy_stats.ks_2samp(a.values, b.values, alternative=alternative)
             else:
-                stat, p = scipy_stats.kstest(a.values, "norm", alternative=alternative)
+                # Fit the reference normal to the sample, the way the medium
+                # server's statistical_tests does. Bare "norm" is the STANDARD
+                # normal, so this asked whether the column was N(0, 1) rather
+                # than whether it was normal at all: 300 draws from N(1000, 100)
+                # came back p=0.0, "Reject H0". Every column whose mean was not
+                # about zero got that answer, which is every real one.
+                fitted = scipy_stats.norm(float(a.mean()), float(a.std()))
+                stat, p = scipy_stats.kstest(a.values, fitted.cdf, alternative=alternative)
             statistic, p_value = float(stat), float(p)
             progress.append(ok("Kolmogorov-Smirnov", _interpret_p(p, alpha)))
 

@@ -546,7 +546,12 @@ def statistical_tests(
                 hint="KS compares the sample against a normal fitted to its own mean and sd; both need 3+ values.",
             ):
                 return err
-            stat, pval = scipy_stats.kstest(series, "norm", args=(float(series.mean()), float(series.std())))
+            # A frozen distribution's cdf takes the sample on its own. Passing
+            # loc/scale through args= stops working in scipy 1.18, where "norm"
+            # resolves to scipy.special.ndtr, which has no loc/scale and raises
+            # "ndtr() takes from 1 to 2 positional arguments but 3 were given".
+            fitted = scipy_stats.norm(float(series.mean()), float(series.std()))
+            stat, pval = scipy_stats.kstest(series, fitted.cdf)
             test_result = {
                 "test": "Kolmogorov-Smirnov normality test",
                 "statistic": rounded(stat),
