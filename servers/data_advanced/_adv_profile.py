@@ -151,7 +151,7 @@ def generate_auto_profile(
                 rows,
             )
         )
-        h.append(_profile_quality(df, col_analysis))
+        h.append(_profile_quality(df, col_analysis, numeric_cols, rows))
         h.append(_profile_stats_table(numeric_cols, col_analysis))
         h.append(_profile_categorical(cat_cols, col_analysis, rows))
         h.append(_profile_network(corr_pairs, _plot_bg, _font_color))
@@ -644,7 +644,52 @@ def _profile_insights(df, col_analysis, numeric_cols, cat_cols, corr_pairs, dup_
     return "\n".join(h)
 
 
-def _profile_quality(df, col_analysis):
+def _column_quality(info, rows, is_numeric):
+    """Score one column by what is wrong with it, not by how unique it is.
+
+    The score was `completeness * 0.7 + unique_pct * 0.3`, which made low
+    cardinality a defect. On the ad dataset 15 of 16 columns badged orange,
+    including twelve categorical columns with no nulls and nothing wrong: a
+    clean column could not pass 70/100 unless it was nearly an identifier. The
+    one green was `spends`, purely for being 54% unique. It failed in the other
+    direction too -- `product` and `phase` are constant, which the sibling
+    check_data_quality rates `high` severity, "contains no information", and
+    they scored the same 70 as a perfectly good column.
+
+    Scored the way `shared.data_alerts.quality_score` scores a dataset: start at
+    100 and deduct for findings. That function exists because two reports kept
+    their own formulas and disagreed by 57 points on one file; this was a third
+    copy the consolidation missed. It is not reused directly because it scores a
+    whole frame from nulls, duplicates and alerts, and this is one column.
+
+    Returns (score, reasons).
+    """
+    penalty = 0.0
+    reasons = []
+
+    null_pct = info["null_pct"]
+    if null_pct:
+        penalty += null_pct * 2
+        reasons.append(f"{null_pct}% null")
+
+    unique = info["unique"]
+    if unique <= 1:
+        penalty += 60
+        reasons.append("constant - carries no information")
+    elif not is_numeric and unique > 10 and rows and unique > rows * 0.5:
+        # Same threshold the insights list already uses to call a categorical
+        # column an ID. High cardinality in a *numeric* column is just a
+        # measurement, so it is not charged.
+        penalty += 20
+        reasons.append("near-unique - likely an identifier, not a measure")
+
+    # Outliers and skew are deliberately not charged. They are already reported
+    # in the insights list above, and quality_score's own docstring records that
+    # double-counting outliers there was a bug.
+    return max(0.0, 100.0 - penalty), reasons
+
+
+def _profile_quality(df, col_analysis, numeric_cols=(), rows=0):
     h = ['<div id="quality" class="section"><h2>Data Quality Dashboard</h2>']
     h.append(
         # Five sortable columns do not fit a phone. Without .tbl-wrap the whole
@@ -653,16 +698,18 @@ def _profile_quality(df, col_analysis):
         "<table><tr><th data-sort>Column</th><th data-sort>Type</th><th data-sort>Completeness</th>"
         "<th data-sort>Unique %</th><th data-sort>Quality</th></tr><tbody>"
     )
+    numeric = set(numeric_cols)
     for c in df.columns:
         info = col_analysis[c]
         completeness = 100 - info["null_pct"]
         unique_pct = info["unique_pct"]
-        quality_score = completeness * 0.7 + min(unique_pct, 100) * 0.3
+        quality_score, reasons = _column_quality(info, rows or len(df), c in numeric)
+        title = _html.escape("; ".join(reasons)) if reasons else "no quality findings"
         h.append(f"""<tr>
 <td><b>{_html.escape(c)}</b></td><td>{_html.escape(str(info["dtype"]))}</td>
 <td><div class="mbar"><div class="mbar-fill" style="width:{completeness}%;background:var(--green)"></div></div>{completeness:.1f}%</td>
 <td>{unique_pct:.1f}%</td>
-<td><span class="badge" style="background:{"var(--green)" if quality_score > 80 else "var(--orange)" if quality_score > 50 else "var(--red)"}">{quality_score:.0f}/100</span></td>
+<td><span class="badge" title="{title}" style="background:{"var(--green)" if quality_score > 80 else "var(--orange)" if quality_score > 50 else "var(--red)"}">{quality_score:.0f}/100</span></td>
 </tr>""")
     h.append("</tbody></table></div></div>")
     return "\n".join(h)

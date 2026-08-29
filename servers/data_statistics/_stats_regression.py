@@ -327,6 +327,34 @@ def regression_analysis(
                 "significant": is_significant(model.pvalues[param]),
             }
 
+        # "Strongest" cannot be read off raw coefficients. Each is in the units
+        # of its own predictor, so ranking by magnitude just tracks which column
+        # happens to have the smallest scale. On the ad dataset it named spends
+        # (b=0.0322) over impressions (b=0.0121), while impressions carried
+        # nearly twice the standardised effect -- 0.66 against 0.35 -- and a t of
+        # 177 against 94. Every number in the response was right and the one
+        # sentence quoted out of it was wrong.
+        #
+        # Scaling by sd(x) puts the predictors in common units. Dividing by sd(y)
+        # makes the OLS figure a standardised beta; that divisor is the same for
+        # every predictor, so it never changes the ranking. For logistic, where a
+        # standardised beta is not defined that way, coef * sd(x) is the change
+        # in log-odds per standard deviation and is comparable as it stands.
+        y_sd = float(y.std())
+        for param, row in coef_table.items():
+            coef = row["coef"] or 0.0
+            try:
+                x_sd = float(X[param].astype(float).std())
+            except KeyError, TypeError, ValueError:
+                x_sd = float("nan")
+            if not np.isfinite(x_sd) or x_sd == 0:
+                # A predictor with no spread has no comparable effect size.
+                # None, not 0.0: it was not measured as zero, it was not measurable.
+                row["std_beta"] = None
+                continue
+            scaled = coef * x_sd
+            row["std_beta"] = rounded(scaled / y_sd, 6) if (model_type == "ols" and y_sd) else rounded(scaled, 6)
+
         significant_predictors = [p for p, v in coef_table.items() if v["significant"]]
 
         # The constant is fitted, it is in every prediction the model makes, and
@@ -423,12 +451,21 @@ def regression_analysis(
         # Insight
         untested = [p for p, v in coef_table.items() if v["significant"] is None]
         if significant_predictors:
-            top = max(significant_predictors, key=lambda p: abs(coef_table[p]["coef"] or 0.0))
+            comparable = [p for p in significant_predictors if coef_table[p]["std_beta"] is not None]
+            if comparable:
+                top = max(comparable, key=lambda p: abs(coef_table[p]["std_beta"]))
+                basis = f"standardised β={coef_table[top]['std_beta']:.4f}"
+            else:
+                # Nothing had measurable spread, so nothing is comparable. Rank
+                # by the raw coefficient and say that is what was used.
+                top = max(significant_predictors, key=lambda p: abs(coef_table[p]["coef"] or 0.0))
+                basis = "raw β only — no predictor had measurable spread"
             coef_val = coef_table[top]["coef"] or 0.0
             direction = "positive" if coef_val > 0 else "negative"
             top_p = coef_table[top]["p_value"]
             result_data["insight"] = (
-                f"'{top}' is the strongest predictor (β={coef_val:.4f}, {direction} effect, p={format_p(top_p)})."
+                f"'{top}' is the strongest predictor ({basis}, raw β={coef_val:.4f}, "
+                f"{direction} effect, p={format_p(top_p)})."
             )
         elif untested and len(untested) == len(coef_table):
             # "No significant predictors" is a finding. Not having tested any of
