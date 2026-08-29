@@ -26,6 +26,7 @@ import argparse
 import os
 from contextlib import AsyncExitStack, asynccontextmanager
 
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse
@@ -50,14 +51,32 @@ _SUB_SERVERS = {
     "workspace": workspace_mcp,
     "ingest": ingest_mcp,
 }
-_sub_apps = {name: mcp.http_app(path="/mcp") for name, mcp in _SUB_SERVERS.items()}
+# streamable_http_app() takes no path argument -- the mount path comes from
+# mcp.settings.streamable_http_path, which already defaults to "/mcp". And
+# lifespans do NOT propagate through Starlette's Mount(), so each sub-server's
+# session-manager lifespan is entered explicitly below. The official SDK
+# returns a plain Starlette app (fastmcp 2.x returned its own subclass with a
+# convenience `.lifespan`), so the lifespan is reached via
+# `app.router.lifespan_context`. Same pattern as MCP_Microsoft_Office, which
+# has been on the official SDK all along.
+# Each sub-server's FastMCP defaults to host="127.0.0.1", which auto-enables
+# DNS-rebinding Host-header validation restricted to 127.0.0.1/localhost. The
+# unified server sits behind Caddy on a public hostname forwarded via
+# `header_up Host {host}`, so that check rejects every real remote request with
+# a 421 "Invalid Host header" -- healthy container, working /health, and every
+# tool call refused. Caddy is already the trust boundary, so disable it for the
+# mounted sub-apps. Same fix as MCP_Microsoft_Office, which hit this first.
+for _sub_mcp in _SUB_SERVERS.values():
+    _sub_mcp.settings.transport_security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+
+_sub_apps = {name: mcp.streamable_http_app() for name, mcp in _SUB_SERVERS.items()}
 
 
 @asynccontextmanager
 async def _combined_lifespan(app):
     async with AsyncExitStack() as stack:
         for sub_app in _sub_apps.values():
-            await stack.enter_async_context(sub_app.lifespan(sub_app))
+            await stack.enter_async_context(sub_app.router.lifespan_context(sub_app))
         yield
 
 
