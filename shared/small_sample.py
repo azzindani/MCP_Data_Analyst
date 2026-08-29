@@ -87,7 +87,7 @@ def finite(value: Any) -> float | None:
     """
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     if math.isnan(number) or math.isinf(number):
         return None

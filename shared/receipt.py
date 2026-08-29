@@ -31,7 +31,7 @@ def append_receipt(
         if rpath.exists():
             try:
                 entries = json.loads(rpath.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
+            except json.JSONDecodeError, OSError:
                 entries = []
         entries.append(
             {
@@ -54,7 +54,7 @@ def read_receipt_log(file_path: str, last_n: int = 10) -> list[dict]:
         return []
     try:
         entries: list[dict] = json.loads(rpath.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError, OSError:
         return []
     entries = list(reversed(entries))
     if last_n > 0:

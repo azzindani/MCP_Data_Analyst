@@ -240,7 +240,7 @@ def _is_number(value) -> bool:
         return False
     try:
         float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return False
     return True
 

@@ -53,7 +53,7 @@ def json_safe(value: Any) -> Any:
         return value
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return value
     if isinstance(value, str):
         return value  # "NaN" as text is the caller's data, not a float

@@ -132,7 +132,7 @@ def compute_alerts(
     for c in numeric_cols:
         try:
             skew = round(float(df[c].skew()), 2)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         if abs(skew) > 2:
             alerts.append(
@@ -239,7 +239,7 @@ def alerts_for_frame(df: pd.DataFrame, numeric_cols: list[str], cat_cols: list[s
     rows = len(df)
     try:
         dup_count = int(df.duplicated().sum())
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         dup_count = 0
 
     corr_pairs: list[dict] = []
@@ -252,7 +252,7 @@ def alerts_for_frame(df: pd.DataFrame, numeric_cols: list[str], cat_cols: list[s
                     if pd.notna(value):
                         corr_pairs.append({"col_a": a, "col_b": b, "correlation": float(value)})
             corr_pairs.sort(key=lambda p: abs(p["correlation"]), reverse=True)
-        except (TypeError, ValueError, KeyError):
+        except TypeError, ValueError, KeyError:
             corr_pairs = []
 
     return compute_alerts(df, numeric_cols, cat_cols, corr_pairs, rows, dup_count)

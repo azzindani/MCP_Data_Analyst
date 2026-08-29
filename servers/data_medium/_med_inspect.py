@@ -733,7 +733,7 @@ def _apply_condition(df: pd.DataFrame, cond: dict) -> pd.Series:
             max_v = cond.get("max", val)
         try:
             low, high = float(min_v), float(max_v)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise ValueError(
                 f"Filter op 'between' needs numeric bounds. Got keys: {sorted(cond)}. "
                 "Write it as {'column': ..., 'op': 'between', 'min': 0, 'max': 100} "

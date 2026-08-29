@@ -129,7 +129,7 @@ def lag_correlation(
     try:
         max_lag = int(max_lag)
         min_overlap = int(min_overlap)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return _err(
             "max_lag and min_overlap must be whole numbers.",
             "Pass max_lag=10 to test ten periods either side of zero.",

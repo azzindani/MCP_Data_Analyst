@@ -26,7 +26,7 @@ def round_p(p: float | None) -> float | None:
         return None
     try:
         value = float(p)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     if math.isnan(value):
         return None
