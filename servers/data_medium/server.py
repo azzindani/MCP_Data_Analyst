@@ -18,6 +18,7 @@ from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from shared.arg_errors import contract_errors
 from shared.deploy_auth import build_oauth_bridge, build_token_verifier
 from shared.json_safe import sanitize_responses
 from shared.token_estimate import measure_responses
@@ -207,6 +208,10 @@ def extended_stats(
 # so the number describes what actually goes on the wire.
 sanitize_responses(mcp)
 measure_responses(mcp)
+# A known argument with the WRONG TYPE is rejected by pydantic before any of
+# this runs, and used to escape as a raw dump with no success/hint/token_estimate
+# and a pydantic.dev URL. Give it the fleet's failure shape instead.
+contract_errors(mcp)
 
 
 def main() -> None:
