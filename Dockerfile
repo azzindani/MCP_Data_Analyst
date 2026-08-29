@@ -17,7 +17,7 @@
 # Run:    docker run --rm -p 8810:8810 -e DA_TRANSPORT=http mcp-data-analyst:latest
 # ─────────────────────────────────────────────────────────────────────────────
 
-ARG PYTHON_VERSION=3.12-slim
+ARG PYTHON_VERSION=3.14-slim
 
 FROM python:${PYTHON_VERSION} AS builder
 WORKDIR /app

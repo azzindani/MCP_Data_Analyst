@@ -144,7 +144,7 @@ Every write tool accepts `dry_run: bool = False`. When `True`, it returns a
 
 | Item | Version |
 |---|---|
-| Python | 3.12+ |
+| Python | 3.14+ |
 | Package manager | uv ≥ 0.5 |
 | fastmcp | ≥ 2.0, < 3.0 |
 | pandas | ≥ 2.2 |
