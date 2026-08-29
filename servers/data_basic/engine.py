@@ -837,10 +837,26 @@ def apply_patch(
         # Validate op schema before touching the file
         errors = validate_ops(ops)
         if errors:
+            # The validator's messages are specific and already self-answering:
+            #
+            #   Op 0 (drop_column): unknown field(s) column -- did you mean
+            #   columns? drop_column accepts: columns, op, params
+            #
+            # Reciting the 50-op vocabulary underneath that answers a question
+            # the caller did not ask. Round 18 obeyed this hint literally: it
+            # re-picked an op from the list -- the op it had already chosen
+            # correctly -- and failed again on the same field name, then needed
+            # list_patch_ops() to learn what the error had just told it.
+            # Only an unknown OP wants the op list.
+            hint = (
+                f"Valid ops: {', '.join(sorted(VALID_OPS))}"
+                if any("unknown op" in e for e in errors)
+                else "The error above names each bad op, field and value, and suggests the correction. Apply it and call again."
+            )
             return {
                 "success": False,
                 "error": "; ".join(errors),
-                "hint": f"Valid ops: {', '.join(sorted(VALID_OPS))}",
+                "hint": hint,
                 "progress": [fail("Validation failed", str(errors))],
                 "token_estimate": 30,
             }

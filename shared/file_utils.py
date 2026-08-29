@@ -459,6 +459,23 @@ def hint_for_error(exc: Exception, fallback: str) -> str:
     file_path, column names, and chart_type", which is three guesses at a
     failure that already knows exactly which name it could not find.
     """
+    # Checked first, because a message that already enumerates the alternatives
+    # has answered the question, and any hint naming another tool is now a
+    # round trip for something the caller is already looking at -- or worse,
+    # points somewhere the answer is not. Round 18 found both:
+    #
+    #   filter_dataset        error: Column 'nonexistent' not found. Available: [...16 names...]
+    #                         hint : Valid filter ops: between, contains, ...   <- wrong question
+    #   run_workspace_pipeline error: Pipeline 'x' not found in workspace 'w'.
+    #                                 Available: ['test_drop_column', 'test_drop_phase']
+    #                         hint : Use list_workspace_files() to check registered aliases.
+    #                                                    ^ lists FILES, never pipelines
+    #
+    # Both were obeyed literally by the sweep and both retries failed. When the
+    # error carries the list, the hint's whole job is to say "use one of those".
+    message = str(exc)
+    if "Available:" in message or "Valid:" in message:
+        return "The error above lists what this accepts. Pass one of those exact values and call again."
     name = missing_name(exc)
     if name is not None:
         return (

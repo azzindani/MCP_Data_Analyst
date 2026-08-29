@@ -579,7 +579,9 @@ def run_workspace_pipeline(
         return {
             "success": False,
             "error": error_text(exc),
-            "hint": "Use list_workspace_files() to check registered aliases.",
+            # list_workspace_files() lists FILES; a missing pipeline_name is not
+            # among them, and the error already names the pipelines that exist.
+            "hint": hint_for_error(exc, "Use list_workspace_files() to check registered aliases."),
             "progress": [fail("Not found", str(exc))],
             "token_estimate": 20,
         }

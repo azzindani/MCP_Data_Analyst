@@ -280,7 +280,11 @@ def filter_dataset(
         return {
             "success": False,
             "error": error_text(exc),
-            "hint": f"Valid filter ops: {', '.join(sorted(_FILTER_OPS))}",
+            # Was a constant list of the valid ops, returned for every failure
+            # this try block can raise -- so a bad COLUMN was answered with the
+            # op vocabulary, and a bad op was answered with a list the error had
+            # already printed. hint_for_error reads the message first.
+            "hint": hint_for_error(exc, f"Valid filter ops: {', '.join(sorted(_FILTER_OPS))}"),
             "backup": backup or "",
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
