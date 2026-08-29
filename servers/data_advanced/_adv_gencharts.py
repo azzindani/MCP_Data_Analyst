@@ -608,6 +608,37 @@ def generate_geo_map(
             if color_column and color_column in df.columns:
                 plot_df[color_column] = df.loc[plot_df.index, color_column].values
 
+            # value_column drives marker size, and a marker cannot be smaller
+            # than nothing. Without this check plotly raised its own error --
+            # "Invalid element(s) received for the 'size' property of
+            # scattergeo.marker" with two raw floats -- and the generic hint
+            # sent the caller to check the geo columns, which were fine. Two
+            # negative values in 200 rows were enough. lat/lon are already
+            # range-checked a few lines above; this is the same check for the
+            # third column the map reads.
+            if value_column and value_column in plot_df.columns:
+                negatives = plot_df[value_column] < 0
+                n_negative = int(negatives.sum())
+                if n_negative:
+                    worst = float(plot_df.loc[negatives, value_column].min())
+                    return {
+                        "success": False,
+                        "op": "generate_geo_map",
+                        "error": (
+                            f"value_column '{value_column}' has {n_negative} negative value(s) "
+                            f"(lowest {worst:.4g}); it sets marker size on a scatter map, which "
+                            f"cannot be negative."
+                        ),
+                        "hint": (
+                            f"Pass a non-negative column as value_column, or map '{value_column}' to "
+                            f"colour instead with color_column='{value_column}' and no value_column. "
+                            f"To size by magnitude, add an absolute-value column first with "
+                            f"apply_patch() op=abs_values on '{value_column}'."
+                        ),
+                        "progress": [*progress, fail("Negative value_column", f"{value_column}: {n_negative} row(s)")],
+                        "token_estimate": 60,
+                    }
+
             if not chart_title:
                 chart_title = f"Geographic Distribution — {path.stem}"
 
