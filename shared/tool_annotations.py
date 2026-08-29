@@ -33,28 +33,30 @@ construction and no tool reaches a network at runtime.
 
 from __future__ import annotations
 
-READS: dict[str, bool] = {
-    "readOnlyHint": True,
-    "destructiveHint": False,
-    "idempotentHint": True,
-    "openWorldHint": False,
-}
+from mcp.types import ToolAnnotations
 
-CREATES: dict[str, bool] = {
-    "readOnlyHint": False,
-    "destructiveHint": False,
-    "idempotentHint": True,
-    "openWorldHint": False,
-}
+READS: ToolAnnotations = ToolAnnotations(
+    readOnlyHint=True,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=False,
+)
+
+CREATES: ToolAnnotations = ToolAnnotations(
+    readOnlyHint=False,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=False,
+)
 
 # Not idempotent: these apply operations to a dataset, and applying the same
 # ops twice does not generally leave the same file (a patch that adds a column
 # or drops rows compounds).
-EDITS: dict[str, bool] = {
-    "readOnlyHint": False,
-    "destructiveHint": True,
-    "idempotentHint": False,
-    "openWorldHint": False,
-}
+EDITS: ToolAnnotations = ToolAnnotations(
+    readOnlyHint=False,
+    destructiveHint=True,
+    idempotentHint=False,
+    openWorldHint=False,
+)
 
 __all__ = ["CREATES", "EDITS", "READS"]

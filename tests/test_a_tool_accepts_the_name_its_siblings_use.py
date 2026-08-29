@@ -37,6 +37,23 @@ from servers.data_statistics import engine as stats  # noqa: E402
 from servers.data_transform import engine as trans  # noqa: E402
 from servers.data_visual import engine as visual  # noqa: E402
 
+
+def tool_fn(mod, name: str):
+    """The callable a client actually reaches, via the tool registry.
+
+    Under fastmcp 2.x the module-level name WAS the registry entry, so
+    `mod.some_tool.fn` and a client's path were the same object. The official
+    MCP SDK's @mcp.tool returns the plain undecorated function, so the
+    module-level name now bypasses every wrapper installed on the registry --
+    sanitize_responses, measure_responses, contract_errors.
+
+    Going through _tools keeps these tests on the path a request takes. A test
+    calling the bare function would pass while the thing it guards sat switched
+    off, which is the one failure mode those guards exist to prevent.
+    """
+    return mod.mcp._tool_manager._tools[name].fn
+
+
 FIXTURE = ROOT / "tests" / "fixtures" / "ad_data_full.csv"
 
 
@@ -312,29 +329,29 @@ class TestTheWorkspaceHasOneName:
 
     def test_create_workspace_takes_workspace_name(self, tmp_path):
         mod = self.load()
-        r = mod.create_workspace.fn(workspace_name="probe_ws", base_dir=str(tmp_path))
+        r = tool_fn(mod, "create_workspace")(workspace_name="probe_ws", base_dir=str(tmp_path))
         assert r["success"] is True, r.get("error")
 
     def test_create_workspace_still_takes_name(self, tmp_path):
         mod = self.load()
-        r = mod.create_workspace.fn(name="probe_ws", base_dir=str(tmp_path))
+        r = tool_fn(mod, "create_workspace")(name="probe_ws", base_dir=str(tmp_path))
         assert r["success"] is True, r.get("error")
 
     def test_open_workspace_takes_workspace_name(self, tmp_path):
         mod = self.load()
-        mod.create_workspace.fn(name="probe_ws", base_dir=str(tmp_path))
-        r = mod.open_workspace.fn(workspace_name="probe_ws", base_dir=str(tmp_path))
+        tool_fn(mod, "create_workspace")(name="probe_ws", base_dir=str(tmp_path))
+        r = tool_fn(mod, "open_workspace")(workspace_name="probe_ws", base_dir=str(tmp_path))
         assert r["success"] is True, r.get("error")
 
     def test_neither_spelling_names_the_missing_argument(self, tmp_path):
         mod = self.load()
-        r = mod.create_workspace.fn(base_dir=str(tmp_path))
+        r = tool_fn(mod, "create_workspace")(base_dir=str(tmp_path))
         assert r["success"] is False
         assert "workspace_name" in r["hint"], r["hint"]
 
     def test_the_first_positional_argument_is_still_the_name(self, tmp_path):
         # Appending the alias must not move `name` out of position 0.
         mod = self.load()
-        r = mod.create_workspace.fn("positional_ws", "", str(tmp_path))
+        r = tool_fn(mod, "create_workspace")("positional_ws", "", str(tmp_path))
         assert r["success"] is True, r.get("error")
         assert "positional_ws" in str(r), r

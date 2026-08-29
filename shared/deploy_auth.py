@@ -11,7 +11,9 @@ from __future__ import annotations
 import json
 import os
 
-from fastmcp.server.auth.auth import AccessToken, TokenVerifier
+from mcp.server.auth.provider import AccessToken, TokenVerifier
+from mcp.server.auth.settings import AuthSettings
+from pydantic import AnyHttpUrl
 
 from shared.oauth_bridge import OAuthBridge
 
@@ -50,8 +52,7 @@ def load_named_tokens(prefix: str) -> dict[str, str]:
 class _DynamicTokenVerifier(TokenVerifier):
     """Checks the static named-tokens dict first, then OAuth-issued tokens."""
 
-    def __init__(self, named: dict[str, str], oauth_bridge: OAuthBridge | None, base_url: str | None = None) -> None:
-        super().__init__(base_url=base_url)
+    def __init__(self, named: dict[str, str], oauth_bridge: OAuthBridge | None) -> None:
         self._by_token = {token: name for name, token in named.items()}
         self._oauth_bridge = oauth_bridge
 
@@ -87,7 +88,7 @@ def build_token_verifier(
     named = load_named_tokens(prefix)
     if not named:
         return None
-    return _DynamicTokenVerifier(named, oauth_bridge, base_url=base_url)
+    return _DynamicTokenVerifier(named, oauth_bridge)
 
 
 def build_oauth_bridge(prefix: str, state_dir: str | None = None) -> OAuthBridge | None:
@@ -108,3 +109,27 @@ def build_oauth_bridge(prefix: str, state_dir: str | None = None) -> OAuthBridge
         return by_token.get(presented)
 
     return OAuthBridge(prefix, lookup_principal, state_dir=state_dir)
+
+
+def build_auth(
+    prefix: str, base_url: str | None, oauth_bridge: OAuthBridge | None = None
+) -> tuple[TokenVerifier, AuthSettings] | tuple[None, None]:
+    """Build (token_verifier, auth_settings) for the official SDK's FastMCP.
+
+    base_url must be the PUBLIC HTTPS URL this server is reachable at,
+    including any reverse-proxy mount prefix (e.g. "https://<host>/basic").
+    fastmcp 2.x took it on the verifier; the official SDK carries it on
+    AuthSettings.resource_server_url, which is what lands in the
+    WWW-Authenticate `resource_metadata` hint on a 401. It matters for the
+    mounted sub-servers: without it, a client behind a path prefix cannot
+    complete OAuth discovery, while a bare unprefixed deployment survives by
+    guessing the default well-known path -- so it fails in exactly the shape
+    this fleet deploys and not in a simpler one.
+
+    (None, None) in open mode -- no auth, localhost/private-network use only.
+    """
+    verifier = build_token_verifier(prefix, oauth_bridge)
+    if verifier is None:
+        return None, None
+    url = AnyHttpUrl(base_url) if base_url else AnyHttpUrl("http://127.0.0.1")
+    return verifier, AuthSettings(issuer_url=url, resource_server_url=url)

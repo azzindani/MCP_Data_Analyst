@@ -44,11 +44,16 @@ def messy(tmp_path: Path) -> Path:
 
 
 def _tool(name: str):
-    """DA's @mcp.tool() returns a FunctionTool; the plain function is on .fn."""
+    """The callable a client reaches, via the registry.
+
+    The official MCP SDK's @mcp.tool returns the plain undecorated function, so
+    the module-level name skips every wrapper installed on the registry entry
+    (sanitize_responses, measure_responses, contract_errors). Falling back to
+    the bare function would let this pass while those sat switched off.
+    """
     from servers.data_ingest import server
 
-    tool = getattr(server, name)
-    return getattr(tool, "fn", tool)
+    return server.mcp._tool_manager._tools[name].fn
 
 
 class TestNormalizeHeadersCanRedirect:

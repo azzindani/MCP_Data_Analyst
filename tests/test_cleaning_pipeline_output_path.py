@@ -28,6 +28,22 @@ import pytest
 from servers.data_medium.engine import run_cleaning_pipeline
 
 
+def tool_fn(mod, name: str):
+    """The callable a client actually reaches, via the tool registry.
+
+    Under fastmcp 2.x the module-level name WAS the registry entry, so
+    `mod.some_tool.fn` and a client's path were the same object. The official
+    MCP SDK's @mcp.tool returns the plain undecorated function, so the
+    module-level name now bypasses every wrapper installed on the registry --
+    sanitize_responses, measure_responses, contract_errors.
+
+    Going through _tools keeps these tests on the path a request takes. A test
+    calling the bare function would pass while the thing it guards sat switched
+    off, which is the one failure mode those guards exist to prevent.
+    """
+    return mod.mcp._tool_manager._tools[name].fn
+
+
 @pytest.fixture()
 def csv(tmp_path: Path) -> Path:
     p = tmp_path / "dirty.csv"
@@ -126,14 +142,14 @@ class TestTheWrapperDoesNotMisbindArguments:
         from servers.data_transform import server
 
         # The decorated name is a FunctionTool; .fn is the function itself.
-        params = list(inspect.signature(server.run_cleaning_pipeline.fn).parameters)
+        params = list(inspect.signature(tool_fn(server, "run_cleaning_pipeline")).parameters)
         assert params.index("output_path") < params.index("dry_run")
 
     def test_a_wrapper_dry_run_is_still_a_dry_run(self, csv: Path):
         from servers.data_transform import server
 
         before = csv.read_bytes()
-        result = server.run_cleaning_pipeline.fn(str(csv), CLEAN, dry_run=True)
+        result = tool_fn(server, "run_cleaning_pipeline")(str(csv), CLEAN, dry_run=True)
         assert result["dry_run"] is True
         assert csv.read_bytes() == before
 
@@ -142,7 +158,7 @@ class TestTheWrapperDoesNotMisbindArguments:
 
         from servers.data_transform import server
 
-        wrapper = list(inspect.signature(server.run_cleaning_pipeline.fn).parameters)
+        wrapper = list(inspect.signature(tool_fn(server, "run_cleaning_pipeline")).parameters)
         engine_fn = list(inspect.signature(run_cleaning_pipeline).parameters)
         assert wrapper == engine_fn
 

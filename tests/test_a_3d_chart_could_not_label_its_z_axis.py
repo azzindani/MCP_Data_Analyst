@@ -37,6 +37,22 @@ import pytest
 from servers.data_visual import server as v
 
 
+def tool_fn(mod, name: str):
+    """The callable a client actually reaches, via the tool registry.
+
+    Under fastmcp 2.x the module-level name WAS the registry entry, so
+    `mod.some_tool.fn` and a client's path were the same object. The official
+    MCP SDK's @mcp.tool returns the plain undecorated function, so the
+    module-level name now bypasses every wrapper installed on the registry --
+    sanitize_responses, measure_responses, contract_errors.
+
+    Going through _tools keeps these tests on the path a request takes. A test
+    calling the bare function would pass while the thing it guards sat switched
+    off, which is the one failure mode those guards exist to prevent.
+    """
+    return mod.mcp._tool_manager._tools[name].fn
+
+
 @pytest.fixture()
 def data(tmp_path: Path) -> str:
     csv = tmp_path / "t.csv"
@@ -45,7 +61,7 @@ def data(tmp_path: Path) -> str:
 
 
 def _chart_3d(data: str, tmp_path: Path) -> str:
-    r = v.generate_3d_chart.fn(
+    r = tool_fn(v, "generate_3d_chart")(
         file_path=data,
         chart_type="scatter_3d",
         x_column="a",
@@ -59,7 +75,7 @@ def _chart_3d(data: str, tmp_path: Path) -> str:
 
 
 def _chart_2d(data: str, tmp_path: Path) -> str:
-    r = v.generate_chart.fn(
+    r = tool_fn(v, "generate_chart")(
         file_path=data,
         chart_type="bar",
         value_column="a",
@@ -78,14 +94,14 @@ def _has_title(html: str, axis: str) -> bool:
 class TestTheZAxisCanBeLabelled:
     def test_z_label_alone_is_applied(self, data: str, tmp_path: Path) -> None:
         out = tmp_path / "z.html"
-        r = v.customize_chart.fn(chart_path=_chart_3d(data, tmp_path), z_label="Depth", output_path=str(out))
+        r = tool_fn(v, "customize_chart")(chart_path=_chart_3d(data, tmp_path), z_label="Depth", output_path=str(out))
         assert r["success"], r
         assert _has_title(out.read_text(errors="replace"), "zaxis")
 
     def test_all_three_land_under_the_scene(self, data: str, tmp_path: Path) -> None:
         """plotly reads a 3D figure's titles from layout.scene and nowhere else."""
         out = tmp_path / "xyz.html"
-        r = v.customize_chart.fn(
+        r = tool_fn(v, "customize_chart")(
             chart_path=_chart_3d(data, tmp_path), x_label="A", y_label="B", z_label="C", output_path=str(out)
         )
         assert r["success"], r
@@ -96,7 +112,7 @@ class TestTheZAxisCanBeLabelled:
             assert _has_title(html, axis), f"{axis} has no title"
 
     def test_the_reply_names_the_z_change(self, data: str, tmp_path: Path) -> None:
-        r = v.customize_chart.fn(
+        r = tool_fn(v, "customize_chart")(
             chart_path=_chart_3d(data, tmp_path), z_label="Depth", output_path=str(tmp_path / "z2.html")
         )
         assert any("z-axis" in c for c in r["changes_applied"]), r["changes_applied"]
@@ -106,7 +122,7 @@ class TestItRefusesWhereThereIsNoZAxis:
     """Applying it anyway would be the lie the x/y branch already guards against."""
 
     def test_a_2d_chart_is_refused_by_name(self, data: str, tmp_path: Path) -> None:
-        r = v.customize_chart.fn(
+        r = tool_fn(v, "customize_chart")(
             chart_path=_chart_2d(data, tmp_path), z_label="Depth", output_path=str(tmp_path / "b2.html")
         )
         assert r["success"] is False
@@ -116,14 +132,16 @@ class TestItRefusesWhereThereIsNoZAxis:
     def test_x_and_y_still_work_on_a_2d_chart(self, data: str, tmp_path: Path) -> None:
         """The new refusal must not swallow the case that always worked."""
         out = tmp_path / "b3.html"
-        r = v.customize_chart.fn(chart_path=_chart_2d(data, tmp_path), x_label="A", y_label="B", output_path=str(out))
+        r = tool_fn(v, "customize_chart")(
+            chart_path=_chart_2d(data, tmp_path), x_label="A", y_label="B", output_path=str(out)
+        )
         assert r["success"], r
 
 
 class TestTheParametersStayBound:
     def test_the_hint_lists_z_label(self, data: str, tmp_path: Path) -> None:
         """The 'nothing to change' hint enumerates what the tool accepts."""
-        r = v.customize_chart.fn(chart_path=_chart_2d(data, tmp_path))
+        r = tool_fn(v, "customize_chart")(chart_path=_chart_2d(data, tmp_path))
         assert r["success"] is False
         assert "z_label" in r["hint"], r["hint"]
 
@@ -135,6 +153,8 @@ class TestTheParametersStayBound:
         silently not be recoloured.
         """
         out = tmp_path / "col.html"
-        r = v.customize_chart.fn(chart_path=_chart_2d(data, tmp_path), color_scheme=["#ff0000"], output_path=str(out))
+        r = tool_fn(v, "customize_chart")(
+            chart_path=_chart_2d(data, tmp_path), color_scheme=["#ff0000"], output_path=str(out)
+        )
         assert r["success"], r
         assert "ff0000" in out.read_text(errors="replace").lower()

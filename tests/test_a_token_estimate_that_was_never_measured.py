@@ -22,10 +22,12 @@ src/engine/formatter.py. This is the same idea applied here as a single choke
 point, because 325 hand-edits drift out of step with the responses exactly the
 way the literals already had.
 
-These assertions call `mod.<tool>.fn(...)`, the same way the rest of this
-suite dispatches -- on fastmcp 2.x the module-level name is the registered
-FunctionTool, so wrapping `.fn` is what a test sees as well as what a client
-gets. A fix the suite dispatches around is a fix nobody can hold to account.
+These assertions reach each tool through the registry, which is the path a
+client's request takes -- and must, because measure_responses wraps the
+registry entry while the official MCP SDK's @mcp.tool hands back the plain
+undecorated function. Calling the module-level name would skip the wrapper and
+pass while the thing it guards sat switched off. A fix the suite dispatches
+around is a fix nobody can hold to account.
 """
 
 from __future__ import annotations
@@ -68,7 +70,7 @@ def measured(response: dict) -> int:
 
 def call(module: str, tool: str, kwargs: dict) -> dict:
     mod = importlib.import_module(module)
-    return getattr(mod, tool).fn(**kwargs)
+    return mod.mcp._tool_manager._tools[tool].fn(**kwargs)
 
 
 @pytest.mark.parametrize("module,tool,kwargs", CASES, ids=[f"{m.split('.')[1]}.{t}" for m, t, _ in CASES])
@@ -129,18 +131,19 @@ class TestRecountItself:
 
     def test_installing_twice_does_not_double_wrap(self) -> None:
         """measure_responses is safe to call again on an already-wrapped server."""
-        import fastmcp
+        from mcp.server.fastmcp import FastMCP
 
         from shared.token_estimate import measure_responses
 
-        m = fastmcp.FastMCP("probe")
+        m = FastMCP("probe")
 
-        @m.tool
+        @m.tool()
         def sample(x: int) -> dict:
             """doc"""
             return {"x": x, "token_estimate": 15}
 
         measure_responses(m)
-        once = sample.fn(x=1)["token_estimate"]
+        fn = m._tool_manager._tools["sample"].fn
+        once = fn(x=1)["token_estimate"]
         measure_responses(m)
-        assert sample.fn(x=1)["token_estimate"] == once
+        assert m._tool_manager._tools["sample"].fn(x=1)["token_estimate"] == once

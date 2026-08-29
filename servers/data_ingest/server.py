@@ -14,13 +14,13 @@ _ROOT = str(Path(__file__).resolve().parents[2])
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from servers.data_ingest import engine
 from shared.arg_errors import contract_errors
-from shared.deploy_auth import build_oauth_bridge, build_token_verifier
+from shared.deploy_auth import build_auth, build_oauth_bridge
 from shared.json_safe import sanitize_responses
 from shared.token_estimate import measure_responses
 from shared.tool_annotations import CREATES, EDITS, READS
@@ -32,7 +32,17 @@ _oauth_bridge = build_oauth_bridge(
 )
 _public_origin = os.environ.get("DA_PUBLIC_URL", "").rstrip("/")
 _base_url = f"{_public_origin}/ingest" if _public_origin else None
-mcp = FastMCP("data_ingest", auth=build_token_verifier("DA", _oauth_bridge, base_url=_base_url))
+_HOST = os.environ.get("DATA_INGEST_HOST", "127.0.0.1")
+_PORT = int(os.environ.get("DATA_INGEST_PORT", "8811"))
+_token_verifier, _auth_settings = build_auth("DA", _base_url, _oauth_bridge)
+
+mcp = FastMCP(
+    "data_ingest",
+    host=_HOST,
+    port=_PORT,
+    token_verifier=_token_verifier,
+    auth=_auth_settings,
+)
 if _oauth_bridge is not None:
     _oauth_bridge.register_routes(mcp)
 
@@ -175,12 +185,10 @@ def main() -> None:
     parser.add_argument(
         "--transport", choices=["stdio", "http"], default=os.environ.get("DA_INGEST_TRANSPORT", "stdio")
     )
-    parser.add_argument("--host", default=os.environ.get("DA_INGEST_HOST", "127.0.0.1"))
-    parser.add_argument("--port", type=int, default=int(os.environ.get("DA_INGEST_PORT", "8816")))
     args = parser.parse_args()
 
     if args.transport == "http":
-        mcp.run(transport="http", host=args.host, port=args.port)
+        mcp.run(transport="streamable-http")
     else:
         mcp.run(transport="stdio")
 

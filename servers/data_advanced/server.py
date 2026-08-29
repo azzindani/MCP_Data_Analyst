@@ -8,7 +8,7 @@ from pathlib import Path
 
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
-from fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP
 
 try:
     from . import engine  # noqa: F401

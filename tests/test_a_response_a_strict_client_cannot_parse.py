@@ -33,6 +33,23 @@ import pytest
 
 from shared.json_safe import json_safe
 
+
+def tool_fn(mod, name: str):
+    """The callable a client actually reaches, via the tool registry.
+
+    Under fastmcp 2.x the module-level name WAS the registry entry, so
+    `mod.some_tool.fn` and a client's path were the same object. The official
+    MCP SDK's @mcp.tool returns the plain undecorated function, so the
+    module-level name now bypasses every wrapper installed on the registry --
+    sanitize_responses, measure_responses, contract_errors.
+
+    Going through _tools keeps these tests on the path a request takes. A test
+    calling the bare function would pass while the thing it guards sat switched
+    off, which is the one failure mode those guards exist to prevent.
+    """
+    return mod.mcp._tool_manager._tools[name].fn
+
+
 NON_FINITE = [float("inf"), float("-inf"), float("nan")]
 
 
@@ -87,12 +104,12 @@ class TestTheToolThatActuallyEmittedIt:
 
         csv = tmp_path / "d.csv"
         csv.write_text("clicks,impressions\n5,0\n3,2\n0,0\n")
-        patched = s.apply_patch.fn(
+        patched = tool_fn(s, "apply_patch")(
             file_path=str(csv),
             ops=[{"op": "column_math", "target_column": "ctr", "formula": "clicks/impressions*100"}],
         )
         if not patched.get("success"):
             pytest.skip(f"column_math unavailable here: {patched.get('error')}")
-        r = s.read_column_stats.fn(file_path=str(csv), column="ctr")
+        r = tool_fn(s, "read_column_stats")(file_path=str(csv), column="ctr")
         # The assertion that matters: a spec-compliant encoder must accept it.
         json.dumps(r, allow_nan=False)
