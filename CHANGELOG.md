@@ -4,6 +4,58 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [0.2.2] — 2026-09-01
+
+Source-only release: no wheel and no container image are published. Build the
+image from the `Dockerfile` here, or install from the tag.
+
+123 commits since `0.2.1`, most of them defects found by driving all 70 tools
+through a harness and reading what came back — not by a failing test. The
+common shape: a tool that succeeded and reported something its own output did
+not support.
+
+### Changed
+
+- **Python 3.14** throughout, and **off third-party `fastmcp` 2.x onto the
+  official `mcp` SDK** (`mcp.server.fastmcp.FastMCP`), including the unified
+  server's mount and `Host` handling.
+- **Remote deployment**: OAuth 2.0 bridge for claude.ai's Custom Connector, a
+  shared output directory with `public_url` on every produced file, URL inputs,
+  and `return_content` on the file-producing tools.
+- **`remote_smoke_test.sh` runs in CI**, against a container rather than the
+  deployment, with the shared directory its assertions need.
+
+### Added
+
+- `lag_correlation` — a delayed effect no longer reads as no effect.
+- `check_outliers` flags the anomalous rows it always claimed to flag; the
+  time-series tool draws the forecast it already computed; 3D charts can label
+  their third axis.
+
+### Fixed — claims a tool's own numbers did not support
+
+- A verdict reported where no test produced one, and a post-hoc verdict with no
+  p-value behind it.
+- A KS test fitted its reference normal to the wrong sample; a paired test read
+  offset pairs instead of row *i* against row *i*.
+- A filter silently widened to a dtype group; a filter that was never applied;
+  a pivot summing what cannot be summed.
+- `auto_detect_schema` now says how much of the file it looked at (it samples).
+- A failed op kept — and offered to restore — a snapshot of a file it never
+  wrote; a no-op write left a snapshot behind.
+- `Infinity` and `NaN` were being sent as JSON, which they are not.
+
+### Fixed — charts, which only showed their defects when rendered
+
+- Plotly went back inside the page it draws, so an artifact opens with no
+  sibling file and no network.
+- Dashboards stopped charting columns they had just called useless and stopped
+  scoring a flawed dataset 100/100.
+- Per-metric scales, so a small series no longer vanishes; captions naming
+  their own column; titles where a reader looks.
+
+---
+
 ## [0.2.0] — 2026-04-27
 
 ### New: `data_ingest` server — spreadsheet ingestion tier (10 tools)

@@ -25,7 +25,7 @@ from shared.json_safe import sanitize_responses
 from shared.token_estimate import measure_responses
 from shared.tool_annotations import CREATES, EDITS, READS
 
-_VERSION = "0.2.1"  # keep in sync with pyproject.toml [project].version
+_VERSION = "0.2.2"  # keep in sync with pyproject.toml [project].version
 
 _oauth_bridge = build_oauth_bridge(
     "DA", state_dir=os.environ.get("DA_INGEST_OAUTH_STATE_DIR", "/tmp/data-ingest-oauth-state")

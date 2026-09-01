@@ -40,7 +40,7 @@ from servers.data_transform.server import mcp as transform_mcp
 from servers.data_visual.server import mcp as visual_mcp
 from servers.data_workspace.server import mcp as workspace_mcp
 
-_VERSION = "0.2.0"
+_VERSION = "0.2.2"
 
 _SUB_SERVERS = {
     "basic": basic_mcp,

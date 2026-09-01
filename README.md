@@ -2,6 +2,8 @@
 
 A self-hosted MCP server that gives local LLMs structured access to CSV/tabular data analysis tools. No cloud APIs, no API keys — everything runs on your machine.
 
+**Release [`v0.2.2`](https://github.com/azzindani/MCP_Data_Analyst/releases/tag/v0.2.2)** — source only. No wheel and no container image are published: install from the tag with the bundled installer, or build the image yourself from the `Dockerfile` in this repo.
+
 ## Features
 
 - **70 tools** across 7 servers: workspace (6), basic (9), medium (11), transform (10), statistics (12), visual (12), ingest (10)
@@ -597,7 +599,7 @@ pandas/numpy/scipy/matplotlib load once instead of seven times (~260 MiB vs
 
 ```bash
 uv run python unified_server.py --port 8810
-curl http://localhost:8810/health            # {"status":"ok","version":"0.2.0","sub_servers":[...]}
+curl http://localhost:8810/health            # {"status":"ok","version":"0.2.2","sub_servers":[...]}
 curl http://localhost:8810/basic/health      # per-sub-server health
 ```
 
@@ -752,11 +754,12 @@ MCP_Data_Analyst/
     ├── test_engine_basic.py     ← 124 tests (unit + e2e + four-tool pattern)
     ├── test_engine_medium.py    ← tests including STL/ACF/ADF
     ├── test_engine_advanced.py
-    ├── test_engine_project.py   ← 21 tests (full project workflow e2e)
+    ├── test_engine_project.py   ← 26 tests (full project workflow e2e)
     ├── test_workspace_server.py ← 26 tests (context+handover contract)
-    ├── test_engine_transform.py ← 32 tests (filter/reshape/aggregate)
+    ├── test_engine_transform.py ← 35 tests (filter/reshape/aggregate)
     ├── test_engine_statistics.py← 39 tests (regression, stat tests, period comparison)
-    ├── test_engine_ingest.py    ← 93 tests (list/extract/detect/normalize/convert)
+    ├── test_engine_ingest.py    ← 96 tests (list/extract/detect/normalize/convert)
+    ├── test_a_*.py … test_the_*.py ← one file per defect found, named for the defect
     ├── test_shared.py
     ├── verify_tool_docstrings.py← CI gate: all @mcp.tool() docstrings ≤ 80 chars
     └── verify_output_paths.py   ← CI gate: output path priority contract
@@ -770,7 +773,7 @@ MCP_Data_Analyst/
 # Install all dependencies from root (single lockfile)
 uv sync
 
-# Run all 654 tests
+# Run all 2450 tests
 uv run pytest tests/ -q --tb=short
 
 # Run in constrained mode
