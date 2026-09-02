@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 
 from shared.arg_alias import missing, pick
+from shared.column_utils import date_note, parse_dates
 from shared.file_utils import error_text, hint_for_error, resolve_path
 from shared.file_utils import read_csv as _read_csv
 from shared.progress import fail, info, ok, warn
@@ -145,6 +146,7 @@ def period_comparison(
     theme: str = "device",
     open_after: bool = False,
     date_column: str = "",
+    dayfirst: str = "auto",
 ) -> dict:
     """Compare MoM/QoQ/YoY metrics. Returns delta, pct_change, direction."""
     progress = []
@@ -223,7 +225,8 @@ def period_comparison(
                 "token_estimate": 25,
             }
 
-        df[date_col] = pd.to_datetime(df[date_col], format="mixed", dayfirst=False, errors="coerce")
+        df[date_col], _fmt = parse_dates(df[date_col], dayfirst)
+        progress.append(date_note(_fmt, date_col))
         df = df.dropna(subset=[date_col])
 
         freq = _FREQ_MAP.get(period_unit, "ME")

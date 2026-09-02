@@ -35,7 +35,7 @@ for _p in (str(_ROOT), _HERE):
 import pandas as pd
 
 from shared.arg_alias import missing, pick
-from shared.column_utils import infer_agg, is_numeric_col
+from shared.column_utils import date_note, infer_agg, is_numeric_col, parse_dates
 from shared.file_utils import read_csv as _read_csv
 from shared.file_utils import resolve_path
 from shared.platform_utils import get_max_lag
@@ -109,6 +109,7 @@ def lag_correlation(
     y_agg: str = "",
     min_overlap: int = _DEFAULT_MIN_OVERLAP,
     date_col: str = "",
+    dayfirst: str = "auto",
 ) -> dict:
     """Cross-correlate two columns across lags. Returns the curve and its peak."""
     progress: list = []
@@ -218,7 +219,8 @@ def lag_correlation(
                     col,
                 )
 
-        df[date_column] = pd.to_datetime(df[date_column], format="mixed", dayfirst=False, errors="coerce")
+        df[date_column], _fmt = parse_dates(df[date_column], dayfirst)
+        progress.append(date_note(_fmt, date_column))
         undated = int(df[date_column].isna().sum())
         df = df.dropna(subset=[date_column])
         if df.empty:

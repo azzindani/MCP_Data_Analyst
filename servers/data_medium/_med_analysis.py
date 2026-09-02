@@ -53,7 +53,7 @@ from _med_helpers import (
     _token_estimate,
 )
 
-from shared.column_utils import infer_agg, is_numeric_col, paired_numeric
+from shared.column_utils import date_note, infer_agg, is_numeric_col, paired_numeric, parse_dates
 from shared.file_utils import error_text, hint_for_error, resolve_path
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
@@ -845,6 +845,7 @@ def time_series_analysis(
     output_path: str = "",
     open_after: bool = True,
     theme: str = "device",
+    dayfirst: str = "auto",
 ) -> dict:
     progress = []
     try:
@@ -896,7 +897,8 @@ def time_series_analysis(
                 "token_estimate": 20,
             }
 
-        df[date_column] = pd.to_datetime(df[date_column], format="mixed", dayfirst=False, errors="coerce")
+        df[date_column], _fmt = parse_dates(df[date_column], dayfirst)
+        progress.append(date_note(_fmt, date_column))
         df = df.dropna(subset=[date_column])
 
         if not value_columns:
@@ -1224,6 +1226,7 @@ def cohort_analysis(
     output_path: str = "",
     open_after: bool = True,
     theme: str = "device",
+    dayfirst: str = "auto",
 ) -> dict:
     progress = []
     try:
@@ -1262,7 +1265,8 @@ def cohort_analysis(
                 "token_estimate": 20,
             }
 
-        df[date_column] = pd.to_datetime(df[date_column], format="mixed", dayfirst=False, errors="coerce")
+        df[date_column], _fmt = parse_dates(df[date_column], dayfirst)
+        progress.append(date_note(_fmt, date_column))
         df = df.dropna(subset=[date_column])
 
         if not cohort_column:

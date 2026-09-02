@@ -320,7 +320,7 @@ Files can be referenced anywhere via `workspace:name/alias` syntax — all tools
 | `cross_tabulate` | Contingency tables — saves heatmap HTML |
 | `pivot_table` | Multi-dimensional pivot tables |
 | `value_counts` | Frequency tables — saves bar chart HTML |
-| `filter_rows` | Filter by 8 condition types (equals, contains, gt, lt, gte, lte, not_null, is_null) |
+| `filter_rows` | Filter by 8 condition types (equals, contains, gt, lt, gte, lte, not_null, is_null). A condition may compare against `other_column` instead of `value` |
 | `sample_data` | Random/head/tail sampling |
 | `statistical_tests` | Auto-select: t-test, ANOVA, chi-square, correlation |
 | `analyze_text_column` | Character length stats, word frequency top-N, pattern detection (email, URL, phone, number) |
@@ -336,16 +336,54 @@ Focused transformation server — richer filtering, reshaping, and aggregation t
 
 | Tool | Purpose |
 |---|---|
-| `filter_dataset` | Filter rows by 18 condition types (equals, isin, between, regex, date_range, quantile_between, starts_with, ends_with, …) + optional sort |
+| `filter_dataset` | Filter rows by 18 condition types (equals, isin, between, regex, date_range, quantile_between, starts_with, ends_with, …) + optional sort. A condition may compare against `other_column` instead of `value` |
 | `reshape_dataset` | Reshape data: `pivot`, `melt`, `split_column`, `combine_columns`, `transpose` |
 | `aggregate_dataset` | Aggregate: `groupby`, `crosstab`, `value_counts`, `describe`, `window` |
-| `resample_timeseries` | Resample time series (D/W/M/Q/Y/H) |
+| `resample_timeseries` | Resample time series (D/W/M/Q/Y/H). `dayfirst`: `auto` (default), `true`, `false` |
 | `merge_datasets` | Merge two datasets with auto-detected join keys |
 | `concat_datasets` | Stack multiple CSVs vertically or horizontally |
 | `smart_impute` | Auto-impute: numeric→median, datetime→ffill, categorical→mode |
 | `run_cleaning_pipeline` | Multi-op cleaning with single snapshot + rollback |
-| `feature_engineering` | Auto-create date parts, bins, log transforms, one-hot features |
+| `feature_engineering` | Auto-create date parts, bins, log transforms, one-hot features — or add named columns with `derive` (see below) |
 | `enrich_with_geo` | Merge dataset with geo data on a location key |
+
+#### Derived columns — `feature_engineering(derive=[...])`
+
+Aggregation tools group by columns that are already in the file. `derive` adds
+named ones first, so "tonnage by year" works when the file only carries the
+integer `199907`. Specs apply in order, so a later one can read an earlier one's
+output, and the whole list is refused on the first bad spec rather than writing
+a half-derived frame.
+
+```json
+[
+  {"name": "year",  "op": "text",       "column": "Activity Period", "how": "slice", "start": 0, "stop": 4, "as": "int"},
+  {"name": "start", "op": "parse_date", "column": "Activity Period Start Date"},
+  {"name": "month", "op": "date_part",  "column": "start", "part": "month"},
+  {"name": "share", "op": "arith",      "column": "tons", "how": "div", "other": "total"},
+  {"name": "code",  "op": "compare",    "column": "Operating Airline", "how": "ne", "other": "Published Airline"}
+]
+```
+
+| `op` | `how` / `part` |
+|---|---|
+| `parse_date` | optional `format`, `dayfirst` |
+| `date_part` | `year month day quarter weekday week yearmonth date` |
+| `arith` | `add sub mul div floordiv mod` — against `other` (a column) or `value` |
+| `compare` | `eq ne gt gte lt lte` — against `other` or `value` |
+| `text` | `upper lower strip len slice combine` |
+
+Every op takes an optional `"as": "int" | "float" | "str" | "bool"` cast.
+
+#### Date orientation
+
+Date parsing detects day-first vs month-first from the column itself: a value
+above 12 in either field settles it, and so does a field that stays constant
+while the series spans years (monthly data written `01-07-1999`). Where the data
+is genuinely ambiguous the response says so in `progress` rather than guessing
+silently. `time_series_analysis`, `period_comparison`, `cohort_analysis`,
+`lag_correlation` and `resample_timeseries` take
+`dayfirst: "auto" | "true" | "false"` to settle it explicitly.
 
 ---
 

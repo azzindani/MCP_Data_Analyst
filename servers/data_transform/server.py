@@ -72,7 +72,7 @@ def filter_dataset(
     output_path: str = "",
     dry_run: bool = False,
 ) -> dict:
-    """Filter rows by conditions + sort. ops: equals isin between regex date_range."""
+    """Filter rows + sort. Compare to 'value' or to 'other_column'."""
     return engine.filter_dataset(file_path, conditions, sort_by, sort_ascending, output_path, dry_run)
 
 
@@ -184,10 +184,21 @@ def resample_timeseries(
     dry_run: bool = False,
     date_column: str = "",
     value_columns: list[str] = None,
+    dayfirst: str = "auto",
 ) -> dict:
-    """Resample time series by freq: D W M Q Y H. agg: sum mean count min max."""
+    """Resample by freq: D W M Q Y H. agg: sum mean count min max."""
     return engine.resample_timeseries(
-        file_path, date_col, freq, agg_func, value_cols, group_by, output_path, dry_run, date_column, value_columns
+        file_path,
+        date_col,
+        freq,
+        agg_func,
+        value_cols,
+        group_by,
+        output_path,
+        dry_run,
+        date_column,
+        value_columns,
+        dayfirst,
     )
 
 
@@ -249,9 +260,10 @@ def feature_engineering(
     output_path: str = "",
     dry_run: bool = False,
     open_after: bool = True,
+    derive: list[dict] = None,
 ) -> dict:
-    """Auto-create features: date parts, numeric bins, text length, one-hot."""
-    return engine.feature_engineering(file_path, features, output_path, dry_run, open_after)
+    """Add columns: auto features, or derive named parse_date date_part arith."""
+    return engine.feature_engineering(file_path, features, output_path, dry_run, open_after, derive)
 
 
 @mcp.tool(annotations=EDITS)

@@ -25,6 +25,7 @@ from _adv_helpers import (
     plotly_template,
 )
 
+from shared.column_utils import date_note, parse_dates
 from shared.file_utils import embed_content, error_text, hint_for_error, normalise_export_format, resolve_path
 from shared.progress import info, warn
 from shared.small_sample import MIN_N_CORRELATION, MIN_N_IQR
@@ -397,6 +398,7 @@ def generate_multi_chart(
     open_after: bool = True,
     theme: str = "device",
     return_content: bool = False,
+    dayfirst: str = "auto",
 ) -> dict:
     """Multi-metric bar/line chart. bar needs category_column, line needs date_column."""
     progress = []
@@ -498,7 +500,8 @@ def generate_multi_chart(
             for vc in value_columns:
                 fig.add_trace(go.Bar(x=x_vals, y=grouped[vc], name=vc))
         elif chart_type == "multi_line":
-            df[date_column] = pd.to_datetime(df[date_column], format="mixed", dayfirst=False, errors="coerce")
+            df[date_column], _fmt = parse_dates(df[date_column], dayfirst)
+            progress.append(date_note(_fmt, date_column))
             df = df.dropna(subset=[date_column])
             df["period"] = df[date_column].dt.to_period("M").astype(str)
             grouped = df.groupby("period")[value_columns].agg(agg_func).reset_index()

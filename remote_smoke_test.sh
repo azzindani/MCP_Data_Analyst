@@ -37,6 +37,7 @@ SALES="$D/sales.csv"
 SALES2="$D/sales2.csv"
 GEO="$D/geo.csv"
 GEOJSON="$D/regions.geojson"
+DAYFIRST="$D/dayfirst.csv"
 XLSX="$D/workbook.xlsx"
 
 FAILS=0
@@ -86,11 +87,20 @@ geojson = {
     ],
 }
 open('$TMP/regions.geojson','w').write(json.dumps(geojson))
+# Month-start rows written DD-MM-YYYY, spanning three years. No field ever
+# exceeds 12, so a parser that assumes month-first does not fail -- it reads
+# every date transposed and reports success.
+lines3 = ['period,value']
+for y in (2020, 2021, 2022):
+    for m in range(1, 13):
+        lines3.append(f'01-{m:02d}-{y},{m * y}')
+open('$TMP/dayfirst.csv','w').write(chr(10).join(lines3))
 "
 docker cp "$TMP/sales.csv" "$CONTAINER:$SALES"
 docker cp "$TMP/sales2.csv" "$CONTAINER:$SALES2"
 docker cp "$TMP/geo.csv" "$CONTAINER:$GEO"
 docker cp "$TMP/regions.geojson" "$CONTAINER:$GEOJSON"
+docker cp "$TMP/dayfirst.csv" "$CONTAINER:$DAYFIRST"
 rm -rf "$TMP"
 docker exec "$CONTAINER" python3 -c "
 import openpyxl
@@ -179,6 +189,7 @@ run medium cross_tabulate "{\"file_path\":\"$SALES\",\"row_column\":\"region\",\
 run medium pivot_table "{\"file_path\":\"$SALES\",\"index\":[\"region\"],\"columns\":[\"category\"],\"values\":[\"revenue\"]}" "pivot revenue by region and category"
 run medium value_counts "{\"file_path\":\"$SALES\",\"columns\":[\"region\"]}" "count rows per region"
 run medium filter_rows "{\"file_path\":\"$SALES\",\"conditions\":[{\"column\":\"region\",\"op\":\"equals\",\"value\":\"APAC\"}]}" "show only APAC rows"
+run medium filter_rows "{\"file_path\":\"$SALES\",\"conditions\":[{\"column\":\"revenue\",\"op\":\"gt\",\"other_column\":\"units\"}]}" "rows where revenue is above units"
 run medium sample_data "{\"file_path\":\"$SALES\",\"method\":\"random\",\"n\":10}" "give me a random sample of 10 rows"
 run medium statistical_tests "{\"file_path\":\"$SALES\",\"test_type\":\"ttest\",\"column_a\":\"units\",\"column_b\":\"revenue\"}" "run a t-test between units and revenue"
 run medium analyze_text_column "{\"file_path\":\"$SALES\",\"column\":\"region\"}" "analyze the region text column"
@@ -197,6 +208,19 @@ run statistics statistical_test "{\"file_path\":\"$SALES\",\"test\":\"t_test\",\
 run statistics regression_analysis "{\"file_path\":\"$SALES\",\"y_col\":\"revenue\",\"x_cols\":[\"units\"]}" "regress revenue on units"
 run statistics time_series_analysis "{\"file_path\":\"$SALES\",\"date_column\":\"date\",\"value_columns\":[\"revenue\"]}" "analyze the revenue time series"
 run statistics period_comparison "{\"file_path\":\"$SALES\",\"date_col\":\"date\",\"metrics\":[\"revenue\"],\"period_unit\":\"M\"}" "compare this month to last"
+
+# The one assertion that has to read a value rather than trust success:true.
+# Read month-first, 01-07-2020 becomes 7 January and the whole series collapses
+# into three Januaries -- every row parses, nothing is dropped, and the response
+# still says success. Only the range shows it.
+run statistics time_series_analysis "{\"file_path\":\"$DAYFIRST\",\"date_column\":\"period\",\"value_columns\":[\"value\"]}" "analyze this day-first monthly series"
+DF_START=$(extract "$R" start || true)
+case "$DF_START" in
+  2020-01-01*) pass "day-first dates parsed as DD-MM-YYYY (series starts $DF_START)" ;;
+  "") fail "time_series_analysis returned no start date for the day-first file" ;;
+  *) fail "day-first dates were transposed: series starts $DF_START, expected 2020-01-01" ;;
+esac
+run statistics time_series_analysis "{\"file_path\":\"$DAYFIRST\",\"date_column\":\"period\",\"value_columns\":[\"value\"],\"dayfirst\":\"false\"}" "force month-first on the same file"
 run statistics cohort_analysis "{\"file_path\":\"$SALES\",\"cohort_column\":\"region\",\"date_column\":\"date\",\"value_column\":\"revenue\"}" "run a cohort analysis by region"
 run statistics lag_correlation "{\"file_path\":\"$SALES\",\"date_column\":\"date\",\"x_column\":\"units\",\"y_column\":\"revenue\",\"max_lag\":5}" "does units lead revenue by a few days?"
 
@@ -211,6 +235,8 @@ run transform concat_datasets "{\"file_paths\":[\"$SALES\",\"$SALES\"]}" "stack 
 run transform smart_impute "{\"file_path\":\"$SALES\"}" "smart-impute any missing values"
 run transform run_cleaning_pipeline "{\"file_path\":\"$SALES\",\"ops\":[{\"op\":\"drop_duplicates\"}]}" "drop duplicate rows"
 run transform feature_engineering "{\"file_path\":\"$SALES\",\"features\":[\"date_parts\",\"bins\"]}" "auto-engineer date and bin features"
+run transform feature_engineering "{\"file_path\":\"$SALES\",\"output_path\":\"$D/derived.csv\",\"derive\":[{\"name\":\"year\",\"op\":\"date_part\",\"column\":\"date\",\"part\":\"year\"},{\"name\":\"rev_per_unit\",\"op\":\"arith\",\"column\":\"revenue\",\"how\":\"div\",\"other\":\"units\"}]}" "add a year column and revenue per unit"
+run medium compute_aggregations "{\"file_path\":\"$D/derived.csv\",\"group_by\":[\"year\"],\"agg_column\":\"rev_per_unit\",\"agg_func\":\"mean\"}" "average revenue per unit by the year I just derived"
 run transform enrich_with_geo "{\"file_path\":\"$SALES\",\"geo_file_path\":\"$GEOJSON\",\"join_column\":\"region\",\"geo_join_column\":\"region\"}" "enrich sales with lat/lon"
 
 echo

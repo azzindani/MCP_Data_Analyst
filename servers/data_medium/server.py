@@ -139,7 +139,7 @@ def filter_rows(
     sort_by: list[str] = None,
     sort_ascending: list[bool] = None,
 ) -> dict:
-    """Filter rows by conditions. ops: equals contains gt lt gte lte not_null is_null."""
+    """Filter rows. Compare a column to 'value' or to 'other_column'."""
     return engine.filter_rows(file_path, conditions, output_path, dry_run, open_after, sort_by, sort_ascending)
 
 

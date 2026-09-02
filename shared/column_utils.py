@@ -256,6 +256,17 @@ def filter_operand_error(cond: dict, op: str, index: int = -1) -> str:
         return ""  # is_null / not_null take no operand
     where = f"Condition {index}" if index >= 0 else "This condition"
     column = condition_column(cond) or "?"
+
+    # A column-to-column condition carries no literal by design; without this
+    # it was refused for "having nothing to compare against".
+    if other_column(cond):
+        if op in _COLUMN_PAIR_OPS:
+            return ""
+        return (
+            f"{where} ('{column}' {op}) names another column, but {op} compares against a value. "
+            f"Column-to-column ops: {', '.join(sorted(_COLUMN_PAIR_OPS))}."
+        )
+
     present = [k for k in wanted if cond.get(k) is not None]
 
     if op in _RANGE_FILTER_OPS:
@@ -330,3 +341,180 @@ def paired_numeric(df: pd.DataFrame, col_a: str, col_b: str) -> tuple[pd.Series,
         }
     ).dropna()
     return pair["a"], pair["b"]
+
+
+# --- Date orientation -------------------------------------------------------
+
+# Two integers then a year, separated by - / or . -- the only shape where
+# day-first and month-first disagree. ISO (4-digit first field) is unambiguous.
+_DATE_TRIPLE = re.compile(r"^\s*(\d{1,4})[-/.](\d{1,2})[-/.](\d{2,4})")
+
+_MAX_DATE_SAMPLE = 5000
+
+
+def detect_dayfirst(series: pd.Series, sample: int = _MAX_DATE_SAMPLE) -> tuple[bool, str, bool]:
+    """Decide day-first vs month-first from the column itself.
+
+    Returns ``(dayfirst, reason, ambiguous)``.
+
+    Every date parse in this repo used to hardcode ``dayfirst=False``, which is
+    pandas' default and correct for US-style files. Handed a day-first column it
+    does not fail -- it transposes. On the SFO air-cargo dataset every value is
+    the first of a month::
+
+        01-07-1999  ->  1999-01-07   (read as 7 January)
+        truth       ->  1999-07-01   (1 July)
+
+    Every row parsed, ``errors="coerce"`` dropped nothing, and 291 distinct
+    months collapsed into 25 Januaries with the real month hiding in the day
+    field. Yearly totals stayed right; seasonality and every MoM/QoQ comparison
+    were silently wrong under ``success: true``.
+
+    The rules below are ordered decisive-first. A value above 12 in either
+    position settles it outright and is the standard test. The constant-field
+    rule catches the case that bites monthly data: a column spanning several
+    years cannot sit inside one calendar month, so a first field that never
+    changes while the second cycles is a day, not a month.
+
+    When nothing is decisive the answer stays ``False`` -- pandas' default, so
+    no existing behaviour moves -- and ``ambiguous`` comes back True so the
+    caller can say so instead of guessing quietly.
+    """
+    text = series.dropna().astype(str)
+    if len(text) > sample:
+        text = text.iloc[:sample]
+    if text.empty:
+        return False, "no values to inspect", False
+
+    first: list[int] = []
+    second: list[int] = []
+    years: set[str] = set()
+    for value in text:
+        match = _DATE_TRIPLE.match(value)
+        if not match:
+            continue
+        a, b, c = match.group(1), match.group(2), match.group(3)
+        if len(a) == 4:
+            # 1999-07-01 -- year first, nothing to disambiguate.
+            return False, "ISO year-first dates", False
+        first.append(int(a))
+        second.append(int(b))
+        years.add(c)
+
+    if not first:
+        return False, "no day/month/year triples found", False
+
+    first_over = any(v > 12 for v in first)
+    second_over = any(v > 12 for v in second)
+    if first_over and not second_over:
+        return True, "field 1 exceeds 12, so it is the day", False
+    if second_over and not first_over:
+        return False, "field 2 exceeds 12, so it is the day", False
+    if first_over and second_over:
+        return False, "both fields exceed 12 -- the column mixes formats", True
+
+    n_first, n_second = len(set(first)), len(set(second))
+    if len(years) > 1:
+        if n_first == 1 and n_second >= 3:
+            return True, "field 1 is constant across years, so it is the day", False
+        if n_second == 1 and n_first >= 3:
+            return False, "field 2 is constant across years, so it is the day", False
+
+    return False, "no value above 12 -- day and month are interchangeable here", True
+
+
+def parse_dates(series: pd.Series, dayfirst: str = "auto") -> tuple[pd.Series, dict]:
+    """Parse a date column, choosing the orientation from the data.
+
+    ``dayfirst`` is a tristate string so it survives an MCP tool signature:
+    ``"auto"`` detects, ``"true"``/``"false"`` force it. See
+    :func:`detect_dayfirst` for what silent misdetection costs.
+
+    The second return value is metadata for the caller's ``progress`` list --
+    ``{"dayfirst": bool, "reason": str, "ambiguous": bool}``. Callers must
+    surface ``ambiguous`` rather than swallow it; that is the whole point.
+    """
+    choice = str(dayfirst).strip().lower()
+    if choice in {"true", "1", "yes"}:
+        flag, reason, ambiguous = True, "caller passed dayfirst=true", False
+    elif choice in {"false", "0", "no"}:
+        flag, reason, ambiguous = False, "caller passed dayfirst=false", False
+    else:
+        flag, reason, ambiguous = detect_dayfirst(series)
+
+    parsed = pd.to_datetime(series, format="mixed", dayfirst=flag, errors="coerce")
+    return parsed, {"dayfirst": flag, "reason": reason, "ambiguous": ambiguous}
+
+
+_COLUMN_PAIR_OPS: frozenset[str] = frozenset({"equals", "not_equals", "gt", "gte", "lt", "lte"})
+
+# Spellings a caller reaches for when comparing one column against another.
+OTHER_COLUMN_KEYS: tuple[str, ...] = ("other_column", "other_col", "compare_column", "value_column")
+
+
+def other_column(cond: dict) -> str:
+    """The second column named by a condition, or "" when it compares a literal."""
+    for key in OTHER_COLUMN_KEYS:
+        name = cond.get(key)
+        if isinstance(name, str) and name:
+            return name
+    return ""
+
+
+def column_pair_mask(df: pd.DataFrame, cond: dict, col: str, op: str) -> pd.Series | None:
+    """Mask for a column-against-column condition, or None if it is not one.
+
+    Filter conditions could only ever compare a column to a *literal*, so
+    "which rows disagree between these two columns" had no expression at all --
+    the codeshare count on the SFO cargo file (``Operating Airline`` vs
+    ``Published Airline``, 1,498 rows, quoted in the report that shipped) came
+    out of a pandas heredoc because no tool could say it.
+
+    Numeric ordering coerces both sides; equality compares them as they are, so
+    two string columns work without the caller casting anything.
+    """
+    other = other_column(cond)
+    if not other:
+        return None
+    if op not in _COLUMN_PAIR_OPS:
+        raise ValueError(
+            f"Filter op '{op}' compares a column to a value, not to another column. "
+            f"Column-to-column ops: {', '.join(sorted(_COLUMN_PAIR_OPS))}."
+        )
+    if other not in df.columns:
+        raise ValueError(f"Column '{other}' not found. Available: {list(df.columns)}")
+
+    left, right = df[col], df[other]
+    if op == "equals":
+        return left == right
+    if op == "not_equals":
+        return left != right
+
+    lnum = pd.to_numeric(left, errors="coerce")
+    rnum = pd.to_numeric(right, errors="coerce")
+    if op == "gt":
+        return lnum > rnum
+    if op == "gte":
+        return lnum >= rnum
+    if op == "lt":
+        return lnum < rnum
+    return lnum <= rnum
+
+
+def date_note(info: dict, column: str) -> dict:
+    """One ``progress`` entry naming the orientation chosen and why.
+
+    Ambiguity comes back as a ``warn`` on purpose. A caller that cannot tell
+    day-first from month-first has a 50% chance of reporting transposed months
+    under ``success: true``, and the only way out is to say so.
+    """
+    from shared.progress import info as _info
+    from shared.progress import warn as _warn
+
+    order = "day-first (DD-MM-YYYY)" if info["dayfirst"] else "month-first (MM-DD-YYYY)"
+    if info["ambiguous"]:
+        return _warn(
+            f"'{column}' date order is ambiguous — read as {order}",
+            f"{info['reason']}. Pass dayfirst='true' or 'false' to settle it.",
+        )
+    return _info(f"Read '{column}' as {order}", info["reason"])

@@ -43,7 +43,12 @@ from _med_helpers import (
     is_numeric_col,
 )
 
-from shared.column_utils import condition_column, filter_operand_error, missing_column_error
+from shared.column_utils import (
+    column_pair_mask,
+    condition_column,
+    filter_operand_error,
+    missing_column_error,
+)
 from shared.file_utils import count_data_rows as _count_data_rows
 from shared.file_utils import error_text, hint_for_error, resolve_path
 from shared.platform_utils import get_max_results, get_max_rows
@@ -693,6 +698,10 @@ def _apply_condition(df: pd.DataFrame, cond: dict) -> pd.Series:
     op = cond.get("op", "") or cond.get("operator", "")
     val = cond.get("value")
     s = df[col]
+    # --- column against column ---
+    pair = column_pair_mask(df, cond, col, op)
+    if pair is not None:
+        return pair
     # --- original ops ---
     if op == "equals":
         return s == val

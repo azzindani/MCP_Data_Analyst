@@ -25,7 +25,12 @@ from _med_transform import (  # type: ignore[import]
     smart_impute,
 )
 
-from shared.column_utils import condition_column, filter_operand_error, missing_column_error
+from shared.column_utils import (
+    column_pair_mask,
+    condition_column,
+    filter_operand_error,
+    missing_column_error,
+)
 from shared.file_utils import atomic_write_text, error_text, hint_for_error, resolve_path
 from shared.file_utils import read_csv as _shared_read_csv
 from shared.platform_utils import get_max_rows
@@ -126,6 +131,9 @@ def _apply_condition(df: pd.DataFrame, cond: dict) -> pd.Series:
         raise ValueError(f"Column '{col}' not found. Available: {list(df.columns)}")
     if op not in _FILTER_OPS:
         raise ValueError(f"Unknown filter op '{op}'. Valid: {', '.join(sorted(_FILTER_OPS))}")
+    pair = column_pair_mask(df, cond, col, op)
+    if pair is not None:
+        return pair
     s = df[col]
     if op == "equals":
         return s == cond["value"]

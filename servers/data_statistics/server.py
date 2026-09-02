@@ -149,6 +149,7 @@ def lag_correlation(
     y_agg: str = "",
     min_overlap: int = 8,
     date_col: str = "",
+    dayfirst: str = "auto",
 ) -> dict:
     """Cross-correlate two columns across lags. Returns the curve and its peak."""
     return engine.lag_correlation(
@@ -163,6 +164,7 @@ def lag_correlation(
         y_agg,
         min_overlap,
         date_col,
+        dayfirst,
     )
 
 
@@ -226,9 +228,12 @@ def time_series_analysis(
     output_path: str = "",
     open_after: bool = True,
     theme: str = "device",
+    dayfirst: str = "auto",
 ) -> dict:
-    """Auto-detect dates, compute trend seasonality rolling stats. Saves HTML."""
-    return engine.time_series_analysis(file_path, date_column, value_columns, period, output_path, open_after, theme)
+    """Trend, seasonality and rolling stats. dayfirst: auto true false."""
+    return engine.time_series_analysis(
+        file_path, date_column, value_columns, period, output_path, open_after, theme, dayfirst
+    )
 
 
 @mcp.tool(annotations=CREATES)
@@ -244,8 +249,9 @@ def period_comparison(
     open_after: bool = True,
     theme: str = "device",
     date_column: str = "",
+    dayfirst: str = "auto",
 ) -> dict:
-    """Compare periods: MoM QoQ YoY. Returns delta pct_change direction."""
+    """Compare periods: MoM QoQ YoY. dayfirst: auto true false."""
     return engine.period_comparison(
         file_path,
         date_col,
@@ -258,6 +264,7 @@ def period_comparison(
         theme,
         open_after,
         date_column,
+        dayfirst,
     )
 
 
@@ -270,8 +277,9 @@ def cohort_analysis(
     output_path: str = "",
     open_after: bool = True,
     theme: str = "device",
+    dayfirst: str = "auto",
 ) -> dict:
-    """Cohort retention matrix. Auto-detect cohort + date + value columns."""
+    """Cohort retention matrix. dayfirst: auto true false."""
     return engine.cohort_analysis(
         file_path,
         cohort_column,
@@ -280,6 +288,7 @@ def cohort_analysis(
         output_path,
         open_after,
         theme,
+        dayfirst,
     )
 
 

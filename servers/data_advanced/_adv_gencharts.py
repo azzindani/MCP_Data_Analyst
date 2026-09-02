@@ -30,6 +30,7 @@ from _adv_helpers import (
     warn,
 )
 
+from shared.column_utils import date_note, parse_dates
 from shared.file_utils import embed_content, error_text, hint_for_error, resolve_path
 from shared.geo_names import unrecognised_locations
 
@@ -131,6 +132,7 @@ def generate_chart(
     theme: str = "device",
     open_after: bool = True,
     return_content: bool = False,
+    dayfirst: str = "auto",
 ) -> dict:
     """Generate Plotly chart. bar/pie/line/scatter/funnel/radius/geo need category_column."""
     progress = []
@@ -237,7 +239,8 @@ def generate_chart(
             else:
                 chart_df = _sort_along_x(df, category_column) if chart_type == "line" else df
         elif chart_type == "time_series":
-            df[date_column] = pd.to_datetime(df[date_column], format="mixed", dayfirst=False, errors="coerce")
+            df[date_column], _fmt = parse_dates(df[date_column], dayfirst)
+            progress.append(date_note(_fmt, date_column))
             df = df.dropna(subset=[date_column])
             df["period"] = df[date_column].dt.to_period(period).astype(str)
             chart_df = df.groupby("period", as_index=False)[value_column].agg(agg_func)

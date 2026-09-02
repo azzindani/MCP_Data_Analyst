@@ -24,6 +24,8 @@ from _med_helpers import (
 from _patch_ops import OP_HANDLERS  # type: ignore[import-not-found]
 
 from shared.arg_alias import missing, pick, pick_list
+from shared.column_utils import date_note, parse_dates
+from shared.derive_ops import DeriveError, apply_derivations
 from shared.file_utils import error_text, hint_for_error, resolve_path
 from shared.patch_validator import unwrap_params, validate_ops
 from shared.platform_utils import get_max_rows
@@ -283,19 +285,36 @@ def compute_aggregations(
         if sort_desc:
             grouped = grouped.sort_values(by=agg_column, ascending=False)
 
+        # How many groups the data actually has, fixed before any capping. This
+        # used to be reported as the length of the returned list, so a caller
+        # who got 20 rows was told there were 20 groups.
+        total_groups = len(grouped)
         if top_n > 0:
             grouped = grouped.head(top_n)
 
+        # A second, hardcoded `_response_cap = 20` sat below get_max_rows() and
+        # did the real cutting. On the SFO cargo file grouped by year it
+        # returned 20 of 25 years -- dropping 2011-2014 and 2023, the five
+        # lowest -- while reporting "groups": 20 and "truncated": false. The
+        # 2013 trough quoted in the report that shipped was simply not in the
+        # tool's answer, and nothing in the response said a row was missing.
+        # get_max_rows() is the repo's limit helper and was already here.
         max_r = get_max_rows()
         truncated = len(grouped) > max_r
         if truncated:
             grouped = grouped.head(max_r)
-            progress.append(warn("Results truncated", f"Showing first {max_r} groups"))
 
-        _response_cap = 20
-        result_list = grouped.head(_response_cap).fillna("").to_dict(orient="records")
-
-        progress.append(ok(f"Aggregated {path.name}", f"{len(result_list)} groups returned"))
+        result_list = grouped.fillna("").to_dict(orient="records")
+        if truncated:
+            progress.append(
+                warn(
+                    "Results truncated",
+                    f"Showing {len(result_list)} of {total_groups} groups"
+                    + (" (sorted high to low)" if sort_desc else "")
+                    + ". Raise MCP_CONSTRAINED_MODE=0 or narrow with top_n/filter_rows.",
+                )
+            )
+        progress.append(ok(f"Aggregated {path.name}", f"{len(result_list)} of {total_groups} groups returned"))
 
         result = {
             "success": True,
@@ -304,7 +323,7 @@ def compute_aggregations(
             "group_by": group_by,
             "agg_column": agg_column,
             "agg_func": agg_func,
-            "groups": len(result_list),
+            "groups": total_groups,
             "returned": len(result_list),
             "result": result_list,
             "truncated": truncated,
@@ -985,8 +1004,9 @@ def feature_engineering(
     output_path: str = "",
     dry_run: bool = False,
     open_after: bool = True,
+    derive: list[dict] = None,
 ) -> dict:
-    """features: list of 'date_parts','bins','text_length','one_hot' or None=all."""
+    """features: 'date_parts','bins','text_length','one_hot'. derive: named specs."""
     progress = []
     backup = None
     try:
@@ -1002,7 +1022,15 @@ def feature_engineering(
 
         df = _read_csv(str(path))
         valid_features = {"date_parts", "bins", "text_length", "one_hot"}
-        requested = set(features) if features else valid_features
+        if features:
+            requested = set(features)
+        elif derive:
+            # A caller naming exact derivations is not also asking for one-hot
+            # encoding of every text column; "all four families" is only the
+            # default when nothing else was asked for.
+            requested = set()
+        else:
+            requested = valid_features
         invalid = requested - valid_features
         if invalid:
             return {
@@ -1016,6 +1044,23 @@ def feature_engineering(
         new_columns = []
         one_hot_encoded: list[str] = []
         one_hot_skipped: dict[str, str] = {}
+
+        if derive:
+            try:
+                derived, derive_progress = apply_derivations(df, derive)
+            except DeriveError as exc:
+                return {
+                    "success": False,
+                    "error": str(exc),
+                    "hint": (
+                        "A derive spec is {'name': new_column, 'op': parse_date|date_part|arith|"
+                        "compare|text, 'column': source, ...}. Call inspect_dataset() for column names."
+                    ),
+                    "progress": [fail("Invalid derivation", str(exc))],
+                    "token_estimate": 20,
+                }
+            new_columns.extend(derived)
+            progress.extend(derive_progress)
 
         if "date_parts" in requested:
             date_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])]
@@ -1117,7 +1162,7 @@ def feature_engineering(
         append_receipt(
             str(path),
             tool="feature_engineering",
-            args={"features": list(requested)},
+            args={"features": list(requested), "derive": [d.get("name") for d in (derive or [])]},
             result=f"added {len(new_columns)} columns",
             backup=backup,
         )
@@ -1175,6 +1220,7 @@ def resample_timeseries(
     dry_run: bool = False,
     date_column: str = "",
     value_columns: list[str] = None,
+    dayfirst: str = "auto",
 ) -> dict:
     progress = []
     # Four sibling tools spell these date_column and value_columns.
@@ -1228,7 +1274,8 @@ def resample_timeseries(
                 "token_estimate": 20,
             }
 
-        df[date_col] = pd.to_datetime(df[date_col], format="mixed", dayfirst=False, errors="coerce")
+        df[date_col], _fmt = parse_dates(df[date_col], dayfirst)
+        progress.append(date_note(_fmt, date_col))
         null_dates = int(df[date_col].isna().sum())
         if null_dates > 0:
             progress.append(warn(f"Dropped {null_dates} rows", "unparseable dates"))

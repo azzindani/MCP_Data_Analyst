@@ -70,7 +70,7 @@ def load_dataset(
     separator: str = ",",
     max_rows: int = 0,
 ) -> dict:
-    """Load CSV file. Returns schema, row count, dtypes, null counts."""
+    """Load CSV from a local path or an http(s) URL. Returns the schema."""
     return engine.load_dataset(file_path, encoding, separator, max_rows)
 
 
@@ -89,7 +89,7 @@ def inspect_dataset(
     file_path: str,
     include_sample: bool = False,
 ) -> dict:
-    """Inspect dataset schema, dtypes, null counts, row/col totals."""
+    """Inspect schema, dtypes, nulls, totals. Takes a local path or URL."""
     return engine.inspect_dataset(file_path, include_sample)
 
 
