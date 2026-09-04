@@ -24,7 +24,8 @@ from _med_helpers import (
 from _patch_ops import OP_HANDLERS  # type: ignore[import-not-found]
 
 from shared.arg_alias import missing, pick, pick_list
-from shared.column_utils import date_note, parse_dates
+from shared.column_utils import date_note, looks_like_dates, parse_dates
+from shared.counts import counted
 from shared.derive_ops import DeriveError, apply_derivations
 from shared.file_utils import error_text, hint_for_error, resolve_path
 from shared.patch_validator import unwrap_params, validate_ops
@@ -1073,11 +1074,9 @@ def feature_engineering(
             for col in df.columns:
                 if col in parsed_cols or not _is_string_col(df[col]):
                     continue
-                try:
-                    sample = pd.to_datetime(df[col].dropna().head(50), errors="raise")
-                except Exception:
-                    continue
-                if len(sample) == 0:
+                # Same rule as every other date guess in this repo.
+                is_dates, _match, _meta = looks_like_dates(df[col])
+                if not is_dates:
                     continue
                 parsed_cols[col] = pd.to_datetime(df[col], errors="coerce")
                 date_cols.append(col)
@@ -1351,14 +1350,29 @@ def resample_timeseries(
         )
         result_df.to_csv(out_path, index=False)
 
+        # The defect `compute_aggregations` was fixed for, in this same file,
+        # left standing here: a second hardcoded cap did the real cutting while
+        # `truncated` was computed against the other one. Resampled yearly, the
+        # SFO cargo file returned 20 of 25 periods under `truncated: false` --
+        # true of the FILE, which is under get_max_rows(), and not of the
+        # `data` the caller was actually reading.
+        #
+        # `counted` derives the flag from the two numbers it ships beside, so
+        # the pair cannot disagree again. `total_periods` stays for callers
+        # already reading it.
         max_r = get_max_rows()
-        truncated = total_periods > max_r
-        _preview_cap = 20
-        sample = result_df.head(_preview_cap).fillna("").to_dict(orient="records")
+        sample = result_df.head(max_r).fillna("").to_dict(orient="records")
         for rec in sample:
             for k, v in list(rec.items()):
                 if hasattr(v, "isoformat"):
                     rec[k] = v.isoformat()
+        if len(sample) < total_periods:
+            progress.append(
+                warn(
+                    "Preview truncated",
+                    f"Showing {len(sample)} of {total_periods} periods. The full result is in {Path(out_path).name}.",
+                )
+            )
 
         result = {
             "success": True,
@@ -1370,7 +1384,7 @@ def resample_timeseries(
             "value_cols": value_cols,
             "group_by": group_by,
             "total_periods": total_periods,
-            "truncated": truncated,
+            **counted(len(sample), total_periods),
             "data": sample,
             "output_path": out_path,
             "output_name": Path(out_path).name,

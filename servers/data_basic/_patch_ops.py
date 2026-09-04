@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 from shared.small_sample import rounded
+from shared.value_alias import resolve as resolve_op
 
 _ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
@@ -22,6 +23,11 @@ from shared.patch_validator import (
     normalize_condition,
 )
 from shared.progress import fail, ok  # noqa: F401 — re-exported for convenience
+
+# The eight the conditional-labelling branch below implements. Named as a
+# subset of the shared table so the refusal message can never offer an op
+# this tool has no branch for.
+_LABEL_OPS = ("equals", "not_equals", "gt", "gte", "lt", "lte", "contains", "isin")
 
 try:
     from scipy.stats import boxcox as _boxcox
@@ -1201,7 +1207,10 @@ def _op_conditional_assign(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, di
         col = cond["column"]
         if col not in df.columns:
             raise ValueError(f"Column not found: {col}. Available: {list(df.columns)}")
-        cop = cond["op"]
+        # Eight of the shared table's ops, named as a subset rather than
+        # retyped: `==` resolves here like everywhere else, and an op this
+        # tool cannot do is refused against its own list, not the full one.
+        cop = resolve_op(cond["op"], field="condition op", allowed=_LABEL_OPS)
         val = cond["value"]
         label = cond["label"]
         if cop == "equals":
@@ -1221,7 +1230,7 @@ def _op_conditional_assign(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, di
         elif cop == "isin":
             mask = df[col].isin(val if isinstance(val, list) else [val])
         else:
-            raise ValueError(f"Unknown condition op: '{cop}'. Valid: equals not_equals gt gte lt lte contains isin")
+            raise ValueError(f"Condition op {cop!r} is in the table but not wired up here.")
         result = result.where(~mask, other=label)
     df[new_col] = result
     dist = {str(k): int(v) for k, v in df[new_col].value_counts().items()}

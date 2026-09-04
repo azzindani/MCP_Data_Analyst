@@ -33,6 +33,7 @@ from _adv_helpers import (
 from shared.column_utils import date_note, parse_dates
 from shared.file_utils import embed_content, error_text, hint_for_error, resolve_path
 from shared.geo_names import unrecognised_locations
+from shared.html_layout import discriminated_suffix
 
 logger = logging.getLogger(__name__)
 
@@ -307,7 +308,12 @@ def generate_chart(
         fig.update_layout(margin=dict(l=20, r=20, t=40, b=20), autosize=True)
         rows_plotted = len(chart_df)
 
-        abs_p, fname = _save_chart(fig, output_path, chart_type, path, open_after, theme, progress)
+        # Named for what is IN it, not just its type. `chart_type` alone gave
+        # every bar chart on one dataset the same default filename, so four of
+        # them -- different columns, different aggregations -- became one file,
+        # each silently replacing the last.
+        stem = discriminated_suffix(chart_type, agg_func, value_column, category_column)
+        abs_p, fname = _save_chart(fig, output_path, stem, path, open_after, theme, progress)
         progress.append(ok("Chart saved", f"{fname} ({rows_plotted} rows)"))
 
         result = {

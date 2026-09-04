@@ -14,6 +14,7 @@ Best-practice rules enforced here:
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 from shared.exchange import get_output_dir
@@ -45,6 +46,39 @@ def extension_note(output_path: str, written: Path) -> str:
         f"output_path asked for '{requested}'; this tool writes {written.suffix.lstrip('.').upper()}, "
         f"so it was saved as {written.name}"
     )
+
+
+def discriminated_suffix(base: str, *parts: str, maxlen: int = 72) -> str:
+    """A default filename stem that changes when the content changes.
+
+    `generate_chart` passed `chart_type` alone, so every bar chart built from
+    one dataset defaulted to `<stem>_bar.html`. Four charts -- different value
+    columns, different aggregations -- collapsed into a single file, each
+    silently replacing the last. A user review caught it only by listing the
+    directory afterwards; nothing in any of the four responses said a file had
+    been overwritten.
+
+    The rule is P5: a default name varies with every argument that changes what
+    is in the file. An explicit `output_path` is untouched -- a caller who names
+    a file gets that file.
+
+        discriminated_suffix("bar", "sum", "tons", "year")  ->  "bar_sum_tons_by_year"
+
+    Column names arrive from user data, so they are reduced to path-safe ASCII
+    and the whole thing is capped: a 200-character column name must not decide
+    whether the write succeeds.
+    """
+    cleaned: list[str] = []
+    for part in parts:
+        if not part:
+            continue
+        slug = re.sub(r"[^A-Za-z0-9]+", "_", str(part)).strip("_").lower()
+        if slug and slug not in cleaned:
+            cleaned.append(slug)
+    if not cleaned:
+        return base
+    suffix = f"{base}_{'_'.join(cleaned)}"
+    return suffix[:maxlen].rstrip("_")
 
 
 def get_output_path(

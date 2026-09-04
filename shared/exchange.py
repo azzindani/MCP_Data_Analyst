@@ -120,6 +120,26 @@ def get_inbox_dir() -> Path:
     return inbox
 
 
+def default_output_path(source: Path | str, suffix: str, ext: str = ".csv") -> Path:
+    """Where a derived file goes when the caller named no `output_path`.
+
+    Always under `MCP_OUTPUT_DIR`, never beside the input. `detect_anomalies`
+    used `source.parent`, which is right until the input arrives by URL: those
+    land in `MCP_OUTPUT_DIR/inbox`, so an 8.5 MB anomalies file was written to
+    `inbox/` while every sibling tool wrote to `data/`. Both paths were valid
+    and the split is what cost the caller -- it looked for the file where the
+    other twenty tools put theirs.
+
+    A caller who passes `output_path` still wins; this only decides the default.
+
+        default_output_path("/workspace/data/inbox/Credit_Risk.csv", "anomalies")
+        -> /workspace/data/Credit_Risk_anomalies.csv
+    """
+    stem = Path(source).stem
+    name = f"{stem}_{suffix}{ext}" if suffix else f"{stem}{ext}"
+    return get_output_dir() / name
+
+
 def public_url_for(path: Path | str) -> str:
     """Return the public URL of a path under MCP_OUTPUT_DIR, else empty string."""
     base = os.environ.get("MCP_PUBLIC_BASE_URL", "").strip().rstrip("/")

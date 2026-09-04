@@ -518,3 +518,50 @@ def date_note(info: dict, column: str) -> dict:
             f"{info['reason']}. Pass dayfirst='true' or 'false' to settle it.",
         )
     return _info(f"Read '{column}' as {order}", info["reason"])
+
+
+# ---------------------------------------------------------------------------
+# One date-detection rule
+# ---------------------------------------------------------------------------
+
+# How much of a sample must parse before a column counts as dates. Shared with
+# the numeric guess in auto_detect_schema, which had always used 0.9 while the
+# date guess beside it used `errors="raise"` -- all or nothing, on the first
+# fifty values. Three DD-MM-YYYY columns of one file were typed datetime and a
+# fourth, identically formatted, was typed text, because one value near the top
+# of that column would not parse.
+DATE_MATCH_THRESHOLD = 0.9
+
+# Values a type guess reads, spread across the column rather than taken from
+# its head. `head(50)` sees whatever the file happens to open with: on the
+# reference dataset the first null in one column is at row 2,011.
+TYPE_SAMPLE_SIZE = 200
+
+
+def type_sample(series: pd.Series) -> pd.Series:
+    """Values a type guess is made from -- spread across the whole column."""
+    non_null = series.dropna()
+    if len(non_null) <= TYPE_SAMPLE_SIZE:
+        return non_null
+    step = max(1, len(non_null) // TYPE_SAMPLE_SIZE)
+    return non_null.iloc[::step][:TYPE_SAMPLE_SIZE]
+
+
+def looks_like_dates(series: pd.Series, dayfirst: str = "auto") -> tuple[bool, float, dict]:
+    """Is this column dates? Returns (verdict, match rate, dayfirst metadata).
+
+    Four call sites in this repo asked this question four different ways --
+    `head(10)` twice, `head(50)` twice, all with `errors="raise"` -- so the
+    same column could be a date column to `cohort_analysis` and not to
+    `auto_detect_schema`. They all read this now.
+
+    `parse_dates` does the parsing, so orientation is chosen from the data
+    rather than assumed, and an ambiguous orientation comes back in the third
+    return value instead of being swallowed.
+    """
+    sample = type_sample(series)
+    if len(sample) == 0:
+        return False, 0.0, {"dayfirst": False, "reason": "no values", "ambiguous": False}
+    parsed, meta = parse_dates(sample, dayfirst)
+    rate = float(parsed.notna().mean())
+    return rate >= DATE_MATCH_THRESHOLD, rate, meta

@@ -45,6 +45,7 @@ from shared.patch_validator import VALID_OPS, validate_ops
 from shared.platform_utils import get_max_results, get_max_rows
 from shared.progress import fail, info, ok, undo, warn
 from shared.receipt import append_receipt, read_receipt_log
+from shared.receipt import read_receipt as _read_receipt_scoped
 from shared.version_control import (
     discard_snapshot_if_unchanged,
     drop_snapshot_if_unwritten,
@@ -1141,7 +1142,7 @@ def read_receipt(
     progress = []
     try:
         path = resolve_path(file_path)
-        entries = read_receipt_log(str(path), last_n=last_n)
+        entries, scope = _read_receipt_scoped(str(path), last_n=last_n)
         total = len(read_receipt_log(str(path), last_n=0))
 
         if last_n == 0 and total > get_max_rows():
@@ -1162,6 +1163,11 @@ def read_receipt(
             "total_entries": total,
             "returned": len(entries),
             "entries": entries,
+            # A caller that ran twenty operations and reads two entries has to
+            # be able to learn from this response that eighteen of them were
+            # never eligible. Without it the log reads as an audit trail that
+            # lost most of its history.
+            "scope": scope,
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)

@@ -48,6 +48,18 @@ line-length = 120
 target-version = "py314"
 exclude = [".venv", "**/.venv/**", "*.ipynb"]
 
+[tool.ruff.format]
+# Lint shared/, never rewrite it. These modules are meant to stay byte-identical
+# with their siblings in the other repos, and the formatter forks them silently:
+# one repo lints at line-length 100 and the rest at 120, which is how a sibling
+# ended up 77 lines different from its twin by pure reflow, with nothing in the
+# diff to say no logic had changed. shared/quality.py has a test asserting it
+# matches its twin in MCP_Machine_Learning, and this keeps `ruff format` from
+# breaking that assertion on the next unrelated commit. shared/counts.py has no
+# such test yet, and has already forked on whitespace in the repos that lack
+# this exclude: it needs the same guard and the same test.
+exclude = ["shared/**"]
+
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP"]
 ignore = ["E402", "E501", "F401", "F841"]

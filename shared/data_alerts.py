@@ -19,6 +19,8 @@ from html import escape
 
 import pandas as pd
 
+from shared.quality import quality_score as _shared_quality_score
+
 _SEVERITIES = ("error", "warning", "info")
 
 
@@ -205,11 +207,16 @@ def quality_score(null_pct: float, dup_pct: float, alerts: list[dict]) -> int:
     41, the EDA report said 98, from identical alerts. Outliers are deliberately
     not charged separately: they already arrive as alerts, and the EDA report's
     own outlier_penalty term was double-counting them.
+
+    That reasoning held inside this repo and stopped at its edge.
+    MCP_Machine_Learning kept a formula of its own, with different weights, a
+    different severity vocabulary and capped terms, and the two scored one file
+    77 and 53. Each side had already noticed a sibling disagreeing and fixed it
+    locally -- twice, in two repos, without converging. So the arithmetic now
+    lives in `shared/quality.py`, byte-identical in both, and this stays as the
+    name eighteen call sites here already import.
     """
-    penalty = null_pct * 2 + dup_pct * 0.5
-    for alert in alerts:
-        penalty += 8 if alert.get("sev") == "error" else 3
-    return max(0, round(100 - penalty))
+    return int(round(_shared_quality_score(null_pct, dup_pct, alerts)))
 
 
 def alerts_html(alerts: list[dict]) -> str:

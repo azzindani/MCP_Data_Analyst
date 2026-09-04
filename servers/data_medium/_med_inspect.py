@@ -44,10 +44,13 @@ from _med_helpers import (
 )
 
 from shared.column_utils import (
+    DATE_MATCH_THRESHOLD,
     column_pair_mask,
     condition_column,
     filter_operand_error,
     missing_column_error,
+    parse_dates,
+    type_sample,
 )
 from shared.file_utils import count_data_rows as _count_data_rows
 from shared.file_utils import error_text, hint_for_error, resolve_path
@@ -55,6 +58,8 @@ from shared.platform_utils import get_max_results, get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
 from shared.small_sample import MIN_N_IQR, MIN_N_SHAPIRO, finite, min_n_for_zscore, rounded, shapiro_p
+from shared.value_alias import render_valid
+from shared.value_alias import resolve as resolve_op
 from shared.version_control import drop_snapshot_if_unwritten, snapshot
 
 logger = logging.getLogger(__name__)
@@ -572,6 +577,13 @@ def validate_dataset(
 # ---------------------------------------------------------------------------
 
 
+# One threshold for every string-column type guess, and one sampler, both from
+# shared/column_utils so the four date-detection sites in this repo cannot come
+# apart again. Aliased rather than re-exported so the local reads stay short.
+_TYPE_MATCH_THRESHOLD = DATE_MATCH_THRESHOLD
+_type_sample = type_sample
+
+
 def auto_detect_schema(
     file_path: str,
     max_rows: int = 1000,
@@ -612,19 +624,41 @@ def auto_detect_schema(
             }
 
             if _is_string_col(s):
-                try:
-                    parsed = pd.to_datetime(s.dropna().head(50), errors="raise")
-                    if len(parsed) > 0:
+                # One rule for both types, and it is the repo's own.
+                #
+                # This used to be `pd.to_datetime(head(50), errors="raise")`:
+                # all-or-nothing, on the first fifty values, with no dayfirst
+                # handling -- while the numeric branch below already accepted a
+                # 90% match on the same sample. So three DD-MM-YYYY columns of
+                # one file came back datetime with a cast suggestion and a
+                # fourth, identically formatted, came back text with none. One
+                # unparseable value among the first fifty was the whole
+                # difference, and nothing in the response said so.
+                #
+                # `parse_dates` is what every other date-aware tool here uses:
+                # format="mixed", errors="coerce", and an orientation chosen
+                # from the data rather than assumed.
+                candidates = _type_sample(s)
+                if len(candidates):
+                    parsed, date_meta = parse_dates(candidates)
+                    date_match = float(parsed.notna().mean())
+                    if date_match >= _TYPE_MATCH_THRESHOLD:
                         info_entry["inferred_type"] = "datetime"
+                        info_entry["match_rate"] = round(date_match, 3)
+                        info_entry["dayfirst"] = date_meta["dayfirst"]
                         info_entry["suggestion"] = f"cast_column col={col} dtype=datetime"
                         suggestions.append(info_entry["suggestion"])
-                except Exception:
-                    pass
+                        # The repo's rule is that an ambiguous orientation is
+                        # surfaced, never swallowed.
+                        if date_meta.get("ambiguous"):
+                            info_entry["dayfirst_ambiguous"] = date_meta["reason"]
 
-                if info_entry["inferred_type"] is None:
-                    numeric_try = pd.to_numeric(s.dropna().head(50), errors="coerce")
-                    if numeric_try.notna().mean() > 0.9:
+                if info_entry["inferred_type"] is None and len(candidates):
+                    numeric_try = pd.to_numeric(candidates, errors="coerce")
+                    numeric_match = float(numeric_try.notna().mean())
+                    if numeric_match >= _TYPE_MATCH_THRESHOLD:
                         info_entry["inferred_type"] = "numeric"
+                        info_entry["match_rate"] = round(numeric_match, 3)
                         info_entry["suggestion"] = f"cast_column col={col} dtype=float"
                         suggestions.append(info_entry["suggestion"])
 
@@ -698,6 +732,12 @@ def _apply_condition(df: pd.DataFrame, cond: dict) -> pd.Series:
     op = cond.get("op", "") or cond.get("operator", "")
     val = cond.get("value")
     s = df[col]
+    # One table, shared with data_transform. This server used to spell them
+    # `startswith`/`endswith` and that one `starts_with`/`ends_with`, so a
+    # caller taught by either was refused by the other, and `not_contains`
+    # reached only one of them. Resolving here accepts both spellings, and
+    # `==` besides.
+    op = resolve_op(op, field="filter op")
     # --- column against column ---
     pair = column_pair_mask(df, cond, col, op)
     if pair is not None:
@@ -776,14 +816,18 @@ def _apply_condition(df: pd.DataFrame, cond: dict) -> pd.Series:
         q_low = float(numeric_s.quantile(min_q))
         q_high = float(numeric_s.quantile(max_q))
         return numeric_s.between(q_low, q_high)
-    if op == "startswith":
+    if op == "starts_with":
         return s.astype(str).str.startswith(str(val), na=False)
-    if op == "endswith":
+    if op == "ends_with":
         return s.astype(str).str.endswith(str(val), na=False)
-    raise ValueError(
-        f"Unknown op '{op}'. Valid: equals not_equals contains gt gte lt lte is_null not_null "
-        "isin not_isin between date_range regex quantile_between startswith endswith"
-    )
+    if op == "not_contains":
+        # Present in data_transform since it shipped, never here. Same table
+        # now names it, so this server has to be able to answer it.
+        return ~s.astype(str).str.contains(str(val), case=False, na=False)
+    # Unreachable for a resolvable op -- `resolve_op` above raises first, with
+    # the valid list and a did_you_mean. Kept so a newly added canonical op
+    # that nobody wired up here fails loudly instead of silently matching all.
+    raise ValueError(f"Filter op {op!r} is known but not implemented here. Valid: {render_valid()}")
 
 
 # ---------------------------------------------------------------------------
@@ -935,7 +979,7 @@ def filter_rows(
         return {
             "success": False,
             "error": error_text(exc),
-            "hint": f"Valid ops: equals not_equals contains gt gte lt lte is_null not_null isin between date_range regex. Error: {exc}",
+            "hint": f"Valid ops: {render_valid()}. Error: {exc}",
             "backup": drop_snapshot_if_unwritten(backup, path),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,

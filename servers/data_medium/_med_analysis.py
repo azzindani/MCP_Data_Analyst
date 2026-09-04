@@ -53,7 +53,8 @@ from _med_helpers import (
     _token_estimate,
 )
 
-from shared.column_utils import date_note, infer_agg, is_numeric_col, paired_numeric, parse_dates
+from shared.column_utils import date_note, infer_agg, is_numeric_col, looks_like_dates, paired_numeric, parse_dates
+from shared.exchange import default_output_path
 from shared.file_utils import error_text, hint_for_error, resolve_path
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
@@ -878,13 +879,13 @@ def time_series_analysis(
             date_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])]
             if not date_cols:
                 for col in df.columns:
-                    if _is_string_col(df[col]):
-                        try:
-                            pd.to_datetime(df[col].dropna().head(10), errors="raise")
-                            date_column = col
-                            break
-                        except Exception:
-                            pass
+                    # One rule, shared with auto_detect_schema and the two
+                    # other sites that each asked this differently. head(10)
+                    # with errors="raise" let a single stray value near the
+                    # top of a column hide a date column entirely.
+                    if _is_string_col(df[col]) and looks_like_dates(df[col])[0]:
+                        date_column = col
+                        break
             else:
                 date_column = date_cols[0]
 
@@ -1246,13 +1247,13 @@ def cohort_analysis(
             date_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])]
             if not date_cols:
                 for col in df.columns:
-                    if _is_string_col(df[col]):
-                        try:
-                            pd.to_datetime(df[col].dropna().head(10), errors="raise")
-                            date_column = col
-                            break
-                        except Exception:
-                            pass
+                    # One rule, shared with auto_detect_schema and the two
+                    # other sites that each asked this differently. head(10)
+                    # with errors="raise" let a single stray value near the
+                    # top of a column hide a date column entirely.
+                    if _is_string_col(df[col]) and looks_like_dates(df[col])[0]:
+                        date_column = col
+                        break
             else:
                 date_column = date_cols[0]
 
@@ -1538,7 +1539,11 @@ def detect_anomalies(
             # rows were checked and came back clean.
             anomaly_count = None
 
-        out = str(resolve_path(output_path)) if output_path else str(path.parent / f"{path.stem}_anomalies.csv")
+        # `path.parent` used to decide this, which sent the file wherever the
+        # INPUT happened to live -- and a URL input lives in `inbox/`, so an
+        # 8.5 MB anomalies CSV landed there while every sibling wrote to the
+        # output dir. One default directory, unless the caller names one.
+        out = str(resolve_path(output_path)) if output_path else str(default_output_path(path, "anomalies"))
         result_df.to_csv(out, index=False)
 
         undetermined_shown = sorted(undetermined_cols)

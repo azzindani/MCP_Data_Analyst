@@ -36,6 +36,9 @@ from shared.file_utils import read_csv as _shared_read_csv
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
+from shared.value_alias import CANONICAL as CANONICAL_OPS
+from shared.value_alias import render_valid
+from shared.value_alias import resolve as resolve_op
 from shared.version_control import drop_snapshot_if_unwritten, snapshot
 
 logger = logging.getLogger(__name__)
@@ -54,28 +57,12 @@ def _read_csv(path: str) -> pd.DataFrame:
 # filter_dataset — upgraded from filter_rows
 # ---------------------------------------------------------------------------
 
-_FILTER_OPS = frozenset(
-    {
-        "equals",
-        "not_equals",
-        "contains",
-        "not_contains",
-        "gt",
-        "lt",
-        "gte",
-        "lte",
-        "not_null",
-        "is_null",
-        "isin",
-        "not_isin",
-        "between",
-        "regex",
-        "date_range",
-        "quantile_between",
-        "starts_with",
-        "ends_with",
-    }
-)
+# The vocabulary lives in shared/value_alias.py and is spelled there once.
+# It used to be a frozenset here and an if-chain in data_medium, and the two
+# had drifted -- this server said `starts_with`, that one said `startswith`,
+# and `not_contains` existed only here. Keep this an alias of the shared table,
+# never a second copy of it.
+_FILTER_OPS = frozenset(CANONICAL_OPS)
 
 
 def _needs(cond: dict, op: str, key: str):
@@ -129,8 +116,9 @@ def _apply_condition(df: pd.DataFrame, cond: dict) -> pd.Series:
         raise ValueError(f"{error} {hint}")
     if col not in df.columns:
         raise ValueError(f"Column '{col}' not found. Available: {list(df.columns)}")
-    if op not in _FILTER_OPS:
-        raise ValueError(f"Unknown filter op '{op}'. Valid: {', '.join(sorted(_FILTER_OPS))}")
+    # Resolve before anything switches on it: `==` and `startswith` are the two
+    # spellings callers actually send, and neither used to reach the if-chain.
+    op = resolve_op(op, field="filter op")
     pair = column_pair_mask(df, cond, col, op)
     if pair is not None:
         return pair
@@ -292,7 +280,7 @@ def filter_dataset(
             # this try block can raise -- so a bad COLUMN was answered with the
             # op vocabulary, and a bad op was answered with a list the error had
             # already printed. hint_for_error reads the message first.
-            "hint": hint_for_error(exc, f"Valid filter ops: {', '.join(sorted(_FILTER_OPS))}"),
+            "hint": hint_for_error(exc, f"Valid filter ops: {render_valid()}"),
             "backup": drop_snapshot_if_unwritten(backup, path),
             "progress": [fail("Unexpected error", str(exc))],
             "token_estimate": 20,
