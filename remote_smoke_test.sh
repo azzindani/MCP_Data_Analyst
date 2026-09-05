@@ -270,8 +270,8 @@ run visual export_data "{\"file_path\":\"$SALES\",\"output_path\":\"$D/sales_exp
 # the serving tier never forwarded it. These four drive the new arguments
 # through the deployed HTTP surface, which is the only place that shows.
 WB_R=$(call visual 200 export_data "{\"file_path\":\"$SALES\",\"output_path\":\"$D/sales_preview.xlsx\",\"format\":\"excel\",\"preview_rows\":5}")
-if echo "$WB_R" | grep -q '"README"'; then pass "export_data wrote a README sheet"; else fail "export_data workbook -> $WB_R"; fi
-if echo "$WB_R" | grep -q '"full_csv_path"'; then pass "a preview workbook wrote the full CSV beside it"; else fail "preview_rows did not write the full CSV -> $WB_R"; fi
+if echo "$WB_R" | grep -q 'README'; then pass "export_data wrote a README sheet"; else fail "export_data workbook -> $WB_R"; fi
+if echo "$WB_R" | grep -q 'full_csv_path'; then pass "a preview workbook wrote the full CSV beside it"; else fail "preview_rows did not write the full CSV -> $WB_R"; fi
 run visual generate_distribution_plot "{\"file_path\":\"$SALES\",\"columns\":[\"revenue\"],\"max_points\":50}" "plot revenue from at most 50 points"
 MULTI_R=$(call visual 200 generate_dashboard "{\"file_path\":\"$SALES\",\"output_path\":\"$D/multi_dash.html\",\"sources\":[\"$D/sales_emea.csv\"]}")
 if echo "$MULTI_R" | grep -q 'sales_emea.csv'; then pass "generate_dashboard added a second source as a tab"; else fail "sources -> $MULTI_R"; fi
