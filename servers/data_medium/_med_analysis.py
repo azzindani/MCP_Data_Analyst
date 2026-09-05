@@ -53,6 +53,7 @@ from _med_helpers import (
     _token_estimate,
 )
 
+from shared.anomaly_reasons import collect_hits, row_fix, row_reason
 from shared.column_utils import date_note, infer_agg, is_numeric_col, looks_like_dates, paired_numeric, parse_dates
 from shared.counts import counted
 from shared.exchange import default_output_path
@@ -1553,6 +1554,34 @@ def detect_anomalies(
         out = str(resolve_path(output_path)) if output_path else str(default_output_path(path, "anomalies"))
         result_df.to_csv(out, index=False)
 
+        # The anomalies-only file, beside the scored one. The review measured
+        # the cost of having only the big one: 8.5 MB for 2,793 flagged rows out
+        # of 38,576, so 93% of the answer to "which rows are anomalous" was rows
+        # that are not -- and the reason each flagged row was flagged existed
+        # only as a `True` under a column name. Both files ship, because they
+        # answer different questions: the small one is what an agent reads, the
+        # big one is what a later pass re-scores against.
+        anomalies_out = ""
+        anomalies_rows = 0
+        if anomaly_count:
+            flagged = result_df[result_df["_anomaly_score"] > 0].copy()
+            reasons, fixes = [], []
+            for _, row in flagged.iterrows():
+                hits = collect_hits(row, per_column_summary, threshold)
+                reasons.append(row_reason(hits))
+                fixes.append(row_fix(hits))
+            flagged["anomaly_reason"] = reasons
+            flagged["suggested_fix"] = fixes
+            anomalies_out = str(default_output_path(Path(out), "only"))
+            flagged.to_csv(anomalies_out, index=False)
+            anomalies_rows = len(flagged)
+            progress.append(
+                ok(
+                    "Anomalies-only file written",
+                    f"{anomalies_rows:,} flagged row(s) with a reason each — {Path(anomalies_out).name}",
+                )
+            )
+
         undetermined_shown = sorted(undetermined_cols)
         if undetermined_shown:
             progress.append(
@@ -1583,6 +1612,11 @@ def detect_anomalies(
             "per_column": per_column_summary,
             "output_path": out,
             "output_name": Path(out).name,
+            # Named separately rather than replacing output_path: a caller that
+            # already knows where the scored file goes keeps working, and one
+            # that wants the short answer now has somewhere to look.
+            "anomalies_only_path": anomalies_out,
+            "anomalies_only_rows": anomalies_rows,
             "hint": hint,
             "progress": progress,
         }

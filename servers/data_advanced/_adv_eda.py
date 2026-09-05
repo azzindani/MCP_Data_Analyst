@@ -46,6 +46,7 @@ from _adv_helpers import (
 
 from shared.data_alerts import alerts_html, compute_alerts
 from shared.data_alerts import quality_score as compute_quality_score
+from shared.depth import MODES, SECTIONS, Depth, UnknownMode, sampled_frame
 from shared.file_utils import embed_content, error_text, hint_for_error, resolve_path
 
 logger = logging.getLogger(__name__)
@@ -57,10 +58,40 @@ def run_eda(
     open_after: bool = True,
     theme: str = "device",
     return_content: bool = False,
+    mode: str = "standard",
+    sample_n: int = 0,
+    include: dict | None = None,
 ) -> dict:
-    """Fast EDA summary. Stats, nulls, correlations, outliers. Opens HTML."""
+    """Fast EDA summary. Stats, nulls, correlations, outliers. Opens HTML.
+
+    `mode` is "minimal", "standard" or "full". **"standard" is exactly what this
+    tool did before the parameter existed**, so a caller who passes nothing gets
+    yesterday's answer. "minimal" computes column summaries, nulls and the
+    quality score and skips the correlation matrices, the outlier scan and the
+    HTML page -- the parts that made nine reports from one dataset weigh 4.7 MB
+    each. "full" adds every correlation pair rather than the top ten.
+
+    `sample_n` profiles a random sample of that many rows. The response then
+    carries `was_sampled`, `sample_n` and `rows_total`, because statistics from
+    5,000 of 38,576 rows are estimates and a report that does not say so invites
+    them to be quoted as counts.
+
+    `include` overrides the mode per section in either direction, e.g.
+    `mode="minimal", include={"correlations": True}`. An unknown section name is
+    refused rather than ignored.
+    """
     progress = []
     try:
+        try:
+            depth = Depth(mode, include)
+        except UnknownMode as exc:
+            return {
+                "success": False,
+                "error": str(exc),
+                "hint": f"mode is one of {', '.join(MODES)}; include keys are: {', '.join(SECTIONS)}.",
+                "progress": [fail("Invalid depth", str(exc))],
+                "token_estimate": 30,
+            }
         try:
             import plotly.express as px  # noqa: F401
             import plotly.graph_objects as go  # noqa: F401
@@ -84,7 +115,10 @@ def run_eda(
                 "token_estimate": 20,
             }
 
-        df = _read_csv(str(path))
+        full_df = _read_csv(str(path))
+        # Sampling happens once, here, so every section below profiles the same
+        # rows. `sample_note` goes in the response rather than only in a log.
+        df, sample_fields = sampled_frame(full_df, sample_n)
         rows, cols = df.shape
 
         numeric_cols = [c for c in df.columns if is_numeric_col(df[c])]
@@ -111,7 +145,7 @@ def run_eda(
             column_summaries.append(s)
 
         corr_pairs = []
-        if len(numeric_cols) >= 2:
+        if depth.wants("correlations") and len(numeric_cols) >= 2:
             corr = df[numeric_cols].corr(method="pearson")
             pairs = []
             for i in range(len(numeric_cols)):
@@ -126,10 +160,13 @@ def run_eda(
                             }
                         )
             pairs.sort(key=lambda x: abs(x["correlation"]), reverse=True)
-            corr_pairs = pairs[:10]
+            # "full" is the mode a caller picks when they want the matrix, not a
+            # summary of it. Ten was never a considered number; it was the only
+            # number.
+            corr_pairs = pairs if depth.mode == "full" else pairs[:10]
 
         outlier_cols = []
-        for c in numeric_cols:
+        for c in numeric_cols if depth.wants("outliers") else []:
             q1 = df[c].quantile(0.25)
             q3 = df[c].quantile(0.75)
             iqr = q3 - q1
@@ -159,11 +196,13 @@ def run_eda(
         # columns, 89.7% zero-inflation, skewness of +17 and outliers at 13% all
         # cost nothing. The shared scorer prices the same alerts the dashboard
         # does, so the two tools can no longer give one frame two verdicts.
-        alerts = _compute_alerts(df, numeric_cols, cat_cols, corr_pairs, rows, dup_count)
+        alerts = (
+            _compute_alerts(df, numeric_cols, cat_cols, corr_pairs, rows, dup_count) if depth.wants("alerts") else []
+        )
         quality_score = compute_quality_score(null_pct, dup_pct, alerts)
 
         spearman_matrix = None
-        if len(numeric_cols) >= 2:
+        if depth.wants("spearman") and len(numeric_cols) >= 2:
             spearman_matrix = df[numeric_cols].corr(method="spearman")
 
         for s in column_summaries:
@@ -171,50 +210,62 @@ def run_eda(
                 s["zero_count"] = int((df[s["column"]] == 0).sum())
                 s["zero_pct"] = round(s["zero_count"] / rows * 100, 2) if rows > 0 else 0
 
-        # Resolved first: the output path decides where the page is written,
-        # and the <head> is assembled around it.
-        out = get_output_path(output_path, path, "eda", "html")
-        if note := extension_note(output_path, out):
-            progress.append(warn("Output extension changed", note))
+        out = None
+        size_kb = 0
+        if depth.wants("html"):
+            # Resolved first: the output path decides where the page is written,
+            # and the <head> is assembled around it.
+            out = get_output_path(output_path, path, "eda", "html")
+            if note := extension_note(output_path, out):
+                progress.append(warn("Output extension changed", note))
 
-        html_content = _build_eda_html(
-            df,
-            path,
-            rows,
-            cols,
-            numeric_cols,
-            cat_cols,
-            datetime_cols,
-            column_summaries,
-            corr_pairs,
-            outlier_cols,
-            quality_score,
-            alerts,
-            spearman_matrix,
-            dup_count,
-            theme,
-            out.parent,
-        )
-
-        out.write_text(html_content, encoding="utf-8")
-        size_kb = round(out.stat().st_size / 1024)
-
-        if open_after:
-            _open_file(out)
-
-        progress.append(
-            ok(
-                "EDA report saved",
-                f"{out.name} ({size_kb:,} KB) — {quality_score}/100 quality score",
+            html_content = _build_eda_html(
+                df,
+                path,
+                rows,
+                cols,
+                numeric_cols,
+                cat_cols,
+                datetime_cols,
+                column_summaries,
+                corr_pairs,
+                outlier_cols,
+                quality_score,
+                alerts,
+                spearman_matrix,
+                dup_count,
+                theme,
+                out.parent,
             )
-        )
+
+            out.write_text(html_content, encoding="utf-8")
+            size_kb = round(out.stat().st_size / 1024)
+
+            if open_after:
+                _open_file(out)
+
+            progress.append(
+                ok(
+                    "EDA report saved",
+                    f"{out.name} ({size_kb:,} KB) — {quality_score}/100 quality score",
+                )
+            )
+        else:
+            # The 4.7 MB is the page, not the numbers. A caller who wanted the
+            # figures should not have to write one to disk to read them.
+            progress.append(
+                ok(
+                    "EDA computed",
+                    f"{quality_score}/100 quality score — no HTML written at mode={depth.mode!r}",
+                )
+            )
 
         result = {
             "success": True,
             "op": "run_eda",
             "file_path": str(path),
-            "output_path": str(out.resolve()),
-            "output_name": out.name,
+            "output_path": str(out.resolve()) if out else "",
+            "output_name": out.name if out else "",
             "report_size_kb": size_kb,
             "rows": rows,
             "columns": cols,
@@ -227,9 +278,17 @@ def run_eda(
             "top_correlations": corr_pairs[:5],
             "outlier_columns": outlier_cols,
             "column_summaries": column_summaries,
+            # Which parts were computed, so an empty section can be read as
+            # "not asked for" rather than "nothing found". Those are different
+            # answers and they call for different next steps.
+            **depth.report(),
+            **sample_fields,
             "progress": progress,
         }
-        embed_content(result, out, return_content)
+        if depth.mode == "full":
+            result["all_correlations"] = corr_pairs
+        if out is not None:
+            embed_content(result, out, return_content)
         result["token_estimate"] = _token_estimate(result)
         return result
 

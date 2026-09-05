@@ -70,9 +70,17 @@ def run_eda(
     open_after: bool = True,
     theme: str = "device",
     return_content: bool = False,
+    mode: str = "standard",
+    sample_n: int = 0,
+    include: dict = None,
 ) -> dict:
-    """Fast EDA summary. Stats, nulls, correlations, outliers. Saves HTML."""
-    return engine.run_eda(file_path, output_path, open_after, theme, return_content)
+    """Fast EDA summary. Stats, nulls, correlations, outliers. Saves HTML.
+
+    mode: minimal (figures only, no 4.7 MB page) | standard (default, unchanged)
+    | full (every correlation pair). sample_n profiles that many random rows and
+    says so in the response. include={"correlations": true} overrides per section.
+    """
+    return engine.run_eda(file_path, output_path, open_after, theme, return_content, mode, sample_n, include)
 
 
 @mcp.tool(annotations=CREATES)

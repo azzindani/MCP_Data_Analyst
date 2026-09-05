@@ -79,7 +79,7 @@ def _source_lines(path: Path) -> list[tuple[int, str]]:
     and a test that fires on its own explanation is a test nobody keeps.
     """
     out = []
-    for n, line in enumerate(path.read_text().splitlines(), 1):
+    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         stripped = line.strip()
         if stripped.startswith("#"):
             continue

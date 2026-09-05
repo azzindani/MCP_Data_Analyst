@@ -57,7 +57,7 @@ def _sha(path: pathlib.Path) -> str:
 
 def test_this_repo_excludes_shared_from_the_formatter():
     """The CI-enforceable half: runs anywhere, including a GitHub runner."""
-    pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert "[tool.ruff.format]" in pyproject, "the formatter guard for shared/ is missing"
     guard = pyproject.split("[tool.ruff.format]", 1)[1].split("[tool.", 1)[0]
     assert 'exclude = ["shared/**"]' in guard, "shared/ must be linted but never rewritten"
