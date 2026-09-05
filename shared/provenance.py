@@ -37,6 +37,13 @@ from typing import Any
 
 PROVENANCE_ID = "mcp-provenance"
 
+# The spec a generated page was built from, embedded so a later `customize_*`
+# call can read it back. Same mechanism as the provenance block, different
+# question: one says what the page is a picture of, the other says what was
+# asked for. Keeping them separate means a page can carry either without the
+# other, and a reader knows which is which.
+SPEC_ID = "mcp-spec"
+
 # The same 64 MB ceiling the receipt log uses: above it a content hash costs
 # more than the operation it describes.
 _MAX_HASH_BYTES = 64 * 1024 * 1024
@@ -109,14 +116,8 @@ def provenance_script(header: dict[str, Any]) -> str:
     return f'<script type="application/json" id="{PROVENANCE_ID}">\n{blob}\n</script>'
 
 
-def read_provenance(html: str) -> dict[str, Any]:
-    """Pull the header back out of a page. `{}` when there is none.
-
-    Exists so the property can be tested on the artifact itself rather than on
-    the arguments that produced it -- the sidecar defect passed every test
-    precisely because the tests checked the implementation.
-    """
-    marker = f'<script type="application/json" id="{PROVENANCE_ID}">'
+def _json_block(html: str, block_id: str) -> dict[str, Any]:
+    marker = f'<script type="application/json" id="{block_id}">'
     start = html.find(marker)
     if start == -1:
         return {}
@@ -128,3 +129,30 @@ def read_provenance(html: str) -> dict[str, Any]:
         return json.loads(html[start:end].replace("<\\/", "</"))
     except json.JSONDecodeError:
         return {}
+
+
+def spec_script(spec: dict[str, Any]) -> str:
+    """The build document, embedded in the page it produced."""
+    if not spec:
+        return ""
+    blob = json.dumps(spec, indent=2, default=str).replace("</", "<\\/")
+    return f'<script type="application/json" id="{SPEC_ID}">\n{blob}\n</script>'
+
+
+def read_spec(html: str) -> dict[str, Any]:
+    """Pull the build document back out of a generated page. `{}` when absent.
+
+    This is what makes a `customize_*` call cheap: it reads what was asked for
+    last time rather than inferring it from what was rendered.
+    """
+    return _json_block(html, SPEC_ID)
+
+
+def read_provenance(html: str) -> dict[str, Any]:
+    """Pull the header back out of a page. `{}` when there is none.
+
+    Exists so the property can be tested on the artifact itself rather than on
+    the arguments that produced it -- the sidecar defect passed every test
+    precisely because the tests checked the implementation.
+    """
+    return _json_block(html, PROVENANCE_ID)

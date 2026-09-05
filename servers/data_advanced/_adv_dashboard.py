@@ -42,9 +42,14 @@ from _adv_helpers import (
     warn,
 )
 
+from shared.dashboard_spec import CHART_KINDS, SPEC_KEYS, SpecError
+from shared.dashboard_spec import merge as merge_spec
+from shared.dashboard_spec import resolve as resolve_spec
+from shared.dashboard_spec import validate as validate_spec
 from shared.data_alerts import alerts_for_frame, alerts_html, quality_score
 from shared.file_utils import embed_content, error_text, hint_for_error, no_rows_error, resolve_path
 from shared.geo_names import unrecognised_locations
+from shared.provenance import frame_hash, provenance, provenance_script, read_provenance, read_spec, spec_script
 from shared.table_payload import records_js
 
 logger = logging.getLogger(__name__)
@@ -153,8 +158,22 @@ def generate_dashboard(
     dry_run: bool = False,
     open_after: bool = True,
     return_content: bool = False,
+    spec: dict | None = None,
 ) -> dict:
-    """Generate interactive HTML dashboard with auto-detected charts. Opens HTML."""
+    """Generate interactive HTML dashboard with auto-detected charts. Opens HTML.
+
+    `spec` overrides any part of the auto-detection:
+    `{title, theme, layout:[{slot, chart, cols, agg}], kpis, filters, tabs,
+    interactions}`. An absent key means "decide for me", so passing nothing
+    returns exactly what this returned before the parameter existed.
+
+    The **resolved** spec -- detection plus the caller's edits -- comes back in
+    the response and is embedded in the page, which is what lets
+    `customize_dashboard` change one panel without re-deriving intent from HTML.
+    A spec naming a column that is not in the file, or a chart missing a role it
+    needs, is refused by name rather than quietly falling back to detection: a
+    dashboard that ignored its configuration looks exactly like one that obeyed.
+    """
     progress = []
     # geo_file_path was declared on the tool, forwarded by the wrapper, and read
     # nowhere. The dashboard does build geo panels -- from geo columns it finds
@@ -247,6 +266,37 @@ def generate_dashboard(
             detected.append("geo_choropleth")
         charts = chart_types if chart_types else detected
 
+        # The detection, as a document a caller can edit. Auto-detect stays the
+        # default and the zero-argument call is unchanged; a spec turns the
+        # detection from the only way in into an opening offer. `resolved` ships
+        # in the response and in the page, which is what lets
+        # customize_dashboard change one panel without re-deriving a caller's
+        # intent from HTML.
+        try:
+            validate_spec(spec, df)
+        except SpecError as exc:
+            return {
+                "success": False,
+                "op": "generate_dashboard",
+                "error": str(exc),
+                "hint": f"spec keys: {', '.join(SPEC_KEYS)}. Charts: {', '.join(CHART_KINDS)}.",
+                "progress": [fail("Invalid spec", str(exc))],
+                "token_estimate": 60,
+            }
+        detected_layout = [{"slot": i, "chart": name, "cols": {}, "agg": ""} for i, name in enumerate(charts)]
+        resolved = resolve_spec(
+            spec,
+            title=dashboard_title,
+            theme=theme,
+            detected_layout=detected_layout,
+            kpi_columns=numeric_cols[:8],
+            filter_columns=cat_cols[:8],
+        )
+        if spec and spec.get("layout") is not None:
+            charts = [p["chart"] for p in resolved["layout"]]
+        dashboard_title = resolved["title"]
+        theme = resolved["theme"]
+
         if dry_run:
             progress.append(info("Dry run — no file written", path.name))
             result: dict = {
@@ -304,7 +354,14 @@ def generate_dashboard(
             progress.append(warn("Output extension changed", note))
 
         h: list[str] = []
-        h.append(_dash_head(_css, dashboard_title, out.parent))
+        page_header = provenance(
+            rows_plotted=len(embed_df),
+            rows_total=len(df),
+            source=path.name,
+            data_hash=frame_hash(embed_df),
+            tool="generate_dashboard",
+        )
+        h.append(_dash_head(_css, dashboard_title, out.parent, page_header, resolved))
         h.append(_dash_header(dashboard_title, embed_df, was_sampled))
         h.append(_dash_filterbar(filter_controls, num_ranges))
         h.append(_dash_kpi_row(df, numeric_cols, sparklines, quality, qual_clr, col_agg))
@@ -313,11 +370,11 @@ def generate_dashboard(
         # its columns were constant. Same alert engine the EDA report leads with.
         h.append(_dash_alerts(alerts))
 
-        spec: list[dict] = []
+        chart_specs: list[dict] = []
         h.append('<div class="sec-hdr">Charts</div><div class="cgrid">')
         _build_chart_cards(
             h,
-            spec,
+            chart_specs,
             charts,
             chart_cat_cols,
             numeric_cols,
@@ -329,6 +386,12 @@ def generate_dashboard(
             col_agg,
         )
         h.append("</div>")
+        # Off by default: a spec parameter must not change what a
+        # zero-argument call returns. `interactions.table` turns it on.
+        if resolved["interactions"].get("table"):
+            h.append(_dash_table(embed_df, int(resolved["interactions"].get("table_page_size") or 25)))
+        if resolved.get("tabs"):
+            h.append(_dash_tabs(resolved["tabs"], chart_specs))
         h.append(_dash_modal())
 
         COLORS = "['#58a6ff','#3fb950','#f0883e','#f85149','#bc8cff','#79c0ff','#7ee787','#ffa657','#ff7b72','#d2a8ff','#a5d6ff','#aff5b4','#ffd6a5','#ffabab','#e0b0ff']"
@@ -351,7 +414,7 @@ def generate_dashboard(
             )
 
         rfns = _build_render_functions(
-            spec,
+            chart_specs,
             bg,
             font_c,
             grid_c,
@@ -371,7 +434,7 @@ def generate_dashboard(
             for nc in numeric_cols[:7]
         )
         render_calls = "\n".join(
-            "  try{rf_" + s["id"] + "(d);}catch(_e){console.warn('chart " + s["id"] + "',_e);}" for s in spec
+            "  try{rf_" + s["id"] + "(d);}catch(_e){console.warn('chart " + s["id"] + "',_e);}" for s in chart_specs
         )
         rfns_str = "\n\n".join(rfns)
 
@@ -413,6 +476,10 @@ def generate_dashboard(
             "rows_total": len(df),
             "was_sampled": was_sampled,
             "report_size_kb": size_kb,
+            # The document this page was built from. Returned so a caller can
+            # edit one field and hand it back, rather than describing the change
+            # in prose to a tool that only auto-detects.
+            "spec": resolved,
             "progress": progress,
         }
         embed_content(result, out, return_content)
@@ -484,17 +551,23 @@ def _trend(df, col: str) -> tuple[str, str]:
     return "→", "trend-flat"
 
 
-def _dash_head(_css, dashboard_title, output_dir):
+def _dash_head(_css, dashboard_title, output_dir, header=None, spec=None):
     import html as _html
 
     full_css = css_dashboard(_css)
     plotly_script = plotly_script_tag(output_dir)
+    # The page carries what it is a picture of, and the document it was built
+    # from. The second is what makes customize_dashboard possible: without it,
+    # "change that bar chart to a line" would mean re-deriving the caller's
+    # intent out of rendered HTML.
+    blocks = provenance_script(header or {}) + spec_script(spec or {})
     return (
         "<!DOCTYPE html>"
         "<html lang='en'><head>"
         "<meta charset='utf-8'>"
         f"{VIEWPORT_META}"
         f"<title>{_html.escape(dashboard_title)} \u2014 Dashboard</title>"
+        f"{blocks}"
         f"{plotly_script}"
         f"<style>{full_css}</style>"
         f"</head><body>"
@@ -666,7 +739,7 @@ def _card(h, cid: str, ttl: str, full: bool, height: int) -> None:
 
 def _build_chart_cards(
     h,
-    spec,
+    chart_specs,
     charts,
     cat_cols,
     numeric_cols,
@@ -683,12 +756,12 @@ def _build_chart_cards(
                 agg = col_agg.get(nc, "sum")
                 cid = f"bar_{_safe(cc)}_{_safe(nc)}"
                 _card(h, cid, f"{agg_label(agg)} {nc} by {cc}", False, 340)
-                spec.append({"id": cid, "type": "bar", "cc": cc, "nc": nc, "agg": agg})
+                chart_specs.append({"id": cid, "type": "bar", "cc": cc, "nc": nc, "agg": agg})
     if "pie" in charts and cat_cols:
         for cc in cat_cols[:3]:
             cid = f"pie_{_safe(cc)}"
             _card(h, cid, f"{cc} Distribution", False, 340)
-            spec.append({"id": cid, "type": "pie", "cc": cc})
+            chart_specs.append({"id": cid, "type": "pie", "cc": cc})
     if "scatter" in charts and len(numeric_cols) >= 2:
         pairs = [
             (numeric_cols[i], numeric_cols[j])
@@ -698,13 +771,13 @@ def _build_chart_cards(
         for nc1, nc2 in pairs:
             cid = f"scat_{_safe(nc1)}_{_safe(nc2)}"
             _card(h, cid, f"{nc1} vs {nc2}", False, 340)
-            spec.append({"id": cid, "type": "scatter", "nc1": nc1, "nc2": nc2})
+            chart_specs.append({"id": cid, "type": "scatter", "nc1": nc1, "nc2": nc2})
     if len(cat_cols) >= 2 and numeric_cols:
         cc1, cc2, nc = cat_cols[0], cat_cols[1], numeric_cols[0]
         agg = col_agg.get(nc, "sum")
         cid = f"grp_{_safe(cc1)}_{_safe(cc2)}"
         _card(h, cid, f"{agg_label(agg)} {nc} by {cc1}, grouped by {cc2}", True, 380)
-        spec.append(
+        chart_specs.append(
             {
                 "id": cid,
                 "type": "grouped_bar",
@@ -718,38 +791,38 @@ def _build_chart_cards(
         nc1, nc2, cc = numeric_cols[0], numeric_cols[1], cat_cols[0]
         cid = f"cscat_{_safe(nc1)}_{_safe(nc2)}"
         _card(h, cid, f"{nc1} vs {nc2} by {cc}", True, 380)
-        spec.append({"id": cid, "type": "cscat", "nc1": nc1, "nc2": nc2, "cc": cc})
+        chart_specs.append({"id": cid, "type": "cscat", "nc1": nc1, "nc2": nc2, "cc": cc})
     if numeric_cols and cat_cols:
         nc, cc = numeric_cols[0], cat_cols[0]
         cid = f"box_{_safe(nc)}_{_safe(cc)}"
         _card(h, cid, f"{nc} distribution by {cc}", True, 380)
-        spec.append({"id": cid, "type": "box", "nc": nc, "cc": cc})
+        chart_specs.append({"id": cid, "type": "box", "nc": nc, "cc": cc})
     if len(numeric_cols) >= 2:
         _card(h, "corr_hm", "Correlation Matrix", True, 480)
-        spec.append({"id": "corr_hm", "type": "corr"})
+        chart_specs.append({"id": "corr_hm", "type": "corr"})
     if len(cat_cols) >= 2 and numeric_cols:
         cc1, cc2, nc = cat_cols[0], cat_cols[1], numeric_cols[0]
         agg = col_agg.get(nc, "sum")
         cid = f"aghm_{_safe(cc1)}_{_safe(cc2)}"
         _card(h, cid, f"{agg_label(agg)} {nc}: {cc1} \u00d7 {cc2}", True, 460)
-        spec.append({"id": cid, "type": "agg_hm", "cc1": cc1, "cc2": cc2, "nc": nc, "agg": agg})
+        chart_specs.append({"id": cid, "type": "agg_hm", "cc1": cc1, "cc2": cc2, "nc": nc, "agg": agg})
     if "time_series" in charts and datetime_cols and numeric_cols:
         for dc in datetime_cols[:2]:
             for nc in numeric_cols[:2]:
                 agg = col_agg.get(nc, "sum")
                 cid = f"ts_{_safe(dc)}_{_safe(nc)}"
                 _card(h, cid, f"{agg_label(agg)} {nc} Over Time", True, 380)
-                spec.append({"id": cid, "type": "ts", "dc": dc, "nc": nc, "agg": agg})
+                chart_specs.append({"id": cid, "type": "ts", "dc": dc, "nc": nc, "agg": agg})
     for nc in numeric_cols[:6]:
         cid = f"dist_{_safe(nc)}"
         _card(h, cid, f"{nc} Distribution", False, 320)
-        spec.append({"id": cid, "type": "dist", "nc": nc})
+        chart_specs.append({"id": cid, "type": "dist", "nc": nc})
     if "geo_scatter" in charts and _d_geo_lat and _d_geo_lon:
         _val_c = numeric_cols[0] if numeric_cols else ""
         _cc_c = cat_cols[0] if cat_cols else ""
         cid = f"geo_scat_{_safe(_d_geo_lat)}"
         _card(h, cid, "Geographic Distribution (Scatter)", True, 500)
-        spec.append(
+        chart_specs.append(
             {
                 "id": cid,
                 "type": "geo_scatter",
@@ -764,7 +837,7 @@ def _build_chart_cards(
         agg = col_agg.get(nc, "sum")
         cid = f"geo_choro_{_safe(_d_geo_loc)}"
         _card(h, cid, f"{agg_label(agg)} {nc} by {_d_geo_loc} (Choropleth)", True, 500)
-        spec.append(
+        chart_specs.append(
             {
                 "id": cid,
                 "type": "geo_choro",
@@ -786,7 +859,7 @@ def _dash_modal():
 
 
 def _build_render_functions(
-    spec,
+    chart_specs,
     bg,
     font_c,
     grid_c,
@@ -800,7 +873,7 @@ def _build_render_functions(
     col_agg,
 ):
     rfns: list[str] = []
-    for s in spec:
+    for s in chart_specs:
         cid, t = s["id"], s["type"]
         if t == "bar":
             cc, nc = s["cc"], s["nc"]
@@ -960,6 +1033,7 @@ function getFilt(){{
 }}
 
 function applyF(){{
+  try{{renderTable(getFilt());}}catch(_e){{}}
   const d=getFilt();
   document.getElementById('row-ctr').textContent=d.length.toLocaleString()+' of '+_TOTAL.toLocaleString()+' rows';
   sessionStorage.setItem('dash-filters',JSON.stringify({{cf:Object.fromEntries(Object.entries(_CF).map(([k,v])=>[k,v instanceof Set?Array.from(v):v])),nf:_NF}}));
@@ -1056,5 +1130,257 @@ function renderAll(d){{
 {render_calls}
 }}
 
+// --- rows table: sortable and paged, over the same filtered rows ---------
+// Rendered from getFilt() so the table and the charts can never disagree about
+// what is being shown. Paged in the browser because the rows are already in the
+// page: truncating at write time would shrink nothing and lose the answer.
+var _SORT={{col:null,dir:1}}, _PAGE=0;
+function renderTable(rows){{
+  var tbl=document.getElementById('dash-table'); if(!tbl) return;
+  var size=+tbl.getAttribute('data-page-size')||25;
+  var cols=[].map.call(tbl.querySelectorAll('thead th'),function(th){{return th.getAttribute('data-col');}});
+  var data=rows.slice();
+  if(_SORT.col!==null){{
+    var c=_SORT.col, d=_SORT.dir;
+    data.sort(function(a,b){{
+      var x=a[c], y=b[c], nx=+x, ny=+y;
+      if(!isNaN(nx)&&!isNaN(ny)) return (nx-ny)*d;
+      return String(x??'').localeCompare(String(y??''))*d;
+    }});
+  }}
+  var pages=Math.max(1,Math.ceil(data.length/size));
+  if(_PAGE>=pages)_PAGE=pages-1; if(_PAGE<0)_PAGE=0;
+  var slice=data.slice(_PAGE*size,(_PAGE+1)*size);
+  var body=tbl.querySelector('tbody'); body.innerHTML='';
+  slice.forEach(function(row){{
+    var tr=document.createElement('tr');
+    cols.forEach(function(c){{var td=document.createElement('td');td.textContent=String(row[c]??'');tr.appendChild(td);}});
+    body.appendChild(tr);
+  }});
+  var cnt=document.getElementById('tbl-count');
+  // The same honesty the responses carry: how many of how many, never one
+  // number that could be either.
+  if(cnt)cnt.textContent=slice.length+' of '+data.length+' row'+(data.length===1?'':'s');
+  var pg=document.getElementById('tbl-page'); if(pg)pg.textContent=(_PAGE+1)+' / '+pages;
+}}
+(function(){{
+  var tbl=document.getElementById('dash-table'); if(!tbl) return;
+  tbl.querySelectorAll('thead th').forEach(function(th){{
+    function toggle(){{
+      var c=th.getAttribute('data-col');
+      _SORT.dir=(_SORT.col===c)?-_SORT.dir:1; _SORT.col=c; _PAGE=0;
+      tbl.querySelectorAll('thead th').forEach(function(o){{o.setAttribute('aria-sort','none');o.querySelector('.sort-ind').textContent='';}});
+      th.setAttribute('aria-sort',_SORT.dir>0?'ascending':'descending');
+      th.querySelector('.sort-ind').textContent=_SORT.dir>0?' \u25b2':' \u25bc';
+      renderTable(getFilt());
+    }}
+    th.addEventListener('click',toggle);
+    th.addEventListener('keydown',function(e){{if(e.key==='Enter'||e.key===' '){{e.preventDefault();toggle();}}}});
+  }});
+  var prev=document.getElementById('tbl-prev'), next=document.getElementById('tbl-next');
+  if(prev)prev.addEventListener('click',function(){{_PAGE--;renderTable(getFilt());}});
+  if(next)next.addEventListener('click',function(){{_PAGE++;renderTable(getFilt());}});
+}})();
+
+// --- tabs: show and hide the cards, never re-plot them -------------------
+// A tab switch that re-rendered every chart would make the cheapest
+// interaction on the page the most expensive one.
+(function(){{
+  var btns=[].slice.call(document.querySelectorAll('.tab-btn'));
+  if(!btns.length) return;
+  function show(btn){{
+    var keep=(btn.getAttribute('data-cards')||'').split(',').filter(Boolean);
+    btns.forEach(function(b){{b.setAttribute('aria-selected',b===btn?'true':'false');}});
+    document.querySelectorAll('.cgrid > *').forEach(function(card){{
+      var id=(card.querySelector('[id]')||{{}}).id||card.id||'';
+      card.style.display=(!keep.length||keep.indexOf(id)>=0)?'':'none';
+    }});
+  }}
+  btns.forEach(function(b){{b.addEventListener('click',function(){{show(b);}});}});
+  show(btns[0]);
+}})();
+
 applyF();
 </script>"""
+
+
+def customize_dashboard(
+    dashboard_path: str,
+    changes: dict,
+    output_path: str = "",
+    open_after: bool = True,
+    return_content: bool = False,
+) -> dict:
+    """Rebuild an existing dashboard with part of its spec changed.
+
+    The review's phrasing was "customization = small JSON edit, not full
+    rebuild". This is the edit half: `generate_dashboard` embeds the spec it
+    built from, so changing one panel means reading that document, applying the
+    change, and regenerating -- rather than describing the change in prose to a
+    tool that only auto-detects, which is what a caller had to do before.
+
+    `changes` replaces top-level keys and merges `interactions`. Replace rather
+    than deep-merge for lists, because "here are the three panels I want" and
+    "add these three panels" are different requests, and a merge that guesses
+    between them will eventually guess wrong.
+
+    The source file is the one the dashboard names in its own provenance block,
+    so a caller does not have to remember it.
+    """
+    progress: list = []
+    try:
+        page = resolve_path(dashboard_path)
+        if not page.exists():
+            return {
+                "success": False,
+                "op": "customize_dashboard",
+                "error": f"Dashboard not found: {page.name}",
+                "hint": "Pass the output_path that generate_dashboard returned.",
+                "progress": [fail("File not found", page.name)],
+                "token_estimate": 30,
+            }
+        html = page.read_text(encoding="utf-8", errors="replace")
+        base = read_spec(html)
+        if not base:
+            return {
+                "success": False,
+                "op": "customize_dashboard",
+                "error": f"{page.name} carries no spec to customize",
+                "hint": (
+                    "Only dashboards written by generate_dashboard embed one. Regenerate it "
+                    "with generate_dashboard(file_path) and customize that."
+                ),
+                "progress": [fail("No embedded spec", page.name)],
+                "token_estimate": 40,
+            }
+        header = read_provenance(html)
+        source = header.get("source") or ""
+        if not source:
+            return {
+                "success": False,
+                "op": "customize_dashboard",
+                "error": f"{page.name} does not name the file it was built from",
+                "hint": "Call generate_dashboard(file_path, spec=...) directly instead.",
+                "progress": [fail("No source in provenance", page.name)],
+                "token_estimate": 40,
+            }
+        # The dashboard records only the file's name, so it is looked for beside
+        # the page. A dashboard and its data living apart is a real case, and
+        # saying which name could not be found beats a bare "file not found".
+        data_path = resolve_path(source) if Path(source).is_absolute() else page.parent / source
+        if not Path(data_path).exists():
+            return {
+                "success": False,
+                "op": "customize_dashboard",
+                "error": f"source data {source!r} not found beside {page.name}",
+                "hint": f"Move {source} next to the dashboard, or call generate_dashboard with its path.",
+                "progress": [fail("Source data missing", source)],
+                "token_estimate": 40,
+            }
+
+        try:
+            merged = merge_spec(base, changes or {})
+        except SpecError as exc:
+            return {
+                "success": False,
+                "op": "customize_dashboard",
+                "error": str(exc),
+                "hint": f"Changeable keys: {', '.join(SPEC_KEYS)}.",
+                "progress": [fail("Invalid change", str(exc))],
+                "token_estimate": 50,
+            }
+
+        progress.append(
+            info("Customizing dashboard", f"{page.name} — {', '.join(sorted(changes or {})) or 'no change'}")
+        )
+        result = generate_dashboard(
+            str(data_path),
+            output_path=output_path or str(page),
+            theme=merged.get("theme", "device"),
+            open_after=open_after,
+            return_content=return_content,
+            spec=merged,
+        )
+        if result.get("success"):
+            result["op"] = "customize_dashboard"
+            result["changed_keys"] = sorted(changes or {})
+            result["previous_spec"] = base
+            result["progress"] = progress + list(result.get("progress", []))
+        return result
+    except Exception as exc:
+        logger.exception("customize_dashboard error")
+        return {
+            "success": False,
+            "op": "customize_dashboard",
+            "error": error_text(exc),
+            "hint": hint_for_error(exc, "Pass the dashboard's output_path and a dict of changes."),
+            "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+def _dash_table(embed_df, page_size: int) -> str:
+    """A sortable, paged view of the rows the charts were drawn from.
+
+    The review asked for "sortable paged table" among the components a real
+    dashboard has. The point is not the widget: every chart on this page is an
+    aggregate, and the question a reader reaches next is almost always "which
+    rows are those" -- which previously meant leaving the dashboard and opening
+    the CSV.
+
+    It renders from the same embedded rows the charts use, so the table and the
+    charts cannot disagree, and it re-renders under the filter bar like
+    everything else. Paged in the browser rather than truncated at write time:
+    the rows are already in the page, so cutting them would shrink nothing and
+    lose the answer.
+    """
+    import html as _html
+
+    cols = [str(c) for c in embed_df.columns]
+    heads = "".join(
+        f'<th data-col="{_html.escape(c)}" role="columnheader" tabindex="0" '
+        f'aria-sort="none">{_html.escape(c)}<span class="sort-ind"></span></th>'
+        for c in cols
+    )
+    size = max(5, min(int(page_size), 200))
+    return (
+        '<div class="sec-hdr">Rows</div>'
+        '<div class="card tbl-card">'
+        '<div class="tbl-bar">'
+        f'<span class="tbl-count" id="tbl-count"></span>'
+        '<span class="tbl-pager">'
+        '<button type="button" id="tbl-prev" aria-label="Previous page">&#8592;</button>'
+        '<span id="tbl-page"></span>'
+        '<button type="button" id="tbl-next" aria-label="Next page">&#8594;</button>'
+        "</span></div>"
+        f'<div class="tbl-scroll"><table id="dash-table" data-page-size="{size}">'
+        f"<thead><tr>{heads}</tr></thead><tbody></tbody></table></div>"
+        "</div>"
+    )
+
+
+def _dash_tabs(tabs: list[dict], chart_specs: list[dict]) -> str:
+    """Group the chart cards into named tabs, without moving them.
+
+    The cards are already in the DOM and already wired to the filter bar, so
+    tabs show and hide rather than re-render: a tab switch that re-plotted every
+    chart would make the cheapest interaction on the page the most expensive.
+
+    A tab naming a slot that does not exist was refused at validation, so
+    anything here addresses a real card.
+    """
+    import html as _html
+
+    ids = [s["id"] for s in chart_specs]
+    buttons, panels = [], []
+    for i, tab in enumerate(tabs):
+        name = _html.escape(str(tab.get("name", f"Tab {i + 1}")))
+        slots = [s for s in (tab.get("slots") or []) if isinstance(s, int) and 0 <= s < len(ids)]
+        members = ",".join(ids[s] for s in slots)
+        active = " aria-selected='true'" if i == 0 else ""
+        buttons.append(
+            f'<button type="button" role="tab" class="tab-btn" data-tab="{i}" '
+            f'data-cards="{members}"{active}>{name}</button>'
+        )
+        panels.append(f'<span class="tab-meta" data-tab="{i}" data-cards="{members}"></span>')
+    return '<div class="tabs" role="tablist">' + "".join(buttons) + "</div>" + "".join(panels)

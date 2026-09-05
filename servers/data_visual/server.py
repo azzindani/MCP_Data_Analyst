@@ -279,6 +279,18 @@ def generate_3d_chart(
 
 
 @mcp.tool(annotations=CREATES)
+def customize_dashboard(
+    dashboard_path: str,
+    changes: dict,
+    output_path: str = "",
+    open_after: bool = True,
+    return_content: bool = False,
+) -> dict:
+    """Rebuild a dashboard with part of its embedded spec changed."""
+    return engine.customize_dashboard(dashboard_path, changes, output_path, open_after, return_content)
+
+
+@mcp.tool(annotations=CREATES)
 def generate_dashboard(
     file_path: str,
     output_path: str = "",
@@ -290,8 +302,9 @@ def generate_dashboard(
     dry_run: bool = False,
     open_after: bool = True,
     return_content: bool = False,
+    spec: dict = None,
 ) -> dict:
-    """Interactive HTML dashboard with auto-detected charts. Saves HTML."""
+    """Interactive HTML dashboard. spec overrides any auto-detected part."""
     return engine.generate_dashboard(
         file_path,
         output_path,
@@ -303,6 +316,7 @@ def generate_dashboard(
         dry_run,
         open_after,
         return_content,
+        spec,
     )
 
 

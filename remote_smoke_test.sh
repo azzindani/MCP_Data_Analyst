@@ -252,12 +252,22 @@ if ok_json "$CHART_R"; then pass "generate_chart rendered a real bar chart"; els
 CHART_PATH=$(extract "$CHART_R" output_path)
 run visual generate_geo_map "{\"file_path\":\"$GEO\",\"lat_column\":\"lat\",\"lon_column\":\"lon\",\"location_column\":\"region\"}" "map these regions by lat/lon"
 run visual generate_3d_chart "{\"file_path\":\"$SALES\",\"chart_type\":\"scatter_3d\",\"x_column\":\"units\",\"y_column\":\"revenue\",\"z_column\":\"units\"}" "3D scatter of units/revenue/units"
-run visual generate_dashboard "{\"file_path\":\"$SALES\"}" "build a dashboard for this dataset"
+DASH_R=$(call visual 200 generate_dashboard "{\"file_path\":\"$SALES\"}")
+if ok_json "$DASH_R"; then pass "generate_dashboard built a dashboard"; else fail "generate_dashboard -> $DASH_R"; fi
+DASH_PATH=$(extract "$DASH_R" output_path)
 run visual export_data "{\"file_path\":\"$SALES\",\"output_path\":\"$D/sales_export.xlsx\",\"format\":\"excel\"}" "export sales to xlsx"
 if [ -n "$CHART_PATH" ]; then
   run visual customize_chart "{\"chart_path\":\"$CHART_PATH\",\"title\":\"Revenue by Region (customized)\"}" "retitle that chart"
 else
   fail "customize_chart skipped — no chart_path captured from generate_chart"
+fi
+# The round-trip the spec exists for: read back what the page was built from,
+# change one field, regenerate. Against the live server, so it also proves the
+# spec survived being written into the HTML and parsed out of it again.
+if [ -n "$DASH_PATH" ]; then
+  run visual customize_dashboard "{\"dashboard_path\":\"$DASH_PATH\",\"changes\":{\"title\":\"Sales (customized)\"}}" "rename that dashboard"
+else
+  fail "customize_dashboard skipped — no output_path captured from generate_dashboard"
 fi
 
 echo

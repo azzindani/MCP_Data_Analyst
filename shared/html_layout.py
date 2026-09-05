@@ -501,9 +501,40 @@ def css_report(theme_vars: str) -> str:
     return theme_vars + _BASE_CSS + _REPORT_CSS
 
 
+
+# Components the review named as missing: a sortable paged table and tabs.
+# Styled from the same tokens as everything else on the page, so a dashboard
+# with a table still looks like one dashboard rather than two pasted together.
+_TABLE_TABS_CSS = """
+.tbl-card{padding:0;overflow:hidden}
+.tbl-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;
+  padding:10px 14px;border-bottom:1px solid var(--bd);font-size:13px;color:var(--fg2)}
+.tbl-pager{display:flex;align-items:center;gap:8px}
+.tbl-pager button{background:var(--bg2);color:var(--fg);border:1px solid var(--bd);
+  border-radius:6px;padding:2px 10px;cursor:pointer;line-height:1.6}
+.tbl-pager button:hover{border-color:var(--ac)}
+.tbl-pager button:focus-visible,.tabs .tab-btn:focus-visible,
+#dash-table th:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.tbl-scroll{overflow-x:auto;max-height:520px;overflow-y:auto}
+#dash-table{border-collapse:collapse;width:100%;font-size:13px}
+#dash-table th,#dash-table td{padding:7px 12px;text-align:left;white-space:nowrap;
+  border-bottom:1px solid var(--bd)}
+#dash-table td{font-variant-numeric:tabular-nums}
+#dash-table thead th{position:sticky;top:0;background:var(--bg2);cursor:pointer;
+  user-select:none;font-weight:600}
+#dash-table tbody tr:hover{background:var(--bg2)}
+.sort-ind{opacity:.7;font-size:11px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:18px 0 6px}
+.tabs .tab-btn{background:transparent;color:var(--fg2);border:1px solid var(--bd);
+  border-radius:999px;padding:5px 14px;font-size:13px;cursor:pointer}
+.tabs .tab-btn[aria-selected="true"]{background:var(--ac);border-color:var(--ac);color:#fff}
+.tab-meta{display:none}
+@media(prefers-reduced-motion:no-preference){.tabs .tab-btn{transition:background .15s,border-color .15s}}
+"""
+
 def css_dashboard(theme_vars: str) -> str:
-    """Full CSS for dashboard pages — header + filter + KPI + chart grid."""
-    return theme_vars + _BASE_CSS + _DASHBOARD_CSS
+    """Full CSS for dashboard pages — header, filter, KPI, charts, table, tabs."""
+    return theme_vars + _BASE_CSS + _DASHBOARD_CSS + _TABLE_TABS_CSS
 
 
 # ---------------------------------------------------------------------------

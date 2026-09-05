@@ -21,7 +21,7 @@ from _adv_charts import (
     generate_multi_chart,
     generate_pairwise_plot,
 )
-from _adv_dashboard import generate_dashboard
+from _adv_dashboard import customize_dashboard, generate_dashboard
 from _adv_eda import run_eda
 from _adv_gencharts import generate_3d_chart, generate_chart, generate_geo_map
 from _adv_profile import generate_auto_profile
@@ -37,5 +37,6 @@ __all__ = [
     "generate_chart",
     "generate_geo_map",
     "generate_3d_chart",
+    "customize_dashboard",
     "generate_dashboard",
 ]
