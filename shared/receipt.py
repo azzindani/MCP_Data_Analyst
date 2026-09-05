@@ -145,6 +145,12 @@ def _split_header(loaded: Any) -> tuple[list[dict], dict | None]:
     they were written -- an existing receipt does not become unreadable because
     the format grew a header.
     """
+    if isinstance(loaded, dict):
+        # MCP_Microsoft_Office wrote `{"file": ..., "entries": [...]}` until the
+        # formats were converged. Files in that shape still exist on disk, and
+        # every reader in the fleet returned [] for them.
+        entries = loaded.get("entries", [])
+        return [e for e in entries if isinstance(e, dict)], None
     if not isinstance(loaded, list) or not loaded:
         return [], None
     first = loaded[0]
