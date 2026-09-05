@@ -34,6 +34,7 @@ from _med_helpers import (
 
 from shared.arg_alias import missing as missing_arg
 from shared.arg_alias import pick
+from shared.counts import counted
 from shared.file_utils import error_text, hint_for_error, resolve_path
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
@@ -106,12 +107,11 @@ def cross_tabulate(
         }
 
         max_r = get_max_rows()
-        rows_returned = min(len(table), max_r)
-        truncated = len(table) > max_r
-        if truncated:
+        total_table_rows = len(table)
+        if total_table_rows > max_r:
             keys = list(table.keys())[:max_r]
             table = {k: table[k] for k in keys}
-            progress.append(warn("Results truncated", f"Showing first {max_r} rows"))
+            progress.append(warn("Results truncated", f"Showing first {max_r} of {total_table_rows} rows"))
 
         progress.append(ok(f"Cross-tabulated {path.name}", f"{row_column} × {col_column}"))
 
@@ -125,9 +125,8 @@ def cross_tabulate(
             "normalize": normalize or False,
             "rows": len(ct),
             "cols": len(ct.columns),
-            "returned": rows_returned,
+            **counted(len(table), total_table_rows),
             "table": table,
-            "truncated": truncated,
             "hint": "Use a more targeted call with specific row_column or col_column filters.",
             "progress": progress,
         }
@@ -258,9 +257,8 @@ def pivot_table(
         # returned 10 rows and reported truncated: False, and a 257-row one
         # warned "Showing first 100 rows" having returned 10.
         max_r = get_max_rows()
-        truncated = len(pt) > max_r
         records = pt.head(max_r).fillna("").to_dict(orient="records")
-        if truncated:
+        if len(records) < len(pt):
             progress.append(warn("Results truncated", f"Showing first {len(records)} of {len(pt)} rows"))
 
         progress.append(ok(f"Pivot table for {path.name}", f"{len(records)} rows"))
@@ -274,9 +272,8 @@ def pivot_table(
             "values": chosen_values,
             "agg_func": agg_func,
             "rows": len(pt),
-            "returned": len(records),
+            **counted(len(records), len(pt)),
             "result": records,
-            "truncated": truncated,
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)

@@ -31,6 +31,7 @@ from shared.column_utils import (
     filter_operand_error,
     missing_column_error,
 )
+from shared.counts import counted
 from shared.file_utils import atomic_write_text, error_text, hint_for_error, resolve_path
 from shared.file_utils import read_csv as _shared_read_csv
 from shared.platform_utils import get_max_rows
@@ -685,12 +686,16 @@ def aggregate_dataset(
                 grouped = grouped.sort_values(sort_col, ascending=False)
             if top_n:
                 grouped = grouped.head(top_n)
-            _response_cap = 20
-            truncated = len(grouped) > _response_cap
+            # This was a hardcoded `_response_cap = 20`, the third copy of that
+            # mistake in this repo: it ignored get_max_rows(), so constrained
+            # mode shrank nothing here and the preview was 20 rows whatever the
+            # deployment asked for.
+            max_r = get_max_rows()
+            total_groups = len(grouped)
             result_data = {
-                "rows": len(grouped),
-                "data": grouped.head(_response_cap).fillna("").to_dict(orient="records"),
-                "truncated": truncated,
+                "rows": total_groups,
+                "data": grouped.head(max_r).fillna("").to_dict(orient="records"),
+                **counted(min(max_r, total_groups), total_groups),
             }
             output_df = grouped
             progress.append(ok("Grouped by", f"{group_by} → {len(grouped)} groups"))

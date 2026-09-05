@@ -52,6 +52,7 @@ from shared.column_utils import (
     parse_dates,
     type_sample,
 )
+from shared.counts import counted
 from shared.file_utils import count_data_rows as _count_data_rows
 from shared.file_utils import error_text, hint_for_error, resolve_path
 from shared.platform_utils import get_max_results, get_max_rows
@@ -189,11 +190,15 @@ def check_outliers(
             results[col] = r
 
         max_r = get_max_results()
-        truncated = len(results) > max_r
-        if truncated:
+        # Taken before the cut. `scanned_columns` below used to be len(results)
+        # after it, so a 40-column scan reported "scanned_columns": 20 -- a
+        # count of what survived the slice, under a name that claims to say how
+        # much work was done.
+        total_scanned = len(results)
+        if total_scanned > max_r:
             keys = list(results.keys())[:max_r]
             results = {k: results[k] for k in keys}
-            progress.append(warn("Results truncated", f"Showing first {max_r} columns"))
+            progress.append(warn("Results truncated", f"Showing first {max_r} of {total_scanned} columns"))
 
         undetermined_shown = sorted(undetermined_cols & set(results))
         if undetermined_shown:
@@ -221,11 +226,11 @@ def check_outliers(
             "op": "check_outliers",
             "file_path": str(path),
             "method": method,
-            "scanned_columns": len(results),
+            "scanned_columns": total_scanned,
             "columns_with_outliers": cols_with_outliers,
             "columns_undetermined": undetermined_shown,
             "results": results,
-            "truncated": truncated,
+            **counted(len(results), total_scanned),
             "hint": hint,
             "progress": progress,
         }
@@ -1036,10 +1041,11 @@ def sample_data(
         else:
             sample = df.tail(n)
 
-        _preview_cap = 20
+        # `max_r` was fetched here and then never used: a hardcoded 20 did the
+        # cutting and computed the flag. So constrained mode, which exists to
+        # make responses smaller, shrank this response by nothing at all.
         max_r = get_max_rows()
-        truncated = len(sample) > _preview_cap
-        records = sample.head(_preview_cap).fillna("").to_dict(orient="records")
+        records = sample.head(max_r).fillna("").to_dict(orient="records")
 
         if output_path:
             out = resolve_path(output_path)
@@ -1057,8 +1063,10 @@ def sample_data(
             "method": method,
             "total_rows": len(df),
             "sampled": n,
-            "returned": len(records),
-            "truncated": truncated,
+            # `total` here is the size of the sample that was drawn, not the
+            # file: the sample is on disk when output_path was given, and this
+            # count says how much of *it* is in the response.
+            **counted(len(records), len(sample)),
             "sample": records,
             "hint": "Call apply_patch() or run_cleaning_pipeline() to act on findings.",
             "progress": progress,

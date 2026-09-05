@@ -40,6 +40,7 @@ if _HERE not in sys.path:
 
 from _patch_ops import OP_HANDLERS, _parse_expr
 
+from shared.counts import counted
 from shared.file_utils import atomic_write_text, count_data_rows, error_text, hint_for_error, resolve_path
 from shared.patch_validator import VALID_OPS, validate_ops
 from shared.platform_utils import get_max_results, get_max_rows
@@ -601,7 +602,6 @@ def inspect_dataset(
             max_c = get_max_results()
             if len(result["column_names"]) > max_c:
                 result["column_names"] = result["column_names"][:max_c]
-                result["truncated"] = True
                 result["total_columns"] = cols
                 result["hint"] = (
                     f"Returned first {max_c} of {cols} columns. "
@@ -613,6 +613,12 @@ def inspect_dataset(
                         f"Returned first {max_c} of {cols} column names",
                     )
                 )
+
+        # Unconditionally, not only in the branch above. `truncated` used to be
+        # set only when it was True, so a complete response carried no flag at
+        # all and a caller could not tell "nothing was cut" apart from "this
+        # tool does not say". An absent denominator is the same silence.
+        result.update(counted(len(result["column_names"]), cols))
 
         progress.append(ok(f"Inspected {path.name}", f"{rows:,} rows × {cols} cols"))
         result["progress"] = progress
@@ -757,27 +763,30 @@ def search_columns(
         # Truncate
         max_r = get_max_results()
         total_matched = len(candidates)
-        truncated = total_matched > max_r
-        if truncated:
+        if total_matched > max_r:
             candidates = candidates[:max_r]
-            progress.append(warn("Results truncated", f"Showing first {max_r} matching columns"))
+            progress.append(warn("Results truncated", f"Showing first {max_r} of {total_matched} matching columns"))
 
         progress.append(ok(f"Searched {path.name}", f"{len(candidates)} column(s) matched"))
 
         result: dict = {
             "success": True,
             "op": "search_columns",
-            "file_path": str(path),
-            "matched": len(candidates),
+            # `matched` answers "how many columns matched", so it is the total.
+            # It used to be len(candidates) after the slice, which made it the
+            # size of the page instead -- and `total_matched` only appeared when
+            # the response was truncated, so the honest number was missing from
+            # exactly the responses that were complete.
+            "matched": total_matched,
             "columns": candidates,
             "null_counts": {c: null_counts[c] for c in candidates},
             "zero_counts": {c: zero_counts[c] for c in candidates},
             "dtypes": {c: dtypes_out[c] for c in candidates},
             "dtype_filter": dtype_applied,
-            "truncated": truncated,
+            **counted(len(candidates), total_matched),
             "progress": progress,
         }
-        if truncated:
+        if result["truncated"]:
             result["total_matched"] = total_matched
             result["hint"] = (
                 f"Returned first {max_r} of {total_matched} matches. "

@@ -54,6 +54,7 @@ from _med_helpers import (
 )
 
 from shared.column_utils import date_note, infer_agg, is_numeric_col, looks_like_dates, paired_numeric, parse_dates
+from shared.counts import counted
 from shared.exchange import default_output_path
 from shared.file_utils import error_text, hint_for_error, resolve_path
 from shared.platform_utils import get_max_rows
@@ -941,9 +942,15 @@ def time_series_analysis(
             pd.concat(resampled_parts, axis=1) if resampled_parts else df[value_columns].resample(resample_period).sum()
         )
 
-        max_r = get_max_rows()
-        truncated = len(resampled) > max_r
-        resampled_trunc = resampled.tail(max_r)
+        # `resampled_trunc = resampled.tail(max_r)` used to sit here and was
+        # never read by anything. Everything this tool returns -- trend, stl,
+        # acf, adf, forecasts -- is computed from the full `resampled`, and the
+        # response carries per-column summaries rather than per-period rows, so
+        # there is nothing here to cut. The dead variable was harmless; the
+        # `truncated` flag derived beside it was not, because it drove a warning
+        # that told the caller periods were missing from an answer that had all
+        # of them. A false truncation warning costs a caller the same second
+        # call as a real one, on a response that was already complete.
 
         trend_data = {}
         if _SCIPY_OK and _linregress is not None:
@@ -1092,9 +1099,6 @@ def time_series_analysis(
             except Exception:
                 pass
 
-        if truncated:
-            progress.append(warn("Results truncated", f"Showing last {max_r} periods"))
-
         progress.append(
             ok(
                 f"Time series analysis for {path.name}",
@@ -1110,6 +1114,9 @@ def time_series_analysis(
             "value_columns": value_columns,
             "period": period,
             "total_periods": len(resampled),
+            # Every period was analysed, so this says so out loud rather than
+            # leaving the caller to infer it from the absence of a flag.
+            **counted(len(resampled), len(resampled)),
             "date_range": {
                 "start": str(df.index.min()),
                 "end": str(df.index.max()),
@@ -1330,7 +1337,7 @@ def cohort_analysis(
             )
 
         max_r = get_max_rows()
-        truncated = len(pivot) > max_r
+        total_cohorts = len(pivot)
         pivot_trunc = pivot.head(max_r)
 
         matrix = {
@@ -1338,8 +1345,8 @@ def cohort_analysis(
             for idx, row in pivot_trunc.to_dict(orient="index").items()
         }
 
-        if truncated:
-            progress.append(warn("Results truncated", f"Showing first {max_r} cohorts"))
+        if len(matrix) < total_cohorts:
+            progress.append(warn("Results truncated", f"Showing first {len(matrix)} of {total_cohorts} cohorts"))
 
         progress.append(
             ok(
@@ -1363,10 +1370,10 @@ def cohort_analysis(
             "cohort_column": cohort_column,
             "date_column": date_column,
             "value_column": value_column or "count",
-            "cohorts": len(pivot),
+            "cohorts": total_cohorts,
             "periods": len(pivot.columns),
             "matrix": matrix,
-            "truncated": truncated,
+            **counted(len(matrix), total_cohorts),
             "hint": cohort_hint,
             "progress": progress,
         }

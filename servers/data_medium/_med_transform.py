@@ -293,6 +293,14 @@ def compute_aggregations(
         if top_n > 0:
             grouped = grouped.head(top_n)
 
+        # What the caller asked to see, which is what `truncated` is measured
+        # against. A `top_n=5` on 25 groups returns 5 of 5 requested, not 5 of
+        # 25 cut: the caller chose that, and calling it truncation would send
+        # them back for rows they deliberately declined. `groups` below still
+        # reports all 25, so nothing is hidden -- the two numbers answer two
+        # different questions.
+        eligible = len(grouped)
+
         # A second, hardcoded `_response_cap = 20` sat below get_max_rows() and
         # did the real cutting. On the SFO cargo file grouped by year it
         # returned 20 of 25 years -- dropping 2011-2014 and 2023, the five
@@ -301,7 +309,7 @@ def compute_aggregations(
         # tool's answer, and nothing in the response said a row was missing.
         # get_max_rows() is the repo's limit helper and was already here.
         max_r = get_max_rows()
-        truncated = len(grouped) > max_r
+        truncated = eligible > max_r
         if truncated:
             grouped = grouped.head(max_r)
 
@@ -325,9 +333,8 @@ def compute_aggregations(
             "agg_column": agg_column,
             "agg_func": agg_func,
             "groups": total_groups,
-            "returned": len(result_list),
+            **counted(len(result_list), eligible),
             "result": result_list,
-            "truncated": truncated,
             "hint": "Call apply_patch() or run_cleaning_pipeline() to act on findings.",
             "progress": progress,
         }

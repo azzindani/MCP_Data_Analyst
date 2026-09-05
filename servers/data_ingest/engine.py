@@ -13,6 +13,7 @@ if _ROOT not in sys.path:
 
 import pandas as pd
 
+from shared.counts import counted
 from shared.file_utils import (
     atomic_write,
     atomic_write_text,
@@ -297,9 +298,9 @@ def list_sheets(file_path: str) -> dict:
             wb.close()
 
         max_r = get_max_results()
-        truncated = len(sheets) > max_r
-        if truncated:
-            progress.append(warn("Truncated", f"Showing {max_r} of {len(sheets)} sheets"))
+        total_sheets = len(sheets)
+        if total_sheets > max_r:
+            progress.append(warn("Truncated", f"Showing {max_r} of {total_sheets} sheets"))
             sheets = sheets[:max_r]
 
         progress.append(ok("Listed sheets", f"{len(sheet_names)} sheet(s) in {path.name}"))
@@ -308,9 +309,9 @@ def list_sheets(file_path: str) -> dict:
             "op": "list_sheets",
             "file": path.name,
             "file_path": str(path),
-            "sheet_count": len(sheet_names),
+            "sheet_count": total_sheets,
             "sheets": sheets,
-            "truncated": truncated,
+            **counted(len(sheets), total_sheets),
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
@@ -573,9 +574,13 @@ def detect_tables(file_path: str, sheet: str = "", min_rows: int = 2, min_cols: 
         wb.close()
 
         max_r = get_max_results()
-        truncated = len(tables) > max_r
-        if truncated:
-            progress.append(warn("Truncated", f"Showing {max_r} of {len(tables)} tables"))
+        # `table_count` used to be computed after the slice below, so a sheet
+        # with 25 tables reported `table_count: 20, truncated: true` and named
+        # its real total nowhere. Take the total before cutting, and let
+        # `counted()` derive the flag from the two numbers.
+        total_tables = len(tables)
+        if total_tables > max_r:
+            progress.append(warn("Truncated", f"Showing {max_r} of {total_tables} tables"))
             tables = tables[:max_r]
 
         progress.append(ok("Detected tables", f"{len(tables)} table(s) in sheet {sheet_name!r}"))
@@ -584,9 +589,9 @@ def detect_tables(file_path: str, sheet: str = "", min_rows: int = 2, min_cols: 
             "op": "detect_tables",
             "file": path.name,
             "sheet": sheet_name,
-            "table_count": len(tables),
+            "table_count": total_tables,
             "tables": tables,
-            "truncated": truncated,
+            **counted(len(tables), total_tables),
             "progress": progress,
         }
         result["token_estimate"] = _token_estimate(result)
