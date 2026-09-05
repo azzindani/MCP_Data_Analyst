@@ -58,6 +58,7 @@ from shared.column_utils import date_note, infer_agg, is_numeric_col, looks_like
 from shared.counts import counted
 from shared.exchange import default_output_path
 from shared.file_utils import error_text, hint_for_error, resolve_path
+from shared.html_layout import discriminated_suffix
 from shared.insights import from_correlations, from_outliers, write_insights
 from shared.lineage import lineage_path, note_lineage, write_lineage
 from shared.platform_utils import get_max_rows
@@ -177,7 +178,10 @@ def correlation_analysis(
                 template=plotly_template(theme),
                 height=calc_chart_height(len(cols), mode="heatmap"),
             )
-            abs_p, fname = _save_chart(fig, output_path, "correlation", path, open_after, theme, progress)
+            # A Pearson heatmap and a Spearman one of the same file are
+            # different pictures. Named alike, the second replaced the first.
+            stem = discriminated_suffix("correlation", method)
+            abs_p, fname = _save_chart(fig, output_path, stem, path, open_after, theme, progress)
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))
@@ -1220,7 +1224,10 @@ def time_series_analysis(
             # the ticks on the rest, and a title under a hidden axis is a title
             # floating in the middle of the figure.
             fig.update_xaxes(title_text=date_column, row=len(value_columns), col=1)
-            abs_p, fname = _save_chart(fig, output_path, "time_series", path, open_after, theme, progress)
+            # Two series from one file, or the same series resampled monthly
+            # and quarterly, are different answers and need different names.
+            stem = discriminated_suffix("time_series", period, *(value_columns or []), date_column)
+            abs_p, fname = _save_chart(fig, output_path, stem, path, open_after, theme, progress)
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))
@@ -1419,7 +1426,8 @@ def cohort_analysis(
                 template=plotly_template(theme),
                 height=calc_chart_height(len(row_keys), mode="heatmap"),
             )
-            abs_p, fname = _save_chart(fig, output_path, "cohort", path, open_after, theme, progress)
+            stem = discriminated_suffix("cohort", cohort_column, value_column, date_column)
+            abs_p, fname = _save_chart(fig, output_path, stem, path, open_after, theme, progress)
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))

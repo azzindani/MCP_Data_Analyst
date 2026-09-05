@@ -22,6 +22,7 @@ from shared.arg_alias import missing, pick
 from shared.column_utils import date_note, parse_dates
 from shared.file_utils import error_text, hint_for_error, resolve_path
 from shared.file_utils import read_csv as _read_csv
+from shared.html_layout import discriminated_suffix
 from shared.progress import fail, info, ok, warn
 
 logger = logging.getLogger(__name__)
@@ -131,7 +132,8 @@ def _comparison_chart(
         autosize=rows == 1,
         height=None if rows == 1 else 260 * rows + 120,
     )
-    return _save_chart(fig, output_path, "period_comparison", input_path, open_after, theme, progress)
+    stem = discriminated_suffix("period_comparison", current_period, reference_period)
+    return _save_chart(fig, output_path, stem, input_path, open_after, theme, progress)
 
 
 def period_comparison(

@@ -36,6 +36,7 @@ from shared.arg_alias import missing as missing_arg
 from shared.arg_alias import pick
 from shared.counts import counted
 from shared.file_utils import error_text, hint_for_error, resolve_path
+from shared.html_layout import discriminated_suffix
 from shared.insights import from_crosstab, write_insights
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
@@ -156,7 +157,10 @@ def cross_tabulate(
                 template=plotly_template(theme),
                 height=calc_chart_height(len(row_keys), mode="heatmap"),
             )
-            abs_p, fname = _save_chart(fig, output_path, "crosstab", path, open_after, theme, progress)
+            # grade x purpose and purpose x grade are different tables of the
+            # same file, and they used to be the same filename.
+            stem = discriminated_suffix("crosstab", row_column, col_column, values_column, agg_func, normalize)
+            abs_p, fname = _save_chart(fig, output_path, stem, path, open_after, theme, progress)
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))
@@ -388,7 +392,8 @@ def value_counts(
                 template=plotly_template(theme),
                 height=400,
             )
-            abs_p, fname = _save_chart(fig, output_path, "value_counts", path, open_after, theme, progress)
+            stem = discriminated_suffix("value_counts", *columns)
+            abs_p, fname = _save_chart(fig, output_path, stem, path, open_after, theme, progress)
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))

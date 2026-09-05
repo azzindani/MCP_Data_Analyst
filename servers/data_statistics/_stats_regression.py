@@ -20,6 +20,7 @@ import pandas as pd
 from shared.arg_alias import missing, pick, pick_list
 from shared.file_utils import error_text, hint_for_error, no_rows_error, resolve_path
 from shared.file_utils import read_csv as _read_csv
+from shared.html_layout import discriminated_suffix
 from shared.progress import fail, info, ok, warn
 from shared.small_sample import MIN_N_SHAPIRO, is_significant, rounded, shapiro_p
 from shared.stats_format import format_p, round_p
@@ -98,7 +99,8 @@ def _coefficient_chart(
         autosize=True,
         showlegend=False,
     )
-    return _save_chart(fig, output_path, "regression", input_path, open_after, theme, progress)
+    stem = discriminated_suffix("regression", y_col)
+    return _save_chart(fig, output_path, stem, input_path, open_after, theme, progress)
 
 
 def _equation(y_col: str, intercept: dict, coef_table: dict) -> str:

@@ -237,6 +237,7 @@ def split_provenance(
     stratified: bool = False,
     cv_folds: int | None = None,
     time_ordered: bool = False,
+    calibration: str = "",
 ) -> dict[str, Any]:
     """How the evaluation was set up, for the manifest.
 
@@ -245,6 +246,13 @@ def split_provenance(
     calibration in the manifest for exactly this reason: a 0.9628 from a random
     split of time-ordered rows is not the same number as a 0.9628 from a
     forward-chained one, and nothing in the manifest let a reader tell.
+
+    `calibration` is the fourth of those, and it is reported as `"none"` rather
+    than omitted. An absent key reads as "not applicable"; the truth is that no
+    trainer here calibrates, so a probability from these models is a decision
+    function's output and not a probability of anything. A reader thresholding
+    at 0.5 deserves to be told that, and the day a trainer does calibrate it
+    passes `"sigmoid"` or `"isotonic"` and the field stops being a caveat.
     """
     out: dict[str, Any] = {
         "test_size": test_size,
@@ -252,7 +260,13 @@ def split_provenance(
         "stratified": bool(stratified),
         "time_ordered_split": bool(time_ordered),
         "cv_folds": cv_folds,
+        "calibration": calibration or "none",
     }
+    if not calibration:
+        out["calibration_note"] = (
+            "Predicted probabilities are uncalibrated: they rank cases correctly but are not "
+            "probabilities. Do not read 0.8 as an 80% chance, and do not pick a threshold from one."
+        )
     if not time_ordered:
         out["split_note"] = (
             "Rows were split at random. If they are ordered in time, this lets the model "

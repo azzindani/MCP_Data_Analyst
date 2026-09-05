@@ -761,7 +761,10 @@ def generate_geo_map(
         basemap = remote_basemap_traces(fig)
         if basemap:
             progress.append(warn("Map needs a network connection to draw", BASEMAP_NOTE))
-        abs_p, fname = _save_chart(fig, output_path, "geo_map", path, open_after, theme, progress)
+        # A map of volume and a map of revenue over the same points are
+        # different maps; one default name made the second erase the first.
+        stem = discriminated_suffix("geo_map", value_column, color_column, location_column or lat_column)
+        abs_p, fname = _save_chart(fig, output_path, stem, path, open_after, theme, progress)
         progress.append(ok("Map saved", fname))
 
         result = {
@@ -924,7 +927,8 @@ def generate_3d_chart(
             rows_plotted = len(df)
 
         fig.update_layout(margin=dict(l=20, r=20, t=40, b=20), autosize=True)
-        abs_p, fname = _save_chart(fig, output_path, chart_type, path, open_after, theme, progress)
+        stem = discriminated_suffix(chart_type, z_column, y_column, x_column)
+        abs_p, fname = _save_chart(fig, output_path, stem, path, open_after, theme, progress)
         progress.append(ok("3D chart saved", f"{fname} ({rows_plotted} rows)"))
 
         result = {
