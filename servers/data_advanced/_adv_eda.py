@@ -305,7 +305,12 @@ def run_eda(
             out.write_text(html_content, encoding="utf-8")
             size_kb = round(out.stat().st_size / 1024)
             insights_file = write_insights(
-                out, report_insights, op="run_eda", source=path.name, extra={"quality_score": quality_score}
+                out,
+                report_insights,
+                op="run_eda",
+                source=path.name,
+                source_path=str(path),
+                extra={"quality_score": quality_score},
             )
 
             if open_after:

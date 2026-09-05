@@ -50,10 +50,28 @@ def figure_of(html_path: str) -> dict:
     return {"data": data, "layout": layout}
 
 
+def subplot_titles(fig: dict) -> list[dict]:
+    """The panel captions make_subplots writes, and only those.
+
+    Every annotation used to be a subplot title, so this read them all. The
+    shape statistics drawn into each histogram are annotations too, and taking
+    the lot made a 6-panel figure look like it had 9 captions. The two are
+    distinguishable at the source: make_subplots positions its titles against
+    the paper, and anything anchored to a specific axis was put there by the
+    chart code.
+    """
+    return [a for a in fig["layout"].get("annotations", []) if a.get("xref") == "paper"]
+
+
+def shape_captions(fig: dict) -> list[dict]:
+    """The skew/kurtosis captions, keyed by the axis they were placed on."""
+    return [a for a in fig["layout"].get("annotations", []) if str(a.get("xref", "")).endswith("domain")]
+
+
 def titles_and_traces(html_path: str) -> list[tuple[str, str, str]]:
     """(subplot title, trace type, trace name) in subplot order."""
     fig = figure_of(html_path)
-    titles = [a["text"] for a in fig["layout"].get("annotations", [])]
+    titles = [a["text"] for a in subplot_titles(fig)]
     traces = [(t.get("type", ""), t.get("name", "")) for t in fig["data"]]
     assert len(titles) == len(traces), (len(titles), len(traces))
     return [(title, kind, name) for title, (kind, name) in zip(titles, traces)]
@@ -76,6 +94,31 @@ class TestEveryPanelIsCaptionedWithItsOwnColumn:
         for title, kind, _name in titles_and_traces(three_column_plot):
             expected = "Histogram" if kind == "histogram" else "Box Plot"
             assert expected in title, f"{title!r} holds a {kind}"
+
+
+class TestTheShapeCaptionSitsOnItsOwnPanel:
+    """The same defect the panel titles had, one layer down.
+
+    In a two-column grid the histogram in row i is axis 2i+1 -- x1, x3, x5 --
+    and a caption placed on a hand-computed `x{i+1}` would land on the box plot
+    beside it or the panel below. A wrong skew number under the right column
+    name is worse than none: it is a number a reader will quote.
+    """
+
+    def test_one_caption_per_histogram(self, three_column_plot: str):
+        fig = figure_of(three_column_plot)
+        assert len(shape_captions(fig)) == len(COLUMNS)
+
+    def test_each_caption_is_anchored_to_a_histogram_axis(self, three_column_plot: str):
+        fig = figure_of(three_column_plot)
+        histogram_axes = [f"x{'' if i == 0 else 2 * i + 1} domain" for i in range(len(COLUMNS))]
+        assert [a.get("xref") for a in shape_captions(fig)] == histogram_axes
+
+    def test_the_caption_states_shape_and_the_count_it_came_from(self, three_column_plot: str):
+        fig = figure_of(three_column_plot)
+        for annotation in shape_captions(fig):
+            text = annotation["text"]
+            assert "skew" in text and "kurt" in text and " n " in text, text
 
     def test_the_rows_are_column_pairs(self, three_column_plot: str):
         """Each row is one column's histogram beside its own box plot."""

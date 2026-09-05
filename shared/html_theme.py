@@ -448,12 +448,18 @@ def save_chart(
     open_after: bool,
     open_func,  # _open_file callable from the calling engine
     progress: list | None = None,
+    header: dict | None = None,
 ) -> tuple[str, str]:
     """Save Plotly fig as themed responsive HTML. Returns (abs_path, filename).
 
     Pass `progress` and the caller is told when an output_path extension had to
     be replaced. Every chart tool here writes HTML, so a request for `.csv` is
     corrected -- which is right, and used to happen without a word.
+
+    Pass `header` and the page carries its provenance -- which rows it was drawn
+    from, whether they were sampled, and a hash that identifies them. A chart
+    without it cannot be checked against its source, and one drawn from a sample
+    looks exactly like one drawn from everything.
     """
     apply_fig_theme(fig, theme)
     apply_chart_margins(fig)
@@ -480,6 +486,7 @@ def save_chart(
         css_vars(theme),
         device_mode_js() if theme == "device" else "",
         chart_height=getattr(fig.layout, "height", None),
+        header=header,
     )
 
     out.write_text(html, encoding="utf-8")

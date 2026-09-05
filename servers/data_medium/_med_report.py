@@ -173,6 +173,7 @@ def cross_tabulate(
                 found,
                 op="cross_tabulate",
                 source=path.name,
+                source_path=str(path),
                 extra={"row_column": row_column, "col_column": col_column},
             )
         else:

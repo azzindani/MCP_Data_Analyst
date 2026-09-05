@@ -226,7 +226,16 @@ run statistics lag_correlation "{\"file_path\":\"$SALES\",\"date_column\":\"date
 
 echo
 echo "===== data_transform (10 tools) ====="
-run transform filter_dataset "{\"file_path\":\"$SALES\",\"conditions\":[{\"column\":\"region\",\"op\":\"equals\",\"value\":\"EMEA\"}]}" "filter to EMEA only"
+FILTER_R=$(call transform 200 filter_dataset "{\"file_path\":\"$SALES\",\"output_path\":\"$D/sales_emea.csv\",\"conditions\":[{\"column\":\"region\",\"op\":\"equals\",\"value\":\"EMEA\"}]}")
+if ok_json "$FILTER_R"; then pass "filter_dataset filtered to EMEA only"; else fail "filter_dataset -> $FILTER_R"; fi
+# The lineage sidecar, checked on the live filesystem rather than in the
+# response: the response naming a path it did not write is the failure mode.
+LINEAGE_PATH=$(extract "$FILTER_R" lineage_path)
+if [ -n "$LINEAGE_PATH" ] && docker exec "$CONTAINER" test -f "$LINEAGE_PATH"; then
+  pass "filter_dataset wrote a lineage sidecar beside the derived file"
+else
+  fail "filter_dataset lineage sidecar missing — response said '$LINEAGE_PATH'"
+fi
 run transform reshape_dataset "{\"file_path\":\"$SALES\",\"mode\":\"pivot\",\"index\":[\"region\"],\"columns\":[\"category\"],\"values\":[\"revenue\"]}" "reshape sales into a pivot"
 run transform aggregate_dataset "{\"file_path\":\"$SALES\",\"mode\":\"groupby\",\"group_by\":[\"region\"],\"agg\":{\"revenue\":\"sum\"}}" "aggregate sales by region"
 run transform resample_timeseries "{\"file_path\":\"$SALES\",\"date_col\":\"date\",\"freq\":\"W\"}" "resample sales to weekly"
@@ -256,6 +265,16 @@ DASH_R=$(call visual 200 generate_dashboard "{\"file_path\":\"$SALES\"}")
 if ok_json "$DASH_R"; then pass "generate_dashboard built a dashboard"; else fail "generate_dashboard -> $DASH_R"; fi
 DASH_PATH=$(extract "$DASH_R" output_path)
 run visual export_data "{\"file_path\":\"$SALES\",\"output_path\":\"$D/sales_export.xlsx\",\"format\":\"excel\"}" "export sales to xlsx"
+# Wave 2 taught this the expensive way: a parameter can be added to the engine,
+# pass every unit test, and be unreachable over the wire because the wrapper on
+# the serving tier never forwarded it. These four drive the new arguments
+# through the deployed HTTP surface, which is the only place that shows.
+WB_R=$(call visual 200 export_data "{\"file_path\":\"$SALES\",\"output_path\":\"$D/sales_preview.xlsx\",\"format\":\"excel\",\"preview_rows\":5}")
+if echo "$WB_R" | grep -q '"README"'; then pass "export_data wrote a README sheet"; else fail "export_data workbook -> $WB_R"; fi
+if echo "$WB_R" | grep -q '"full_csv_path"'; then pass "a preview workbook wrote the full CSV beside it"; else fail "preview_rows did not write the full CSV -> $WB_R"; fi
+run visual generate_distribution_plot "{\"file_path\":\"$SALES\",\"columns\":[\"revenue\"],\"max_points\":50}" "plot revenue from at most 50 points"
+MULTI_R=$(call visual 200 generate_dashboard "{\"file_path\":\"$SALES\",\"output_path\":\"$D/multi_dash.html\",\"sources\":[\"$D/sales_emea.csv\"]}")
+if echo "$MULTI_R" | grep -q 'sales_emea.csv'; then pass "generate_dashboard added a second source as a tab"; else fail "sources -> $MULTI_R"; fi
 if [ -n "$CHART_PATH" ]; then
   run visual customize_chart "{\"chart_path\":\"$CHART_PATH\",\"title\":\"Revenue by Region (customized)\"}" "retitle that chart"
 else

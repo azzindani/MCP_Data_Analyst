@@ -75,6 +75,13 @@ DEFAULT_INTERACTIONS: dict[str, Any] = {
     "table": False,
     "table_page_size": 25,
     "hover": True,
+    # The review's "5k-row default + `Load full`", offered rather than
+    # defaulted. 0 means every row, which is what the tool has always done.
+    # Setting it samples, and the page then says on its face that every number
+    # on it is an estimate -- because the KPI cards and chart heights are
+    # computed in the browser from exactly these rows. See the comment above
+    # EMBED_LIMIT in _adv_dashboard.py for why the default cannot be 5000.
+    "embed_rows": 0,
 }
 
 SPEC_KEYS: tuple[str, ...] = ("title", "theme", "layout", "kpis", "filters", "tabs", "interactions")

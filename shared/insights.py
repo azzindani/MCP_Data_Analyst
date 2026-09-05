@@ -18,6 +18,26 @@ one carries what was measured, the threshold it crossed, and the next call that
 acts on it. `severity` is the same three-level vocabulary the alerts use, so a
 reader does not learn a second scale.
 
+**The next call is a call, not a sentence.** The review was specific about this,
+and about why the earlier shape did not count:
+
+    Finding ships with executable fix (dataprep/autoviz): not "skew 31.07" but
+    `FixDQ.cap_outliers / fit_transform`. MCP: `insights:[{finding, action}]`
+    where action runs in one call (`run_preprocessing`, `apply_patch`). Today's
+    `suggested_actions` die in response.
+
+So each insight carries `action` alongside `suggested_next`: `{tool, server,
+domain, args}` in the same vocabulary `shared/handover.py` uses, with `args`
+complete enough to run. `file_path` is the one argument a reader cannot know --
+it belongs to the file being profiled, not to the finding -- so `bind_actions`
+fills it in, and `write_insights` calls it for every caller that already passes
+`source`. An action whose args are half-filled would be worse than prose: prose
+does not look runnable.
+
+`suggested_next` stays. It says *why*, in a sentence a person reads; `action`
+says *what to call*, in a dict a program runs. Neither substitutes for the
+other.
+
 **Written as a sidecar, and that is deliberate here.** The rule that artifacts
 must stand alone applies to *deliverables* -- an HTML page that renders into an
 empty box without its sibling is broken. `insights.json` is not a deliverable;
@@ -50,6 +70,24 @@ IDENTIFIER_RATIO = 0.9
 _ORDER = {"high": 0, "medium": 1, "low": 2}
 
 
+# The one argument an action cannot carry: it belongs to the file being
+# profiled, not to the finding. `bind_actions` fills it in.
+ACTION_FILE_KEY = "file_path"
+
+# Every tool named in an action lives on one of these. Spelled out so a wrong
+# name is a test failure here rather than a dead call in a caller's loop.
+ACTION_SERVER = "MCP_Data_Analyst"
+ACTION_DOMAIN = "data"
+
+
+def action(tool: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+    """One runnable next call, in the vocabulary `shared/handover.py` uses.
+
+    `args` omits `file_path`; `bind_actions` adds it once the source is known.
+    """
+    return {"tool": tool, "server": ACTION_SERVER, "domain": ACTION_DOMAIN, "args": dict(args or {})}
+
+
 def insight(
     kind: str,
     severity: str,
@@ -58,8 +96,13 @@ def insight(
     evidence: dict[str, Any] | None = None,
     columns: list[str] | None = None,
     suggested_next: str = "",
+    act: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """One finding. `headline` is the sentence; `evidence` is why it is true."""
+    """One finding. `headline` is the sentence; `evidence` is why it is true.
+
+    `act` is what a program does about it -- build it with `action()`, and let
+    `bind_actions` or `write_insights` supply the file path.
+    """
     if severity not in SEVERITIES:
         raise ValueError(f"severity must be one of {', '.join(SEVERITIES)}; got {severity!r}")
     out: dict[str, Any] = {"kind": kind, "severity": severity, "headline": headline}
@@ -69,7 +112,25 @@ def insight(
         out["evidence"] = evidence
     if suggested_next:
         out["suggested_next"] = suggested_next
+    if act:
+        out["action"] = act
     return out
+
+
+def bind_actions(insights: list[dict[str, Any]], file_path: str | Path) -> list[dict[str, Any]]:
+    """Fill `file_path` into every action's args, in place. Returns the list.
+
+    In place on purpose: the list a tool returns in its response and the list it
+    writes to the sidecar are the same objects, and binding twice on two copies
+    is how the file and the response come to disagree. `file_path` is written
+    first so the args read in call order.
+    """
+    src = str(file_path)
+    for item in insights:
+        act = item.get("action")
+        if isinstance(act, dict) and isinstance(act.get("args"), dict):
+            act["args"] = {ACTION_FILE_KEY: src, **act["args"]}
+    return insights
 
 
 def rank(insights: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -103,6 +164,9 @@ def from_correlations(pairs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     evidence={"correlation": round(float(r), 4), "threshold": REDUNDANT_R},
                     columns=[a, b],
                     suggested_next=f"Drop one of them, or check whether '{a}' and '{b}' are the same field under two names.",
+                    # The second of the pair, because the first is the one a
+                    # caller reading left-to-right treats as the original.
+                    act=action("apply_patch", {"ops": [{"op": "drop_column", "columns": [b]}]}),
                 )
             )
         elif mag >= NOTABLE_R:
@@ -114,6 +178,7 @@ def from_correlations(pairs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     evidence={"correlation": round(float(r), 4), "threshold": NOTABLE_R},
                     columns=[a, b],
                     suggested_next="Worth a scatter before treating them as independent inputs.",
+                    act=action("generate_pairwise_plot", {"columns": [a, b]}),
                 )
             )
     return rank(found)
@@ -138,16 +203,33 @@ def from_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
         kind = str(a.get("type", "alert")).lower().replace(" ", "_")
         sev = mapping.get(str(a.get("sev", "info")), "low")
         col = a.get("col")
+        alert_type = str(a.get("type", ""))
         found.append(
             insight(
                 kind,
                 sev,
                 str(a.get("msg", "")),
                 columns=[col] if col else None,
-                suggested_next=advice.get(str(a.get("type", "")), ""),
+                suggested_next=advice.get(alert_type, ""),
+                act=_alert_action(alert_type, col),
             )
         )
     return rank(found)
+
+
+def _alert_action(alert_type: str, col: Any) -> dict[str, Any] | None:
+    """The runnable form of the advice above, where one exists.
+
+    Not every alert has one. HIGH CARDINALITY is the case that proves it: the
+    advice is "group it, hash it, or exclude it", three different decisions with
+    different consequences, and picking one on the caller's behalf would be
+    guessing dressed as help. Better no action than a wrong one that runs.
+    """
+    if alert_type == "DUPLICATES":
+        return action("apply_patch", {"ops": [{"op": "drop_duplicates"}]})
+    if alert_type in ("ALL NULL", "CONSTANT") and col:
+        return action("apply_patch", {"ops": [{"op": "drop_column", "columns": [col]}]})
+    return None
 
 
 def from_outliers(outlier_cols: list[dict[str, Any]], rows: int) -> list[dict[str, Any]]:
@@ -172,6 +254,7 @@ def from_outliers(outlier_cols: list[dict[str, Any]], rows: int) -> list[dict[st
                 },
                 columns=[o.get("column")],
                 suggested_next="detect_anomalies() writes the flagged rows with a reason each.",
+                act=action("detect_anomalies", {"columns": [o.get("column")], "method": "iqr"}),
             )
         )
     return rank(found)
@@ -224,6 +307,10 @@ def from_crosstab(table: dict[str, Any], row_column: str, col_column: str) -> li
                         evidence={"observed": observed, "expected": round(expected, 1), "ratio": round(ratio, 2)},
                         columns=[row_column, col_column],
                         suggested_next="statistical_tests() with chi_square tests whether the whole table is independent.",
+                        act=action(
+                            "statistical_tests",
+                            {"test_type": "chi_square", "column_a": row_column, "column_b": col_column},
+                        ),
                     )
                 )
     return rank(found)[:20]
@@ -246,13 +333,28 @@ def write_insights(
     *,
     op: str,
     source: str = "",
+    source_path: str = "",
     extra: dict[str, Any] | None = None,
 ) -> str:
     """Write the sidecar and return its path. Empty string on failure.
 
     Never raises: a report that exists is worth more than a report that was
     abandoned because its sidecar could not be written.
+
+    Binds the source into every action's args on the way through, so a caller
+    that already says where the data came from gets runnable actions without a
+    second call. It binds in place, which means the response and the file carry
+    the same actions rather than two versions of them.
+
+    `source` is the display name that goes in the sidecar; `source_path` is what
+    the actions are bound to, and it must be a path a tool can open. They differ
+    because every caller here passes `path.name` for display, and
+    `resolve_path` resolves a bare name against the process working directory --
+    which is not where the data is. An action bound to a name would look
+    runnable and would not run.
     """
+    if source_path or source:
+        bind_actions(insights, source_path or source)
     try:
         out = insights_path(artifact_path)
         payload: dict[str, Any] = {

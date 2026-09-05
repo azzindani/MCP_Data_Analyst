@@ -26,12 +26,76 @@ from _adv_helpers import (
 )
 
 from shared.column_utils import date_note, parse_dates
+from shared.depth import sampled_frame
 from shared.file_utils import embed_content, error_text, hint_for_error, normalise_export_format, resolve_path
+from shared.lineage import note_lineage
 from shared.progress import info, warn
+from shared.provenance import frame_hash, provenance
+from shared.receipt import fingerprint
 from shared.small_sample import MIN_N_CORRELATION, MIN_N_IQR
 from shared.version_control import snapshot_if_exists
+from shared.workbook import LARGE_ROWS, write_workbook
 
 logger = logging.getLogger(__name__)
+
+# The review's number: "downsample to 5k points, note sampling". This is a
+# default, not a cap -- pass max_points=0 for every point, and the page says
+# which it got either way.
+MAX_PLOT_POINTS = 5000
+
+
+def _round_or_none(value) -> float | None:
+    """A statistic rounded for display, or None when there is no number.
+
+    NaN is the case worth catching: `float("nan")` serialises to JSON as the
+    bare token `NaN`, which is not JSON and which several clients reject
+    outright. None is the honest form of "there is no number here".
+
+    A constant column does not arrive here at all -- pandas answers `0.0` for
+    its skew rather than NaN, so `_shape_of` refuses it on variance before this
+    is reached.
+    """
+    try:
+        out = float(value)
+    except TypeError, ValueError:
+        return None
+    return None if out != out else round(out, 4)
+
+
+def _shape_of(series) -> dict:
+    """Skew and kurtosis for one column, or None where they do not exist.
+
+    Both are moments about the mean divided by the standard deviation, so a
+    column with no spread has neither. pandas answers `0.0` there, which reads
+    off a chart as "perfectly symmetric" -- a claim about a distribution, made
+    about a column that has none. The same tool already warns that a box plot of
+    one value is not a distribution; printing a shape number beside that warning
+    would undo it.
+    """
+    n = int(series.notna().sum())
+    try:
+        spread = float(series.std())
+    except TypeError, ValueError:
+        spread = 0.0
+    if n < 3 or not spread or spread != spread:
+        return {"skew": None, "kurtosis": None, "n": n}
+    return {
+        "skew": _round_or_none(series.skew()),
+        "kurtosis": _round_or_none(series.kurtosis()),
+        "n": n,
+    }
+
+
+def _shape_caption(stats: dict) -> str:
+    """The one-line shape summary drawn into a histogram panel."""
+    parts = [
+        f"{name} {stats[key]:.2f}"
+        for name, key in (("skew", "skew"), ("kurt", "kurtosis"))
+        if stats.get(key) is not None
+    ]
+    if not parts:
+        return ""
+    return "  ·  ".join(parts) + f"  ·  n {stats['n']:,}"
 
 
 def generate_distribution_plot(
@@ -41,8 +105,9 @@ def generate_distribution_plot(
     open_after: bool = True,
     theme: str = "device",
     return_content: bool = False,
+    max_points: int = MAX_PLOT_POINTS,
 ) -> dict:
-    """Histogram + box plot for numeric columns. Opens HTML file."""
+    """Histogram + box plot per numeric column, with shape stats. Samples above 5k."""
     progress = []
     try:
         try:
@@ -84,6 +149,25 @@ def generate_distribution_plot(
                 "token_estimate": 20,
             }
 
+        # Shape statistics come from EVERY row; only the points do not. A user
+        # review read this file at 6.9 MB for three columns and asked for both
+        # halves: "downsample to 5k points, note sampling; print skew/kurtosis
+        # on chart (income 31.07) for vision models". Computing the statistics
+        # on the sample too would have made the printed number an estimate
+        # wearing an exact number's clothes -- and 31.07 is precisely the figure
+        # a heavy tail makes unstable under sampling.
+        shape_stats = {c: _shape_of(df[c]) for c in cols_to_plot}
+
+        full_rows = len(df)
+        plot_df, sample_fields = sampled_frame(df, max_points if max_points and max_points < full_rows else 0)
+        if sample_fields:
+            progress.append(
+                info(
+                    "Downsampled for plotting",
+                    f"{len(plot_df):,} of {full_rows:,} rows drawn; skew and kurtosis are from all rows",
+                )
+            )
+
         n = len(cols_to_plot)
         # make_subplots consumes subplot_titles row-major: (r1c1, r1c2, r2c1...).
         # Listing every histogram title and then every box-plot title handed that
@@ -101,15 +185,40 @@ def generate_distribution_plot(
 
         for i, c in enumerate(cols_to_plot):
             fig.add_trace(
-                go.Histogram(x=df[c], nbinsx=30, name=c, showlegend=False),
+                go.Histogram(x=plot_df[c], nbinsx=30, name=c, showlegend=False),
                 row=i + 1,
                 col=1,
             )
             fig.add_trace(
-                go.Box(y=df[c], name=c, showlegend=False),
+                go.Box(y=plot_df[c], name=c, showlegend=False),
                 row=i + 1,
                 col=2,
             )
+            # Drawn into the panel, not only returned in JSON. The review's
+            # reason was explicit -- "for vision models" -- and a model looking
+            # at a screenshot of a long tail cannot read a number that only
+            # exists in the response body.
+            caption = _shape_caption(shape_stats[c])
+            if caption:
+                # row/col rather than a computed `x3`/`y3`: in a 2-column grid
+                # the histogram in row i is axis 2i+1, and deriving that by hand
+                # is how an annotation ends up captioning the panel below.
+                fig.add_annotation(
+                    text=caption,
+                    xref="x domain",
+                    yref="y domain",
+                    x=0.98,
+                    y=0.96,
+                    xanchor="right",
+                    yanchor="top",
+                    showarrow=False,
+                    align="right",
+                    font={"size": 11},
+                    bgcolor="rgba(127,127,127,0.12)",
+                    borderpad=4,
+                    row=i + 1,
+                    col=1,
+                )
 
         fig.update_layout(
             height=300 * n,
@@ -132,7 +241,14 @@ def generate_distribution_plot(
                 )
             )
 
-        abs_p, fname = _save_chart(fig, output_path, "distributions", path, open_after, theme, progress)
+        header = provenance(
+            rows_plotted=len(plot_df),
+            rows_total=full_rows,
+            source=path.name,
+            data_hash=frame_hash(plot_df[cols_to_plot]),
+            tool="generate_distribution_plot",
+        )
+        abs_p, fname = _save_chart(fig, output_path, "distributions", path, open_after, theme, progress, header)
         progress.append(ok("Distribution plots saved", f"{fname} — {n} columns"))
 
         result = {
@@ -141,6 +257,8 @@ def generate_distribution_plot(
             "file_path": str(path),
             "output_path": abs_p,
             "output_name": fname,
+            "shape_stats": shape_stats,
+            **header,
             "columns_plotted": cols_to_plot,
             "values_plotted": value_counts,
             "columns_too_few_values": sorted(thin),
@@ -556,8 +674,9 @@ def export_data(
     open_after: bool = True,
     return_content: bool = False,
     output_format: str = "",
+    preview_rows: int = 0,
 ) -> dict:
-    """Export dataset to CSV, Excel, or JSON format."""
+    """Export dataset to CSV, Excel, or JSON. Excel gets a README sheet."""
     progress = []
     # convert_file, the other tool that changes a file's format, calls this
     # output_format.
@@ -612,8 +731,20 @@ def export_data(
             df.to_json(str(out), orient="records", indent=2)
             if open_after:
                 _open_file(out)
-        elif format == "excel":
-            df.to_excel(str(out), index=False)
+        workbook_report: dict | None = None
+        if format == "excel":
+            # A user review called the old one-sheet output "GOOD BUT THIN":
+            # correct, and missing the README sheet, frozen header, autofilter,
+            # number formats and value validation that separate a workbook from
+            # a CSV wearing an .xlsx suffix.
+            workbook_report = write_workbook(
+                df,
+                out,
+                source=str(path),
+                source_fingerprint=fingerprint(path),
+                op="export_data",
+                preview_rows=preview_rows,
+            )
             if open_after:
                 _open_file(out)
 
@@ -631,6 +762,42 @@ def export_data(
             "file_size_kb": size_kb,
             "progress": progress,
         }
+        if workbook_report is not None:
+            result["workbook"] = workbook_report
+            progress.append(
+                ok(
+                    "Workbook prepared",
+                    f"{len(workbook_report['sheets'])} sheet(s), frozen header, autofilter, "
+                    f"{len(workbook_report['formatted_columns'])} formatted column(s), "
+                    f"{len(workbook_report['validated_columns'])} validated column(s)",
+                )
+            )
+            if workbook_report["is_preview"]:
+                result["full_csv_path"] = workbook_report["full_csv"]
+                result["rows"] = workbook_report["rows_written"]
+                result["rows_total"] = workbook_report["rows_total"]
+            elif len(df) > LARGE_ROWS:
+                # Named, not imposed. The review asked for `top_1k +
+                # full_csv_link` above 10k rows; silently dropping 90% of an
+                # export is a worse defect than a large file.
+                result["hint"] = (
+                    f"{len(df):,} rows is a large workbook. Pass preview_rows=1000 for a light "
+                    "one; the full table is then written beside it as CSV and named in the "
+                    "README sheet. Nothing is dropped without you asking."
+                )
+        # Every format writes a new file from an existing one, which is a
+        # derivation the file itself should carry.
+        note_lineage(
+            result,
+            out,
+            op="export_data",
+            source=path,
+            rows_before=len(df),
+            rows_after=(workbook_report or {}).get("rows_written", len(df)),
+            columns_before=len(df.columns),
+            columns_after=len(df.columns),
+            params={"format": format, "preview_rows": preview_rows} if preview_rows else {"format": format},
+        )
         embed_content(result, out, return_content)
         result["token_estimate"] = _token_estimate(result)
         return result

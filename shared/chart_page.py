@@ -126,6 +126,7 @@ def chart_page_html(
     vars_css: str,
     device_js: str = "",
     chart_height: float | None = None,
+    header: dict | None = None,
 ) -> str:
     """Wrap a Plotly fragment in the shared standalone chart page.
 
@@ -136,10 +137,23 @@ def chart_page_html(
     chart_height : the figure's own layout height, if it declares one. The card
                    is then sized to match instead of to the viewport floor --
                    see the height note above CHART_PAGE_CSS.
+    header       : provenance from `shared.provenance.provenance()`. The review
+                   asked for `rows_plotted / rows_total / was_sampled /
+                   data_hash` in **every** HTML header; the dashboard and the
+                   EDA report carried it and the seven single-chart pages did
+                   not, which is precisely where a sampled chart is
+                   indistinguishable from a complete one.
     """
     # Same specificity as the `--chart-h` declaration in CHART_PAGE_CSS and
     # written after it, so it wins on order without an !important.
     height_css = f"\nbody{{--chart-h:{round(float(chart_height))}px}}" if chart_height else ""
+    # Imported here rather than at module scope: chart_page is imported by the
+    # theme layer, which provenance does not depend on, and a cycle between the
+    # two would only show up in whichever server imported them in the other
+    # order.
+    from shared.provenance import provenance_script
+
+    block = provenance_script(header or {})
     return f"""<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8">
@@ -153,6 +167,7 @@ def chart_page_html(
   <h1 class="chart-title">{title}</h1>
   <div class="chart-wrap">{chart_html}</div>
 </div>
+{block}
 {device_js}
 </body></html>"""
 

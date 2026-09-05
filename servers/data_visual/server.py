@@ -114,9 +114,12 @@ def generate_distribution_plot(
     open_after: bool = True,
     theme: str = "device",
     return_content: bool = False,
+    max_points: int = 5000,
 ) -> dict:
-    """Histogram + box plot for numeric columns. Saves HTML."""
-    return engine.generate_distribution_plot(file_path, columns, output_path, open_after, theme, return_content)
+    """Histogram + box plot per numeric column, with shape stats. Samples above 5k."""
+    return engine.generate_distribution_plot(
+        file_path, columns, output_path, open_after, theme, return_content, max_points
+    )
 
 
 @mcp.tool(annotations=CREATES)
@@ -303,8 +306,9 @@ def generate_dashboard(
     open_after: bool = True,
     return_content: bool = False,
     spec: dict = None,
+    sources: list[str] = None,
 ) -> dict:
-    """Interactive HTML dashboard. spec overrides any auto-detected part."""
+    """Interactive HTML dashboard. spec overrides detection; sources add tabs."""
     return engine.generate_dashboard(
         file_path,
         output_path,
@@ -317,6 +321,7 @@ def generate_dashboard(
         open_after,
         return_content,
         spec,
+        sources,
     )
 
 
@@ -330,10 +335,11 @@ def export_data(
     open_after: bool = True,
     return_content: bool = False,
     output_format: str = "",
+    preview_rows: int = 0,
 ) -> dict:
-    """Export dataset to CSV, Excel, or JSON format."""
+    """Export dataset to CSV, Excel, or JSON. Excel gets a README sheet."""
     return engine.export_data(
-        file_path, output_path, format, encoding, separator, open_after, return_content, output_format
+        file_path, output_path, format, encoding, separator, open_after, return_content, output_format, preview_rows
     )
 
 

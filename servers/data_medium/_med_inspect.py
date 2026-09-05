@@ -305,7 +305,7 @@ def check_outliers(
             found = from_outliers(summary_rows, len(df))
             result["insights"] = found
             result["insights_path"] = write_insights(
-                abs_p, found, op="check_outliers", source=path.name, extra={"method": method}
+                abs_p, found, op="check_outliers", source=path.name, source_path=str(path), extra={"method": method}
             )
         elif not _PLOTLY_AVAILABLE:
             progress.append(warn("plotly not installed", "pip install plotly to enable HTML export"))

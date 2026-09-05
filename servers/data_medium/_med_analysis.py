@@ -59,6 +59,7 @@ from shared.counts import counted
 from shared.exchange import default_output_path
 from shared.file_utils import error_text, hint_for_error, resolve_path
 from shared.insights import from_correlations, from_outliers, write_insights
+from shared.lineage import lineage_path, note_lineage, write_lineage
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.small_sample import (
@@ -188,7 +189,12 @@ def correlation_analysis(
             found = from_correlations(pairs)
             result["insights"] = found
             result["insights_path"] = write_insights(
-                abs_p, found, op="correlation_analysis", source=path.name, extra={"method": method}
+                abs_p,
+                found,
+                op="correlation_analysis",
+                source=path.name,
+                source_path=str(path),
+                extra={"method": method},
             )
             if found:
                 progress.append(ok("Insights written", f"{len(found)} finding(s) beside the matrix"))
@@ -1633,6 +1639,37 @@ def detect_anomalies(
             "hint": hint,
             "progress": progress,
         }
+        # Both files are derived, and the anomalies-only one is the one a reader
+        # is most likely to open on its own -- 2,793 rows with no way to know
+        # they were selected out of 38,576 by an IQR rule at threshold 3.
+        note_lineage(
+            result,
+            out,
+            op="detect_anomalies",
+            source=path,
+            rows_before=len(df),
+            rows_after=len(result_df),
+            columns_before=len(df.columns),
+            columns_after=len(result_df.columns),
+            params={"method": method, "threshold": threshold},
+        )
+        if anomalies_out:
+            write_lineage(
+                anomalies_out,
+                op="detect_anomalies (flagged rows only)",
+                source=out,
+                rows_before=len(result_df),
+                rows_after=anomalies_rows or 0,
+                columns_before=len(result_df.columns),
+                # The flagged frame is a row selection, so the columns are the
+                # scored frame's. Reading them off result_df keeps this out of
+                # the branch where `flagged` is bound.
+                columns_after=len(result_df.columns),
+                params={"method": method, "threshold": threshold},
+                note="Rows that scored above the threshold, each carrying its own reason and suggested fix.",
+            )
+            result["anomalies_only_lineage_path"] = str(lineage_path(anomalies_out))
+
         result["token_estimate"] = _token_estimate(result)
         return result
 

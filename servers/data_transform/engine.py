@@ -34,6 +34,7 @@ from shared.column_utils import (
 from shared.counts import counted
 from shared.file_utils import atomic_write_text, error_text, hint_for_error, resolve_path
 from shared.file_utils import read_csv as _shared_read_csv
+from shared.lineage import note_lineage
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
@@ -270,6 +271,21 @@ def filter_dataset(
             "backup": backup or "",
             "progress": progress,
         }
+        # Only when a NEW file was made. Filtering in place is a mutation, and
+        # the receipt above already records it; writing a lineage there would
+        # claim the file was derived from itself.
+        if out_path != path:
+            note_lineage(
+                result,
+                out_path,
+                op="filter_dataset",
+                source=path,
+                rows_before=before,
+                rows_after=after,
+                columns_before=len(df.columns),
+                columns_after=len(df.columns),
+                params={"conditions": conditions, "sort_by": sort_by},
+            )
         result["token_estimate"] = _token_estimate(result)
         return result
     except Exception as exc:
@@ -480,6 +496,18 @@ def reshape_dataset(
             "backup": backup or "",
             "progress": progress,
         }
+        if out_path != path:
+            note_lineage(
+                result,
+                out_path,
+                op="reshape_dataset",
+                source=path,
+                rows_before=before_shape[0],
+                rows_after=int(df.shape[0]),
+                columns_before=before_shape[1],
+                columns_after=int(df.shape[1]),
+                params={"mode": mode},
+            )
         result["token_estimate"] = _token_estimate(result)
         return result
     except Exception as exc:
@@ -844,6 +872,18 @@ def aggregate_dataset(
         }
         if out_path and output_df is not None:
             result["output_path"] = str(out_path)
+            if out_path != path:
+                note_lineage(
+                    result,
+                    out_path,
+                    op="aggregate_dataset",
+                    source=path,
+                    rows_before=len(df),
+                    rows_after=len(output_df),
+                    columns_before=len(df.columns),
+                    columns_after=len(output_df.columns),
+                    params={"mode": mode},
+                )
         elif out_path:
             result["progress"].append(warn(f"output_path ignored for mode '{mode}' — no flat table to write", mode))
         result["token_estimate"] = _token_estimate(result)
