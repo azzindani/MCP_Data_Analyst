@@ -50,6 +50,7 @@ from shared.data_alerts import quality_score as compute_quality_score
 from shared.depth import MODES, SECTIONS, Depth, UnknownMode, sampled_frame
 from shared.file_utils import embed_content, error_text, hint_for_error, resolve_path
 from shared.insights import from_alerts, from_correlations, from_outliers, rank, write_insights
+from shared.leakage import leakage_note, leakage_suspects
 from shared.provenance import frame_hash, provenance, provenance_script
 from shared.quality import quality_report
 
@@ -245,6 +246,8 @@ def run_eda(
         # are opt-in, so a caller who passes neither gets exactly what this
         # returned before.
         associations: list = []
+        suspects: list = []
+        leak_note = ""
         if target_column:
             if target_column not in df.columns:
                 return {
@@ -255,6 +258,21 @@ def run_eda(
                     "token_estimate": 30,
                 }
             associations = target_association(df, target_column)
+            # The ranking above answers "what relates to the target". This
+            # answers the follow-up the review had to ask by hand: whether the
+            # strongest of them relate to it because they were recorded after
+            # it was decided. A column at the top of an association ranking and
+            # a column that already contains the answer look identical from
+            # here, and only one of them is a finding you can model on.
+            #
+            # Kept out of `alerts` and out of `quality_score` for the same
+            # reason as in the ML sibling: a score that moves depending on
+            # whether a target was named is a score about the question, not the
+            # data.
+            suspects = leakage_suspects(df, target_column, [c for c in df.columns if c != target_column])
+            leak_note = leakage_note(suspects)
+            if suspects:
+                progress.append(warn(f"{len(suspects)} possible leakage suspect(s)", leak_note[:120]))
 
         comparison: dict = {}
         if compare_to:
@@ -300,6 +318,8 @@ def run_eda(
                 theme,
                 out.parent,
                 page_header,
+                suspects,
+                target_column,
             )
 
             out.write_text(html_content, encoding="utf-8")
@@ -379,6 +399,30 @@ def run_eda(
             # did not use reads as "measured, found nothing".
             **({"target_column": target_column, "target_association": associations} if target_column else {}),
             **({"comparison": comparison} if comparison else {}),
+            # Leakage is the one exception to the rule above, and in the other
+            # direction: a full EDA that scores the file and never mentions
+            # leakage reads as "none found", so when the check could not run it
+            # says so in one line. Same wording as the ML sibling's
+            # check_data_quality, because two tools answering one question
+            # differently is what put 77 and 53 on the same file.
+            **(
+                {
+                    "leakage_suspects": suspects[:10],
+                    "leakage_count": len(suspects),
+                    "leakage_note": leak_note
+                    or (
+                        f"No feature looks like it already contains '{target_column}'. Measured: "
+                        "single-feature separation, missingness that tracks the target, and "
+                        "post-outcome column names."
+                    ),
+                }
+                if target_column
+                else {
+                    "leakage_check": (
+                        "not run — pass target_column to test whether a feature already contains the outcome"
+                    )
+                }
+            ),
         }
         if depth.mode == "full":
             result["all_correlations"] = corr_pairs
@@ -404,6 +448,46 @@ _compute_alerts = compute_alerts
 _alerts_html = alerts_html
 
 
+def _leakage_html(suspects: list, target_column: str) -> str:
+    """The leakage panel, or nothing at all when no target was named.
+
+    Silent when `target_column` is empty: an empty panel headed "Leakage" on a
+    report where the check never ran is a clean bill of health nobody issued.
+    When a target *was* named and nothing was found, that is a real result and
+    the panel says so.
+    """
+    if not target_column:
+        return ""
+    heading = f"&#9873; Target leakage &mdash; {_html.escape(str(target_column))}"
+    if not suspects:
+        return (
+            f'<div id="leakage" class="section"><h2>{heading} (0)</h2>'
+            '<div class="alert-panel"><div class="alert-item info">'
+            '<span class="alert-badge info">OK</span> No feature looks like it already contains '
+            "the outcome. Measured: single-feature separation, missingness that tracks the "
+            "target, and post-outcome column names.</div></div></div>"
+        )
+    # "hint" is name-based only and nothing was measured for it, so it renders
+    # one step down from the measured signals rather than alongside them.
+    badge = {"high": "error", "medium": "warning", "hint": "info"}
+    items = []
+    for suspect in suspects:
+        for signal in suspect.get("signals", []):
+            level = badge.get(str(signal.get("confidence")), "info")
+            items.append(
+                f'<div class="alert-item {level}">'
+                f'<span class="alert-badge {level}">{_html.escape(str(signal.get("reason", "")))}</span> '
+                f"{_html.escape(str(signal.get('evidence', '')))}</div>"
+            )
+    return (
+        f'<div id="leakage" class="section"><h2>{heading} ({len(suspects)})</h2>'
+        f'<div class="alert-panel">{"".join(items)}</div>'
+        '<p style="color:var(--text-muted);font-size:.8rem">Suspects, not verdicts. Re-train '
+        "without them and split on time rather than at random before trusting a score built on "
+        "this data.</p></div>"
+    )
+
+
 def _build_eda_html(
     df,
     path,
@@ -422,6 +506,8 @@ def _build_eda_html(
     theme,
     output_dir,
     header=None,
+    suspects=None,
+    target_column="",
 ):
     # The page carries what it is a picture of. A chart drawn from a sample
     # looks exactly like one drawn from everything, and nothing in the file
@@ -567,6 +653,10 @@ def _build_eda_html(
 
     nulls_nav = '<a href="#nulls">Missing Data</a>' if missing_by_col else ""
     corr_nav = '<a href="#correlations">Correlations</a>' if corr_pairs else ""
+    # Follows the same rule as the two above: a link to a section that is not on
+    # the page is a dead anchor, and this section is absent whenever no target
+    # was named.
+    leakage_nav = f'<a href="#leakage">Target Leakage ({len(suspects or [])})</a>' if target_column else ""
 
     sample_rows_df = df.head(5)
     sample_cols_list = list(sample_rows_df.columns)
@@ -585,6 +675,13 @@ def _build_eda_html(
     alerts_section = (
         f'<div id="alerts" class="section"><h2>&#9888; Alerts ({len(alerts)})</h2>{_alerts_html(alerts)}</div>'
     )
+
+    # The panel exists because `shared/data_alerts.py` was written for exactly
+    # this reason one axis over: the judgement lived in the response, so the
+    # artifact someone forwards to a colleague carried none of it. A leakage
+    # finding is the one most likely to be read by a person rather than an
+    # agent, and the most expensive to discover after a model ships.
+    leakage_section = _leakage_html(suspects or [], target_column)
 
     css_block = _eda_css(vars_css)
     dev_js = device_mode_js() if theme == "device" else ""
@@ -607,6 +704,7 @@ def _build_eda_html(
   <div class="nav">
     <div class="st">Sections</div>
     <a href="#alerts">Alerts ({len(alerts)})</a>
+    {leakage_nav}
     <a href="#overview">Overview</a>
     <a href="#sample">Data Sample</a>
     <a href="#columns">Column Summary</a>
@@ -618,6 +716,7 @@ def _build_eda_html(
 </div>
 <div class="main">
   {alerts_section}
+  {leakage_section}
   <div id="overview" class="section">
     <h2>Dataset Overview</h2>
     <div class="cards">
