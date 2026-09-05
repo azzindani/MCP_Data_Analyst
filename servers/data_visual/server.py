@@ -74,12 +74,10 @@ def run_eda(
     sample_n: int = 0,
     include: dict = None,
 ) -> dict:
-    """Fast EDA summary. Stats, nulls, correlations, outliers. Saves HTML.
-
-    mode: minimal (figures only, no 4.7 MB page) | standard (default, unchanged)
-    | full (every correlation pair). sample_n profiles that many random rows and
-    says so in the response. include={"correlations": true} overrides per section.
-    """
+    """EDA summary. mode=minimal|standard|full, sample_n, include. Saves HTML."""
+    # The long version lives on engine.run_eda, which is not a tool. This string
+    # IS the MCP tool description: every client pays for it on every tools/list,
+    # which is why the gate caps it at 80 characters.
     return engine.run_eda(file_path, output_path, open_after, theme, return_content, mode, sample_n, include)
 
 

@@ -43,13 +43,24 @@ def check_file(path: Path) -> list[str]:
         if not is_tool:
             continue
 
+        # The WHOLE docstring, not its first line. The MCP SDK sends
+        # `func.__doc__` as the tool's description, so every client pays for
+        # every line of it on every tools/list -- and a first-line check passes
+        # a three-paragraph docstring while the gate's own summary claims to
+        # verify that tool docstrings are <= 80 characters.
+        #
+        # This measured the first line only for as long as every tool here
+        # happened to have one line. The first multi-line docstring anyone wrote
+        # shipped a 301-character description that this file called OK.
+        # MCP_Machine_Learning's equivalent census measures the whole string;
+        # they now agree.
         docstring = ast.get_docstring(node) or ""
-        first_line = docstring.splitlines()[0] if docstring else ""
-        if len(first_line) > MAX_LEN:
+        if len(docstring) > MAX_LEN:
+            first_line = docstring.splitlines()[0]
             errors.append(
                 f"  {path}:{node.lineno} — {node.name}() "
-                f"first line is {len(first_line)} chars (max {MAX_LEN}): "
-                f"{first_line!r}"
+                f"docstring is {len(docstring)} chars (max {MAX_LEN}): "
+                f"{first_line!r}" + ("..." if len(docstring.splitlines()) > 1 else "")
             )
 
     return errors
