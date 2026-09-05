@@ -108,7 +108,9 @@ def _cramers_v(a: pd.Series, b: pd.Series) -> float | None:
     # pandas 3 and raised OptionError, which the caller's `except Exception`
     # turned into `strength: None` under the note "fewer than 30 usable rows" --
     # a crash wearing a plausible explanation. Guard the divide directly.
-    if (expected <= 0).any():
+    # bool() because `.any()` on a numpy array is np.bool_, which pyright
+    # will not accept as a conditional operand.
+    if bool((expected <= 0).any()):
         return None
     chi2 = float((((table.to_numpy() - expected) ** 2) / expected).sum())
     denom = n * (min(table.shape) - 1)
@@ -154,7 +156,9 @@ def target_association(df: pd.DataFrame, target_column: str) -> list[dict[str, A
                 pair = df[[col, target_column]].dropna()
                 if len(pair) >= MIN_ROWS:
                     r = pair[col].corr(pair[target_column])
-                    measure, value = "pearson_abs", (None if pd.isna(r) else abs(float(r)))
+                    # bool() because pd.isna is typed as returning an array for
+                    # frame-shaped input; here it is one float.
+                    measure, value = "pearson_abs", (None if bool(pd.isna(r)) else abs(float(r)))
             elif not _is_numeric(s) and target_numeric:
                 measure, value = "correlation_ratio", _correlation_ratio(s, target)
             elif not _is_numeric(s) and not target_numeric:

@@ -26,7 +26,7 @@ from _adv_charts import (  # type: ignore[import]
 
 # New T4 tool
 from _adv_customize import customize_chart
-from _adv_dashboard import generate_dashboard  # type: ignore[import]
+from _adv_dashboard import customize_dashboard, generate_dashboard  # type: ignore[import]
 from _adv_eda import run_eda  # type: ignore[import]
 from _adv_gencharts import generate_3d_chart, generate_chart, generate_geo_map  # type: ignore[import]
 from _adv_profile import generate_auto_profile  # type: ignore[import]
@@ -42,6 +42,7 @@ __all__ = [
     "generate_chart",
     "generate_geo_map",
     "generate_3d_chart",
+    "customize_dashboard",
     "generate_dashboard",
     "customize_chart",
 ]
