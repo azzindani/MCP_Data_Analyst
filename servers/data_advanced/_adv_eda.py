@@ -48,6 +48,7 @@ from shared.data_alerts import alerts_html, compute_alerts
 from shared.data_alerts import quality_score as compute_quality_score
 from shared.depth import MODES, SECTIONS, Depth, UnknownMode, sampled_frame
 from shared.file_utils import embed_content, error_text, hint_for_error, resolve_path
+from shared.provenance import frame_hash, provenance, provenance_script
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +211,18 @@ def run_eda(
                 s["zero_count"] = int((df[s["column"]] == 0).sum())
                 s["zero_pct"] = round(s["zero_count"] / rows * 100, 2) if rows > 0 else 0
 
+        # What the page and the response both say they are a picture of.
+        # `was_sampled` is derived from the two counts rather than passed, for
+        # the same reason `truncated` is: a flag set independently of the
+        # numbers beside it eventually disagrees with them.
+        page_header = provenance(
+            rows_plotted=rows,
+            rows_total=len(full_df),
+            source=path.name,
+            data_hash=frame_hash(df),
+            tool="run_eda",
+        )
+
         out = None
         size_kb = 0
         if depth.wants("html"):
@@ -236,6 +249,7 @@ def run_eda(
                 dup_count,
                 theme,
                 out.parent,
+                page_header,
             )
 
             out.write_text(html_content, encoding="utf-8")
@@ -283,6 +297,9 @@ def run_eda(
             # answers and they call for different next steps.
             **depth.report(),
             **sample_fields,
+            # Repeated in the response so a caller does not have to open the
+            # page to learn what it is a picture of.
+            "provenance": page_header,
             "progress": progress,
         }
         if depth.mode == "full":
@@ -326,7 +343,12 @@ def _build_eda_html(
     dup_count,
     theme,
     output_dir,
+    header=None,
 ):
+    # The page carries what it is a picture of. A chart drawn from a sample
+    # looks exactly like one drawn from everything, and nothing in the file
+    # used to say which this was.
+    provenance_block = provenance_script(header or {})
     vars_css = css_vars(theme)
     score_cls = "good" if quality_score >= 80 else "warn" if quality_score >= 60 else "bad"
     missing_by_col = {s["column"]: s["null_count"] for s in column_summaries if s["null_count"] > 0}
@@ -494,6 +516,7 @@ def _build_eda_html(
 <meta charset="utf-8">
 {VIEWPORT_META}
 <title>EDA Report — {_html.escape(path.name)}</title>
+{provenance_block}
 {plotly_script}
 <style>
 {css_block}
