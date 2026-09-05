@@ -6,7 +6,7 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 
 ## Features
 
-- **70 tools** across 7 servers: workspace (6), basic (9), medium (11), transform (10), statistics (12), visual (12), ingest (10)
+- **71 tools** across 7 servers: workspace (6), basic (9), medium (11), transform (10), statistics (12), visual (13), ingest (10)
 - **LOCATE → INSPECT → PATCH → VERIFY** workflow for surgical data edits
 - **Automatic version control** — every write is snapshotted and fully restorable (Windows-safe: collision-proof timestamps)
 - **Operation receipt logging** — full audit trail of all modifications
@@ -19,6 +19,14 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 - **Geo visualization** — scatter maps (lat/lon), choropleth (country/state), zero external data needed
 - **3D charts** — scatter_3d and surface plots
 - **Chart customization** — post-generate edits to titles, labels, colours, annotations on saved HTML
+- **Composable dashboards** — `generate_dashboard(spec=…)` builds from a declarative JSON spec, the page embeds the spec it was built from, and `customize_dashboard` edits that spec instead of regenerating from prose
+- **Multi-source dashboards** — `sources=[…]` renders extra files as tabs beside the primary one, with server-side exact totals
+- **Target-aware profiling** — `run_eda(target_column=…)` ranks every column by its relation to the target; `compare_to=…` measures PSI / total-variation drift against a baseline and fills the fourth quality component
+- **Leakage detection** — a feature that already contains the outcome is named with its evidence: single-feature separation, missingness that tracks the target, and post-outcome column names. Suspects, never verdicts, and kept out of the quality score
+- **Depth control** — `mode="minimal" | "standard" | "full"`, `sample_n`, and per-section `include` overrides, so a loop pays for a summary and a frontier model can ask for everything
+- **Lineage sidecars** — every derived file gets a `.mcp_lineage.json` naming the op, the source, and the row/column counts either side; chained by reference so a filtered-then-reshaped file can be traced back
+- **Executable insights** — `insights.json` beside every report, each finding carrying the tool call that acts on it
+- **Enriched Excel export** — README sheet, frozen header, autofilter, number formats and column validation on `export_data`
 - **Light / dark / device theme** — all HTML outputs accept `theme: "dark" | "light" | "device"`
 - **Mobile-responsive HTML** — viewport meta + CSS breakpoints on every report
 - **Modular architecture** — each engine split into focused sub-modules, all under 1 000 lines
@@ -406,13 +414,14 @@ silently. `time_series_analysis`, `period_comparison`, `cohort_analysis`,
 
 ---
 
-### Tier 3 — Visual (12 tools)
+### Tier 3 — Visual (13 tools)
 
 | Tool | Purpose |
 |---|---|
-| `run_eda` | Fast EDA: stats, nulls, correlations, outliers — saves HTML |
+| `run_eda` | Fast EDA: stats, nulls, correlations, outliers — saves HTML. `target_column` adds an association ranking and a leakage panel; `compare_to` adds drift; `mode` / `sample_n` / `include` control depth |
 | `generate_auto_profile` | Full column profile: per-column charts, correlation network, quality dashboard |
-| `generate_dashboard` | Interactive HTML dashboard: KPI cards, sparklines, violin plots, geo maps |
+| `generate_dashboard` | Interactive HTML dashboard: KPI cards, sparklines, violin plots, geo maps. Accepts a declarative `spec`, and `sources=[…]` for extra files as tabs |
+| `customize_dashboard` | Edit a saved dashboard's embedded spec and re-render — a JSON change, not a described-in-prose rebuild |
 | `generate_chart` | 13 chart types: bar, pie, line, scatter, geo, treemap, radius, time_series, sunburst, waterfall, funnel, parallel_coords, sankey |
 | `generate_geo_map` | Scatter map (lat/lon) or choropleth (country/state) — auto-detected |
 | `generate_3d_chart` | 3D scatter or surface chart |
@@ -420,7 +429,7 @@ silently. `time_series_analysis`, `period_comparison`, `cohort_analysis`,
 | `generate_correlation_heatmap` | Interactive Pearson/Spearman heatmap |
 | `generate_pairwise_plot` | Scatter matrix for numeric columns |
 | `generate_multi_chart` | Multi-variable bar/line chart (2+ metrics) |
-| `export_data` | Export to CSV, Excel, or JSON |
+| `export_data` | Export to CSV, Excel, or JSON. The workbook carries a README sheet, frozen header, autofilter, number formats and column validation |
 | `customize_chart` | Post-generate edits to an existing HTML chart: title, axis labels, colour scheme, annotations, value labels, dimensions |
 
 #### New chart types in `generate_chart`
@@ -461,6 +470,10 @@ The `generate_dashboard` tool also auto-inserts geo charts when it detects these
 - **Missing value matrix**: Plotly heatmap showing WHERE data is absent (up to 300 sampled rows)
 - **Zero counts** in column summary table
 - Data sample (first 5 rows), outlier table, key insights
+- **Quality breakdown**: `{completeness, validity, uniqueness, drift}` behind the 0–100 score. `drift` is reported as `None` rather than invented — it needs a baseline, and a component scored 100 because nothing was measured would be a different kind of lie. Pass `compare_to` and it becomes a number
+- **Target leakage panel** (with `target_column`): names any feature that may already contain the outcome, with the evidence for each — how well it separates the classes alone, whether its *missingness* tracks the target, and whether it is named like a post-outcome field. The last is labelled a hint, because nothing was measured for it. Suspects never move the quality score: a number that changes depending on whether you named a target would be a number about the question, not the data
+- **Depth**: `mode="minimal"` skips the correlation matrices, the outlier scan and the HTML page; `mode="full"` returns every correlation pair. `standard` is exactly what the tool did before the parameter existed
+- **Honest sampling**: with `sample_n`, the response carries `was_sampled`, `sample_n` and `rows_total`, and the page header carries `rows_plotted / rows_total / was_sampled / data_hash`
 
 ### `generate_auto_profile`
 All of `run_eda` plus:
@@ -476,6 +489,10 @@ All of `run_eda` plus:
 - **Data quality card**: overall quality score (0–100)
 - **Violin plots**: distribution + outliers for numeric columns
 - **Responsive filter bar**: multi-select dropdowns with Clear All
+- **Declarative spec**: pass `spec={title, theme, layout, kpis, filters, interactions}` and the engine renders it rather than improvising a layout. The page embeds the spec it was built from, so the next agent can read it, change one panel, and re-render through `customize_dashboard`
+- **Multi-source tabs**: `sources=["chargedoff.csv", "anomalies.csv"]` renders each as its own tab. Row counts and summaries are computed server-side over the whole file, so a tab's totals are exact even when its table is paged
+- **`embed_rows`**: caps how many rows are embedded in the page. It defaults to every row on purpose — the KPI cards and chart heights are computed in the browser from the embedded rows, so a default cap would silently divide every number on the dashboard. The saving is small in any case: on a 38,576-row file, dropping from 4,000 to 500 embedded rows saved 95 KB of a 4.9 MB page, because the weight is Plotly, not data
+- **Honest embedding**: the header always carries `rows_embedded` and `was_sampled`
 
 ## Usage Examples
 
@@ -699,7 +716,7 @@ requires a bearer token even while it's publicly reachable.
 
 Run in CI against a container (the `e2e` job) and by hand against the
 deployment. `pytest` itself stays offline. Exercises a running HTTP endpoint: auth enforcement plus a real
-handwritten-prompt-style call for **all 69 tools** across all 7 sub-servers
+handwritten-prompt-style call for **all 71 tools** across all 7 sub-servers
 (basic, medium, statistics, transform, visual, workspace, ingest), against
 real generated fixtures (a 200-row sales CSV, a region-population CSV, a real
 GeoJSON, and a real messy multi-sheet `.xlsx` with merged cells), chaining

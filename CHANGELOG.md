@@ -4,6 +4,89 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [Unreleased]
+
+Fifteen commits since `0.2.2`, almost all of them driven by a tool user's
+written review of a 38,576-row credit-risk sweep. The review's method was to
+open every artifact the tools produced and check it against what the response
+claimed — which is why most of what follows is a tool that succeeded while
+saying something its own output did not support.
+
+### Added — the review's asks
+
+- **Composable dashboards.** `generate_dashboard(spec=…)` renders a declarative
+  JSON spec instead of a fixed template, the page embeds the spec it was built
+  from, and `customize_dashboard` edits that spec and re-renders. The review's
+  words were "customisation = small JSON edit, not full rebuild".
+- **Multi-source dashboards.** `sources=[…]` renders extra files as tabs.
+  Summaries and row counts are computed server-side over the whole file, so a
+  tab's totals are exact even when its table is paged.
+- **Target-aware, comparison-aware EDA.** `run_eda(target_column=…)` ranks every
+  column by its relation to the target, naming the measure per dtype pair — an
+  AUC of 0.75 and a Cramer's V of 0.75 are not the same claim. `compare_to=…`
+  reports schema differences and PSI / total-variation drift, which is also what
+  finally makes the quality score's fourth component computable.
+- **Leakage detection.** With a target named, `run_eda` reports any feature that
+  may already contain the outcome, with the evidence: how well it separates the
+  classes alone, whether its *missingness* tracks the target, and whether it is
+  named like a post-outcome field. The last is labelled a hint because nothing
+  was measured for it. Suspects, never verdicts — and deliberately kept out of
+  `alerts` and out of the quality score, so one file cannot score two ways
+  depending on whether the caller happened to name a target. `shared/leakage.py`
+  is byte-identical with the copy in MCP_Machine_Learning, with a test asserting
+  it.
+- **Depth control.** `mode="minimal" | "standard" | "full"`, `sample_n`, and
+  per-section `include` overrides. `standard` is exactly what the tool did
+  before the parameter existed, so a caller who passes nothing gets yesterday's
+  answer.
+- **Lineage sidecars.** Every derived file gets a `.mcp_lineage.json` naming the
+  op, the source, and the row and column counts either side. Chained by
+  reference rather than by inlining, so a filtered-then-reshaped file traces
+  back without each step restating the one before it. In-place writes get none:
+  there is no "derived from" when the file is its own source.
+- **Executable insights.** `insights.json` beside every report, each finding
+  carrying the tool call that acts on it — `{tool, server, args}`, checked
+  against the servers' own tool definitions. `HIGH CARDINALITY` deliberately
+  carries no action, because dropping, encoding and binning are three different
+  decisions and a tool that picks one is guessing.
+- **Enriched Excel export.** README sheet, frozen header, autofilter, number
+  formats and column validation. Measured at ~11% over a plain `to_excel` on a
+  38,576-row file.
+- **Sampled distribution plots.** 5,000 points by default with skew and kurtosis
+  printed on the chart. The statistics come from every row; only the points are
+  sampled, and the header says so.
+
+### Fixed
+
+- **Four servers wrote one receipt file and no two could read it.** One format,
+  one reader.
+- **The receipt log held two entries after twenty calls.** It was never broken —
+  it records mutations — but nothing said so, and a file called
+  `.mcp_receipt.json` invites exactly one reading. The scope is now declared in
+  the file, in the response, and in `RECEIPT_SCOPE`; entries carry an argument
+  hash, a fingerprint either side, and a duration.
+- **One file, two quality scores.** `run_eda` said 77 and the ML sibling said 53
+  for the same data, each having been fixed once already for disagreeing with
+  something else. `shared/quality.py` is now one file, byte-identical across
+  both repos, and the score arrives with its parts.
+- **`customize_dashboard` could not find its own data** in the deployed layout.
+- **The docstring gate measured the first line and claimed to measure the
+  docstring**, so a long second line sailed through a cap meant to protect every
+  client's `tools/list`.
+- **A constant column reported `skew 0.00`** — pandas returns 0.0 for
+  zero-variance skew, and "perfectly symmetric" is a claim about a distribution
+  made about a column that has none.
+- **Two smoke assertions matched a quote the wire never carries.** A tool result
+  arrives as an escaped JSON string, so `"README"` reads `\"README\"`; both
+  assertions had been silently matching nothing.
+
+### Changed
+
+- Counted **71 tools** (visual is now 13 with `customize_dashboard`). The README
+  had said 70, and its smoke-test section had said 69.
+
+---
+
 ## [0.2.2] — 2026-09-01
 
 Source-only release: no wheel and no container image are published. Build the
