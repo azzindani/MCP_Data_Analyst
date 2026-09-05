@@ -292,6 +292,12 @@ def generate_dashboard(
             kpi_columns=numeric_cols[:8],
             filter_columns=cat_cols[:8],
         )
+        # The build document records where the data came from. The provenance
+        # block records only the file NAME -- deliberately, since that block
+        # travels with the page -- and that left customize_dashboard unable to
+        # find the source whenever MCP_OUTPUT_DIR is not the directory the CSV
+        # lives in, which is the deployed layout. Reproduced before fixing.
+        resolved["_source_path"] = str(path)
         if spec and spec.get("layout") is not None:
             charts = [p["chart"] for p in resolved["layout"]]
         dashboard_title = resolved["title"]
@@ -1254,7 +1260,11 @@ def customize_dashboard(
                 "token_estimate": 40,
             }
         header = read_provenance(html)
-        source = header.get("source") or ""
+        # The recorded absolute path first, the provenance name second. The
+        # second is a fallback for pages written before the path was recorded,
+        # and only works when the data sits beside the page.
+        recorded = str(base.get("_source_path") or "")
+        source = recorded or (header.get("source") or "")
         if not source:
             return {
                 "success": False,
@@ -1272,8 +1282,11 @@ def customize_dashboard(
             return {
                 "success": False,
                 "op": "customize_dashboard",
-                "error": f"source data {source!r} not found beside {page.name}",
-                "hint": f"Move {source} next to the dashboard, or call generate_dashboard with its path.",
+                "error": f"source data {source!r} no longer exists",
+                "hint": (
+                    f"{page.name} was built from {source}. Restore it, or call "
+                    "generate_dashboard(file_path, spec=...) with the data's current path."
+                ),
                 "progress": [fail("Source data missing", source)],
                 "token_estimate": 40,
             }

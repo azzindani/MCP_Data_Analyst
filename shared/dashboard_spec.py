@@ -100,7 +100,13 @@ def validate(spec: dict[str, Any] | None, df) -> dict[str, Any]:
     if not isinstance(spec, dict):
         raise SpecError(f"spec must be a dict with keys {', '.join(SPEC_KEYS)}; got {type(spec).__name__}")
 
-    unknown = sorted(set(spec) - set(SPEC_KEYS))
+    # Underscore keys are recorded by the generator, not sent by a caller --
+    # `_source_path` is the one that exists, and it is what lets
+    # customize_dashboard find the data when the output directory is not the
+    # directory the CSV lives in. That is the deployed layout, so a spec that
+    # round-trips has to carry them rather than have validation reject its own
+    # output.
+    unknown = sorted(k for k in set(spec) - set(SPEC_KEYS) if not str(k).startswith("_"))
     if unknown:
         raise SpecError(f"spec has unknown key(s): {', '.join(unknown)}. Valid: {', '.join(SPEC_KEYS)}")
 
@@ -230,6 +236,9 @@ def merge(base: dict[str, Any], changes: dict[str, Any]) -> dict[str, Any]:
     """
     out = dict(base)
     for key, value in (changes or {}).items():
+        # Underscore keys are the generator's record of how the page was built.
+        # A caller changing `_source_path` is asking this dashboard to be
+        # rebuilt from a different file, which is a new dashboard.
         if key not in SPEC_KEYS:
             raise SpecError(f"cannot change unknown key {key!r}. Valid: {', '.join(SPEC_KEYS)}")
         if key == "interactions" and isinstance(value, dict):

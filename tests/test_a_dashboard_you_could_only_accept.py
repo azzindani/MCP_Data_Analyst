@@ -89,7 +89,10 @@ def test_no_spec_is_the_old_behaviour(sales):
 def test_the_resolved_spec_comes_back(sales):
     """Without it, "customize" means re-deriving intent from rendered HTML."""
     r = generate_dashboard(str(sales), open_after=False)
-    assert set(r["spec"]) == set(SPEC_KEYS)
+    # Every caller-settable key, plus the generator's own underscore-prefixed
+    # record of how the page was built.
+    assert set(SPEC_KEYS) <= set(r["spec"])
+    assert {k for k in r["spec"] if not k.startswith("_")} == set(SPEC_KEYS)
     assert r["spec"]["layout"], "the detection has to be visible to be editable"
     assert all(p["chart"] for p in r["spec"]["layout"])
 
@@ -327,3 +330,50 @@ def test_the_spec_a_dashboard_emits_is_valid_input_to_the_same_validator(sales):
     again = generate_dashboard(str(sales), open_after=False, spec=emitted)
     assert again["success"] is True, again
     assert again["spec"]["layout"] == emitted["layout"]
+
+
+def test_customizing_works_when_the_data_is_not_beside_the_page(tmp_path, monkeypatch):
+    """The deployed layout, and what the first version could not do.
+
+    `MCP_OUTPUT_DIR` sends dashboards to the shared output directory while the
+    CSV stays where the caller put it. The provenance block records only the
+    file's *name* -- deliberately, because that block travels with the page --
+    so customize had nothing to open. The build document records the path.
+    """
+    monkeypatch.delenv("MCP_CONSTRAINED_MODE", raising=False)
+    data_dir = tmp_path / "data"
+    out_dir = tmp_path / "out"
+    data_dir.mkdir()
+    out_dir.mkdir()
+    monkeypatch.setenv("MCP_OUTPUT_DIR", str(out_dir))
+    csv = data_dir / "sales.csv"
+    pd.DataFrame({"region": ["N", "S"] * 50, "revenue": np.arange(100.0)}).to_csv(csv, index=False)
+
+    first = generate_dashboard(str(csv), open_after=False)
+    assert Path(first["output_path"]).parent == out_dir, "fixture must actually split the two"
+    r = customize_dashboard(first["output_path"], {"title": "Across dirs"}, open_after=False)
+    assert r["success"] is True, r
+    assert r["dashboard_title"] == "Across dirs"
+
+
+def test_a_source_that_has_since_been_deleted_says_which_file(tmp_path, monkeypatch):
+    monkeypatch.delenv("MCP_CONSTRAINED_MODE", raising=False)
+    monkeypatch.setenv("MCP_OUTPUT_DIR", str(tmp_path))
+    csv = tmp_path / "gone.csv"
+    pd.DataFrame({"a": ["x", "y"] * 50, "b": np.arange(100.0)}).to_csv(csv, index=False)
+    first = generate_dashboard(str(csv), open_after=False)
+    csv.unlink()
+    r = customize_dashboard(first["output_path"], {"title": "x"}, open_after=False)
+    assert r["success"] is False
+    assert "gone.csv" in r["hint"]
+
+
+def test_the_recorded_path_does_not_break_the_round_trip(tmp_path, monkeypatch):
+    """Validation has to accept the generator's own output, underscore keys included."""
+    monkeypatch.delenv("MCP_CONSTRAINED_MODE", raising=False)
+    monkeypatch.setenv("MCP_OUTPUT_DIR", str(tmp_path))
+    csv = tmp_path / "rt.csv"
+    pd.DataFrame({"a": ["x", "y"] * 50, "b": np.arange(100.0)}).to_csv(csv, index=False)
+    emitted = generate_dashboard(str(csv), open_after=False)["spec"]
+    assert emitted["_source_path"] == str(csv)
+    validate_spec(emitted, pd.read_csv(csv))  # must not raise
