@@ -44,11 +44,14 @@ from _adv_helpers import (
     warn,
 )
 
+from shared.association import compare_frames, target_association
 from shared.data_alerts import alerts_html, compute_alerts
 from shared.data_alerts import quality_score as compute_quality_score
 from shared.depth import MODES, SECTIONS, Depth, UnknownMode, sampled_frame
 from shared.file_utils import embed_content, error_text, hint_for_error, resolve_path
+from shared.insights import from_alerts, from_correlations, from_outliers, rank, write_insights
 from shared.provenance import frame_hash, provenance, provenance_script
+from shared.quality import quality_report
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +65,23 @@ def run_eda(
     mode: str = "standard",
     sample_n: int = 0,
     include: dict | None = None,
+    target_column: str = "",
+    compare_to: str = "",
 ) -> dict:
     """Fast EDA summary. Stats, nulls, correlations, outliers. Opens HTML.
+
+    `target_column` ranks every column by how strongly it relates to that
+    target, naming the measure for each pair of dtypes -- an AUC of 0.75 and a
+    Cramer's V of 0.75 are not the same claim, and a ranked list invites exactly
+    that comparison. Columns the measure cannot be computed for come back with
+    `strength: None` and a reason, because a column missing from a ranking reads
+    as "unrelated", which is a claim nobody made.
+
+    `compare_to` profiles this file against a baseline and reports what moved:
+    schema differences, and PSI or total-variation drift per column. That is
+    also what makes `quality_score`'s fourth component computable -- it has been
+    reporting `drift: None` with "pass compare_to to measure drift" since it was
+    written.
 
     `mode` is "minimal", "standard" or "full". **"standard" is exactly what this
     tool did before the parameter existed**, so a caller who passes nothing gets
@@ -223,6 +241,38 @@ def run_eda(
             tool="run_eda",
         )
 
+        # "EDA without target/comparison is a toy" -- the review's words. Both
+        # are opt-in, so a caller who passes neither gets exactly what this
+        # returned before.
+        associations: list = []
+        if target_column:
+            if target_column not in df.columns:
+                return {
+                    "success": False,
+                    "error": f"target_column '{target_column}' not found",
+                    "hint": f"Available: {', '.join(map(str, df.columns))}",
+                    "progress": [fail("Column not found", target_column)],
+                    "token_estimate": 30,
+                }
+            associations = target_association(df, target_column)
+
+        comparison: dict = {}
+        if compare_to:
+            base_path = resolve_path(compare_to)
+            if not base_path.exists():
+                return {
+                    "success": False,
+                    "error": f"compare_to file not found: {base_path.name}",
+                    "hint": "Pass an absolute path to the baseline CSV.",
+                    "progress": [fail("Baseline not found", base_path.name)],
+                    "token_estimate": 30,
+                }
+            comparison = compare_frames(_read_csv(str(base_path)), full_df)
+            comparison["baseline"] = str(base_path)
+
+        report_insights = rank(from_alerts(alerts) + from_correlations(corr_pairs) + from_outliers(outlier_cols, rows))
+        insights_file = ""
+
         out = None
         size_kb = 0
         if depth.wants("html"):
@@ -254,6 +304,9 @@ def run_eda(
 
             out.write_text(html_content, encoding="utf-8")
             size_kb = round(out.stat().st_size / 1024)
+            insights_file = write_insights(
+                out, report_insights, op="run_eda", source=path.name, extra={"quality_score": quality_score}
+            )
 
             if open_after:
                 _open_file(out)
@@ -300,7 +353,27 @@ def run_eda(
             # Repeated in the response so a caller does not have to open the
             # page to learn what it is a picture of.
             "provenance": page_header,
+            # The alerts were already computed and already right; what they
+            # lacked was a next call. `from_alerts` gives each one that, and
+            # puts the correlation and outlier findings on the same severity
+            # scale, so a reader does not learn three vocabularies for one page.
+            "insights": report_insights,
+            "insights_path": insights_file,
+            # The fourth component, finally measurable. `shared/quality.py` has
+            # been returning `drift: None` with "pass compare_to to measure
+            # drift" since it was written; with a baseline it is a number.
+            "quality_breakdown": quality_report(
+                null_pct,
+                dup_pct,
+                alerts,
+                has_baseline=bool(comparison),
+                drift_pct=comparison.get("drift_pct") if comparison else None,
+            ),
             "progress": progress,
+            # Present only when asked for. An empty list under a name a caller
+            # did not use reads as "measured, found nothing".
+            **({"target_column": target_column, "target_association": associations} if target_column else {}),
+            **({"comparison": comparison} if comparison else {}),
         }
         if depth.mode == "full":
             result["all_correlations"] = corr_pairs

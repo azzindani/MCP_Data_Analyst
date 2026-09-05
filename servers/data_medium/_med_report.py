@@ -36,6 +36,7 @@ from shared.arg_alias import missing as missing_arg
 from shared.arg_alias import pick
 from shared.counts import counted
 from shared.file_utils import error_text, hint_for_error, resolve_path
+from shared.insights import from_crosstab, write_insights
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
 
@@ -106,6 +107,9 @@ def cross_tabulate(
             for row_idx, row in ct.to_dict(orient="index").items()
         }
 
+        # Kept whole for the insights below: the findings are about the data,
+        # not about the page of it that fits in a response.
+        full_table = table
         max_r = get_max_rows()
         total_table_rows = len(table)
         if total_table_rows > max_r:
@@ -156,6 +160,21 @@ def cross_tabulate(
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))
+
+            # A cross-tab is a table of counts, and the question a reader has is
+            # "which combination is unusual". Answering it means comparing each
+            # cell against the product of its margins -- arithmetic the table
+            # contains and does not do. Computed from the full `table`, not the
+            # page of it above, so a truncated response still gets every finding.
+            found = from_crosstab(full_table, row_column, col_column)
+            result["insights"] = found
+            result["insights_path"] = write_insights(
+                abs_p,
+                found,
+                op="cross_tabulate",
+                source=path.name,
+                extra={"row_column": row_column, "col_column": col_column},
+            )
         else:
             progress.append(warn("plotly not installed", "pip install plotly to enable HTML export"))
 

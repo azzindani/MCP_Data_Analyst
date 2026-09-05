@@ -58,6 +58,7 @@ from shared.column_utils import date_note, infer_agg, is_numeric_col, looks_like
 from shared.counts import counted
 from shared.exchange import default_output_path
 from shared.file_utils import error_text, hint_for_error, resolve_path
+from shared.insights import from_correlations, from_outliers, write_insights
 from shared.platform_utils import get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.small_sample import (
@@ -179,6 +180,18 @@ def correlation_analysis(
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))
+
+            # 576 correct numbers, and the reading of them. `id` and
+            # `member_id` at 0.9936 was in the matrix; "these are one column
+            # twice, drop one" was not, so the finding existed only for a reader
+            # who already knew to look.
+            found = from_correlations(pairs)
+            result["insights"] = found
+            result["insights_path"] = write_insights(
+                abs_p, found, op="correlation_analysis", source=path.name, extra={"method": method}
+            )
+            if found:
+                progress.append(ok("Insights written", f"{len(found)} finding(s) beside the matrix"))
         else:
             progress.append(warn("plotly not installed", "pip install plotly to enable HTML export"))
 

@@ -55,6 +55,7 @@ from shared.column_utils import (
 from shared.counts import counted
 from shared.file_utils import count_data_rows as _count_data_rows
 from shared.file_utils import error_text, hint_for_error, resolve_path
+from shared.insights import from_outliers, write_insights
 from shared.platform_utils import get_max_results, get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
@@ -288,6 +289,24 @@ def check_outliers(
             result["output_path"] = abs_p
             result["output_name"] = fname
             progress.append(ok("Chart saved", fname))
+
+            # A box plot per column says where the fences are. It does not say
+            # which column is worth acting on, which is the question a caller
+            # asked by running this at all.
+            summary_rows = [
+                {
+                    "column": col,
+                    "outlier_count": r.get("outlier_count_iqr") or 0,
+                    "lower_limit": r.get("iqr_lower"),
+                    "upper_limit": r.get("iqr_upper"),
+                }
+                for col, r in results.items()
+            ]
+            found = from_outliers(summary_rows, len(df))
+            result["insights"] = found
+            result["insights_path"] = write_insights(
+                abs_p, found, op="check_outliers", source=path.name, extra={"method": method}
+            )
         elif not _PLOTLY_AVAILABLE:
             progress.append(warn("plotly not installed", "pip install plotly to enable HTML export"))
 
