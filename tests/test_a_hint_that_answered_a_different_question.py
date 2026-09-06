@@ -13,10 +13,16 @@ nothing else to go on. Three tools in this repo failed it the same way.
              Available: ['test_drop_column', 'test_drop_phase']
       hint : Use list_workspace_files() to check registered aliases.
 
-    apply_patch(ops=[{"op": "drop_column", "column": "product"}])
-      error: Op 0 (drop_column): unknown field(s) column -- did you mean
+    apply_patch(ops=[{"op": "drop_column", "colum": "product"}])
+      error: Op 0 (drop_column): unknown field(s) colum -- did you mean
              columns? drop_column accepts: columns, op, params
       hint : Valid ops: abs_values, add_column, bin_column, ...
+
+(The original example here was `column`, the singular. Round 28 found that
+ml-medium's run_preprocessing runs a `drop_column` op too and spells it
+`column`, so each server refused the other's spelling with a confident
+correction. Both spellings work at all three tools now, and this example uses
+a field name that is genuinely wrong.)
 
 In all three the error is exactly right and the hint answers a question nobody
 asked -- ops for a column, aliases for a pipeline, the op vocabulary for a
@@ -106,15 +112,33 @@ class TestApplyPatch:
     def test_a_bad_field_name_is_not_answered_with_the_op_list(self, csv):
         from data_basic import engine
 
-        r = engine.apply_patch(csv, [{"op": "drop_column", "column": "name"}])
+        r = engine.apply_patch(csv, [{"op": "drop_column", "colum": "name"}])
         assert r["success"] is False
         assert not r["hint"].startswith("Valid ops:"), r["hint"]
 
     def test_the_error_still_suggests_the_right_field(self, csv):
         from data_basic import engine
 
-        r = engine.apply_patch(csv, [{"op": "drop_column", "column": "name"}])
+        r = engine.apply_patch(csv, [{"op": "drop_column", "colum": "name"}])
         assert "columns" in r["error"]
+
+    def test_the_ml_spelling_of_drop_column_is_accepted(self, csv):
+        """`column` is what ml-medium's run_preprocessing calls this field.
+
+        Refusing it here was the other half of a disagreement in which each
+        server corrected the caller toward its own spelling and neither
+        mentioned that the other existed.
+        """
+        from data_basic import engine
+
+        r = engine.apply_patch(csv, [{"op": "drop_column", "column": "name"}])
+        assert r["success"] is True, r.get("error")
+
+    def test_the_documented_spelling_still_works(self, csv):
+        from data_basic import engine
+
+        r = engine.apply_patch(csv, [{"op": "drop_column", "columns": ["name"]}])
+        assert r["success"] is True, r.get("error")
 
     def test_an_unknown_op_DOES_still_get_the_op_list(self, csv):
         # The narrowing must not go too far: when the op itself is wrong, the

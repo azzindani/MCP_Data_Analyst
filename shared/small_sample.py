@@ -238,3 +238,44 @@ def shapiro_p(values: Any, scipy_stats: Any, cap: int = 5000) -> float | None:
         return finite(p)
     except Exception:  # noqa: BLE001 - a normality hint is never worth an exception
         return None
+
+
+def shapiro_sample(values: Any, cap: int = 5000) -> tuple[int, int, str]:
+    """(n used, n finite, note) for a Shapiro-Wilk run at this sample size.
+
+    Shapiro-Wilk is the fleet's normality test and it is computed three ways:
+    `shapiro_p` above caps at 5,000 with a seeded draw, `statistical_tests` in
+    data_medium does the same cap inline, and `statistical_test` in
+    data_statistics passed the whole column. On `spends` (n=16,834) the two
+    endpoints answered the same question about the same column with
+
+        uncapped   W=0.286858  p=3.81e-121
+        capped     W=0.281975  p=3.61e-88
+
+    -- thirty-three orders of magnitude apart, neither saying which sample it
+    used. The uncapped one also swallowed scipy's own warning:
+
+        For N > 5000, computed p-value may not be accurate. Current N is 16834.
+
+    The verdict agreed in every case measured, so nothing downstream was wrong.
+    What was wrong is that two tools in one fleet answered one question with
+    different numbers and no way to reconcile them. The cap is the right
+    behaviour -- scipy says so -- and this makes every caller say it out loud,
+    which is what `finite_split` above exists for one case earlier.
+    """
+    try:
+        import numpy as np
+
+        array = np.asarray(values, dtype=float)
+        array = array[np.isfinite(array)]
+        n = int(array.size)
+    except Exception:  # noqa: BLE001 - a count is never worth an exception
+        return 0, 0, ""
+    if n <= cap:
+        return n, n, ""
+    return (
+        cap,
+        n,
+        f"computed on a seeded random sample of {cap:,} of the {n:,} finite values: "
+        f"scipy reports that above {cap:,} the Shapiro-Wilk p-value may not be accurate",
+    )

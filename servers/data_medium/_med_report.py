@@ -34,6 +34,9 @@ from _med_helpers import (
 
 from shared.arg_alias import missing as missing_arg
 from shared.arg_alias import pick
+from shared.choice import AGG_ALIASES, AGG_FUNCS, UnknownChoice, normalize_mode
+from shared.choice import refusal as choice_refusal
+from shared.choice import resolve as resolve_choice
 from shared.counts import counted
 from shared.file_utils import error_text, hint_for_error, resolve_path
 from shared.html_layout import discriminated_suffix
@@ -91,7 +94,15 @@ def cross_tabulate(
                 "token_estimate": 20,
             }
 
-        norm = normalize if normalize in ("index", "columns", "all") else False
+        # This line used to read `normalize if normalize in (...) else False`,
+        # which turned a typo into "do not normalise" and then echoed the
+        # caller's word back in the response -- a crosstab that was never
+        # normalised reporting that it was. Refuse instead, and name the set.
+        try:
+            norm = normalize_mode(normalize)
+        except UnknownChoice as exc:
+            return choice_refusal("cross_tabulate", exc)
+
         if values_column:
             ct = pd.crosstab(
                 df[row_column],
@@ -101,6 +112,18 @@ def cross_tabulate(
                 normalize=norm,
             )
         else:
+            # `aggfunc` has no meaning without `values`: pandas counts, and
+            # `agg_func` is dropped whole. Saying so is the difference between
+            # a caller who asked for a mean and got counts, and one who knows.
+            if agg_func and agg_func != "count":
+                progress.append(
+                    warn(
+                        f"agg_func={agg_func!r} was not applied",
+                        "cross_tabulate can only aggregate with values_column=; without it the "
+                        "table counts rows. Pass values_column to aggregate that column instead.",
+                    )
+                )
+            agg_func = "count"
             ct = pd.crosstab(df[row_column], df[col_column], normalize=norm)
 
         table = {
@@ -127,7 +150,10 @@ def cross_tabulate(
             "row_column": row_column,
             "col_column": col_column,
             "agg_func": agg_func if values_column else "count",
-            "normalize": normalize or False,
+            # The value USED, not the value sent. These differ whenever an
+            # alias resolved ("rows" -> "index"), and used to differ silently
+            # whenever the value was not understood at all.
+            "normalize": norm,
             "rows": len(ct),
             "cols": len(ct.columns),
             **counted(len(table), total_table_rows),
@@ -159,7 +185,7 @@ def cross_tabulate(
             )
             # grade x purpose and purpose x grade are different tables of the
             # same file, and they used to be the same filename.
-            stem = discriminated_suffix("crosstab", row_column, col_column, values_column, agg_func, normalize)
+            stem = discriminated_suffix("crosstab", row_column, col_column, values_column, agg_func, norm)
             abs_p, fname = _save_chart(fig, output_path, stem, path, open_after, theme, progress)
             result["output_path"] = abs_p
             result["output_name"] = fname
@@ -212,6 +238,16 @@ def pivot_table(
 ) -> dict:
     progress = []
     try:
+        # Unvalidated, this reached pandas and came back as "'typo' is not a
+        # valid function for 'DataFrameGroupBy' object" under the generic
+        # handler's hint -- "Check file_path and column names" -- which names
+        # the two arguments that were not the problem. Same table as
+        # compute_aggregations, so the siblings answer with the same list.
+        try:
+            agg_func = resolve_choice(agg_func, AGG_FUNCS, field="agg_func", aliases=AGG_ALIASES)
+        except UnknownChoice as exc:
+            return choice_refusal("pivot_table", exc)
+
         path = resolve_path(file_path)
         if not path.exists():
             return {

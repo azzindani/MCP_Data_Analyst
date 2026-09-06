@@ -22,7 +22,14 @@ from shared.file_utils import error_text, hint_for_error, no_rows_error, resolve
 from shared.file_utils import read_csv as _read_csv
 from shared.html_layout import discriminated_suffix
 from shared.progress import fail, info, ok, warn
-from shared.small_sample import MIN_N_SHAPIRO, finite_split, is_significant, rounded, shapiro_p
+from shared.small_sample import (
+    MIN_N_SHAPIRO,
+    finite_split,
+    is_significant,
+    rounded,
+    shapiro_p,
+    shapiro_sample,
+)
 from shared.stats_format import format_p, round_p
 
 try:
@@ -431,6 +438,14 @@ def regression_analysis(
                 "p_value": round_p(normality_p),
                 "normal": None if normality_p is None else bool(normality_p >= 0.05),
             }
+            # `shapiro_p` caps at 5,000 with a seeded draw. This response prints
+            # `observations: 16834` beside the p-value, which reads as a test on
+            # all 16,834 residuals; 11,834 of them were not in it.
+            _n_used, _n_total, _sample_note = shapiro_sample(residuals.values)
+            if _sample_note and normality_p is not None:
+                normality["n_used"] = _n_used
+                normality["n_total"] = _n_total
+                normality["sample_note"] = _sample_note
             if normality_p is None:
                 # Two reasons, two sentences. Printing the pre-drop count for a
                 # residual vector emptied by non-finite values produced

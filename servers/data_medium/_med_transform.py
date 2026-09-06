@@ -24,6 +24,9 @@ from _med_helpers import (
 from _patch_ops import OP_HANDLERS  # type: ignore[import-not-found]
 
 from shared.arg_alias import missing, pick, pick_list
+from shared.choice import AGG_ALIASES, AGG_FUNCS, NUMERIC_AGG_FUNCS, UnknownChoice
+from shared.choice import refusal as choice_refusal
+from shared.choice import resolve as resolve_choice
 from shared.column_utils import date_note, looks_like_dates, parse_dates
 from shared.counts import counted
 from shared.derive_ops import DeriveError, apply_derivations
@@ -264,19 +267,16 @@ def compute_aggregations(
                 "token_estimate": 30,
             }
 
-        valid_funcs = {"sum", "mean", "count", "min", "max"}
-        if agg_func not in valid_funcs:
-            return {
-                "success": False,
-                "error": f"Invalid agg_func: {agg_func}",
-                "hint": f"Valid functions: {', '.join(sorted(valid_funcs))}",
-                "progress": [fail("Invalid function", agg_func)],
-                "token_estimate": 30,
-            }
+        # One table, shared with pivot_table, so the two siblings accept the
+        # same words. "average" and "avg" resolve to "mean" rather than being
+        # refused for a vocabulary difference that carries no meaning.
+        try:
+            agg_func = resolve_choice(agg_func, AGG_FUNCS, field="agg_func", aliases=AGG_ALIASES)
+        except UnknownChoice as exc:
+            return choice_refusal("compute_aggregations", exc)
 
         # Coerce agg_column to numeric for numeric functions; skip for count
-        numeric_funcs = {"sum", "mean", "min", "max"}
-        if agg_func in numeric_funcs:
+        if agg_func in NUMERIC_AGG_FUNCS:
             df[agg_column] = pd.to_numeric(df[agg_column], errors="coerce")
             non_numeric = int(df[agg_column].isna().sum())
             if non_numeric:

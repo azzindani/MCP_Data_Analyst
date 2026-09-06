@@ -54,6 +54,9 @@ from _med_helpers import (
 )
 
 from shared.anomaly_reasons import collect_hits, row_fix, row_reason
+from shared.choice import ANOMALY_ALIASES, ANOMALY_METHODS, UnknownChoice
+from shared.choice import refusal as choice_refusal
+from shared.choice import resolve as resolve_choice
 from shared.column_utils import date_note, infer_agg, is_numeric_col, looks_like_dates, paired_numeric, parse_dates
 from shared.counts import counted
 from shared.exchange import default_output_path
@@ -73,6 +76,7 @@ from shared.small_sample import (
     rounded,
     settle_verdict,
     shapiro_p,
+    shapiro_sample,
 )
 from shared.stats_format import format_p, round_p
 
@@ -548,6 +552,7 @@ def statistical_tests(
                 hint="Shapiro-Wilk is undefined below 3 values. Use describe() to see how many the column has.",
             ):
                 return err
+            n_used, n_total, sample_note = shapiro_sample(series.to_numpy())
             stat, pval = scipy_stats.shapiro(series.sample(min(len(series), 5000), random_state=42))
             test_result = {
                 "test": "Shapiro-Wilk normality test",
@@ -559,6 +564,14 @@ def statistical_tests(
                     f"(p={'<' if is_significant(pval) else '≥'}0.05)"
                 ),
             }
+            # The cap was already here; saying so was not. Two endpoints ran
+            # this test on one column and reported p-values thirty-three orders
+            # of magnitude apart because one sampled and neither mentioned it.
+            if sample_note:
+                test_result["sample_note"] = sample_note
+                test_result["n_used"] = n_used
+                test_result["n_total"] = n_total
+                progress.append(warn("Sampled for accuracy", sample_note))
 
         elif test_type == "ks":
             if not column_a:
@@ -1482,15 +1495,14 @@ def detect_anomalies(
                 "token_estimate": 20,
             }
 
-        valid_methods = {"iqr", "zscore", "both"}
-        if method not in valid_methods:
-            return {
-                "success": False,
-                "error": f"Invalid method: {method}",
-                "hint": f"Valid: {', '.join(sorted(valid_methods))}",
-                "progress": [fail("Invalid method", method)],
-                "token_estimate": 20,
-            }
+        # This tool spells the 3-sigma scan `zscore`; check_outliers, in this
+        # same repo, spells the identical statistic `std`. Both resolve at both
+        # tools now -- a caller who learned one here and carried it there used
+        # to be told, in silence, that the data was clean.
+        try:
+            method = resolve_choice(method, ANOMALY_METHODS, field="method", aliases=ANOMALY_ALIASES)
+        except UnknownChoice as exc:
+            return choice_refusal("detect_anomalies", exc)
 
         df = _read_csv(str(path))
         numeric_cols = [c for c in df.columns if is_numeric_col(df[c])]

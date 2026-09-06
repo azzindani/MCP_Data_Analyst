@@ -25,6 +25,9 @@ from _adv_helpers import (
     plotly_template,
 )
 
+from shared.choice import CORRELATION_ALIASES, CORRELATION_METHODS, UnknownChoice
+from shared.choice import refusal as choice_refusal
+from shared.choice import resolve as resolve_choice
 from shared.column_utils import date_note, parse_dates
 from shared.depth import sampled_frame
 from shared.file_utils import embed_content, error_text, hint_for_error, normalise_export_format, resolve_path
@@ -296,6 +299,15 @@ def generate_correlation_heatmap(
     """Interactive correlation heatmap for numeric columns. Opens HTML."""
     progress = []
     try:
+        # Unvalidated, an unknown method reached pandas and came back as its
+        # raw complaint under a hint about file_path and CSV validity -- two
+        # things that were fine. correlation_analysis already refuses properly;
+        # this shares its table so both name the same three.
+        try:
+            method = resolve_choice(method, CORRELATION_METHODS, field="method", aliases=CORRELATION_ALIASES)
+        except UnknownChoice as exc:
+            return choice_refusal("generate_correlation_heatmap", exc)
+
         try:
             import plotly.express as px
         except ImportError:

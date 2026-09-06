@@ -290,9 +290,24 @@ class TestComputeAggregations:
         assert r["returned"] == 9
 
     def test_invalid_agg_func(self, agg_csv):
-        r = compute_aggregations(str(agg_csv), group_by=["Region"], agg_column="Revenue", agg_func="median")
+        # "median" used to be the example here. Round 28 gave compute_aggregations
+        # and pivot_table one shared table of aggregations, because pivot_table
+        # already accepted median/std/var and the two siblings disagreed about
+        # what a valid function was. A name pandas has never had is the honest
+        # example of an invalid one.
+        r = compute_aggregations(str(agg_csv), group_by=["Region"], agg_column="Revenue", agg_func="mediun")
         assert r["success"] is False
         assert "hint" in r
+
+    def test_median_is_a_real_aggregation(self, agg_csv):
+        r = compute_aggregations(str(agg_csv), group_by=["Region"], agg_column="Revenue", agg_func="median")
+        assert r["success"] is True, r.get("error")
+
+    def test_an_english_alias_resolves(self, agg_csv):
+        """A caller writing "average" means mean, and there is nothing else it could mean."""
+        r = compute_aggregations(str(agg_csv), group_by=["Region"], agg_column="Revenue", agg_func="average")
+        assert r["success"] is True, r.get("error")
+        assert r["agg_func"] == "mean"
 
     def test_missing_groupby_column(self, agg_csv):
         r = compute_aggregations(str(agg_csv), group_by=["NonExistent"], agg_column="Revenue", agg_func="sum")

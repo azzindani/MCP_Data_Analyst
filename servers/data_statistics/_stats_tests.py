@@ -24,6 +24,7 @@ from shared.small_sample import (
     is_significant,
     need_n,
     rounded,
+    shapiro_sample,
     undetermined_because,
 )
 from shared.stats_format import format_p, round_p
@@ -274,6 +275,11 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
         p_value: float = float("nan")
         effect_size: dict = {}
         posthoc_result: dict | None = None
+        # Anything a test wants to say about HOW it was computed, as distinct
+        # from what it found. Shapiro-Wilk is the one that needs it: above
+        # 5,000 values it runs on a seeded sample, and the response has to say
+        # so or two endpoints answer one question with different numbers.
+        extras: dict = {}
 
         # --- Normality tests ---
         if test == "shapiro_wilk":
@@ -287,8 +293,20 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
                 MIN_N_SHAPIRO,
                 hint="Shapiro-Wilk is undefined below 3 values. Use extended_stats() to see the column's count.",
             )
-            stat, p = scipy_stats.shapiro(a.values)
+            # Uncapped, this was the one of the fleet's three Shapiro paths
+            # that passed the whole column -- so it answered `spends` with
+            # p=3.81e-121 where data_medium's statistical_tests answered
+            # p=3.61e-88 on the same column, and scipy's "For N > 5000, computed
+            # p-value may not be accurate" was swallowed on the way out.
+            n_used, n_total, sample_note = shapiro_sample(a.values)
+            sample = a.values if n_used >= n_total else a.sample(n_used, random_state=42).values
+            stat, p = scipy_stats.shapiro(sample)
             statistic, p_value = float(stat), float(p)
+            if sample_note:
+                extras["sample_note"] = sample_note
+                extras["n_used"] = n_used
+                extras["n_total"] = n_total
+                progress.append(warn("Sampled for accuracy", sample_note))
             interp = "Normally distributed" if p >= alpha else "Not normally distributed"
             progress.append(ok("Shapiro-Wilk", interp))
 
@@ -716,6 +734,7 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
             result["effect_size"] = effect_size
         if posthoc_result:
             result["posthoc"] = posthoc_result
+        result.update(extras)
         result["token_estimate"] = len(str(result)) // 4
         return result
 

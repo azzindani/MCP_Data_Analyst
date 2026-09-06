@@ -243,6 +243,14 @@ _OP_FIELDS: dict[str, frozenset[str]] = {
 # catalog entry now names the fields the handler actually reads instead.
 _FIELD_ALIASES: dict[str, dict[str, str]] = {
     "concat_file": {"add_source": "add_source_column"},
+    # `drop_column` takes `columns` here and at run_cleaning_pipeline, and
+    # `column` at ml-medium's run_preprocessing, which runs the same-named op.
+    # Each server refused the other's spelling with a confident correction --
+    # "did you mean columns?" one way, "missing required field: 'column'" the
+    # other -- and nothing told the caller the two disagreed. `unwrap_params`
+    # lifts the singular onto the plural; the list guard below accepts a bare
+    # string as the one-element list it obviously means.
+    "drop_column": {"column": "columns"},
 }
 _NEW_COL_OPS = frozenset(op for op, fields in _OP_FIELDS.items() if "new_column" in fields)
 for _op in _NEW_COL_OPS:
@@ -353,8 +361,15 @@ def validate_ops(ops: list[dict]) -> list[str]:
             continue
 
         if op_name == "drop_column":
-            if "columns" not in op or not isinstance(op["columns"], list):
+            if "columns" not in op:
                 errors.append(f"{prefix} (drop_column): 'columns' must be a list of strings")
+            elif not isinstance(op["columns"], (list, str)):
+                errors.append(f"{prefix} (drop_column): 'columns' must be a list of strings")
+            elif isinstance(op["columns"], str):
+                # A caller who sent `column="age"` lands here after the alias
+                # above. One name is a one-element list; refusing it would be
+                # refusing the request over its punctuation.
+                op["columns"] = [op["columns"]]
 
         elif op_name == "clean_text":
             scope = op.get("scope", "both")

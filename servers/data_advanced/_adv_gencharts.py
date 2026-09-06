@@ -30,6 +30,9 @@ from _adv_helpers import (
     warn,
 )
 
+from shared.choice import AGG_ALIASES, AGG_FUNCS, UnknownChoice
+from shared.choice import refusal as choice_refusal
+from shared.choice import resolve as resolve_choice
 from shared.column_utils import date_note, parse_dates
 from shared.file_utils import embed_content, error_text, hint_for_error, resolve_path
 from shared.geo_names import unrecognised_locations
@@ -168,6 +171,16 @@ def generate_chart(
                 "progress": [fail("Invalid chart type", chart_type)],
                 "token_estimate": 30,
             }
+
+        # chart_type was checked here and agg_func was not, so a typo in the
+        # aggregation reached `.agg()` and returned as "'SeriesGroupBy' object
+        # has no attribute 'typo'" under the hint "Check file_path, column
+        # names, and chart_type" -- naming three things, none of them the one
+        # that was wrong. Same table as compute_aggregations and pivot_table.
+        try:
+            agg_func = resolve_choice(agg_func, AGG_FUNCS, field="agg_func", aliases=AGG_ALIASES)
+        except UnknownChoice as exc:
+            return choice_refusal("generate_chart", exc)
 
         df = _read_csv(str(path))
         tmpl = plotly_template(theme)

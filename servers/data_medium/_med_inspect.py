@@ -43,6 +43,15 @@ from _med_helpers import (
     is_numeric_col,
 )
 
+from shared.choice import (
+    ANOMALY_ALIASES,
+    ANOMALY_METHODS,
+    OUTLIER_ALIASES,
+    OUTLIER_METHODS,
+    UnknownChoice,
+)
+from shared.choice import refusal as choice_refusal
+from shared.choice import resolve as resolve_choice
 from shared.column_utils import (
     DATE_MATCH_THRESHOLD,
     column_pair_mask,
@@ -92,6 +101,16 @@ def check_outliers(
 ) -> dict:
     progress = []
     try:
+        # Before anything reads the file: the two scans below are gated on
+        # `method in (...)` with no else, so an unrecognised method used to run
+        # neither and return success with "0 columns with outliers" on data
+        # holding 2,178. `zscore` -- what detect_anomalies calls this same
+        # statistic -- now resolves to `std` rather than being refused.
+        try:
+            method = resolve_choice(method, OUTLIER_METHODS, field="method", aliases=OUTLIER_ALIASES)
+        except UnknownChoice as exc:
+            return choice_refusal("check_outliers", exc)
+
         path = resolve_path(file_path)
         if not path.exists():
             return {
