@@ -226,7 +226,10 @@ def concat_datasets(
     output_path: str = "",
     dry_run: bool = False,
 ) -> dict:
-    """Stack multiple CSVs vertically (rows) or horizontally (columns)."""
+    # "vertically"/"horizontally" were the words in the sentence and
+    # "rows"/"columns" the values the parser takes, so reading the
+    # description and typing what it said earned a refusal.
+    """Stack CSVs. direction: rows (stack) or columns (side by side)."""
     return engine.concat_datasets(file_paths, direction, fill_missing, add_source_column, output_path, dry_run)
 
 
@@ -262,7 +265,9 @@ def feature_engineering(
     open_after: bool = True,
     derive: list[dict] = None,
 ) -> dict:
-    """Add columns: auto features, or derive named parse_date date_part arith."""
+    # There is no "auto" feature type -- the four below are the set, and
+    # `features` defaulting to all of them is what "auto" was reaching for.
+    """Add columns: features bins/date_parts/one_hot/text_length, or derive."""
     return engine.feature_engineering(file_path, features, output_path, dry_run, open_after, derive)
 
 

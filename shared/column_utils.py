@@ -351,6 +351,17 @@ _DATE_TRIPLE = re.compile(r"^\s*(\d{1,4})[-/.](\d{1,2})[-/.](\d{2,4})")
 
 _MAX_DATE_SAMPLE = 5000
 
+# The `dayfirst` vocabulary, in one place because five tools document it in
+# their own 80-character description and the words have to agree. The alias
+# sets stay generous -- a caller who sends the JSON boolean true gets "true" on
+# the wire and should be understood -- but everything outside them is refused
+# by parse_dates rather than quietly auto-detected. DAYFIRST_CHOICES is what a
+# refusal names, so it holds the three documented spellings and not the aliases.
+DAYFIRST_CHOICES: frozenset[str] = frozenset({"auto", "true", "false"})
+_DAYFIRST_TRUE: frozenset[str] = frozenset({"true", "1", "yes"})
+_DAYFIRST_FALSE: frozenset[str] = frozenset({"false", "0", "no"})
+_DAYFIRST_AUTO: frozenset[str] = frozenset({"auto", ""})
+
 
 def detect_dayfirst(series: pd.Series, sample: int = _MAX_DATE_SAMPLE) -> tuple[bool, str, bool]:
     """Decide day-first vs month-first from the column itself.
@@ -435,12 +446,30 @@ def parse_dates(series: pd.Series, dayfirst: str = "auto") -> tuple[pd.Series, d
     surface ``ambiguous`` rather than swallow it; that is the whole point.
     """
     choice = str(dayfirst).strip().lower()
-    if choice in {"true", "1", "yes"}:
+    if choice in _DAYFIRST_TRUE:
         flag, reason, ambiguous = True, "caller passed dayfirst=true", False
-    elif choice in {"false", "0", "no"}:
+    elif choice in _DAYFIRST_FALSE:
         flag, reason, ambiguous = False, "caller passed dayfirst=false", False
-    else:
+    elif choice in _DAYFIRST_AUTO:
         flag, reason, ambiguous = detect_dayfirst(series)
+    else:
+        # Anything unrecognised used to fall through to auto-detect in silence,
+        # which made the parameter's documented vocabulary a suggestion:
+        #
+        #     dayfirst="yes"     -> day-first   (truthy alias, undocumented)
+        #     dayfirst="banana"  -> month-first (fell through to auto)
+        #
+        # Both answered success: true with different dates, so a typo -- ture,
+        # flase, Yes -- silently chose an interpretation for the caller and the
+        # response said nothing. The dates then flow into trend, seasonality,
+        # rolling stats and the chart. Office's bold/italic is the same
+        # tri-state string and refuses a wrong value naming the accepted forms;
+        # this is that contract, applied to the copy that drifted.
+        raise ValueError(
+            f"dayfirst='{dayfirst}' is not a value this tool takes. "
+            f"Use one of: {', '.join(sorted(DAYFIRST_CHOICES))}. "
+            "'auto' reads the orientation off the data, which is the default."
+        )
 
     parsed = pd.to_datetime(series, format="mixed", dayfirst=flag, errors="coerce")
     return parsed, {"dayfirst": flag, "reason": reason, "ambiguous": ambiguous}

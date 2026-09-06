@@ -183,7 +183,12 @@ def statistical_test(
     hypothesized_mean: float = 0.0,
     test_type: str = "",
 ) -> dict:
-    """Run stat test. test: shapiro_wilk t_test anova chi_square mann_whitney kruskal."""
+    # Six of the seventeen used to be listed here as if that were the set,
+    # so eleven working tests were invisible to every caller who reads the
+    # tool list -- which is every caller. The vocabulary outgrew 80
+    # characters, so the description points at the error hint that already
+    # enumerates it rather than carrying a list that will drift again.
+    """Run a stat test. 17 available: an unknown 'test' lists them all."""
     return engine.statistical_test(
         file_path,
         test,
