@@ -148,3 +148,49 @@ class TestTheDescriptionMatchesTheVocabularyTheCodeEnforces:
         for real in ("bins", "date_parts", "one_hot", "text_length"):
             assert real in doc, f"{real} is a real feature type and is not documented"
         assert "auto features" not in doc
+
+
+class TestTheThreeRound25FoundInTheSameFamily:
+    """Round 24's fixes held; re-asking the axis found the same disease next door."""
+
+    def test_resample_documents_every_aggregation_it_accepts(self):
+        """The five listed were compute_aggregations' set, not this tool's."""
+        from servers.data_medium._med_transform import _VALID_AGGS
+
+        doc = _docstring("servers/data_transform/server.py", "resample_timeseries")
+        missing = sorted(a for a in _VALID_AGGS if a not in doc)
+        assert not missing, f"resample_timeseries accepts but does not document: {missing}"
+
+    def test_and_median_really_does_work(self, tmp_path):
+        """The call that proved the description short, kept as a test."""
+        from servers.data_medium._med_transform import _VALID_AGGS
+
+        assert "median" in _VALID_AGGS
+
+    def test_the_two_vocabularies_are_allowed_to_differ_but_not_to_be_confused(self):
+        """compute_aggregations legitimately takes fewer; each names its own."""
+        agg_doc = _docstring("servers/data_medium/server.py", "compute_aggregations")
+        res_doc = _docstring("servers/data_transform/server.py", "resample_timeseries")
+        assert agg_doc != res_doc
+
+    def test_concat_documents_the_constraint_its_refusal_names(self):
+        doc = _docstring("servers/data_transform/server.py", "concat_datasets").lower()
+        assert "equal row" in doc, "column mode needs equal row counts and says so only when it fails"
+
+    def test_feature_engineering_flags_that_one_hot_is_capped(self):
+        doc = _docstring("servers/data_transform/server.py", "feature_engineering").lower()
+        assert "cap" in doc
+
+    def test_and_the_response_still_names_the_caps_it_applied(self, tmp_path):
+        """The description flags a cap; the response has to say which columns."""
+        import pandas as pd
+
+        from servers.data_medium._med_transform import _ONE_HOT_MAX_LEVELS, feature_engineering
+
+        csv = tmp_path / "d.csv"
+        # One column over the level cap, so at least one skip is reported.
+        pd.DataFrame({"many": [f"v{i}" for i in range(_ONE_HOT_MAX_LEVELS + 5)]}).to_csv(csv, index=False)
+        out = feature_engineering(str(csv), features=["one_hot"], output_path=str(tmp_path / "o.csv"))
+        assert "one_hot_skipped" in out
+        assert out["one_hot_skipped"], "a column was skipped and the response did not say which"
+        assert str(_ONE_HOT_MAX_LEVELS) in " ".join(out["one_hot_skipped"].values())

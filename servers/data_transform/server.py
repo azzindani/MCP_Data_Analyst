@@ -186,7 +186,11 @@ def resample_timeseries(
     value_columns: list[str] = None,
     dayfirst: str = "auto",
 ) -> dict:
-    """Resample by freq: D W M Q Y H. agg: sum mean count min max."""
+    # These five were compute_aggregations' vocabulary, not this tool's.
+    # resample_timeseries validates against _VALID_AGGS, which is nine, so
+    # agg="median" worked and was documented nowhere -- a vocabulary written
+    # down twice where the copies drifted, same as statistical_test.
+    """Resample by freq D W M Q Y H. agg: sum mean count min max median std first last."""
     return engine.resample_timeseries(
         file_path,
         date_col,
@@ -229,7 +233,10 @@ def concat_datasets(
     # "vertically"/"horizontally" were the words in the sentence and
     # "rows"/"columns" the values the parser takes, so reading the
     # description and typing what it said earned a refusal.
-    """Stack CSVs. direction: rows (stack) or columns (side by side)."""
+    # Column mode needs equal row counts. The refusal names them ("Got:
+    # [3, 1]"), which is the contract working, but a caller should not have
+    # to fail once to learn a constraint this short to state.
+    """Stack CSVs. direction: rows, or columns (side by side, equal row counts)."""
     return engine.concat_datasets(file_paths, direction, fill_missing, add_source_column, output_path, dry_run)
 
 
@@ -267,7 +274,11 @@ def feature_engineering(
 ) -> dict:
     # There is no "auto" feature type -- the four below are the set, and
     # `features` defaulting to all of them is what "auto" was reaching for.
-    """Add columns: features bins/date_parts/one_hot/text_length, or derive."""
+    # one_hot is capped at 10 distinct values per column and 5 columns per
+    # call. The response already carries one_hot_skipped with a reason for
+    # each, and progress warns -- but both arrive after the call, and the
+    # description is what a caller reads before it.
+    """Add columns: bins date_parts one_hot text_length, or derive. one_hot is capped."""
     return engine.feature_engineering(file_path, features, output_path, dry_run, open_after, derive)
 
 
