@@ -183,18 +183,52 @@ def need_n(
     }
 
 
-def shapiro_p(values: Any, scipy_stats: Any, cap: int = 5000) -> float | None:
-    """Shapiro-Wilk p-value, or None when the sample cannot support the test.
+def finite_split(values: Any) -> tuple[int, int]:
+    """(finite values, non-finite values) in `values`.
 
-    Guards the two ways this goes wrong: fewer than three values (where scipy
-    raises from inside its own wrapper rather than returning NaN), and a
-    degenerate sample where it returns NaN. Never raises.
+    Callers use this to say *why* a test could not run. `shapiro_p` returning
+    None has three causes and they need different sentences; without this the
+    only message available was "needs at least 3 values", which produced
+    "Shapiro-Wilk needs at least 3 residuals, this fit has 16834" -- a sentence
+    that contradicts itself in nine words, because the count it printed was the
+    one before the non-finite values were dropped.
     """
     try:
         import numpy as np
 
         array = np.asarray(values, dtype=float)
-        array = array[~np.isnan(array)]
+        good = int(np.isfinite(array).sum())
+        return good, int(array.size) - good
+    except Exception:  # noqa: BLE001 - a count is never worth an exception
+        return 0, 0
+
+
+def shapiro_p(values: Any, scipy_stats: Any, cap: int = 5000) -> float | None:
+    """Shapiro-Wilk p-value, or None when the sample cannot support the test.
+
+    Guards the three ways this goes wrong: fewer than three values (where scipy
+    raises from inside its own wrapper rather than returning NaN), a degenerate
+    sample where it returns NaN, and a sample containing an infinity.
+
+    The third was found live. `~np.isnan` drops NaN and *keeps* inf, and scipy
+    does not raise on inf -- it returns `W=nan, p=1.0`. `finite(1.0)` is 1.0,
+    `1.0 > 0.05` is True, and the caller printed "likely normal (Shapiro
+    p>1.00)": a p-value that cannot exist, asserting the opposite of the truth.
+
+    Measured on a CTR column, 4 infinities in 16,834 rows (0.02%), from four
+    campaign rows with zero impressions:
+
+        as shipped       p = 1.0        -> "likely normal"
+        with isfinite    p = 5.359e-65  -> "non-normal"
+
+    Four rows in sixteen thousand decided the verdict. `np.isfinite` is the
+    whole fix; `finite_split` above lets the caller say what was dropped.
+    """
+    try:
+        import numpy as np
+
+        array = np.asarray(values, dtype=float)
+        array = array[np.isfinite(array)]
         if array.size < MIN_N_SHAPIRO:
             return None
         if array.size > cap:

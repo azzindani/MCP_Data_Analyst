@@ -42,18 +42,64 @@ _CASTS: frozenset[str] = frozenset({"int", "float", "str", "bool"})
 MAX_DERIVATIONS = 20
 
 
+# The whole grammar of each op, so one refusal is enough to write a correct
+# spec. It used to take five: each error named the single next missing key, and
+# the `_need` message listed the keys the CALLER had sent -- which reads as
+# confirmation that they were the right ones. A caller who wrote `other_column`
+# was shown "Its keys are: name, op, column, operator, other_column" and had no
+# way to see that the real key is `other`. Measured round trips to derive one
+# ratio: expr -> op -> how -> how value -> other. Five.
+#
+# Keys here are read off the implementations below and must stay that way: a
+# grammar line that documents a key the dispatch does not read would be the
+# same defect one level up.
+_OP_HELP: dict[str, str] = {
+    "parse_date": (
+        "{'name': new_column, 'op': 'parse_date', 'column': source} "
+        "+ optional 'format', 'dayfirst': auto|true|false, 'as': int|float|str|bool"
+    ),
+    "date_part": (
+        "{'name': new_column, 'op': 'date_part', 'column': source, "
+        "'part': year|month|day|quarter|weekday|week|yearmonth|date} "
+        "+ optional 'format', 'dayfirst', 'as'"
+    ),
+    "arith": (
+        "{'name': new_column, 'op': 'arith', 'column': left, "
+        "'how': add|sub|mul|div|floordiv|mod, and ONE of 'other': another column "
+        "or 'value': a literal} + optional 'as'"
+    ),
+    "compare": (
+        "{'name': new_column, 'op': 'compare', 'column': left, "
+        "'how': eq|ne|gt|gte|lt|lte, and ONE of 'other' or 'value'} + optional 'as'"
+    ),
+    "text": (
+        "{'name': new_column, 'op': 'text', 'column': source, "
+        "'how': upper|lower|strip|len|slice|combine} ; slice adds 'start'/'stop', "
+        "combine adds ONE of 'other'/'value' and optional 'separator' ; + optional 'as'"
+    ),
+}
+
+
+def grammar_for(op: str) -> str:
+    """The full spec line for one op, or every op when the name is unknown."""
+    if op in _OP_HELP:
+        return f"'{op}' takes {_OP_HELP[op]}."
+    return "Specs: " + " | ".join(f"{name}: {help_}" for name, help_ in sorted(_OP_HELP.items()))
+
+
 class DeriveError(ValueError):
     """A derivation spec that cannot be carried out, named by index."""
 
 
-def _need(spec: dict, key: str, where: str) -> object:
+def _need(spec: dict, key: str, where: str, op: str = "") -> object:
     if key not in spec or spec[key] is None:
-        raise DeriveError(f"{where} needs a '{key}' key. Its keys are: {', '.join(spec) or 'none'}.")
+        # Say what the op needs, not what the caller happened to send.
+        raise DeriveError(f"{where} needs a '{key}' key. {grammar_for(op)}")
     return spec[key]
 
 
 def _source(df: pd.DataFrame, spec: dict, where: str) -> pd.Series:
-    column = str(_need(spec, "column", where))
+    column = str(_need(spec, "column", where, str(spec.get("op", ""))))
     if column not in df.columns:
         raise DeriveError(f"{where} names column '{column}', which is not in the file. Available: {list(df.columns)}")
     return df[column]
@@ -67,7 +113,10 @@ def _operand(df: pd.DataFrame, spec: dict, where: str) -> pd.Series | float | st
             raise DeriveError(f"{where} names column '{other}', which is not in the file.")
         return df[other]
     if "value" not in spec or spec["value"] is None:
-        raise DeriveError(f"{where} needs either 'other' (a column name) or 'value' (a literal).")
+        raise DeriveError(
+            f"{where} needs either 'other' (a column name) or 'value' (a literal). "
+            f"{grammar_for(str(spec.get('op', '')))}"
+        )
     return spec["value"]
 
 
@@ -107,9 +156,11 @@ def _op_parse_date(df: pd.DataFrame, spec: dict, where: str) -> tuple[pd.Series,
 
 
 def _op_date_part(df: pd.DataFrame, spec: dict, where: str) -> tuple[pd.Series, dict | None]:
-    part = str(_need(spec, "part", where)).lower()
+    part = str(_need(spec, "part", where, "date_part")).lower()
     if part not in _DATE_PARTS:
-        raise DeriveError(f"{where} has part='{part}'. Valid parts: {', '.join(sorted(_DATE_PARTS))}.")
+        raise DeriveError(
+            f"{where} has part='{part}'. Valid parts: {', '.join(sorted(_DATE_PARTS))}. {grammar_for('date_part')}"
+        )
     parsed, fmt = _as_datetime(_source(df, spec, where), spec, where)
     if part == "yearmonth":
         return parsed.dt.to_period("M").astype(str), fmt
@@ -123,9 +174,9 @@ def _op_date_part(df: pd.DataFrame, spec: dict, where: str) -> tuple[pd.Series, 
 
 
 def _op_arith(df: pd.DataFrame, spec: dict, where: str) -> tuple[pd.Series, dict | None]:
-    how = str(_need(spec, "how", where)).lower()
+    how = str(_need(spec, "how", where, "arith")).lower()
     if how not in _ARITH:
-        raise DeriveError(f"{where} has how='{how}'. Valid: {', '.join(sorted(_ARITH))}.")
+        raise DeriveError(f"{where} has how='{how}'. Valid: {', '.join(sorted(_ARITH))}. {grammar_for('arith')}")
     left = pd.to_numeric(_source(df, spec, where), errors="coerce")
     right_raw = _operand(df, spec, where)
     right = pd.to_numeric(right_raw, errors="coerce") if isinstance(right_raw, pd.Series) else float(right_raw)
@@ -143,9 +194,9 @@ def _op_arith(df: pd.DataFrame, spec: dict, where: str) -> tuple[pd.Series, dict
 
 
 def _op_compare(df: pd.DataFrame, spec: dict, where: str) -> tuple[pd.Series, dict | None]:
-    how = str(_need(spec, "how", where)).lower()
+    how = str(_need(spec, "how", where, "compare")).lower()
     if how not in _COMPARE:
-        raise DeriveError(f"{where} has how='{how}'. Valid: {', '.join(sorted(_COMPARE))}.")
+        raise DeriveError(f"{where} has how='{how}'. Valid: {', '.join(sorted(_COMPARE))}. {grammar_for('compare')}")
     left = _source(df, spec, where)
     right = _operand(df, spec, where)
     if how in {"eq", "ne"}:
@@ -163,9 +214,9 @@ def _op_compare(df: pd.DataFrame, spec: dict, where: str) -> tuple[pd.Series, di
 
 
 def _op_text(df: pd.DataFrame, spec: dict, where: str) -> tuple[pd.Series, dict | None]:
-    how = str(_need(spec, "how", where)).lower()
+    how = str(_need(spec, "how", where, "text")).lower()
     if how not in _TEXT:
-        raise DeriveError(f"{where} has how='{how}'. Valid: {', '.join(sorted(_TEXT))}.")
+        raise DeriveError(f"{where} has how='{how}'. Valid: {', '.join(sorted(_TEXT))}. {grammar_for('text')}")
     text = _source(df, spec, where).astype(str)
     if how == "upper":
         return text.str.upper(), None
@@ -221,8 +272,8 @@ def apply_derivations(df: pd.DataFrame, specs: list[dict]) -> tuple[list[str], l
             raise DeriveError(f"{where} is {type(spec).__name__}, not a dict.")
         op = str(spec.get("op", "")).lower()
         if op not in DERIVE_OPS:
-            raise DeriveError(f"{where} has op='{op}'. Valid ops: {', '.join(sorted(DERIVE_OPS))}.")
-        name = str(_need(spec, "name", where))
+            raise DeriveError(f"{where} has op='{op}'. Valid ops: {', '.join(sorted(DERIVE_OPS))}. {grammar_for(op)}")
+        name = str(_need(spec, "name", where, op))
         if name in df.columns and name not in added:
             progress.append(warn(f"'{name}' already exists — overwriting it", where))
 

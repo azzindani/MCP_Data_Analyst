@@ -21,6 +21,7 @@ from starlette.responses import JSONResponse
 from shared.arg_errors import contract_errors
 from shared.deploy_auth import build_auth, build_oauth_bridge
 from shared.json_safe import sanitize_responses
+from shared.strict_args import enforce_known_arguments
 from shared.token_estimate import measure_responses
 from shared.tool_annotations import EDITS, READS
 
@@ -121,7 +122,10 @@ def apply_patch(
     ops: list[dict],
     dry_run: bool = False,
 ) -> dict:
-    """Apply ordered ops to a CSV. ops: see Op Reference below."""
+    # It edits the file it is given. There is no output_path, and a caller who
+    # passed one had it dropped in silence and their source overwritten -- so
+    # "in place" belongs in the sentence a client actually shows.
+    """Apply ordered ops to a CSV in place, snapshot first. ops: see below."""
     return engine.apply_patch(file_path, ops, dry_run)
 
 
@@ -167,6 +171,11 @@ measure_responses(mcp)
 # this runs, and used to escape as a raw dump with no success/hint/token_estimate
 # and a pydantic.dev URL. Give it the fleet's failure shape instead.
 contract_errors(mcp)
+
+# An argument name no tool declares is dropped by the bundled FastMCP's
+# pydantic model (extra="ignore") and the call succeeds anyway. Installed
+# last so it wraps the guards above and answers first.
+enforce_known_arguments(mcp)
 
 
 def main() -> None:

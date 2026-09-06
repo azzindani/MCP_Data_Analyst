@@ -158,6 +158,14 @@ def _stats_for_series(series: pd.Series, column: str) -> dict:
 
     if pd.api.types.is_numeric_dtype(series):
         clean = series.dropna()
+        # An infinity is not a null. It survives dropna(), counts toward
+        # `count`, and then makes mean, std and max non-finite -- which the
+        # response sanitiser writes as `null`, the same token it uses for "not
+        # computed" and for "empty column". A CTR column built as clicks over
+        # impressions carried 4 infinities from 4 rows with zero impressions and
+        # reported `count: 16834, null_count: 0, mean: null, std: null, max:
+        # null` with nothing anywhere to explain it. Count them.
+        non_finite = int(clean.isin([float("inf"), float("-inf")]).sum())
         mean_val = float(clean.mean()) if len(clean) > 0 else None
         median_val = float(clean.median()) if len(clean) > 0 else None
         std_val = float(clean.std()) if len(clean) > 1 else None
@@ -183,6 +191,13 @@ def _stats_for_series(series: pd.Series, column: str) -> dict:
             "null_count": null_count,
             "null_pct": null_pct,
             "zero_count": zero_count,
+            "non_finite_count": non_finite,
+            "not_computed": (
+                f"{non_finite} value(s) are infinite, so mean, std and max are null here. "
+                "median, min and the quartiles rank rather than sum and are unaffected."
+                if non_finite
+                else ""
+            ),
             "mean": round(mean_val, 4) if mean_val is not None else None,
             "median": round(median_val, 4) if median_val is not None else None,
             "std": round(std_val, 4) if std_val is not None else None,

@@ -59,7 +59,15 @@ from shared.insights import from_outliers, write_insights
 from shared.platform_utils import get_max_results, get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
-from shared.small_sample import MIN_N_IQR, MIN_N_SHAPIRO, finite, min_n_for_zscore, rounded, shapiro_p
+from shared.small_sample import (
+    MIN_N_IQR,
+    MIN_N_SHAPIRO,
+    finite,
+    finite_split,
+    min_n_for_zscore,
+    rounded,
+    shapiro_p,
+)
 from shared.value_alias import render_valid
 from shared.value_alias import resolve as resolve_op
 from shared.version_control import drop_snapshot_if_unwritten, snapshot
@@ -1296,6 +1304,14 @@ def extended_stats(
                 continue
 
             n = len(series)
+            # An infinity is not a null, so it survives dropna(), counts toward
+            # n, and then poisons every statistic that sums or squares -- mean,
+            # std, variance, range, cv, skew, kurtosis and both CI bounds all
+            # come back null while median and the percentiles, which only rank,
+            # come back fine. The response used to carry eleven nulls beside
+            # "null_count": 0 with nothing anywhere to explain them. Count them
+            # here so the nulls can be read.
+            n_finite, n_non_finite = finite_split(series)
             mean_val = float(series.mean())
             std_val = float(series.std())
             median_val = float(series.median())
@@ -1367,8 +1383,13 @@ def extended_stats(
             else:
                 p_norm = shapiro_p(series.to_numpy(), scipy_stats)
                 if p_norm is None:
+                    # Say which of the two reasons applies. Reporting the
+                    # pre-drop count for a sample emptied by infinities produced
+                    # "needs at least 3 values, this column has 16834".
                     shape_hint = (
-                        f"undetermined: Shapiro-Wilk needs at least {MIN_N_SHAPIRO} values, this column has {n}"
+                        f"undetermined: Shapiro-Wilk needs at least {MIN_N_SHAPIRO} finite values, "
+                        f"this column has {n_finite}"
+                        + (f" ({n_non_finite} of {n} are infinite)" if n_non_finite else "")
                     )
                 elif p_norm > 0.05:
                     shape_hint = f"likely normal (Shapiro p>{p_norm:.2f})"
@@ -1378,6 +1399,18 @@ def extended_stats(
             stats_out[col] = {
                 "n": n,
                 "null_count": int(df[col].isna().sum()),
+                "non_finite_count": n_non_finite,
+                # Without this line a null mean means three different things --
+                # not computable, infinite, or empty column -- and the caller
+                # cannot tell which. A CTR column with 4 infinities in 16,834
+                # rows reported eleven nulls and said nothing.
+                "not_computed": (
+                    f"{n_non_finite} value(s) are infinite, so every statistic that sums or squares "
+                    f"is null here; median, min and the percentiles rank instead and are unaffected. "
+                    f"The {n_finite} finite values are the ones worth summarising."
+                    if n_non_finite
+                    else ""
+                ),
                 "mean": rounded(mean_val),
                 "median": rounded(median_val),
                 # std/variance/skew/kurtosis are undefined at the small n each

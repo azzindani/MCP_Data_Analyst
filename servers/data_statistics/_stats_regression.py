@@ -22,7 +22,7 @@ from shared.file_utils import error_text, hint_for_error, no_rows_error, resolve
 from shared.file_utils import read_csv as _read_csv
 from shared.html_layout import discriminated_suffix
 from shared.progress import fail, info, ok, warn
-from shared.small_sample import MIN_N_SHAPIRO, is_significant, rounded, shapiro_p
+from shared.small_sample import MIN_N_SHAPIRO, finite_split, is_significant, rounded, shapiro_p
 from shared.stats_format import format_p, round_p
 
 try:
@@ -432,9 +432,20 @@ def regression_analysis(
                 "normal": None if normality_p is None else bool(normality_p >= 0.05),
             }
             if normality_p is None:
+                # Two reasons, two sentences. Printing the pre-drop count for a
+                # residual vector emptied by non-finite values produced
+                # "needs at least 3 residuals, this fit has 16834" -- a sentence
+                # that refutes itself, on a fit whose residuals were all NaN
+                # because the target column contained infinities.
+                good, bad = finite_split(residuals.values)
                 normality["status"] = (
-                    f"undetermined: Shapiro-Wilk needs at least {MIN_N_SHAPIRO} residuals, this fit has "
-                    f"{len(residuals)}"
+                    f"undetermined: Shapiro-Wilk needs at least {MIN_N_SHAPIRO} finite residuals, this fit has {good}"
+                    + (
+                        f" ({bad} of {len(residuals)} residuals are not finite, which is what an infinity "
+                        "in the input columns does to a fit)"
+                        if bad
+                        else ""
+                    )
                 )
             result_data["diagnostics"] = {
                 "normality_of_residuals": normality,

@@ -21,8 +21,9 @@ from starlette.responses import JSONResponse
 from shared.arg_errors import contract_errors
 from shared.deploy_auth import build_auth, build_oauth_bridge
 from shared.json_safe import sanitize_responses
+from shared.strict_args import enforce_known_arguments
 from shared.token_estimate import measure_responses
-from shared.tool_annotations import CREATES, EDITS
+from shared.tool_annotations import CREATES, EDITS, READS
 
 try:
     from . import engine
@@ -282,6 +283,17 @@ def feature_engineering(
     return engine.feature_engineering(file_path, features, output_path, dry_run, open_after, derive)
 
 
+@mcp.tool(annotations=READS)
+def list_derive_ops(op: str = "") -> dict:
+    """List feature_engineering derive ops and their keys. Omit op for all."""
+    # `derive` is typed list[dict] with additionalProperties, so its grammar is
+    # invisible in the schema and could only be learned by failing: five round
+    # trips to write one ratio. data_basic has shipped list_patch_ops for
+    # apply_patch's grammar; this is the same answer for the repo's other
+    # nested grammar.
+    return engine.list_derive_ops(op)
+
+
 @mcp.tool(annotations=EDITS)
 def enrich_with_geo(
     file_path: str,
@@ -305,6 +317,11 @@ measure_responses(mcp)
 # this runs, and used to escape as a raw dump with no success/hint/token_estimate
 # and a pydantic.dev URL. Give it the fleet's failure shape instead.
 contract_errors(mcp)
+
+# An argument name no tool declares is dropped by the bundled FastMCP's
+# pydantic model (extra="ignore") and the call succeeds anyway. Installed
+# last so it wraps the guards above and answers first.
+enforce_known_arguments(mcp)
 
 
 def main() -> None:

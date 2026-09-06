@@ -902,6 +902,50 @@ def aggregate_dataset(
         }
 
 
+def list_derive_ops(op: str = "") -> dict:
+    """Return the derive-spec grammar, whole or for one op.
+
+    `feature_engineering(derive=[...])` is typed `list[dict]` with
+    `additionalProperties: true`, so nothing in the schema says what goes in the
+    dict. The only way to learn it was to fail repeatedly -- five calls to write
+    one ratio, each error naming the single next missing key. `list_patch_ops`
+    already solved this for the other nested grammar in the repo.
+    """
+    from shared.derive_ops import _OP_HELP
+
+    name = op.strip().lower()
+    if name and name not in _OP_HELP:
+        return {
+            "success": False,
+            "error": f"Unknown derive op: '{name}'",
+            "hint": f"Valid ops: {', '.join(sorted(_OP_HELP))}",
+            "progress": [fail("Unknown derive op", name)],
+            "token_estimate": 20,
+        }
+    wanted = {name: _OP_HELP[name]} if name else dict(_OP_HELP)
+    result = {
+        "success": True,
+        "op": "list_derive_ops",
+        "requested": name or "all",
+        "total_ops": len(wanted),
+        "ops": [{"op": k, "spec": v} for k, v in sorted(wanted.items())],
+        "example": {
+            "name": "ctr",
+            "op": "arith",
+            "column": "clicks",
+            "how": "div",
+            "other": "impressions",
+        },
+        "note": (
+            "Specs apply in order, so a later derivation can read an earlier one's column. "
+            "Pass the list as feature_engineering(derive=[...])."
+        ),
+        "progress": [ok("Derive grammar returned", f"{len(wanted)} op(s)")],
+    }
+    result["token_estimate"] = _token_estimate(result)
+    return result
+
+
 __all__ = [
     "filter_dataset",
     "reshape_dataset",
@@ -912,5 +956,6 @@ __all__ = [
     "smart_impute",
     "run_cleaning_pipeline",
     "feature_engineering",
+    "list_derive_ops",
     "enrich_with_geo",
 ]

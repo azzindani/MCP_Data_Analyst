@@ -61,6 +61,30 @@ MISSINGNESS_GAP = 0.35
 # anything.
 MIN_GROUP = 30
 
+# The continuous-target analogue of SINGLE_FEATURE_AUC, and deliberately much
+# higher than it. 0.90 is where an AUC stops being a predictor and starts being
+# an encoding; a correlation of 0.90 is nowhere near that. Measured on this
+# fleet's own ad data, `spends` ranks `clicks` at rho 0.923 and `impressions` at
+# 0.839 -- both honest causal predictors of clicks, and a check that calls them
+# leakage is a check nobody will read twice. At 0.98 a feature is a monotone
+# transform of the target, which is the claim this signal is making.
+SINGLE_FEATURE_RHO = 0.98
+
+# A part of a whole. `link_clicks <= clicks` in 100% of rows because a link
+# click IS a click. Containment is the evidence; the correlation gate only
+# excludes a column of constants, which is trivially "contained" and means
+# nothing.
+#
+# The gate takes the LARGER of Spearman and Pearson, and that is not a detail:
+# `link_clicks` is zero in 89.7% of rows, so the ties crush its Spearman to
+# 0.261 while its Pearson is 0.926. Requiring rank correlation here would have
+# missed the one case this signal exists for.
+CONTAINMENT_SHARE = 0.99
+CONTAINMENT_RHO = 0.80
+
+# Below this many distinct values a numeric target is a code, not a quantity.
+MIN_DISTINCT_CONTINUOUS = 10
+
 # Words that name something recorded after an outcome is known. A hint only.
 _POST_OUTCOME = re.compile(
     r"(?:^|_)(?:total_payment|last_payment|recover|recovery|recoveries|settlement|settled|"
@@ -103,6 +127,67 @@ def _missingness_gap(values: pd.Series, positive: pd.Series) -> tuple[float, flo
     return abs(rate_missing - rate_present), rate_missing, rate_present
 
 
+def _rank_rho(values: pd.Series, target: pd.Series) -> float | None:
+    """Spearman correlation of one feature against a continuous target.
+
+    Rank-based for the same reason `_binary_auc` is: it needs no model, no
+    split and no distributional assumption, and it is symmetric -- a feature
+    that ranks the target perfectly backwards is just as leaky, so the result
+    is folded to its absolute value.
+    """
+    numeric = pd.to_numeric(values, errors="coerce")
+    mask = numeric.notna() & target.notna()
+    if int(mask.sum()) < MIN_GROUP:
+        return None
+    rho = numeric[mask].corr(target[mask], method="spearman")
+    if rho is None or math.isnan(float(rho)):
+        return None
+    return abs(float(rho))
+
+
+def _linear_r(values: pd.Series, target: pd.Series) -> float | None:
+    """Pearson, used only to keep a zero-inflated component from hiding in ties."""
+    numeric = pd.to_numeric(values, errors="coerce")
+    mask = numeric.notna() & target.notna()
+    if int(mask.sum()) < MIN_GROUP:
+        return None
+    r = numeric[mask].corr(target[mask], method="pearson")
+    if r is None or math.isnan(float(r)):
+        return None
+    return abs(float(r))
+
+
+def _containment(values: pd.Series, target: pd.Series) -> float | None:
+    """Share of rows where 0 <= feature <= target -- a part inside its whole.
+
+    Correlation cannot tell a component from a strong predictor. Containment
+    can: spend correlates with clicks and routinely exceeds it, while a subset
+    of the target never does.
+    """
+    numeric = pd.to_numeric(values, errors="coerce")
+    mask = numeric.notna() & target.notna()
+    if int(mask.sum()) < MIN_GROUP:
+        return None
+    feature, whole = numeric[mask], target[mask]
+    return float(((feature >= 0) & (feature <= whole)).mean())
+
+
+def _as_continuous(target: pd.Series) -> pd.Series | None:
+    """The target as numbers, when it is a continuous quantity rather than a label.
+
+    A numeric column with only two distinct values is a binary label wearing an
+    int dtype, and belongs to `_as_binary`; the cut at MIN_DISTINCT_CONTINUOUS
+    keeps a small ordinal code (0-4 severity, say) out of a rank correlation
+    that would read it as a measurement.
+    """
+    numeric = pd.to_numeric(target, errors="coerce")
+    if numeric.notna().sum() < MIN_GROUP:
+        return None
+    if numeric.dropna().nunique() < MIN_DISTINCT_CONTINUOUS:
+        return None
+    return numeric
+
+
 def _as_binary(target: pd.Series) -> pd.Series | None:
     """A boolean 'is the minority class' series, or None if not binary.
 
@@ -133,6 +218,15 @@ def leakage_suspects(
     if target_column not in df.columns:
         return []
     positive = _as_binary(df[target_column])
+    # Every signal above this line is a two-class statistic, so a regression
+    # target reached the name regex and nothing else -- and that regex is credit
+    # vocabulary, which no ad, traffic or revenue column will ever match. A
+    # model predicting `clicks` scored r2 0.983 on a feature set containing
+    # `link_clicks`, which is <= clicks in 100% of rows because a link click is
+    # a click, and the check reported nothing. These two are the continuous
+    # analogues: rank correlation for "this feature is the answer", containment
+    # for "this feature is part of the answer".
+    continuous = None if positive is not None else _as_continuous(df[target_column])
     suspects: list[dict[str, Any]] = []
 
     for col in feature_cols:
@@ -174,6 +268,56 @@ def leakage_suspects(
                         ),
                         "missingness_gap": round(diff, 4),
                         "confidence": "high" if diff >= 0.6 else "medium",
+                    }
+                )
+
+        if continuous is not None:
+            try:
+                rho = _rank_rho(df[col], continuous)
+            except Exception:
+                rho = None
+            try:
+                share = _containment(df[col], continuous)
+            except Exception:
+                share = None
+            try:
+                r_lin = _linear_r(df[col], continuous)
+            except Exception:
+                r_lin = None
+            strength = max([v for v in (rho, r_lin) if v is not None], default=None)
+            # Containment first: it is the stronger claim and the more specific
+            # evidence, so it should be the reason the suspect is labelled with.
+            if (
+                share is not None
+                and strength is not None
+                and share >= CONTAINMENT_SHARE
+                and strength >= CONTAINMENT_RHO
+            ):
+                found.append(
+                    {
+                        "reason": "component_of_target",
+                        "evidence": (
+                            f"'{col}' is between 0 and '{target_column}' in {share:.1%} of rows and "
+                            f"tracks it at {strength:.3f}. A feature bounded by the target that moves "
+                            "with it is usually a part of it, and a part cannot predict its whole."
+                        ),
+                        "containment": round(share, 4),
+                        "rho": round(rho, 4) if rho is not None else None,
+                        "r": round(r_lin, 4) if r_lin is not None else None,
+                        "confidence": "high",
+                    }
+                )
+            elif rho is not None and rho >= SINGLE_FEATURE_RHO:
+                found.append(
+                    {
+                        "reason": "alone_predicts_target",
+                        "evidence": (
+                            f"'{col}' alone ranks '{target_column}' at Spearman rho {rho:.3f}. A single "
+                            "feature at this level is usually an encoding of the outcome rather than a "
+                            "predictor of it."
+                        ),
+                        "rho": round(rho, 4),
+                        "confidence": "high" if rho >= 0.97 else "medium",
                     }
                 )
 

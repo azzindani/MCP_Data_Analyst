@@ -243,6 +243,7 @@ run transform merge_datasets "{\"file_path\":\"$SALES\",\"right_file_path\":\"$S
 run transform concat_datasets "{\"file_paths\":[\"$SALES\",\"$SALES\"]}" "stack two copies of sales together"
 run transform smart_impute "{\"file_path\":\"$SALES\"}" "smart-impute any missing values"
 run transform run_cleaning_pipeline "{\"file_path\":\"$SALES\",\"ops\":[{\"op\":\"drop_duplicates\"}]}" "drop duplicate rows"
+run transform list_derive_ops '{}' "what derive ops does feature_engineering take?"
 run transform feature_engineering "{\"file_path\":\"$SALES\",\"features\":[\"date_parts\",\"bins\"]}" "auto-engineer date and bin features"
 run transform feature_engineering "{\"file_path\":\"$SALES\",\"output_path\":\"$D/derived.csv\",\"derive\":[{\"name\":\"year\",\"op\":\"date_part\",\"column\":\"date\",\"part\":\"year\"},{\"name\":\"rev_per_unit\",\"op\":\"arith\",\"column\":\"revenue\",\"how\":\"div\",\"other\":\"units\"}]}" "add a year column and revenue per unit"
 run medium compute_aggregations "{\"file_path\":\"$D/derived.csv\",\"group_by\":[\"year\"],\"agg_column\":\"rev_per_unit\",\"agg_func\":\"mean\"}" "average revenue per unit by the year I just derived"

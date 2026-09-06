@@ -66,6 +66,7 @@ from shared.progress import fail, info, ok, warn
 from shared.small_sample import (
     MIN_N_IQR,
     MIN_N_SHAPIRO,
+    finite_split,
     is_significant,
     min_n_for_zscore,
     need_n,
@@ -297,8 +298,16 @@ def statistical_tests(
                 # `normal` is None, not False, when Shapiro-Wilk could not run:
                 # a column too short to test is not a column that failed it.
                 _pv = shapiro_p(s.to_numpy(), scipy_stats)
+                _good, _bad = finite_split(s)
                 normality[col] = {
                     "n": int(len(s)),
+                    # An infinity survives dropna() and used to reach scipy,
+                    # which answers p=1.0 instead of raising -- so a column with
+                    # four infinities in sixteen thousand rows was reported
+                    # normal. They are excluded now; say how many, so a tested
+                    # sample smaller than n is not a puzzle.
+                    "n_tested": _good,
+                    "non_finite_excluded": _bad,
                     "p_value": round_p(_pv) if _pv is not None else None,
                     "normal": None if _pv is None else bool(_pv >= 0.05),
                 }
