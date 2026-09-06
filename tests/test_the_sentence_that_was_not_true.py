@@ -60,7 +60,14 @@ class TestDayfirstRefusesWhatItDoesNotDocument:
         _, meta = parse_dates(ISO, value)
         assert isinstance(meta["dayfirst"], bool)
 
-    @pytest.mark.parametrize("value", ["banana", "ture", "flase", "maybe", "2"])
+    @pytest.mark.parametrize(
+        "value",
+        # The last four were accepted for one draft of this fix, which was the
+        # original defect in miniature: an undocumented spelling, silently
+        # coerced, choosing a date interpretation for the caller. A live check
+        # against the deployed server is what caught it.
+        ["banana", "ture", "flase", "maybe", "2", "yes", "no", "1", "0"],
+    )
     def test_an_undocumented_value_is_refused(self, value):
         with pytest.raises(ValueError) as exc:
             parse_dates(ISO, value)
@@ -72,11 +79,11 @@ class TestDayfirstRefusesWhatItDoesNotDocument:
         for choice in DAYFIRST_CHOICES:
             assert choice in str(exc.value)
 
-    @pytest.mark.parametrize("value", ["yes", "1", "no", "0"])
-    def test_the_generous_aliases_still_work(self, value):
-        """A client that sends the JSON boolean puts "true"/"1" on the wire."""
+    @pytest.mark.parametrize("value", ["TRUE", "True", "  true  ", "FALSE", "Auto"])
+    def test_case_and_whitespace_are_forgiven_but_nothing_else_is(self, value):
+        """The same word typed differently is the same word; a different word is not."""
         _, meta = parse_dates(ISO, value)
-        assert meta["dayfirst"] is (value in {"yes", "1"})
+        assert meta["dayfirst"] is ("true" in value.strip().lower())
 
     def test_empty_means_auto_not_a_refusal(self):
         """An omitted optional argument arrives as "", and that is the default."""

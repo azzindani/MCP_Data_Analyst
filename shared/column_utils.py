@@ -352,14 +352,16 @@ _DATE_TRIPLE = re.compile(r"^\s*(\d{1,4})[-/.](\d{1,2})[-/.](\d{2,4})")
 _MAX_DATE_SAMPLE = 5000
 
 # The `dayfirst` vocabulary, in one place because five tools document it in
-# their own 80-character description and the words have to agree. The alias
-# sets stay generous -- a caller who sends the JSON boolean true gets "true" on
-# the wire and should be understood -- but everything outside them is refused
-# by parse_dates rather than quietly auto-detected. DAYFIRST_CHOICES is what a
-# refusal names, so it holds the three documented spellings and not the aliases.
+# their own 80-character description and the words have to agree. These are
+# EXACTLY the documented three, case-insensitively, plus "" for an argument the
+# caller omitted. "yes", "no", "1" and "0" were accepted here for one draft of
+# this fix and that was the original defect in miniature: an undocumented
+# spelling, silently coerced, choosing a date interpretation on the caller's
+# behalf. A model that types "yes" should be corrected, not guessed at, and a
+# client sending a real JSON boolean is refused earlier by the type contract.
 DAYFIRST_CHOICES: frozenset[str] = frozenset({"auto", "true", "false"})
-_DAYFIRST_TRUE: frozenset[str] = frozenset({"true", "1", "yes"})
-_DAYFIRST_FALSE: frozenset[str] = frozenset({"false", "0", "no"})
+_DAYFIRST_TRUE: frozenset[str] = frozenset({"true"})
+_DAYFIRST_FALSE: frozenset[str] = frozenset({"false"})
 _DAYFIRST_AUTO: frozenset[str] = frozenset({"auto", ""})
 
 
