@@ -85,6 +85,62 @@ saying something its own output did not support.
 - Counted **71 tools** (visual is now 13 with `customize_dashboard`). The README
   had said 70, and its smoke-test section had said 69.
 
+### Fixed — sweep rounds 24 and 25, "believe the description"
+
+Two coverage rounds asked one question of all 243 tools in the fleet: is the
+sentence an MCP client shows for this tool true? A client sees that one line
+and nothing else — no README, no examples, no source — and in this repo it is
+the docstring, capped at 80 characters by CI, which is exactly the pressure
+that makes a description over-promise. Six answers here were no, and every one
+is the same shape: **a vocabulary written down twice, where the copies
+drifted.**
+
+- **`dayfirst` documented three values and enforced none.** `parse_dates`
+  accepted `"yes"`, `"1"`, `"no"`, `"0"` as silent aliases and let everything
+  else fall through to auto-detect, so all of `auto true false yes banana`
+  returned `success: true` with two different answers. Measured on
+  `Ad_Data.csv`, whose `Date` column is unambiguous ISO, `dayfirst="yes"` moved
+  the series from `2019-10-16..2020-07-07` to `2019-01-11..2020-12-06` — and
+  those dates reach `trend`, `seasonality`, the rolling stats and the chart. A
+  typo (`ture`, `flase`, `Yes`) silently chose a date interpretation and nothing
+  in the response said so. Now exactly `auto` / `true` / `false`, case- and
+  whitespace-insensitive, and anything else is refused by name. Office's
+  `bold`/`italic` is this same tri-state string solved properly; this was the
+  copy that drifted.
+- **`statistical_test` listed six of its seventeen tests** as if that were the
+  set, so eleven working tests — `levene`, `wilcoxon`, `ks`, `fisher`,
+  `kendall`, `spearman`, `pearson`, `proportion_z`, `one_sample_t`,
+  `paired_t_test`, `anderson` — were invisible to everyone reading the tool
+  list. The vocabulary has outgrown 80 characters, so the description now says
+  how many there are and points at the error hint that already enumerates them.
+  (The README had listed all seventeen correctly the whole time.)
+- **`resample_timeseries` documented `compute_aggregations`' vocabulary.** Its
+  sentence said `agg: sum mean count min max`; it validates against
+  `_VALID_AGGS`, which is nine, so `agg_func="median"` worked and was documented
+  nowhere. Five words that were correct about a different tool.
+- **`concat_datasets` documented `vertically`/`horizontally`** while the parser
+  takes `rows`/`columns`, so reading the description and typing what it said
+  earned a refusal. It now also states that column mode needs equal row counts —
+  a constraint its refusal already named (`Got: [3, 1]`) and its description
+  did not.
+- **`feature_engineering` documented an `auto` feature type that does not
+  exist**, and said nothing about `one_hot` being capped at 10 distinct values
+  per column and 5 columns per call. The caps stay — one-hot on 16,834 distinct
+  creative names is not what anyone means — and the response already carried
+  `one_hot_skipped` with a reason per column; what changed is that the sentence
+  says a cap exists before you call rather than after.
+
+New tests read each description out of the source and compare it against the
+vocabulary the code enforces, so the two cannot separate again silently. That
+check is what nobody was running when six of seventeen became the documented
+set.
+
+One of these fixes had to be corrected after shipping: the first `dayfirst`
+pass kept `"yes"`/`"1"` as aliases and passed its own tests, and a live check
+against the deployed server caught that those aliases *were* the finding one
+draft smaller. A fix verified only by its own tests is verified against the
+author's reading of the contract.
+
 ---
 
 ## [0.2.2] — 2026-09-01

@@ -347,12 +347,12 @@ Focused transformation server — richer filtering, reshaping, and aggregation t
 | `filter_dataset` | Filter rows by 18 condition types (equals, isin, between, regex, date_range, quantile_between, starts_with, ends_with, …) + optional sort. A condition may compare against `other_column` instead of `value` |
 | `reshape_dataset` | Reshape data: `pivot`, `melt`, `split_column`, `combine_columns`, `transpose` |
 | `aggregate_dataset` | Aggregate: `groupby`, `crosstab`, `value_counts`, `describe`, `window` |
-| `resample_timeseries` | Resample time series (D/W/M/Q/Y/H). `dayfirst`: `auto` (default), `true`, `false` |
+| `resample_timeseries` | Resample time series (D/W/M/Q/Y/H). `agg_func`: `sum mean count min max median std first last`. `dayfirst`: `auto` (default), `true`, `false` |
 | `merge_datasets` | Merge two datasets with auto-detected join keys |
-| `concat_datasets` | Stack multiple CSVs vertically or horizontally |
+| `concat_datasets` | Stack multiple CSVs. `direction`: `rows`, or `columns` (side by side — needs equal row counts) |
 | `smart_impute` | Auto-impute: numeric→median, datetime→ffill, categorical→mode |
 | `run_cleaning_pipeline` | Multi-op cleaning with single snapshot + rollback |
-| `feature_engineering` | Auto-create date parts, bins, log transforms, one-hot features — or add named columns with `derive` (see below) |
+| `feature_engineering` | `features`: `bins date_parts one_hot text_length` — or add named columns with `derive` (see below). `one_hot` is capped at 10 distinct values per column and 5 columns per call; skipped columns come back in `one_hot_skipped` with a reason each |
 | `enrich_with_geo` | Merge dataset with geo data on a location key |
 
 #### Derived columns — `feature_engineering(derive=[...])`
@@ -391,7 +391,10 @@ while the series spans years (monthly data written `01-07-1999`). Where the data
 is genuinely ambiguous the response says so in `progress` rather than guessing
 silently. `time_series_analysis`, `period_comparison`, `cohort_analysis`,
 `lag_correlation` and `resample_timeseries` take
-`dayfirst: "auto" | "true" | "false"` to settle it explicitly.
+`dayfirst: "auto" | "true" | "false"` to settle it explicitly. Those three are the
+whole vocabulary and anything else is refused by name: `dayfirst="yes"` used to
+be accepted as day-first and `dayfirst="banana"` fell through to auto-detect,
+so a typo silently chose a date interpretation and the response said nothing.
 
 ---
 
