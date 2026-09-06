@@ -181,6 +181,12 @@ def _as_continuous(target: pd.Series) -> pd.Series | None:
     that would read it as a measurement.
     """
     numeric = pd.to_numeric(target, errors="coerce")
+    # to_numeric is declared as returning any of a dozen array-ish types --
+    # scalar, Index, ExtensionArray -- because it accepts any of them. It gives
+    # a Series for a Series, and narrowing that here is both what pyright needs
+    # and the honest statement: anything else is not a column we can rank.
+    if not isinstance(numeric, pd.Series):
+        return None
     if numeric.notna().sum() < MIN_GROUP:
         return None
     if numeric.dropna().nunique() < MIN_DISTINCT_CONTINUOUS:
