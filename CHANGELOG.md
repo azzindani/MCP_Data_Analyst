@@ -4,7 +4,59 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [Unreleased]
+## [0.3.0] — 2026-09-07
+
+Source-only release: no wheel and no container image are published. Build the
+image from the `Dockerfile` here, or install from the tag.
+
+### Added — the schema now names its own legal values
+
+- **Every dispatch parameter declares an `enum`.** `method`, `agg_func`,
+  `chart_type`, `mode`, `normalize`, `test`, `model_type`, `period_unit` and
+  the rest publish their legal values in `tools/list`, so a client validates
+  before sending instead of learning the spelling by burning a call. Each enum
+  renders from the table the runtime switches on, never a second copy, and a
+  census test fails if a new tool arrives with a bare `mode: str`.
+- **The enum advertises; it does not enforce.** `json_schema_extra={"enum": …}`
+  emits the same JSON schema as `Literal` — measured, not assumed — but leaves
+  the tool body to answer. That keeps every documented alias working
+  (`zscore`→`std`, `average`→`mean`, `rows`→`index`, `MoM`→`M`) and keeps the
+  refusals that name what a caller should have sent. A `Literal` would have
+  replaced all of them with pydantic's generic `literal_error`.
+- **`list_derive_ops`** — the `derive` grammar for `feature_engineering`, with
+  each op's required and optional keys and a worked example. That grammar lives
+  in a `list[dict]` the schema cannot describe, so it could previously only be
+  learned by failing.
+
+### Fixed
+
+- **`check_outliers(method="zscore")` reported "no outliers" on a column
+  holding 2,178 of them.** The method dispatch was two `if` statements with no
+  `else`, so an unrecognised method skipped both branches and returned
+  `success: true`. The guard now runs before the file is read, and `zscore` is
+  an accepted alias rather than an error.
+- **`resample_timeseries` advertised two aggregations it refuses.** It
+  validates against a table of nine while its annotation named the eleven its
+  siblings take, so `tools/list` offered `nunique` and `var` to a tool that
+  answers "Invalid agg_func" to both. Narrowed to the nine it actually accepts.
+- **`cross_tabulate`, `reshape_dataset`, `generate_multi_chart` and
+  `aggregate_dataset`** passed `agg_func` / `normalize` straight to pandas, so a
+  typo surfaced as `'DataFrameGroupBy' object has no attribute` under a hint
+  naming the arguments that were fine. All four validate against the shared
+  tables now.
+- **`cross_tabulate` echoed the `normalize` it was sent, not the one it used**,
+  and silently dropped an `agg_func` it could not apply. Both are reported.
+- **`pivot_table`'s refusal blamed `file_path`** when `agg_func` was wrong.
+- **Argument-type errors escaped the response envelope** on four servers,
+  arriving as a raw pydantic dump complete with a link to pydantic.dev.
+
+### Changed
+
+- 2,981 tests, up from 2,894.
+
+---
+
+## [0.3.0] — 2026-09-07 · part two: the tool-user review
 
 Fifteen commits since `0.2.2`, almost all of them driven by a tool user's
 written review of a 38,576-row credit-risk sweep. The review's method was to

@@ -2,11 +2,11 @@
 
 A self-hosted MCP server that gives local LLMs structured access to CSV/tabular data analysis tools. No cloud APIs, no API keys — everything runs on your machine.
 
-**Release [`v0.2.2`](https://github.com/azzindani/MCP_Data_Analyst/releases/tag/v0.2.2)** — source only. No wheel and no container image are published: install from the tag with the bundled installer, or build the image yourself from the `Dockerfile` in this repo.
+**Release [`v0.3.0`](https://github.com/azzindani/MCP_Data_Analyst/releases/tag/v0.3.0)** — source only. No wheel and no container image are published: install from the tag with the bundled installer, or build the image yourself from the `Dockerfile` in this repo.
 
 ## Features
 
-- **71 tools** across 7 servers: workspace (6), basic (9), medium (11), transform (10), statistics (12), visual (13), ingest (10)
+- **72 tools** across 7 servers: workspace (6), basic (9), medium (11), transform (11), statistics (12), visual (13), ingest (10) — 71 distinct names, `extended_stats` being served by both medium and statistics
 - **LOCATE → INSPECT → PATCH → VERIFY** workflow for surgical data edits
 - **Automatic version control** — every write is snapshotted and fully restorable (Windows-safe: collision-proof timestamps)
 - **Operation receipt logging** — full audit trail of all modifications
@@ -181,7 +181,7 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
 ```
 
 4. Wait for the blue dot next to each server
-5. Start chatting — the model will see all 70 tools
+5. Start chatting — the model will see all 72 tools
 
 ### macOS / Linux
 
@@ -338,7 +338,7 @@ Files can be referenced anywhere via `workspace:name/alias` syntax — all tools
 
 Chart-producing medium tools accept `theme: "dark" | "light" | "device"`, `output_path`, and `open_after`.
 
-### Tier 2 — Transform (10 tools)
+### Tier 2 — Transform (11 tools)
 
 Focused transformation server — richer filtering, reshaping, and aggregation than the basic tier.
 
@@ -353,6 +353,7 @@ Focused transformation server — richer filtering, reshaping, and aggregation t
 | `smart_impute` | Auto-impute: numeric→median, datetime→ffill, categorical→mode |
 | `run_cleaning_pipeline` | Multi-op cleaning with single snapshot + rollback |
 | `feature_engineering` | `features`: `bins date_parts one_hot text_length` — or add named columns with `derive` (see below). `one_hot` is capped at 10 distinct values per column and 5 columns per call; skipped columns come back in `one_hot_skipped` with a reason each |
+| `list_derive_ops` | The `derive` grammar for `feature_engineering`: every op with its required and optional keys, and a worked example. Omit `op` for all of them |
 | `enrich_with_geo` | Merge dataset with geo data on a location key |
 
 #### Derived columns — `feature_engineering(derive=[...])`
