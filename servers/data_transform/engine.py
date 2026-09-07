@@ -25,6 +25,9 @@ from _med_transform import (  # type: ignore[import]
     smart_impute,
 )
 
+from shared.choice import AGG_ALIASES, AGG_FUNCS, UnknownChoice, normalize_mode
+from shared.choice import refusal as choice_refusal
+from shared.choice import resolve as resolve_choice
 from shared.column_utils import (
     column_pair_mask,
     condition_column,
@@ -343,6 +346,16 @@ def reshape_dataset(
     drop_originals = drop_original
     valid_modes = {"pivot", "melt", "split_column", "combine_columns", "transpose"}
     try:
+        # Round 28 validated agg_func at compute_aggregations, pivot_table and
+        # generate_chart; the survey that followed found three more tools that
+        # passed it straight to pandas, so a typo came back as "'typo' is not a
+        # valid function for 'DataFrameGroupBy' object" under a hint naming the
+        # arguments that were fine. Same shared table as the others.
+        try:
+            agg_func = resolve_choice(agg_func, AGG_FUNCS, field="agg_func", aliases=AGG_ALIASES)
+        except UnknownChoice as exc:
+            return choice_refusal("reshape_dataset", exc)
+
         if mode not in valid_modes:
             return {
                 "success": False,
@@ -601,6 +614,14 @@ def aggregate_dataset(
     output_df: pd.DataFrame | None = None
     valid_modes = {"groupby", "crosstab", "value_counts", "describe", "window"}
     try:
+        # It answered "Not a valid normalize argument" under "Check mode and
+        # required parameters. Use inspect_dataset() to verify column names" --
+        # a hint about the mode and the columns, for a fault in neither.
+        try:
+            norm = normalize_mode(normalize)
+        except UnknownChoice as exc:
+            return choice_refusal("aggregate_dataset", exc)
+
         if mode not in valid_modes:
             return {
                 "success": False,
@@ -751,7 +772,7 @@ def aggregate_dataset(
                 df[col_col],
                 values=df[values_col] if values_col and values_col in df.columns else None,
                 aggfunc="sum" if values_col else None,
-                normalize=normalize or False,
+                normalize=norm,
             )
             result_data = {
                 "rows": ct.shape[0],

@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
@@ -21,6 +22,7 @@ from starlette.responses import JSONResponse
 from shared.arg_errors import contract_errors
 from shared.deploy_auth import build_auth, build_oauth_bridge
 from shared.json_safe import sanitize_responses
+from shared.schema_enum import one_of
 from shared.strict_args import enforce_known_arguments
 from shared.token_estimate import measure_responses
 from shared.tool_annotations import CREATES, EDITS, READS
@@ -35,6 +37,35 @@ _VERSION = "0.2.2"  # keep in sync with pyproject.toml [project].version
 _oauth_bridge = build_oauth_bridge(
     "DA", state_dir=os.environ.get("DA_MEDIUM_OAUTH_STATE_DIR", "/tmp/data-medium-oauth-state")
 )
+
+# The legal values each dispatch parameter names in its schema. Rendered
+# from the table the runtime switches on -- never a second copy -- and split
+# on TYPE_CHECKING because a call expression is not a type expression to a
+# static checker, while a checker only needs to know these are strings.
+if TYPE_CHECKING:
+    StatTest = str
+    AggFunc = str
+    Normalize = str
+    SampleDataMethod = str
+    DetectAnomaliesMethod = str
+else:
+    StatTest = one_of(
+        "ttest",
+        "anova",
+        "chi_square",
+        "correlation",
+        "shapiro_wilk",
+        "ks",
+        "mann_whitney",
+        "kruskal",
+        "wilcoxon",
+        "levene",
+        "fisher",
+    )
+    AggFunc = one_of("count", "first", "last", "max", "mean", "median", "min", "nunique", "std", "sum", "var")
+    Normalize = one_of("index", "columns", "all")
+    SampleDataMethod = one_of("head", "random", "tail")
+    DetectAnomaliesMethod = one_of("iqr", "zscore", "both")
 _public_origin = os.environ.get("DA_PUBLIC_URL", "").rstrip("/")
 _base_url = f"{_public_origin}/medium" if _public_origin else None
 _HOST = os.environ.get("DATA_MEDIUM_HOST", "127.0.0.1")
@@ -69,7 +100,7 @@ def compute_aggregations(
     file_path: str,
     group_by: list[str],
     agg_column: str,
-    agg_func: str = "sum",
+    agg_func: AggFunc = "sum",
     sort_desc: bool = True,
     top_n: int = 0,
 ) -> dict:
@@ -83,8 +114,8 @@ def cross_tabulate(
     row_column: str,
     col_column: str,
     values_column: str = "",
-    agg_func: str = "count",
-    normalize: str = "",
+    agg_func: AggFunc = "count",
+    normalize: Normalize = "",
     output_path: str = "",
     open_after: bool = True,
     theme: str = "device",
@@ -109,7 +140,7 @@ def pivot_table(
     index: list[str],
     columns: list[str] = None,
     values: list[str] = None,
-    agg_func: str = "sum",
+    agg_func: AggFunc = "sum",
     fill_value: float = 0,
 ) -> dict:
     """Multi-dimensional pivot/aggregation table."""
@@ -147,7 +178,7 @@ def filter_rows(
 @mcp.tool(annotations=CREATES)
 def sample_data(
     file_path: str,
-    method: str = "random",
+    method: SampleDataMethod = "random",
     n: int = 100,
     random_state: int = 42,
     output_path: str = "",
@@ -161,11 +192,11 @@ def sample_data(
 @mcp.tool(annotations=READS)
 def statistical_tests(
     file_path: str,
-    test_type: str = "",
+    test_type: StatTest = "",
     column_a: str = "",
     column_b: str = "",
     group_column: str = "",
-    test: str = "",
+    test: StatTest = "",
 ) -> dict:
     """Auto-select and run statistical tests: t-test ANOVA chi-square correlation."""
     return engine.statistical_tests(file_path, test_type, column_a, column_b, group_column, test)
@@ -181,7 +212,7 @@ def analyze_text_column(file_path: str, column: str, top_n: int = 20) -> dict:
 def detect_anomalies(
     file_path: str,
     columns: list[str] = None,
-    method: str = "both",
+    method: DetectAnomaliesMethod = "both",
     output_path: str = "",
     threshold: float = 3.0,
 ) -> dict:

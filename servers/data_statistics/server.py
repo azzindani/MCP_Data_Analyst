@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
@@ -21,6 +22,7 @@ from starlette.responses import JSONResponse
 from shared.arg_errors import contract_errors
 from shared.deploy_auth import build_auth, build_oauth_bridge
 from shared.json_safe import sanitize_responses
+from shared.schema_enum import one_of
 from shared.strict_args import enforce_known_arguments
 from shared.token_estimate import measure_responses
 from shared.tool_annotations import CREATES, READS
@@ -35,6 +37,41 @@ _VERSION = "0.2.2"  # keep in sync with pyproject.toml [project].version
 _oauth_bridge = build_oauth_bridge(
     "DA", state_dir=os.environ.get("DA_STATISTICS_OAUTH_STATE_DIR", "/tmp/data-statistics-oauth-state")
 )
+
+# The legal values each dispatch parameter names in its schema. Rendered
+# from the table the runtime switches on -- never a second copy -- and split
+# on TYPE_CHECKING because a call expression is not a type expression to a
+# static checker, while a checker only needs to know these are strings.
+if TYPE_CHECKING:
+    StatTest = str
+    CheckOutliersMethod = str
+    CorrelationAnalysisMethod = str
+    PeriodUnit = str
+    ModelType = str
+else:
+    StatTest = one_of(
+        "t_test",
+        "one_sample_t",
+        "paired_t_test",
+        "anova",
+        "kruskal",
+        "mann_whitney",
+        "wilcoxon",
+        "levene",
+        "chi_square",
+        "fisher",
+        "proportion_z",
+        "ks",
+        "shapiro_wilk",
+        "anderson",
+        "pearson",
+        "spearman",
+        "kendall",
+    )
+    CheckOutliersMethod = one_of("iqr", "std", "both")
+    CorrelationAnalysisMethod = one_of("pearson", "spearman", "kendall")
+    PeriodUnit = one_of("D", "W", "M", "Q", "Y", "H")
+    ModelType = one_of("ols", "logistic")
 _public_origin = os.environ.get("DA_PUBLIC_URL", "").rstrip("/")
 _base_url = f"{_public_origin}/statistics" if _public_origin else None
 _HOST = os.environ.get("DATA_STATISTICS_HOST", "127.0.0.1")
@@ -100,7 +137,7 @@ def auto_detect_schema(
 def check_outliers(
     file_path: str,
     columns: list[str] = None,
-    method: str = "both",
+    method: CheckOutliersMethod = "both",
     th1: float = 0.25,
     th3: float = 0.75,
     output_path: str = "",
@@ -127,7 +164,7 @@ def scan_nulls_zeros(
 @mcp.tool(annotations=CREATES)
 def correlation_analysis(
     file_path: str,
-    method: str = "pearson",
+    method: CorrelationAnalysisMethod = "pearson",
     top_n: int = 10,
     output_path: str = "",
     open_after: bool = True,
@@ -144,8 +181,8 @@ def lag_correlation(
     x_column: str = "",
     y_column: str = "",
     max_lag: int = 10,
-    period_unit: str = "D",
-    method: str = "pearson",
+    period_unit: PeriodUnit = "D",
+    method: CorrelationAnalysisMethod = "pearson",
     x_agg: str = "",
     y_agg: str = "",
     min_overlap: int = 8,
@@ -172,7 +209,7 @@ def lag_correlation(
 @mcp.tool(annotations=READS)
 def statistical_test(
     file_path: str,
-    test: str = "",
+    test: StatTest = "",
     column_a: str = "",
     column_b: str = "",
     group_column: str = "",
@@ -182,7 +219,7 @@ def statistical_test(
     posthoc: bool = False,
     correction: str = "",
     hypothesized_mean: float = 0.0,
-    test_type: str = "",
+    test_type: StatTest = "",
 ) -> dict:
     # Six of the seventeen used to be listed here as if that were the set,
     # so eleven working tests were invisible to every caller who reads the
@@ -211,7 +248,7 @@ def regression_analysis(
     file_path: str,
     y_col: str = "",
     x_cols: list[str] = None,
-    model_type: str = "ols",
+    model_type: ModelType = "ols",
     interaction_terms: list[str] = None,
     output_path: str = "",
     open_after: bool = True,
@@ -247,7 +284,7 @@ def period_comparison(
     file_path: str,
     date_col: str = "",
     metrics: list[str] = None,
-    period_unit: str = "",
+    period_unit: PeriodUnit = "",
     current_period: str = "",
     compare_to: str = "previous",
     group_by: str = "",

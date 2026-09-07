@@ -104,6 +104,13 @@ def cross_tabulate(
             return choice_refusal("cross_tabulate", exc)
 
         if values_column:
+            # Reaches pd.crosstab(aggfunc=...) directly, so an unvalidated typo
+            # came back as pandas' own complaint. The no-values branch below
+            # cannot use agg_func at all and says so instead.
+            try:
+                agg_func = resolve_choice(agg_func, AGG_FUNCS, field="agg_func", aliases=AGG_ALIASES)
+            except UnknownChoice as exc:
+                return choice_refusal("cross_tabulate", exc)
             ct = pd.crosstab(
                 df[row_column],
                 df[col_column],

@@ -25,7 +25,13 @@ from _adv_helpers import (
     plotly_template,
 )
 
-from shared.choice import CORRELATION_ALIASES, CORRELATION_METHODS, UnknownChoice
+from shared.choice import (
+    AGG_ALIASES,
+    AGG_FUNCS,
+    CORRELATION_ALIASES,
+    CORRELATION_METHODS,
+    UnknownChoice,
+)
 from shared.choice import refusal as choice_refusal
 from shared.choice import resolve as resolve_choice
 from shared.column_utils import date_note, parse_dates
@@ -533,6 +539,16 @@ def generate_multi_chart(
     """Multi-metric bar/line chart. bar needs category_column, line needs date_column."""
     progress = []
     try:
+        # Round 28 validated agg_func at compute_aggregations, pivot_table and
+        # generate_chart; the survey that followed found three more tools that
+        # passed it straight to pandas, so a typo came back as "'typo' is not a
+        # valid function for 'DataFrameGroupBy' object" under a hint naming the
+        # arguments that were fine. Same shared table as the others.
+        try:
+            agg_func = resolve_choice(agg_func, AGG_FUNCS, field="agg_func", aliases=AGG_ALIASES)
+        except UnknownChoice as exc:
+            return choice_refusal("generate_multi_chart", exc)
+
         try:
             import plotly.graph_objects as go
         except ImportError:

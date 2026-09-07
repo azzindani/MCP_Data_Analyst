@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
@@ -21,6 +22,7 @@ from starlette.responses import JSONResponse
 from shared.arg_errors import contract_errors
 from shared.deploy_auth import build_auth, build_oauth_bridge
 from shared.json_safe import sanitize_responses
+from shared.schema_enum import one_of
 from shared.strict_args import enforce_known_arguments
 from shared.token_estimate import measure_responses
 from shared.tool_annotations import CREATES
@@ -35,6 +37,41 @@ _VERSION = "0.2.2"  # keep in sync with pyproject.toml [project].version
 _oauth_bridge = build_oauth_bridge(
     "DA", state_dir=os.environ.get("DA_VISUAL_OAUTH_STATE_DIR", "/tmp/data-visual-oauth-state")
 )
+
+# The legal values each dispatch parameter names in its schema. Rendered
+# from the table the runtime switches on -- never a second copy -- and split
+# on TYPE_CHECKING because a call expression is not a type expression to a
+# static checker, while a checker only needs to know these are strings.
+if TYPE_CHECKING:
+    ChartType = str
+    Mode = str
+    Method = str
+    MultiChartType = str
+    AggFunc = str
+    Chart3DType = str
+    Format = str
+else:
+    ChartType = one_of(
+        "bar",
+        "line",
+        "pie",
+        "scatter",
+        "time_series",
+        "funnel",
+        "geo",
+        "parallel_coords",
+        "radius",
+        "sankey",
+        "sunburst",
+        "treemap",
+        "waterfall",
+    )
+    Mode = one_of("minimal", "standard", "full")
+    Method = one_of("pearson", "spearman", "kendall")
+    MultiChartType = one_of("multi_bar", "multi_line")
+    AggFunc = one_of("count", "first", "last", "max", "mean", "median", "min", "nunique", "std", "sum", "var")
+    Chart3DType = one_of("scatter_3d", "surface")
+    Format = one_of("csv", "excel", "json")
 _public_origin = os.environ.get("DA_PUBLIC_URL", "").rstrip("/")
 _base_url = f"{_public_origin}/visual" if _public_origin else None
 _HOST = os.environ.get("DATA_VISUAL_HOST", "127.0.0.1")
@@ -71,7 +108,7 @@ def run_eda(
     open_after: bool = True,
     theme: str = "device",
     return_content: bool = False,
-    mode: str = "standard",
+    mode: Mode = "standard",
     sample_n: int = 0,
     include: dict = None,
     target_column: str = "",
@@ -126,7 +163,7 @@ def generate_distribution_plot(
 @mcp.tool(annotations=CREATES)
 def generate_correlation_heatmap(
     file_path: str,
-    method: str = "pearson",
+    method: Method = "pearson",
     output_path: str = "",
     open_after: bool = True,
     theme: str = "device",
@@ -153,11 +190,11 @@ def generate_pairwise_plot(
 @mcp.tool(annotations=CREATES)
 def generate_multi_chart(
     file_path: str,
-    chart_type: str,
+    chart_type: MultiChartType,
     value_columns: list[str],
     category_column: str = "",
     date_column: str = "",
-    agg_func: str = "sum",
+    agg_func: AggFunc = "sum",
     output_path: str = "",
     title: str = "",
     open_after: bool = True,
@@ -183,10 +220,10 @@ def generate_multi_chart(
 @mcp.tool(annotations=CREATES)
 def generate_chart(
     file_path: str,
-    chart_type: str,
+    chart_type: ChartType,
     value_column: str,
     category_column: str = "",
-    agg_func: str = "sum",
+    agg_func: AggFunc = "sum",
     color_column: str = "",
     date_column: str = "",
     period: str = "M",
@@ -255,7 +292,7 @@ def generate_geo_map(
 @mcp.tool(annotations=CREATES)
 def generate_3d_chart(
     file_path: str,
-    chart_type: str,
+    chart_type: Chart3DType,
     x_column: str,
     y_column: str,
     z_column: str,
@@ -330,12 +367,12 @@ def generate_dashboard(
 def export_data(
     file_path: str,
     output_path: str = "",
-    format: str = "csv",
+    format: Format = "csv",
     encoding: str = "utf-8",
     separator: str = ",",
     open_after: bool = True,
     return_content: bool = False,
-    output_format: str = "",
+    output_format: Format = "",
     preview_rows: int = 0,
 ) -> dict:
     """Export dataset to CSV, Excel, or JSON. Excel gets a README sheet."""

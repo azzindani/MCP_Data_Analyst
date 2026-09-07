@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
@@ -21,6 +22,7 @@ from starlette.responses import JSONResponse
 from shared.arg_errors import contract_errors
 from shared.deploy_auth import build_auth, build_oauth_bridge
 from shared.json_safe import sanitize_responses
+from shared.schema_enum import one_of
 from shared.strict_args import enforce_known_arguments
 from shared.token_estimate import measure_responses
 from shared.tool_annotations import CREATES, EDITS, READS
@@ -35,6 +37,27 @@ _VERSION = "0.2.2"  # keep in sync with pyproject.toml [project].version
 _oauth_bridge = build_oauth_bridge(
     "DA", state_dir=os.environ.get("DA_TRANSFORM_OAUTH_STATE_DIR", "/tmp/data-transform-oauth-state")
 )
+
+# The legal values each dispatch parameter names in its schema. Rendered
+# from the table the runtime switches on -- never a second copy -- and split
+# on TYPE_CHECKING because a call expression is not a type expression to a
+# static checker, while a checker only needs to know these are strings.
+if TYPE_CHECKING:
+    ReshapeDatasetMode = str
+    AggFunc = str
+    AggregateDatasetMode = str
+    Normalize = str
+    How = str
+    Direction = str
+    Op = str
+else:
+    ReshapeDatasetMode = one_of("melt", "pivot", "transpose", "split_column", "combine_columns")
+    AggFunc = one_of("count", "first", "last", "max", "mean", "median", "min", "nunique", "std", "sum", "var")
+    AggregateDatasetMode = one_of("groupby", "crosstab", "value_counts", "describe", "window")
+    Normalize = one_of("index", "columns", "all")
+    How = one_of("left", "inner", "outer", "right")
+    Direction = one_of("rows", "columns")
+    Op = one_of("arith", "compare", "date_part", "parse_date", "text")
 _public_origin = os.environ.get("DA_PUBLIC_URL", "").rstrip("/")
 _base_url = f"{_public_origin}/transform" if _public_origin else None
 _HOST = os.environ.get("DATA_TRANSFORM_HOST", "127.0.0.1")
@@ -80,11 +103,11 @@ def filter_dataset(
 @mcp.tool(annotations=EDITS)
 def reshape_dataset(
     file_path: str,
-    mode: str,
+    mode: ReshapeDatasetMode,
     index: list[str] = None,
     columns: list[str] = None,
     values: list[str] = None,
-    agg_func: str = "sum",
+    agg_func: AggFunc = "sum",
     id_vars: list[str] = None,
     value_vars: list[str] = None,
     var_name: str = "variable",
@@ -128,7 +151,7 @@ def reshape_dataset(
 @mcp.tool(annotations=EDITS)
 def aggregate_dataset(
     file_path: str,
-    mode: str,
+    mode: AggregateDatasetMode,
     group_by: list[str] = None,
     agg: dict = None,
     sort_desc: bool = True,
@@ -136,7 +159,7 @@ def aggregate_dataset(
     row_col: str = "",
     col_col: str = "",
     values_col: str = "",
-    normalize: str = "",
+    normalize: Normalize = "",
     columns: list[str] = None,
     include_pct: bool = True,
     order_by: str = "",
@@ -178,7 +201,7 @@ def resample_timeseries(
     file_path: str,
     date_col: str = "",
     freq: str = "M",
-    agg_func: str = "sum",
+    agg_func: AggFunc = "sum",
     value_cols: list[str] = None,
     group_by: str = None,
     output_path: str = "",
@@ -213,7 +236,7 @@ def merge_datasets(
     right_file_path: str,
     left_on: str = "",
     right_on: str = "",
-    how: str = "left",
+    how: How = "left",
     output_path: str = "",
     dry_run: bool = False,
     open_after: bool = True,
@@ -225,7 +248,7 @@ def merge_datasets(
 @mcp.tool(annotations=CREATES)
 def concat_datasets(
     file_paths: list[str],
-    direction: str = "rows",
+    direction: Direction = "rows",
     fill_missing: str = "null",
     add_source_column: bool = True,
     output_path: str = "",
@@ -284,7 +307,7 @@ def feature_engineering(
 
 
 @mcp.tool(annotations=READS)
-def list_derive_ops(op: str = "") -> dict:
+def list_derive_ops(op: Op = "") -> dict:
     """List feature_engineering derive ops and their keys. Omit op for all."""
     # `derive` is typed list[dict] with additionalProperties, so its grammar is
     # invisible in the schema and could only be learned by failing: five round

@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
@@ -22,6 +23,7 @@ from servers.data_ingest import engine
 from shared.arg_errors import contract_errors
 from shared.deploy_auth import build_auth, build_oauth_bridge
 from shared.json_safe import sanitize_responses
+from shared.schema_enum import one_of
 from shared.strict_args import enforce_known_arguments
 from shared.token_estimate import measure_responses
 from shared.tool_annotations import CREATES, EDITS, READS
@@ -31,6 +33,15 @@ _VERSION = "0.2.2"  # keep in sync with pyproject.toml [project].version
 _oauth_bridge = build_oauth_bridge(
     "DA", state_dir=os.environ.get("DA_INGEST_OAUTH_STATE_DIR", "/tmp/data-ingest-oauth-state")
 )
+
+# The legal values each dispatch parameter names in its schema. Rendered
+# from the table the runtime switches on -- never a second copy -- and split
+# on TYPE_CHECKING because a call expression is not a type expression to a
+# static checker, while a checker only needs to know these are strings.
+if TYPE_CHECKING:
+    OutputFormat = str
+else:
+    OutputFormat = one_of("csv", "json", "parquet", "excel")
 _public_origin = os.environ.get("DA_PUBLIC_URL", "").rstrip("/")
 _base_url = f"{_public_origin}/ingest" if _public_origin else None
 _HOST = os.environ.get("DATA_INGEST_HOST", "127.0.0.1")
@@ -159,7 +170,7 @@ def flatten_merged_cells(
 @mcp.tool(annotations=EDITS)
 def convert_file(
     file_path: str,
-    output_format: str = "csv",
+    output_format: OutputFormat = "csv",
     output_path: str = "",
     sheet: str = "",
     dry_run: bool = False,
