@@ -36,6 +36,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from servers.data_medium._med_transform import _VALID_AGGS as RESAMPLE_AGG_FUNCS  # noqa: E402
 from shared.choice import (  # noqa: E402
     AGG_FUNCS,
     ANOMALY_METHODS,
@@ -143,6 +144,11 @@ class TestTheEnumRendersFromTheRuntimeTable:
             ("data-visual/generate_chart.agg_func", AGG_FUNCS),
             ("data-medium/cross_tabulate.normalize", NORMALIZE_MODES),
             ("data-transform/aggregate_dataset.normalize", NORMALIZE_MODES),
+            # resample_timeseries is the exception that proves the rule: it
+            # switches on its OWN table of nine, not the eleven its siblings
+            # take. Round 29 annotated it with the eleven, so the schema
+            # advertised nunique and var while the tool refused both.
+            ("data-transform/resample_timeseries.agg_func", RESAMPLE_AGG_FUNCS),
         ],
     )
     def test_the_declared_set_is_the_switched_set(self, key, table):
@@ -226,6 +232,41 @@ class TestEveryDeclaredValueIsAccepted:
         for value in found["enum"]:
             r = sample_data(csv, method=value, n=2, open_after=False)
             assert r["success"] is True, (value, r.get("error"))
+
+    def test_resample_timeseries_takes_every_function_it_names(self, tmp_path):
+        """The check that would have caught round 29's own slip.
+
+        Every other tool here takes the eleven in AGG_FUNCS. This one validates
+        against a table of nine, and was annotated with the eleven anyway, so
+        `tools/list` offered `nunique` and `var` to a tool that answered
+        "Invalid agg_func" to both.
+        """
+        import pandas as pd
+
+        from servers.data_transform.engine import resample_timeseries
+
+        path = tmp_path / "ts.csv"
+        pd.DataFrame(
+            {
+                "Date": pd.date_range("2024-01-01", periods=40, freq="D").astype(str),
+                "spend": [float(i) for i in range(40)],
+            }
+        ).to_csv(path, index=False)
+
+        declared = dict(_dispatch_params())["data-transform/resample_timeseries.agg_func"]["enum"]
+        assert declared, "resample_timeseries.agg_func declares nothing"
+        for value in declared:
+            r = resample_timeseries(str(path), date_column="Date", value_columns=["spend"], freq="M", agg_func=value)
+            assert r["success"] is True, (value, r.get("error"))
+
+    def test_and_it_does_not_advertise_what_it_refuses(self):
+        """The two the sibling tools take and this one does not."""
+        declared = set(dict(_dispatch_params())["data-transform/resample_timeseries.agg_func"]["enum"])
+        assert declared == set(RESAMPLE_AGG_FUNCS)
+        assert {"nunique", "var"} & declared == set(), (
+            f"advertising {sorted({'nunique', 'var'} & declared)}, which resample_timeseries refuses"
+        )
+        assert {"nunique", "var"} <= set(AGG_FUNCS), "the siblings still take them"
 
     def test_reshape_and_aggregate_take_every_mode_they_name(self, csv):
         """Modes need different companion arguments, so this checks the refusal

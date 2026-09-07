@@ -16,6 +16,9 @@ import pandas as pd
 
 # Re-export existing data_medium transforms
 from _med_transform import (  # type: ignore[import]
+    _VALID_AGGS as RESAMPLE_AGG_FUNCS,
+)
+from _med_transform import (  # type: ignore[import]
     concat_datasets,
     enrich_with_geo,
     feature_engineering,

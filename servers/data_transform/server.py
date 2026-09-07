@@ -22,7 +22,7 @@ from starlette.responses import JSONResponse
 from shared.arg_errors import contract_errors
 from shared.deploy_auth import build_auth, build_oauth_bridge
 from shared.json_safe import sanitize_responses
-from shared.schema_enum import one_of
+from shared.schema_enum import any_of, one_of
 from shared.strict_args import enforce_known_arguments
 from shared.token_estimate import measure_responses
 from shared.tool_annotations import CREATES, EDITS, READS
@@ -45,6 +45,7 @@ _oauth_bridge = build_oauth_bridge(
 if TYPE_CHECKING:
     ReshapeDatasetMode = str
     AggFunc = str
+    ResampleAggFunc = str
     AggregateDatasetMode = str
     Normalize = str
     How = str
@@ -53,6 +54,12 @@ if TYPE_CHECKING:
 else:
     ReshapeDatasetMode = one_of("melt", "pivot", "transpose", "split_column", "combine_columns")
     AggFunc = one_of("count", "first", "last", "max", "mean", "median", "min", "nunique", "std", "sum", "var")
+    # resample_timeseries takes NINE of those eleven -- not nunique, not var --
+    # because it validates against its own _VALID_AGGS. Round 29 annotated it
+    # with the eleven anyway, so the schema advertised two values the tool
+    # refuses: exactly the lie the enum was added to stop telling. Rendered from
+    # the table the tool actually checks, so the two cannot drift again.
+    ResampleAggFunc = any_of(engine.RESAMPLE_AGG_FUNCS)
     AggregateDatasetMode = one_of("groupby", "crosstab", "value_counts", "describe", "window")
     Normalize = one_of("index", "columns", "all")
     How = one_of("left", "inner", "outer", "right")
@@ -201,7 +208,7 @@ def resample_timeseries(
     file_path: str,
     date_col: str = "",
     freq: str = "M",
-    agg_func: AggFunc = "sum",
+    agg_func: ResampleAggFunc = "sum",
     value_cols: list[str] = None,
     group_by: str = None,
     output_path: str = "",
