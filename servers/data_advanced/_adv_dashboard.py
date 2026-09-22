@@ -42,7 +42,7 @@ from _adv_helpers import (
     warn,
 )
 
-from shared.dashboard_spec import CHART_KINDS, SPEC_KEYS, SpecError
+from shared.dashboard_spec import CHART_KINDS, LAYOUT_SOURCE_KEY, MAX_FILTER_VALUES, SPEC_KEYS, SpecError
 from shared.dashboard_spec import merge as merge_spec
 from shared.dashboard_spec import resolve as resolve_spec
 from shared.dashboard_spec import validate as validate_spec
@@ -243,6 +243,8 @@ def generate_dashboard(
         if err := no_rows_error("generate_dashboard", df, path.name, "Building a dashboard"):
             return err
         dashboard_title = title if title else path.stem
+        if isinstance(spec, dict):
+            _parse_named_dates(df, spec)
 
         numeric_cols = [c for c in df.columns if is_numeric_col(df[c])]
         datetime_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])]
@@ -317,14 +319,24 @@ def generate_dashboard(
                 "progress": [fail("Invalid spec", str(exc))],
                 "token_estimate": 60,
             }
-        detected_layout = [{"slot": i, "chart": name, "cols": {}, "agg": ""} for i, name in enumerate(charts)]
+        # The detected layout is written in the spec's own vocabulary, so it can
+        # be handed straight back: it used to say "geo_choropleth", which the
+        # validator refuses, and a geo dashboard could not be customised at all.
+        detected_layout = [
+            {"slot": i, "chart": _SPEC_KIND.get(name, name), "cols": {}, "agg": ""} for i, name in enumerate(charts)
+        ]
+        # The defaults describe the page that is actually drawn. They used to
+        # say eight KPIs over a row of seven, and every text column as a filter
+        # while the bar offered only those with 2-50 values and no numeric ranges.
+        default_controls = _build_filter_controls(df, cat_cols)
+        default_ranges = _build_num_ranges(df, numeric_cols)
         resolved = resolve_spec(
             spec,
             title=dashboard_title,
             theme=theme,
             detected_layout=detected_layout,
-            kpi_columns=numeric_cols[:8],
-            filter_columns=cat_cols[:8],
+            kpi_columns=numeric_cols[:7],
+            filter_columns=[fc["col"] for fc in default_controls] + [nr["col"] for nr in default_ranges],
         )
         # The build document records where the data came from. The provenance
         # block records only the file NAME -- deliberately, since that block
@@ -332,8 +344,41 @@ def generate_dashboard(
         # find the source whenever MCP_OUTPUT_DIR is not the directory the CSV
         # lives in, which is the deployed layout. Reproduced before fixing.
         resolved["_source_path"] = str(path)
-        if spec and spec.get("layout") is not None:
+        # A layout the caller wrote is drawn panel by panel, exactly as written:
+        # one card per panel, from its own columns. It used to be read for its
+        # chart kinds only, and the detector then drew what it always drew --
+        # layout=[pie] came back as a pie plus a grouped bar, a box plot, a
+        # correlation matrix, a heatmap and a histogram per numeric column, with
+        # charts_included saying ["pie"].
+        caller_layout = bool(spec) and spec.get("layout") is not None and spec.get(LAYOUT_SOURCE_KEY) != "detected"
+        panel_plan: list[tuple[dict, str, bool, int]] | None = None
+        if caller_layout:
+            try:
+                panel_plan = _plan_panels(
+                    resolved["layout"],
+                    df,
+                    chart_cat_cols,
+                    numeric_cols,
+                    datetime_cols,
+                    (_d_geo_lat, _d_geo_lon, _d_geo_loc, _d_geo_loc_mode),
+                    col_agg,
+                )
+            except SpecError as exc:
+                return {
+                    "success": False,
+                    "op": "generate_dashboard",
+                    "error": str(exc),
+                    "hint": "Name the missing column in that panel's cols, or pick a chart this file can draw.",
+                    "progress": [fail("Invalid spec", str(exc))],
+                    "token_estimate": 60,
+                }
             charts = [p["chart"] for p in resolved["layout"]]
+        else:
+            resolved[LAYOUT_SOURCE_KEY] = "detected"
+        kpi_cols = [str(c) for c in resolved["kpis"]]
+        filter_names = [str(c) for c in resolved["filters"]]
+        filter_controls = _build_filter_controls(df, [c for c in filter_names if c not in numeric_cols], limit=None)
+        num_ranges = _build_num_ranges(df, [c for c in filter_names if c in numeric_cols], limit=None)
         dashboard_title = resolved["title"]
         theme = resolved["theme"]
 
@@ -347,8 +392,8 @@ def generate_dashboard(
                 "would_generate": {
                     "title": dashboard_title,
                     "charts": charts,
-                    "kpi_columns": numeric_cols[:8],
-                    "filter_columns": cat_cols[:8],
+                    "kpi_columns": kpi_cols,
+                    "filter_columns": [fc["col"] for fc in filter_controls] + [nr["col"] for nr in num_ranges],
                 },
                 "progress": progress,
             }
@@ -383,9 +428,7 @@ def generate_dashboard(
         # row objects, so everything downstream of _RAW is unchanged.
         raw_json = records_js(embed_clean)
 
-        sparklines = _build_sparklines(df, numeric_cols)
-        filter_controls = _build_filter_controls(df, cat_cols)
-        num_ranges = _build_num_ranges(df, numeric_cols)
+        sparklines = _build_sparklines(df, kpi_cols)
 
         # Computed before the KPI row so the score can see them: the headline
         # number and the panel underneath it must describe the same dataset.
@@ -445,7 +488,7 @@ def generate_dashboard(
             h.append(_dash_source_tabs([path.name] + [n for n, _, _ in source_frames]))
             h.append('<section class="src-sec" data-src="0">')
         h.append(_dash_filterbar(filter_controls, num_ranges))
-        h.append(_dash_kpi_row(df, numeric_cols, sparklines, quality, qual_clr, col_agg))
+        h.append(_dash_kpi_row(df, kpi_cols, sparklines, quality, qual_clr, col_agg))
         # The dashboard is the artifact people actually send to a colleague, and
         # it used to show 26 charts of a dataset without mentioning that two of
         # its columns were constant. Same alert engine the EDA report leads with.
@@ -453,19 +496,24 @@ def generate_dashboard(
 
         chart_specs: list[dict] = []
         h.append('<div class="sec-hdr">Charts</div><div class="cgrid">')
-        _build_chart_cards(
-            h,
-            chart_specs,
-            charts,
-            chart_cat_cols,
-            numeric_cols,
-            datetime_cols,
-            _d_geo_lat,
-            _d_geo_lon,
-            _d_geo_loc,
-            _d_geo_loc_mode,
-            col_agg,
-        )
+        if panel_plan is not None:
+            for chart_spec, title, full, height in panel_plan:
+                _card(h, chart_spec["id"], title, full, height)
+                chart_specs.append(chart_spec)
+        else:
+            _build_chart_cards(
+                h,
+                chart_specs,
+                charts,
+                chart_cat_cols,
+                numeric_cols,
+                datetime_cols,
+                _d_geo_lat,
+                _d_geo_lon,
+                _d_geo_loc,
+                _d_geo_loc_mode,
+                col_agg,
+            )
         h.append("</div>")
         # Off by default: a spec parameter must not change what a
         # zero-argument call returns. `interactions.table` turns it on.
@@ -517,7 +565,7 @@ def generate_dashboard(
             f"  (function(){{var s={_js_kpi_expr(nc, col_agg.get(nc, 'sum'))};"
             f"var el=document.getElementById('kv-{_safe(nc)}');"
             f"if(el)el.textContent=s>=1e6?(s/1e6).toFixed(1)+'M':s>=1e3?(s/1e3).toFixed(1)+'K':Math.round(s).toLocaleString();}})();"
-            for nc in numeric_cols[:7]
+            for nc in kpi_cols
         )
         render_calls = "\n".join(
             "  try{rf_" + s["id"] + "(d);}catch(_e){console.warn('chart " + s["id"] + "',_e);}" for s in chart_specs
@@ -558,8 +606,8 @@ def generate_dashboard(
             "output_name": out.name,
             "dashboard_title": dashboard_title,
             "charts_included": charts,
-            "kpi_columns": numeric_cols[:7],
-            "filter_columns": [fc["col"] for fc in filter_controls],
+            "kpi_columns": kpi_cols,
+            "filter_columns": [fc["col"] for fc in filter_controls] + [nr["col"] for nr in num_ranges],
             "rows_embedded": len(embed_df),
             "rows_total": len(df),
             "was_sampled": was_sampled,
@@ -600,7 +648,7 @@ def generate_dashboard(
 
 def _build_sparklines(df, numeric_cols):
     sparklines: dict = {}
-    for nc in numeric_cols[:8]:
+    for nc in numeric_cols:
         n_pts = min(30, len(df))
         step = max(1, len(df) // n_pts)
         sv = df[nc].iloc[::step].head(n_pts).fillna(0).tolist()
@@ -608,24 +656,32 @@ def _build_sparklines(df, numeric_cols):
     return sparklines
 
 
-def _build_filter_controls(df, cat_cols):
+def _build_filter_controls(df, cat_cols, limit: int | None = 8):
+    """Detected filters: the first `limit` text columns with 2-50 values.
+
+    With `limit=None` the columns are the caller's own, already checked by the
+    spec validator, and each gets a control with every value (up to the
+    validator's ceiling) -- a named filter that quietly produced no control
+    would be the configuration-ignored failure all over again.
+    """
     controls: list[dict] = []
-    for cc in cat_cols[:8]:
+    max_values = 50 if limit is not None else MAX_FILTER_VALUES
+    for cc in cat_cols[:limit]:
         uniq = sorted(df[cc].dropna().astype(str).unique().tolist())
-        if 1 < len(uniq) <= 50:
+        if 1 < len(uniq) <= max_values:
             controls.append(
                 {
                     "col": cc,
-                    "values": uniq[:50],
+                    "values": uniq,
                     "style": "pills" if len(uniq) <= 10 else "dropdown",
                 }
             )
     return controls
 
 
-def _build_num_ranges(df, numeric_cols):
+def _build_num_ranges(df, numeric_cols, limit: int | None = 3):
     ranges: list[dict] = []
-    for nc in numeric_cols[:3]:
+    for nc in numeric_cols[:limit]:
         mn, mx = float(df[nc].min()), float(df[nc].max())
         if mn < mx:
             ranges.append({"col": nc, "min": mn, "max": mx})
@@ -791,7 +847,9 @@ def _dash_kpi_row(df, numeric_cols, sparklines, quality, qual_clr, col_agg):
     h.append(
         f'<div class="kpi-card"><div class="kpi-val" style="color:{qual_clr}">{quality}</div><div class="kpi-lbl">Quality Score</div></div>'
     )
-    for nc in numeric_cols[:7]:
+    # Every column passed is drawn: the detected default is already cut to
+    # seven, and a caller's `kpis` list is theirs.
+    for nc in numeric_cols:
         agg = col_agg.get(nc, "sum")
         arrow, acls = _trend(df, nc)
         sc = _safe(nc)
@@ -849,6 +907,125 @@ def _card(h, cid: str, ttl: str, full: bool, height: int) -> None:
         f'<div id="{cid}" style="width:100%;height:100%"></div>'
         f"</div></div>"
     )
+
+
+# The detector's internal names for the kinds the spec vocabulary calls
+# something else.
+_SPEC_KIND = {"geo_choropleth": "choropleth"}
+
+
+def _parse_named_dates(df, spec) -> None:
+    """Read a text column as dates when a panel names it as its `date` and nearly all of it parses.
+
+    The CSV loader leaves "2024-01-05" as text, so a line chart over a named
+    date column was refused as "not a date" although every value was one. Only
+    columns a caller names are touched: the detected page is unchanged.
+    """
+    for panel in (spec or {}).get("layout") or []:
+        cols = panel.get("cols") if isinstance(panel, dict) else None
+        col = cols.get("date") if isinstance(cols, dict) else None
+        if not col or col not in df.columns:
+            continue
+        series = df[col]
+        if pd.api.types.is_datetime64_any_dtype(series) or is_numeric_col(series):
+            continue
+        parsed = pd.to_datetime(series, errors="coerce", format="mixed")
+        present = int(series.notna().sum())
+        if present and int(parsed.notna().sum()) / present >= 0.9:
+            df[col] = parsed
+
+
+def _plan_panels(layout, df, cat_cols, numeric_cols, datetime_cols, geo, col_agg):
+    """One card per panel of a caller's layout, drawn from that panel's columns.
+
+    Returns (chart_spec, title, full_width, height) per panel, in layout order,
+    so tab slot N is card N. A role the panel leaves empty is filled the way
+    the detected page fills it; a role nothing can fill is refused by name
+    rather than swapped for a different chart.
+    """
+    lat_d, lon_d, loc_d, loc_mode = geo
+    plan: list[tuple[dict, str, bool, int]] = []
+    for i, panel in enumerate(layout):
+        kind = panel["chart"]
+        cols = dict(panel.get("cols") or {})
+        named_agg = panel.get("agg") or ""
+        cid = f"p{i}_{_safe(kind)}"
+
+        def pick(role: str, candidates: list, what: str) -> str:
+            if cols.get(role):
+                return str(cols[role])
+            if candidates:
+                return str(candidates[0])
+            raise SpecError(
+                f"layout[{i}] is a {kind} chart and this file has no {what} for its {role}; name one in cols.{role}"
+            )
+
+        if kind == "bar":
+            cc = pick("category", cat_cols, "text column with 2-100 values")
+            nc = pick("value", numeric_cols, "numeric column")
+            agg = named_agg or col_agg.get(nc, "sum")
+            plan.append(
+                (
+                    {"id": cid, "type": "bar", "cc": cc, "nc": nc, "agg": agg},
+                    f"{agg_label(agg)} {nc} by {cc}",
+                    False,
+                    340,
+                )
+            )
+        elif kind == "pie":
+            cc = pick("category", cat_cols, "text column with 2-100 values")
+            nc = str(cols.get("value") or "")
+            title = f"{nc} share by {cc}" if nc else f"{cc} Distribution"
+            plan.append(({"id": cid, "type": "pie", "cc": cc, "nc": nc}, title, False, 340))
+        elif kind in ("line", "time_series"):
+            dc = pick("date", datetime_cols, "date column")
+            nc = pick("value", numeric_cols, "numeric column")
+            agg = named_agg or col_agg.get(nc, "sum")
+            plan.append(
+                (
+                    {"id": cid, "type": "ts", "dc": dc, "nc": nc, "agg": agg},
+                    f"{agg_label(agg)} {nc} Over Time",
+                    True,
+                    380,
+                )
+            )
+        elif kind == "scatter":
+            x = pick("x", numeric_cols, "numeric column")
+            y = pick("y", [c for c in numeric_cols if c != x], "second numeric column")
+            plan.append(({"id": cid, "type": "scatter", "nc1": x, "nc2": y}, f"{x} vs {y}", False, 340))
+        elif kind == "histogram":
+            nc = pick("value", numeric_cols, "numeric column")
+            plan.append(({"id": cid, "type": "dist", "nc": nc}, f"{nc} Distribution", False, 320))
+        elif kind == "box":
+            nc = pick("value", numeric_cols, "numeric column")
+            # Named cols without a category ask for one box; no cols at all
+            # asks for the detected page's box, grouped by the first category.
+            cc = str(cols.get("category") or ("" if cols or not cat_cols else cat_cols[0]))
+            title = f"{nc} distribution by {cc}" if cc else f"{nc} distribution"
+            plan.append(({"id": cid, "type": "box", "nc": nc, "cc": cc}, title, True, 380))
+        elif kind == "geo_scatter":
+            lat = pick("lat", [lat_d] if lat_d else [], "latitude column")
+            lon = pick("lon", [lon_d] if lon_d else [], "longitude column")
+            val = str(numeric_cols[0]) if numeric_cols else ""
+            cc = str(cat_cols[0]) if cat_cols else ""
+            spec = {"id": cid, "type": "geo_scatter", "lat": lat, "lon": lon, "val": val, "cc": cc}
+            plan.append((spec, "Geographic Distribution (Scatter)", True, 500))
+        elif kind == "choropleth":
+            loc = pick("location", [loc_d] if loc_d else [], "location column")
+            nc = pick("value", numeric_cols, "numeric column")
+            agg = named_agg or col_agg.get(nc, "sum")
+            mode = loc_mode if loc == loc_d else _detect_location_mode(df, loc)
+            values = [str(v) for v in df[loc].dropna().unique().tolist()]
+            if values and len(unrecognised_locations(values, mode)) == len(values):
+                raise SpecError(
+                    f"layout[{i}] choropleth location={loc!r} holds no place names a map can shade "
+                    f"(e.g. {values[0]!r}); use a bar chart for it instead"
+                )
+            spec = {"id": cid, "type": "geo_choro", "loc": loc, "nc": nc, "mode": mode or "country names", "agg": agg}
+            plan.append((spec, f"{agg_label(agg)} {nc} by {loc} (Choropleth)", True, 500))
+        else:  # pragma: no cover - the validator refuses every other kind first
+            raise SpecError(f"layout[{i}] chart={kind!r} is not drawable. Valid: {', '.join(CHART_KINDS)}")
+    return plan
 
 
 def _build_chart_cards(
@@ -998,8 +1175,11 @@ def _build_render_functions(
             )
         elif t == "pie":
             cc = s["cc"]
+            # With a value column the slices are its sums per category; without
+            # one they are row counts, which is what the detected pie draws.
+            weight = f"(+r['{s['nc']}']||0)" if s.get("nc") else "1"
             rfns.append(
-                f"function rf_{cid}(d){{\n  var c={{}};\n  d.forEach(function(r){{var k=String(r['{cc}']??'');c[k]=(c[k]||0)+1;}});\n  var e=Object.entries(c).sort((x,y)=>y[1]-x[1]).slice(0,15);\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:12}},autosize:true,margin:{{l:20,r:20,t:10,b:20}},showlegend:true,legend:{{orientation:'h',y:-0.14}}}};\n  // Past a handful of slices, per-slice labels are drawn outside on\n  // leader lines that overlap each other and spill out of the card, while\n  // repeating names the legend already lists. Keep the percent inside the\n  // slice and let the legend carry the names.\n  var ti=e.length>6?'percent':'label+percent';\n  Plotly.react('{cid}',[{{values:e.map(i=>i[1]),labels:e.map(i=>i[0]),type:'pie',hole:0.38,marker:{{colors:{COLORS}}},textinfo:ti,textposition:'inside',insidetextorientation:'horizontal',textfont:{{size:11}},pull:e.map((_,i)=>i===0?0.04:0)}}],am(layout),{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
+                f"function rf_{cid}(d){{\n  var c={{}};\n  d.forEach(function(r){{var k=String(r['{cc}']??'');c[k]=(c[k]||0)+{weight};}});\n  var e=Object.entries(c).sort((x,y)=>y[1]-x[1]).slice(0,15);\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:12}},autosize:true,margin:{{l:20,r:20,t:10,b:20}},showlegend:true,legend:{{orientation:'h',y:-0.14}}}};\n  // Past a handful of slices, per-slice labels are drawn outside on\n  // leader lines that overlap each other and spill out of the card, while\n  // repeating names the legend already lists. Keep the percent inside the\n  // slice and let the legend carry the names.\n  var ti=e.length>6?'percent':'label+percent';\n  Plotly.react('{cid}',[{{values:e.map(i=>i[1]),labels:e.map(i=>i[0]),type:'pie',hole:0.38,marker:{{colors:{COLORS}}},textinfo:ti,textposition:'inside',insidetextorientation:'horizontal',textfont:{{size:11}},pull:e.map((_,i)=>i===0?0.04:0)}}],am(layout),{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
             )
         elif t == "scatter":
             nc1, nc2 = s["nc1"], s["nc2"]

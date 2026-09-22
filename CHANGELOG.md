@@ -24,6 +24,30 @@ All notable changes to this project will be documented in this file.
   the column, and reading the number silently would have turned a year-over-year
   difference into `1.0`.
 
+### Fixed — a dashboard spec reaches the page, not only the response
+
+- **`generate_dashboard(spec=…)` echoed the spec and drew the detection.**
+  `kpis`, `filters`, and each panel's `cols` and `agg` were validated and
+  returned in `spec`, and then the page was built from auto-detection:
+  `layout: [pie]` drew a pie plus a grouped bar, a box plot, a correlation
+  matrix, a heatmap and a histogram per numeric column, while
+  `charts_included` said `["pie"]`. A caller's layout now draws exactly one
+  card per panel from that panel's columns (an empty panel is filled the way
+  the detected page fills it), `kpis` are the KPI cards, and `filters` are the
+  filter bar: text columns get a control, numeric ones a range. Tab slots
+  address panels.
+- **Refused by name instead of ignored:** an unknown panel key, a role a chart
+  does not have, a text column in a numeric role, `agg` on a chart that does
+  not group, a pie `agg` other than sum, a text KPI, and a filter that could
+  not work (one value, or a text column with more than 100 values).
+- A text column named as a panel's `date` is read as dates when at least 90%
+  of it parses. The CSV loader leaves `2024-01-05` as text.
+- The detected layout is written in the spec's own vocabulary (`choropleth`,
+  not `geo_choropleth`), so a geo dashboard's spec can be handed back to
+  `customize_dashboard`. It used to be refused. The resolved defaults now
+  describe the page actually drawn: seven KPIs, not eight, and the filters
+  the bar really offers.
+
 ### Fixed — an aggregate override is honoured or refused, never dropped
 
 - **`generate_dashboard(agg_overrides=…)` discarded every entry it did not

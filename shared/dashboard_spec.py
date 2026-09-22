@@ -36,6 +36,10 @@ from __future__ import annotations
 
 from typing import Any
 
+import pandas as pd
+
+from shared.column_utils import is_numeric_col
+
 # Charts the dashboard knows how to draw. `generate_dashboard` detects a subset
 # of these from the data; a spec may name any of them, and is refused for the
 # rest rather than quietly given a different chart.
@@ -86,6 +90,31 @@ DEFAULT_INTERACTIONS: dict[str, Any] = {
 
 SPEC_KEYS: tuple[str, ...] = ("title", "theme", "layout", "kpis", "filters", "tabs", "interactions")
 
+# What a panel may carry. Anything else -- "width", "title", a typo of "cols" --
+# used to be accepted and dropped, which is the failure this module exists to
+# refuse.
+PANEL_KEYS: tuple[str, ...] = ("slot", "chart", "cols", "agg")
+
+# Roles a chart can take beyond the ones it needs.
+CHART_OPTIONAL: dict[str, tuple[str, ...]] = {"box": ("category",)}
+
+# Roles whose column has to hold numbers, and the one that has to hold dates.
+NUMERIC_ROLES = frozenset({"value", "x", "y", "lat", "lon"})
+DATE_ROLES = frozenset({"date"})
+
+# A panel's `agg` means something only where values are grouped; a pie shows
+# shares of a total, so the only aggregate it can draw is a sum.
+PANEL_AGGS: tuple[str, ...] = ("sum", "mean", "max", "min")
+AGG_CHARTS: tuple[str, ...] = ("bar", "line", "time_series", "pie", "choropleth")
+
+# Set by the generator when the layout is its own detection rather than the
+# caller's, so a round-trip through customize_dashboard redraws the detected
+# page instead of reading the detection as a hand-written layout.
+LAYOUT_SOURCE_KEY = "_layout_source"
+
+# Distinct values above which a text column is not offered as a filter.
+MAX_FILTER_VALUES = 100
+
 
 class SpecError(ValueError):
     """A spec that cannot be honoured, named precisely enough to fix."""
@@ -134,6 +163,27 @@ def validate(spec: dict[str, Any] | None, df) -> dict[str, Any]:
         if missing:
             raise SpecError(f"{key} names column(s) not in the file: {', '.join(map(str, missing))}. Available: {available}")
 
+    numeric = [c for c in df.columns if is_numeric_col(df[c])]
+    kpis = spec.get("kpis")
+    if kpis:
+        not_numeric = [k for k in kpis if k not in numeric]
+        if not_numeric:
+            raise SpecError(
+                f"kpis must be numeric columns; not numeric: {', '.join(map(str, not_numeric))}. "
+                f"Numeric: {', '.join(map(str, numeric))}"
+            )
+    for name in spec.get("filters") or []:
+        series = df[name]
+        if pd.api.types.is_datetime64_any_dtype(series):
+            raise SpecError(f"filters: {name!r} is a date column, which the filter bar has no control for")
+        distinct = series.dropna().nunique()
+        if distinct < 2:
+            raise SpecError(f"filters: {name!r} has {distinct} distinct value(s), so a filter on it would do nothing")
+        if name not in numeric and distinct > MAX_FILTER_VALUES:
+            raise SpecError(
+                f"filters: {name!r} has {distinct} distinct values; a text filter offers at most {MAX_FILTER_VALUES}"
+            )
+
     layout = spec.get("layout")
     if layout is not None:
         if not isinstance(layout, list):
@@ -141,6 +191,9 @@ def validate(spec: dict[str, Any] | None, df) -> dict[str, Any]:
         for i, panel in enumerate(layout):
             if not isinstance(panel, dict):
                 raise SpecError(f"layout[{i}] must be a dict, got {type(panel).__name__}")
+            extra = sorted(str(k) for k in panel if k not in PANEL_KEYS)
+            if extra:
+                raise SpecError(f"layout[{i}] has unknown key(s): {', '.join(extra)}. A panel takes: {', '.join(PANEL_KEYS)}")
             chart = panel.get("chart")
             if chart not in CHART_KINDS:
                 raise SpecError(
@@ -165,6 +218,13 @@ def validate(spec: dict[str, Any] | None, df) -> dict[str, Any]:
             # under a spec that says they did.
             needs = CHART_NEEDS.get(chart, ())
             if panel_cols:
+                roles = needs + CHART_OPTIONAL.get(chart, ())
+                unknown_roles = sorted(str(r) for r in panel_cols if r not in roles)
+                if unknown_roles:
+                    raise SpecError(
+                        f"layout[{i}] is a {chart} chart, which has no role(s) {', '.join(unknown_roles)}. "
+                        f"Its roles: {', '.join(roles)}"
+                    )
                 absent = [role for role in needs if not panel_cols.get(role)]
                 if absent:
                     raise SpecError(
@@ -172,6 +232,29 @@ def validate(spec: dict[str, Any] | None, df) -> dict[str, Any]:
                         f"Got: {', '.join(sorted(panel_cols))}. Pass no cols at all to let the "
                         "detector choose them."
                     )
+                for role, col in panel_cols.items():
+                    if not col:
+                        continue
+                    if role in NUMERIC_ROLES and col not in numeric:
+                        raise SpecError(
+                            f"layout[{i}] {role}={col!r} is not numeric. Numeric columns: {', '.join(map(str, numeric))}"
+                        )
+                    if role in DATE_ROLES and not pd.api.types.is_datetime64_any_dtype(df[col]):
+                        raise SpecError(
+                            f"layout[{i}] date={col!r} is not read as a date. "
+                            "Convert it with apply_patch cast_column dtype=datetime first."
+                        )
+            agg = panel.get("agg") or ""
+            if agg:
+                if agg not in PANEL_AGGS:
+                    raise SpecError(f"layout[{i}] agg={agg!r} is not one of {', '.join(PANEL_AGGS)}")
+                if chart not in AGG_CHARTS:
+                    raise SpecError(
+                        f"layout[{i}] is a {chart} chart, which draws values as they are; agg applies to "
+                        f"{', '.join(AGG_CHARTS)}"
+                    )
+                if chart == "pie" and agg != "sum":
+                    raise SpecError(f"layout[{i}] is a pie, which shows shares of a total, so its only agg is sum")
 
     tabs = spec.get("tabs")
     if tabs is not None:
@@ -254,4 +337,8 @@ def merge(base: dict[str, Any], changes: dict[str, Any]) -> dict[str, Any]:
             out["interactions"] = merged
         else:
             out[key] = value
+        if key == "layout":
+            # The caller has written the layout now, so it is no longer the
+            # detector's and every panel in it is drawn as given.
+            out.pop(LAYOUT_SOURCE_KEY, None)
     return out
