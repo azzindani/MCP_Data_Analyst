@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [Unreleased]
+
+### Fixed — a column formula means what it says
+
+- **`column_math` and `add_column` ignored operator precedence.** The parser
+  split the text on `+ - * /` and folded left to right, so `a + b * 2` wrote
+  `(a + b) * 2` (22 where 21 was meant) under `success: true`, and it refused
+  parentheses and unary minus, so the intended version could not be written.
+  Formulas are now read by Python's grammar and evaluated by an allow-listed
+  tree walk (`shared/expr.py`), never `eval()`: normal precedence, parentheses,
+  unary minus, `** // %`, comparisons, `and`/`or`/`not`, `x if cond else y`,
+  and `abs round sqrt log log10 exp floor ceil clip coalesce if_else isnull
+  notnull`.
+- Column names with spaces still work bare. A name that holds operator
+  characters is written in backticks (`` `clicks-2` ``). A number that is also a
+  column name (`2020` in a pivoted file) is refused until the caller writes
+  `` `2020` `` for the column or `2020.0` for the number. The old parser read
+  the column, and reading the number silently would have turned a year-over-year
+  difference into `1.0`.
+
 ## [0.3.0] — 2026-09-07
 
 Source-only release: no wheel and no container image are published. Build the

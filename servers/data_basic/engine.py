@@ -1222,7 +1222,10 @@ _OP_CATALOG: dict[str, list[dict]] = {
         },
         {"op": "cast_column", "params": "column, dtype: int|float|str|datetime"},
         {"op": "replace_values", "params": "column, mapping: {old: new}"},
-        {"op": "add_column", "params": "name, mode: math|threshold, expr|source+threshold"},
+        {
+            "op": "add_column",
+            "params": "name, mode: math|threshold, expr|source+threshold (expr: same formula grammar as column_math)",
+        },
         {
             "op": "cap_outliers",
             "params": "column, method: iqr|std, threshold: number (IQR multiplier, default 1.5; sigma count for std, default 3), th1/th3: quantiles for iqr",
@@ -1290,7 +1293,15 @@ _OP_CATALOG: dict[str, list[dict]] = {
         },
     ],
     "structural": [
-        {"op": "column_math", "params": "formula: 'col_a + col_b', target_column"},
+        {
+            "op": "column_math",
+            "params": (
+                "formula: math on columns (+ - * / // % ** with normal precedence and parentheses; comparisons; "
+                "and/or/not; x if cond else y; functions abs round sqrt log log10 exp floor ceil clip coalesce "
+                "if_else isnull notnull; backtick a column name holding operators or only digits, e.g. `clicks-2` "
+                "or `2020`), target_column"
+            ),
+        },
         {
             "op": "conditional_assign",
             "params": (

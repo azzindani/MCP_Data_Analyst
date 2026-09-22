@@ -14,6 +14,7 @@ from shared.value_alias import resolve as resolve_op
 _ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
+from shared.expr import evaluate as evaluate_formula
 from shared.file_utils import read_csv as _read_csv
 from shared.patch_validator import (
     _FILL_STRATEGIES,
@@ -159,40 +160,8 @@ def _op_replace_values(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
 
 
 def _parse_expr(expr: str, df: pd.DataFrame) -> pd.Series:
-    """Parse simple math expression safely — no eval()."""
-    tokens = re.split(r"(\s*[\+\-\*\/]\s*)", expr)
-    tokens = [t.strip() for t in tokens]
-
-    def resolve(token: str) -> pd.Series:
-        token = token.strip()
-        if token in df.columns:
-            return df[token].astype(float)
-        try:
-            return pd.Series([float(token)] * len(df), index=df.index)
-        except ValueError:
-            raise ValueError(f"Unknown token in expr: '{token}'. Must be a column name or number.")
-
-    if len(tokens) == 1:
-        return resolve(tokens[0])
-
-    result = resolve(tokens[0])
-    i = 1
-    while i < len(tokens):
-        op_sym = tokens[i].strip()
-        right = resolve(tokens[i + 1])
-        if op_sym == "+":
-            result = result + right
-        elif op_sym == "-":
-            result = result - right
-        elif op_sym == "*":
-            result = result * right
-        elif op_sym == "/":
-            result = result / right
-        else:
-            raise ValueError(f"Unsupported operator: '{op_sym}'")
-        i += 2
-
-    return result
+    """Evaluate a column formula. Parsed and allow-listed in shared/expr.py -- never eval()."""
+    return evaluate_formula(expr, df)
 
 
 def _op_add_column(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
