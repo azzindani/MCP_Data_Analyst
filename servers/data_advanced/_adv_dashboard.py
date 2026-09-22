@@ -260,7 +260,17 @@ def generate_dashboard(
         chart_cat_cols = [c for c in cat_cols if df[c].nunique() > 1]
 
         col_agg: dict[str, str] = {nc: infer_agg(nc, df[nc]) for nc in numeric_cols}
-        col_agg.update(parse_agg_overrides(agg_overrides))
+        try:
+            col_agg.update(parse_agg_overrides(agg_overrides, [str(c) for c in numeric_cols]))
+        except ValueError as exc:
+            return {
+                "success": False,
+                "op": "generate_dashboard",
+                "error": str(exc),
+                "hint": "Fix the agg_overrides named above and call again. Nothing was written.",
+                "progress": [fail("Invalid agg_overrides", str(exc))],
+                "token_estimate": 60,
+            }
 
         _d_geo_lat, _d_geo_lon, _d_geo_loc = _find_geo_cols(df)
         _d_geo_loc_mode = _detect_location_mode(df, _d_geo_loc) if _d_geo_loc else ""

@@ -131,22 +131,54 @@ def agg_label(agg: str) -> str:
     return {"sum": "Total", "mean": "Avg", "max": "Max", "min": "Min"}.get(agg, "Total")
 
 
-def parse_agg_overrides(overrides: list[str] | None) -> dict[str, str]:
+OVERRIDE_AGGS: tuple[str, ...] = ("sum", "mean", "max", "min")
+
+_AGG_ALIASES = {"avg": "mean", "average": "mean", "total": "sum", "maximum": "max", "minimum": "min"}
+
+
+def parse_agg_overrides(overrides: list[str] | None, columns: list[str] | None = None) -> dict[str, str]:
     """
-    Parse a list of "column:agg" strings into a dict.
+    Parse a list of "column:agg" strings into a dict. Raises ValueError on anything it cannot honour.
 
     Example input: ["revenue:sum", "rate:mean", "temperature:mean"]
+
+    Every entry it could not use used to be dropped without a word: "units:count"
+    and "units:median" vanished, "revenue=mean" vanished, and the caller got the
+    detected aggregate under success: true -- a count they asked for, drawn as a
+    sum. A column that does not exist was accepted and then ignored. Now every
+    problem is named at once, so one retry fixes them all. `columns` is the set
+    an override may name; when given, anything else is refused.
     """
     result: dict[str, str] = {}
     if not overrides:
         return result
-    valid = {"sum", "mean", "max", "min"}
+    problems: list[str] = []
     for item in overrides:
-        if ":" in item:
-            col, agg = item.split(":", 1)
-            col, agg = col.strip(), agg.strip().lower()
-            if agg in valid:
-                result[col] = agg
+        if not isinstance(item, str):
+            problems.append(f"{item!r} is not a 'column:agg' string")
+            continue
+        sep = ":" if ":" in item else "=" if "=" in item else ""
+        if not sep:
+            problems.append(f"{item!r} has no ':' between column and aggregate")
+            continue
+        col, agg = item.split(sep, 1)
+        col, agg = col.strip(), agg.strip().lower()
+        agg = _AGG_ALIASES.get(agg, agg)
+        if agg not in OVERRIDE_AGGS:
+            problems.append(f"{item!r}: aggregate {agg!r} is not one of {', '.join(OVERRIDE_AGGS)}")
+            continue
+        if columns is not None and col not in columns:
+            problems.append(f"{item!r}: {col!r} is not a numeric column here")
+            continue
+        result[col] = agg
+    if problems:
+        allowed = f" Numeric columns: {', '.join(columns)}." if columns is not None else ""
+        raise ValueError(
+            "agg_overrides could not be used: "
+            + "; ".join(problems)
+            + f". Write each as 'column:agg' with agg one of {', '.join(OVERRIDE_AGGS)}."
+            + allowed
+        )
     return result
 
 

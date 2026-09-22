@@ -24,6 +24,17 @@ All notable changes to this project will be documented in this file.
   the column, and reading the number silently would have turned a year-over-year
   difference into `1.0`.
 
+### Fixed — an aggregate override is honoured or refused, never dropped
+
+- **`generate_dashboard(agg_overrides=…)` discarded every entry it did not
+  recognise.** `["units:count", "units:median", "revenue=mean",
+  "nosuchcol:sum"]` parsed to `{"nosuchcol": "sum"}`: the caller asked for a
+  count and got the detected sum, drawn on the page under `success: true`. Now
+  an unknown aggregate, a missing `:`, a non-string entry or a column that is
+  not numeric in the file is refused by name, every problem in one message, and
+  nothing is written. `avg`/`average`/`total`/`maximum`/`minimum` and a `=`
+  separator are understood.
+
 ## [0.3.0] — 2026-09-07
 
 Source-only release: no wheel and no container image are published. Build the
