@@ -627,6 +627,16 @@ def validate(spec: dict[str, Any] | None, df) -> dict[str, Any]:
                 out_of_range = [s for s in slots if not isinstance(s, int) or s < 0 or s >= slot_count]
                 if out_of_range:
                     raise SpecError(f"tabs[{i}] refers to slot(s) {out_of_range} but layout has {slot_count} panel(s)")
+        # A tab shows its own panels and hides every other, so a panel in no
+        # tab is never on screen -- it was drawn, and passed, and hidden.
+        if slot_count is not None and tabs and spec.get(LAYOUT_SOURCE_KEY) != "detected":
+            shown = {s for tab in tabs for s in (tab.get("slots") or [])}
+            unshown = [s for s in range(slot_count) if s not in shown]
+            if unshown:
+                raise SpecError(
+                    f"layout slot(s) {unshown} are in no tab, and a tab hides every panel it does not list, "
+                    "so nothing would show them. Add each to a tab's slots."
+                )
 
     interactions = spec.get("interactions")
     if interactions is not None:
@@ -668,6 +678,158 @@ def resolve(
         "interactions": interactions,
         "style": dict(spec.get("style") or {}),
     }
+
+
+PANEL_OPS: dict[str, tuple[str, ...]] = {
+    "set_panel": ("slot", "chart", "cols", "agg", "title", "style", "place", "text"),
+    "add_panel": ("panel", "at", "tab"),
+    "remove_panel": ("slot",),
+    "move_panel": ("slot", "to"),
+}
+# A panel field that is a dict is edited key by key: set_panel {style:
+# {color}} changes the colour and keeps the rest of the style.
+_MERGED_FIELDS = ("cols", "style", "place")
+MAX_OPS = 50
+
+
+def apply_panel_ops(spec: dict[str, Any], ops: Any) -> tuple[dict[str, Any], list[str]]:
+    """Edit a dashboard's layout one panel at a time. Returns the new spec and what each op did.
+
+    `merge` replaces `layout` whole, so changing one panel meant resending all
+    of them -- and a tab or a filter scope names panels by slot, so a panel
+    removed or moved by hand left them pointing at the wrong cards. Here every
+    slot reference follows its panel: tabs and filter scopes are renumbered,
+    and an edit that would leave one pointing at nothing is refused by name.
+
+    set_panel replaces the fields it names (null removes one), except cols,
+    style and place, which change key by key. The panels themselves are
+    checked afterwards by `validate`, like any layout.
+    """
+    if not isinstance(ops, list) or not ops:
+        raise SpecError("ops must be a list of {op, ...}; ops: " + ", ".join(PANEL_OPS))
+    if len(ops) > MAX_OPS:
+        raise SpecError(f"ops has {len(ops)} edits; one call takes at most {MAX_OPS}")
+    layout = spec.get("layout")
+    if spec.get(LAYOUT_SOURCE_KEY) == "detected" or not isinstance(layout, list):
+        raise SpecError(
+            "this page's layout is the detector's: each of its slots is a chart kind that may draw several cards, "
+            "so there is no panel to edit. Make the layout yours first -- changes={'layout': [...]}; the page's "
+            "spec.layout, handed back, draws one panel per kind -- and edit that"
+        )
+    out = {**spec, "layout": [dict(p) if isinstance(p, dict) else p for p in layout]}
+    panels: list = out["layout"]
+    # Which original slot each position holds; None for a panel added here.
+    origin: list[int | None] = list(range(len(panels)))
+    tab_names = [str(t.get("name")) for t in (out.get("tabs") or []) if isinstance(t, dict)]
+    joins: list[str | None] = [None] * len(panels)  # the tab an added panel joins
+    applied: list[str] = []
+
+    def slot_at(i: int, op: dict, key: str, size: int) -> int:
+        value = op.get(key)
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < size:
+            raise SpecError(f"ops[{i}].{key} must be a slot from 0 to {size - 1}; got {value!r}")
+        return value
+
+    for i, op in enumerate(ops):
+        if not isinstance(op, dict) or op.get("op") not in PANEL_OPS:
+            got = op.get("op") if isinstance(op, dict) else op
+            raise SpecError(f"ops[{i}] op={got!r} is not an edit. Valid: {', '.join(PANEL_OPS)}")
+        name = op["op"]
+        extra = sorted(str(k) for k in op if k != "op" and k not in PANEL_OPS[name])
+        if extra:
+            raise SpecError(f"ops[{i}] {name} has unknown key(s): {', '.join(extra)}. It takes: {', '.join(PANEL_OPS[name])}")
+        if name == "set_panel":
+            s = slot_at(i, op, "slot", len(panels))
+            fields = [k for k in op if k not in ("op", "slot")]
+            if not fields:
+                raise SpecError(f"ops[{i}] set_panel names no field to set. It takes: {', '.join(PANEL_OPS[name][1:])}")
+            panel = dict(panels[s])
+            before = panel.get("chart")
+            for key in fields:
+                value = op[key]
+                if key in _MERGED_FIELDS and isinstance(value, dict):
+                    merged = dict(panel.get(key) or {})
+                    for k, v in value.items():
+                        if v is None:
+                            merged.pop(k, None)
+                        else:
+                            merged[k] = v
+                    panel[key] = merged
+                elif value is None:
+                    panel.pop(key, None)
+                else:
+                    panel[key] = value
+            panels[s] = panel
+            what = f"slot {s}: set {', '.join(fields)}"
+            if panel.get("chart") != before:
+                what += f" ({before} -> {panel.get('chart')})"
+            applied.append(what)
+        elif name == "add_panel":
+            panel = op.get("panel")
+            if not isinstance(panel, dict) or not panel.get("chart"):
+                raise SpecError(f"ops[{i}] add_panel needs a panel with a chart, e.g. {{'chart': 'bar', 'cols': {{...}}}}")
+            at = len(panels) if op.get("at") is None else slot_at(i, op, "at", len(panels) + 1)
+            tab = op.get("tab")
+            if tab_names and tab is None:
+                raise SpecError(
+                    f"ops[{i}] adds a panel to a page with tabs ({', '.join(tab_names)}); name the tab that shows it"
+                )
+            if tab is not None and tab not in tab_names:
+                raise SpecError(
+                    f"ops[{i}].tab={tab!r} is not a tab on this page. Tabs: {', '.join(tab_names) or 'none'}"
+                )
+            panel = dict(panel)
+            panels.insert(at, panel)
+            origin.insert(at, None)
+            joins.insert(at, tab)
+            applied.append(f"added a {panel.get('chart')} panel at slot {at}" + (f" in tab {tab!r}" if tab else ""))
+        elif name == "remove_panel":
+            s = slot_at(i, op, "slot", len(panels))
+            if len(panels) == 1:
+                raise SpecError(f"ops[{i}] removes the last panel; a dashboard needs one")
+            gone = panels.pop(s)
+            origin.pop(s)
+            joins.pop(s)
+            applied.append(f"removed slot {s} ({gone.get('title') or gone.get('chart')})")
+        else:
+            s = slot_at(i, op, "slot", len(panels))
+            to = slot_at(i, op, "to", len(panels))
+            panels.insert(to, panels.pop(s))
+            origin.insert(to, origin.pop(s))
+            joins.insert(to, joins.pop(s))
+            applied.append(f"moved slot {s} to {to}")
+
+    # Every reference to an original slot now points at where that panel went.
+    where = {o: n for n, o in enumerate(origin) if o is not None}
+    tabs = []
+    for tab in out.get("tabs") or []:
+        if not isinstance(tab, dict):
+            tabs.append(tab)
+            continue
+        slots = sorted(where[s] for s in tab.get("slots") or [] if isinstance(s, int) and s in where)
+        slots += [n for n, joined in enumerate(joins) if joined is not None and joined == str(tab.get("name"))]
+        if not slots:
+            raise SpecError(f"the ops leave tab {tab.get('name')!r} with no panels; remove the tab or give it one")
+        tabs.append({**tab, "slots": sorted(slots)})
+    if out.get("tabs"):
+        out["tabs"] = tabs
+    if isinstance(out.get("filters"), list):
+        filters = []
+        for entry in out["filters"]:
+            if isinstance(entry, dict) and isinstance(entry.get("scope"), list):
+                scope = sorted(where[s] for s in entry["scope"] if isinstance(s, int) and s in where)
+                if not scope:
+                    raise SpecError(
+                        f"the ops remove every panel the filter on {entry.get('column')!r} narrows; "
+                        "change its scope or remove it (changes={'filters': [...]})"
+                    )
+                entry = {**entry, "scope": scope}
+            filters.append(entry)
+        out["filters"] = filters
+    for n, panel in enumerate(panels):
+        if isinstance(panel, dict) and "slot" in panel:
+            panel["slot"] = n
+    return out, applied
 
 
 def merge(base: dict[str, Any], changes: dict[str, Any]) -> dict[str, Any]:

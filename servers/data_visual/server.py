@@ -324,13 +324,17 @@ def generate_3d_chart(
 @mcp.tool(annotations=CREATES)
 def customize_dashboard(
     dashboard_path: str,
-    changes: dict,
+    changes: dict = None,
     output_path: str = "",
     open_after: bool = True,
     return_content: bool = False,
+    ops: list[dict] = None,
+    dry_run: bool = False,
 ) -> dict:
-    """Rebuild a dashboard with part of its embedded spec changed."""
-    return engine.customize_dashboard(dashboard_path, changes, output_path, open_after, return_content)
+    """Rebuild a dashboard with its spec changed. ops edit panels: set/add/remove/move_panel."""
+    return engine.customize_dashboard(
+        dashboard_path, changes, output_path, open_after, return_content, ops=ops, dry_run=dry_run
+    )
 
 
 @mcp.tool(annotations=CREATES)

@@ -48,8 +48,10 @@ from shared.dashboard_spec import (
     LAYOUT_SOURCE_KEY,
     LISTED_CONTROLS,
     MAX_FILTER_VALUES,
+    PANEL_OPS,
     SPEC_KEYS,
     SpecError,
+    apply_panel_ops,
     filter_entry,
     filter_kind,
     filter_values,
@@ -1982,10 +1984,12 @@ applyF();
 
 def customize_dashboard(
     dashboard_path: str,
-    changes: dict,
+    changes: dict | None = None,
     output_path: str = "",
     open_after: bool = True,
     return_content: bool = False,
+    ops: list | None = None,
+    dry_run: bool = False,
 ) -> dict:
     """Rebuild an existing dashboard with part of its spec changed.
 
@@ -1999,6 +2003,12 @@ def customize_dashboard(
     than deep-merge for lists, because "here are the three panels I want" and
     "add these three panels" are different requests, and a merge that guesses
     between them will eventually guess wrong.
+
+    `ops` edit the layout one panel at a time, after `changes`: set_panel
+    {slot, <fields>}, add_panel {panel, at, tab}, remove_panel {slot},
+    move_panel {slot, to}. Tabs and filter scopes follow the panels they
+    name. `dry_run` checks the edit against the data and returns the spec it
+    would draw, writing nothing.
 
     The source file is the one the dashboard names in its own provenance block,
     so a caller does not have to remember it.
@@ -2061,25 +2071,28 @@ def customize_dashboard(
                 "token_estimate": 40,
             }
 
+        applied: list[str] = []
         try:
             merged = merge_spec(base, changes or {})
+            if ops is not None:
+                merged, applied = apply_panel_ops(merged, ops)
         except SpecError as exc:
             return {
                 "success": False,
                 "op": "customize_dashboard",
                 "error": str(exc),
-                "hint": f"Changeable keys: {', '.join(SPEC_KEYS)}.",
+                "hint": f"Changeable keys: {', '.join(SPEC_KEYS)}. Panel ops: {', '.join(PANEL_OPS)}.",
                 "progress": [fail("Invalid change", str(exc))],
                 "token_estimate": 50,
             }
 
-        progress.append(
-            info("Customizing dashboard", f"{page.name} — {', '.join(sorted(changes or {})) or 'no change'}")
-        )
+        what = sorted(changes or {}) + ([f"{len(applied)} panel op(s)"] if applied else [])
+        progress.append(info("Customizing dashboard", f"{page.name} — {', '.join(what) or 'no change'}"))
         result = generate_dashboard(
             str(data_path),
             output_path=output_path or str(page),
             theme=merged.get("theme", "device"),
+            dry_run=dry_run,
             open_after=open_after,
             return_content=return_content,
             spec=merged,
@@ -2087,8 +2100,18 @@ def customize_dashboard(
         if result.get("success"):
             result["op"] = "customize_dashboard"
             result["changed_keys"] = sorted(changes or {})
+            if ops is not None:
+                result["ops_applied"] = applied
             result["previous_spec"] = base
+            if dry_run:
+                # What would be drawn: the edited document, checked, not written.
+                result["spec"] = merged
             result["progress"] = progress + list(result.get("progress", []))
+        elif applied and result.get("error"):
+            # The panels are checked where they end up: say so, or "layout[2]"
+            # reads as the slot the caller named before a move.
+            result["error"] = f"after the ops, {result['error']}"
+            result["op"] = "customize_dashboard"
         return result
     except Exception as exc:
         logger.exception("customize_dashboard error")
