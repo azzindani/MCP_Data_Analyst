@@ -388,9 +388,9 @@ def extract_sheet(
                 }
 
         df = _sheet_to_df(path, sheet_name, header_row)
-        out_dir = Path(output_path).parent if output_path else get_default_output_dir(str(path))
+        out_dir = resolve_path(output_path).parent if output_path else get_default_output_dir(str(path))
         stem = f"{path.stem}_{sheet_name}" if sheet_name != path.stem else path.stem
-        out = Path(output_path) if output_path else out_dir / f"{stem}.csv"
+        out = resolve_path(output_path) if output_path else out_dir / f"{stem}.csv"
 
         if dry_run:
             progress.append(info("Dry run — no changes written", path.name))
@@ -681,7 +681,7 @@ def extract_table(
         df = df_full.iloc[:data_rows, col_slice].reset_index(drop=True)
 
         out_dir = get_default_output_dir(str(path))
-        out = Path(output_path) if output_path else out_dir / f"{path.stem}_{sheet_name}_table{table_index}.csv"
+        out = resolve_path(output_path) if output_path else out_dir / f"{path.stem}_{sheet_name}_table{table_index}.csv"
 
         if dry_run:
             progress.append(info("Dry run — no changes written", path.name))
@@ -1136,7 +1136,7 @@ def flatten_merged_cells(
             df = pd.DataFrame(rows_data[1:], columns=headers)
 
         out_dir = get_default_output_dir(str(path))
-        out = Path(output_path) if output_path else out_dir / f"{path.stem}_{sheet_name}_flat.csv"
+        out = resolve_path(output_path) if output_path else out_dir / f"{path.stem}_{sheet_name}_flat.csv"
 
         if dry_run:
             progress.append(info("Dry run — no changes written", path.name))
@@ -1294,7 +1294,7 @@ def convert_file(
         else:
             df = pd.DataFrame()
 
-        out = Path(output_path) if output_path else path.parent / (path.stem + target_ext)
+        out = resolve_path(output_path) if output_path else path.parent / (path.stem + target_ext)
 
         if other_sheets:
             progress.append(

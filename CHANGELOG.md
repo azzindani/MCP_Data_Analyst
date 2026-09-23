@@ -24,6 +24,27 @@ All notable changes to this project will be documented in this file.
   the column, and reading the number silently would have turned a year-over-year
   difference into `1.0`.
 
+### Security — a deployed server reads and writes only inside the folders it serves
+
+- Every tool resolved its path with `Path(file_path).resolve()`, so any
+  authenticated caller of an HTTP deployment could read any file the container
+  could. `inspect_dataset("/etc/hostname")` succeeded against the live
+  endpoint, and `/proc/self/environ` (the API keys) was the same call. A
+  workspace `base_dir` reached anywhere, a workspace name like `../../etc`
+  walked out of the workspace root, and `concat_file` and the ingest tools'
+  `output_path` bypassed path resolution altogether.
+- With `MCP_CONFINE_PATHS` on, a path must lie inside `MCP_OUTPUT_DIR`, the
+  workspace root, or a folder in `MCP_ALLOWED_ROOTS`, judged after symlinks
+  are resolved. It is on in `docker-compose.yml` and set by
+  `unified_server.py` when it serves, so every HTTP deployment is confined
+  unless `MCP_CONFINE_PATHS=0`. A refusal names the reason and the folders. A
+  relative path on a confined server is read from the data folder, not the
+  container's working directory.
+- A local stdio install is unchanged, except that `~` expands, `MCP_DATA_ROOT`
+  sets where a relative path is read from, and a workspace name is always a
+  plain name.
+- `remote_smoke_test.sh` checks the refusal against the running container.
+
 ### Added — median, count and distinct count in the dashboard
 
 - `agg_overrides` and a panel's `agg` accept `median`, `count` and

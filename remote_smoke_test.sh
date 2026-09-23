@@ -161,6 +161,20 @@ extract() {
   echo "$1" | grep -oE "\\\\?\"$2\\\\?\"[[:space:]]*:[[:space:]]*\\\\?\"[^\\\\\"]*" | head -1 | sed -E 's/.*"([^"]*)$/\1/'
 }
 
+echo
+echo "== paths are held to the served folders =="
+# Before confinement any authenticated caller could read any file the container
+# could: inspect_dataset("/etc/hostname") succeeded, and /proc/self/environ --
+# the API keys -- was the same call. A harmless file stands in for it here.
+R=$(call basic 9 inspect_dataset '{"file_path":"/etc/hostname"}')
+if ok_json "$R"; then
+  fail "read /etc/hostname -- paths are not confined"
+elif echo "$R" | grep -q 'outside the folders'; then
+  pass "/etc/hostname refused as outside the served folders"
+else
+  fail "/etc/hostname refused without naming why: $(echo "$R" | head -c 300)"
+fi
+
 N=10
 run() {
   local tier="$1" name="$2" args="$3" prompt="$4" checker="${5:-ok_json}"

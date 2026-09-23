@@ -63,6 +63,13 @@ services:
       # any remote caller.
       MCP_OUTPUT_DIR: ${MCP_OUTPUT_DIR:-/files}
       MCP_PUBLIC_BASE_URL: ${MCP_PUBLIC_BASE_URL:-}
+      # Every path a caller names must lie inside MCP_OUTPUT_DIR, the workspace
+      # root, or a folder listed in MCP_ALLOWED_ROOTS (os.pathsep-separated).
+      # Without it any authenticated caller could read any file the container
+      # can -- /proc/self/environ holds the API keys. A relative path is read
+      # from MCP_OUTPUT_DIR. Leave it on for anything reachable from outside.
+      MCP_CONFINE_PATHS: ${MCP_CONFINE_PATHS:-1}
+      MCP_ALLOWED_ROOTS: ${MCP_ALLOWED_ROOTS:-}
       # Off by default. With it on, any file_path argument may be an http(s)
       # URL. Hosts resolving to loopback/link-local/private addresses are
       # refused unless MCP_FETCH_ALLOW_PRIVATE=1 — don't relax that on a

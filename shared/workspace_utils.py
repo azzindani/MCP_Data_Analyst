@@ -33,12 +33,20 @@ _ALIAS_PREFIX = "workspace:"
 _LEGACY_ALIAS_PREFIX = "project:"
 
 
-def get_workspace_root(base_dir: str = "") -> Path:
+def get_workspace_root(base_dir: str = "", confine: bool = True) -> Path:
     """Return root directory that holds all workspaces.
 
     Priority: base_dir arg -> MCP_WORKSPACE_DIR -> MCP_PROJECTS_DIR -> ~/mcp_workspace
+
+    `base_dir` comes from the caller, so on a confined server it has to lie
+    inside the served folders like any other path; the environment settings
+    are the operator's and are trusted.
     """
     if base_dir:
+        if confine:
+            from shared.file_utils import confine as _confine
+
+            return _confine(Path(base_dir), "base_dir")
         return Path(base_dir).expanduser().resolve()
     env_dir = os.environ.get(_WORKSPACE_ROOT_ENV, "")
     if env_dir:
@@ -50,8 +58,17 @@ def get_workspace_root(base_dir: str = "") -> Path:
 
 
 def get_workspace_dir(name: str, base_dir: str = "") -> Path:
-    """Return directory for a named workspace."""
-    return get_workspace_root(base_dir) / name
+    """Return directory for a named workspace.
+
+    The name is a name, not a path: "../../etc" used to walk out of the
+    workspace root, so a workspace could be created, read or registered
+    anywhere the process could write.
+    """
+    root = get_workspace_root(base_dir).resolve()
+    ws_dir = (root / name).resolve()
+    if ws_dir == root or not ws_dir.is_relative_to(root):
+        raise ValueError(f"Workspace name {name!r} is not a plain name; use letters, digits, '-' or '_'.")
+    return ws_dir
 
 
 # Backward-compat aliases
@@ -123,7 +140,9 @@ def register_file(
     if stage not in valid_stages:
         raise ValueError(f"Invalid stage '{stage}'. Valid: {', '.join(sorted(valid_stages))}")
 
-    path = Path(file_path).expanduser().resolve()
+    from shared.file_utils import resolve_path
+
+    path = resolve_path(file_path)
     if not path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
 

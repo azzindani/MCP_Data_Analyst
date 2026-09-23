@@ -16,6 +16,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 from shared.expr import evaluate as evaluate_formula
 from shared.file_utils import read_csv as _read_csv
+from shared.file_utils import resolve_path as _resolve_path
 from shared.patch_validator import (
     _FILL_STRATEGIES,
     CONDITION_FIELDS,
@@ -1300,7 +1301,9 @@ def _op_concat_file(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     direction = op.get("direction", "rows")
     fill_missing = op.get("fill_missing", "null")
     add_source = op.get("add_source_column", False)
-    other_path = Path(file_path)
+    # Resolved like every other path: relative to the data folder, and held to
+    # the served folders on a deployment. It was the one read that was not.
+    other_path = _resolve_path(str(file_path))
     if not other_path.exists():
         raise ValueError(f"File not found: {file_path}. Provide an absolute path.")
     other_df = _read_csv(str(other_path))

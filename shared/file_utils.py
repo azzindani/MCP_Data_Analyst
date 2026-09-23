@@ -52,6 +52,62 @@ __all__ = [
 ]
 
 
+class PathOutsideRootError(PermissionError):
+    """A path outside every folder this server may read or write."""
+
+
+def paths_confined() -> bool:
+    """True when paths are held to the served folders (every HTTP deployment).
+
+    A remote caller shares no filesystem with this server, so the only paths it
+    has any business naming are the data folder and the workspaces. Without
+    this, any authenticated caller could read any file the container could:
+    `inspect_dataset("/etc/hostname")` succeeded, and `/proc/self/environ` --
+    the API keys -- was one call away. A local stdio install is the caller's
+    own machine and stays unrestricted.
+    """
+    return os.environ.get("MCP_CONFINE_PATHS", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def data_root() -> Path:
+    """Where a relative path is resolved: MCP_DATA_ROOT, else the data folder when confined, else the cwd."""
+    for var in ("MCP_DATA_ROOT", "MCP_OUTPUT_DIR" if paths_confined() else ""):
+        raw = os.environ.get(var, "").strip() if var else ""
+        if raw:
+            return Path(raw).expanduser().resolve()
+    return Path.cwd()
+
+
+def allowed_roots() -> list[Path]:
+    """The folders a confined server serves: the data folder, the workspaces, and MCP_ALLOWED_ROOTS."""
+    from shared.workspace_utils import get_workspace_root
+
+    raws = [os.environ.get("MCP_OUTPUT_DIR", ""), os.environ.get("MCP_DATA_ROOT", "")]
+    raws += os.environ.get("MCP_ALLOWED_ROOTS", "").split(os.pathsep)
+    roots = [Path(r).expanduser().resolve() for r in raws if r.strip()]
+    roots.append(get_workspace_root("", confine=False).expanduser().resolve())
+    return roots
+
+
+def confine(path: Path, what: str = "Path") -> Path:
+    """Return `path` resolved, or refuse it when paths are confined and it lies outside every served folder.
+
+    Resolved first, so a symlink inside the data folder that points out of it
+    is judged by where it leads.
+    """
+    resolved = path.expanduser().resolve()
+    if not paths_confined():
+        return resolved
+    roots = allowed_roots()
+    if any(resolved == root or resolved.is_relative_to(root) for root in roots):
+        return resolved
+    shown = ", ".join(str(r) for r in roots[:3])
+    raise PathOutsideRootError(
+        f"{what} {str(path)!r} is outside the folders this server can use ({shown}). "
+        "Pass a path inside the data folder -- a relative path is read from it -- or a URL."
+    )
+
+
 def resolve_path(file_path: str, allowed_extensions: tuple[str, ...] = ()) -> Path:
     """Return resolved absolute Path; handles workspace:name/alias and project:name/alias.
 
@@ -61,6 +117,10 @@ def resolve_path(file_path: str, allowed_extensions: tuple[str, ...] = ()) -> Pa
     An http(s) URL is downloaded into the inbox dir first and its local path
     returned, so every tool that takes a file path also takes a link once the
     server runs with MCP_FETCH_URLS=1 (off by default — see shared/exchange.py).
+
+    `~` is expanded, a relative path is read from `data_root()` -- on a
+    deployment, the data folder, not the container's working directory -- and
+    when paths are confined anything outside the served folders is refused.
     """
     if is_url(file_path):
         path = fetch_url(file_path)
@@ -75,7 +135,12 @@ def resolve_path(file_path: str, allowed_extensions: tuple[str, ...] = ()) -> Pa
         except Exception as exc:
             raise ValueError(f"Cannot resolve project alias '{file_path}': {exc}") from exc
     else:
-        path = Path(file_path).resolve()
+        if "\x00" in file_path:
+            raise ValueError("file_path contains a null byte")
+        path = Path(file_path).expanduser()
+        if not path.is_absolute():
+            path = data_root() / path
+    path = confine(path)
     if allowed_extensions and path.suffix.lower() not in allowed_extensions:
         raise ValueError(f"Extension {path.suffix!r} not allowed. Allowed: {allowed_extensions}")
     return path
@@ -481,6 +546,13 @@ def hint_for_error(exc: Exception, fallback: str) -> str:
         return (
             f"Nothing here is named {name!r} -- check the column names you passed, and the keys "
             "of any dict argument. inspect_dataset() lists this file's columns."
+        )
+    if isinstance(exc, PathOutsideRootError):
+        # Before the PermissionError branch it subclasses: "fix the directory's
+        # permissions" is not something a remote caller can do, or should.
+        return (
+            "This server reads and writes only inside its data folder and workspaces. Pass a path "
+            "inside the data folder (a relative path is read from it), or a URL."
         )
     if isinstance(exc, PermissionError):
         return (
