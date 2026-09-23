@@ -45,6 +45,7 @@ from _adv_helpers import (
 )
 
 from shared.association import compare_frames, target_association
+from shared.column_utils import read_dates
 from shared.data_alerts import alerts_html, compute_alerts
 from shared.data_alerts import quality_score as compute_quality_score
 from shared.depth import MODES, SECTIONS, Depth, UnknownMode, sampled_frame
@@ -136,6 +137,8 @@ def run_eda(
             }
 
         full_df = _read_csv(str(path))
+        # Dates stored as text are read as dates, by the same rule as generate_dashboard.
+        read_dates(full_df)
         # Sampling happens once, here, so every section below profiles the same
         # rows. `sample_note` goes in the response rather than only in a log.
         df, sample_fields = sampled_frame(full_df, sample_n)

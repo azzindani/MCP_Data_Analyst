@@ -40,6 +40,7 @@ if _HERE not in sys.path:
 
 from _patch_ops import OP_HANDLERS, _parse_expr, note_non_finite
 
+from shared.column_utils import date_like
 from shared.counts import counted
 from shared.file_utils import atomic_write_text, count_data_rows, error_text, hint_for_error, resolve_path
 from shared.patch_validator import VALID_OPS, validate_ops
@@ -85,7 +86,9 @@ def _dtype_label(series: pd.Series) -> str:
 def _classify_columns(df: pd.DataFrame) -> tuple[list[str], list[str], list[str]]:
     numeric, categorical, datetime_cols = [], [], []
     for col in df.columns:
-        if pd.api.types.is_datetime64_any_dtype(df[col]):
+        # By what the column holds, not only its dtype: a CSV's dates arrive as
+        # text, and the dashboard and auto_detect_schema already call them dates.
+        if date_like(df[col]):
             datetime_cols.append(col)
         elif pd.api.types.is_numeric_dtype(df[col]):
             numeric.append(col)

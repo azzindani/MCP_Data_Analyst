@@ -6,6 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed — every tool sees the same dates
+
+- `inspect_dataset`, `run_eda` and `generate_auto_profile` read a date column
+  stored as text as a date, by the rule `generate_dashboard` uses
+  (`shared/column_utils.read_dates`). They asked only the dtype, so
+  Ad_Data.csv's `Date` was categorical to them and a date to the dashboard
+  and `auto_detect_schema`, and a caller reading inspect concluded the file
+  had no time axis.
+
 ### Fixed — an inf written is an inf reported
 
 - A patch op that writes a numeric column (`apply_patch` and

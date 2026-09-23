@@ -44,6 +44,7 @@ from _adv_helpers import (
     warn,
 )
 
+from shared.column_utils import read_dates
 from shared.file_utils import embed_content, error_text, hint_for_error, resolve_path
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,8 @@ def generate_auto_profile(
 
         df = _read_csv(str(path))
         rows, cols = df.shape
+        # Dates stored as text are read as dates, by the same rule as generate_dashboard.
+        read_dates(df)
 
         numeric_cols = [c for c in df.columns if is_numeric_col(df[c])]
         cat_cols = [

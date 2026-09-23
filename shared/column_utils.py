@@ -223,6 +223,31 @@ def parse_date_column(series: pd.Series, named: bool = False, threshold: float =
     return None
 
 
+def date_like(series: pd.Series) -> bool:
+    """True when a column holds dates: a datetime dtype, or text `parse_date_column` reads as dates."""
+    return pd.api.types.is_datetime64_any_dtype(series) or parse_date_column(series) is not None
+
+
+def read_dates(df: pd.DataFrame) -> list[str]:
+    """Read every date-holding text column as dates, in place; returns the names of all date columns.
+
+    One rule for every tool that says which columns are dates. A CSV's
+    `2019-10-16` arrives as text, and inspect_dataset, run_eda and
+    generate_auto_profile asked only the dtype, so Ad_Data.csv's `Date` (257
+    ISO dates) was a categorical column to them and a date to
+    generate_dashboard and auto_detect_schema -- a caller reading inspect
+    concluded the file had no time axis.
+    """
+    found: list[str] = []
+    for col in df.columns:
+        parsed = parse_date_column(df[col])
+        if parsed is not None:
+            if parsed is not df[col]:
+                df[col] = parsed
+            found.append(str(col))
+    return found
+
+
 def agg_label(agg: str) -> str:
     """Human-readable label prefix for an aggregation function."""
     return {
