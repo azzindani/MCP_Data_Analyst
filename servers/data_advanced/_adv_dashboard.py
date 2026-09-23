@@ -50,7 +50,7 @@ from shared.data_alerts import alerts_for_frame, alerts_html, quality_score
 from shared.file_utils import embed_content, error_text, hint_for_error, no_rows_error, resolve_path
 from shared.geo_names import unrecognised_locations
 from shared.provenance import frame_hash, provenance, provenance_script, read_provenance, read_spec, spec_script
-from shared.table_payload import records_js
+from shared.table_payload import json_for_script, records_js
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +74,43 @@ def _bad_source(name: str, why: str) -> dict:
 
 def _safe(s: str) -> str:
     return _re.sub(r"[^a-zA-Z0-9]", "_", str(s))
+
+
+_JS_ESCAPES = {
+    "\\": "\\\\",
+    "'": "\\'",
+    '"': '\\"',
+    "\n": "\\n",
+    "\r": "\\r",
+    " ": "\\u2028",
+    " ": "\\u2029",
+    "<": "\\x3c",
+    ">": "\\x3e",
+    "&": "\\x26",
+}
+
+
+def _js(s: object) -> str:
+    """Text safe inside a quoted JavaScript string in an inline <script>.
+
+    Column names come from the CSV, and the chart templates put them in string
+    literals (``r['{cc}']``). Raw, a ``'`` ended the literal and broke every
+    chart on the page, and ``</script>`` ended the block, so a crafted header ran
+    as script for whoever opened the dashboard. The escaped text decodes to the
+    same string, so it still reads the same key out of each row. Inside an HTML
+    attribute (an ``onclick``), wrap it in ``html.escape`` as well.
+    """
+    return "".join(_JS_ESCAPES.get(ch, ch) for ch in str(s))
+
+
+# Keys of a chart spec that hold column names. Everything else in a spec is
+# the generator's own vocabulary (type, agg, mode) or an id built by _safe().
+_NAME_KEYS = frozenset({"cc", "nc", "nc1", "nc2", "dc", "cc1", "cc2", "lat", "lon", "val", "loc"})
+
+
+def _js_specs(chart_specs: list[dict]) -> list[dict]:
+    """The chart specs with every column name escaped for a JS string literal."""
+    return [{k: _js(v) if k in _NAME_KEYS and v else v for k, v in s.items()} for s in chart_specs]
 
 
 # ---------------------------------------------------------------------------
@@ -547,8 +584,10 @@ def generate_dashboard(
                 f"yaxis:{{gridcolor:'{grid_c}'}}{extra}}}"
             )
 
+        # The templates interpolate column names into JS string literals, so
+        # they are handed the escaped names; one choke point, not forty sites.
         rfns = _build_render_functions(
-            chart_specs,
+            _js_specs(chart_specs),
             bg,
             font_c,
             grid_c,
@@ -562,7 +601,7 @@ def generate_dashboard(
             col_agg,
         )
         kpi_upd = "\n".join(
-            f"  (function(){{var s={_js_kpi_expr(nc, col_agg.get(nc, 'sum'))};"
+            f"  (function(){{var s={_js_kpi_expr(_js(nc), col_agg.get(nc, 'sum'))};"
             f"var el=document.getElementById('kv-{_safe(nc)}');"
             f"if(el)el.textContent=s>=1e6?(s/1e6).toFixed(1)+'M':s>=1e3?(s/1e3).toFixed(1)+'K':Math.round(s).toLocaleString();}})();"
             for nc in kpi_cols
@@ -766,7 +805,10 @@ def _dash_filterbar(filter_controls, num_ranges):
         # reach the page intact, and both column names and cell values here come
         # straight from whatever CSV was loaded.
         lbl = _html_esc.escape(col)
-        col_js = col.replace("\\", "\\\\").replace("'", "\\'")
+        # A JS string inside a double-quoted HTML attribute: escaped for JS,
+        # then for the attribute. Escaping only \ and ' left a " free to end the
+        # onchange="..." attribute and open a new one.
+        col_js = _html_esc.escape(_js(col))
         h.append(f'<div class="fgrp"><div class="flbl">{lbl}</div>')
         if style == "pills":
             h.append(f'<div class="pills" data-col="{lbl}">')
@@ -791,11 +833,11 @@ def _dash_filterbar(filter_controls, num_ranges):
         h.append("</div>")
     for nr in num_ranges:
         nc = nr["col"]
-        nc_js = nc.replace("\\", "\\\\").replace("'", "\\'")
+        nc_js = _html_esc.escape(_js(nc))
         mn_s = _compact_num(nr["min"])
         mx_s = _compact_num(nr["max"])
         h.append(
-            f'<div class="fgrp"><div class="flbl">{nc}</div>'
+            f'<div class="fgrp"><div class="flbl">{_html_esc.escape(nc)}</div>'
             f'<div class="nrng">'
             f'<input type="number" class="ninp" placeholder="Min ({mn_s})" onchange="numCh(\'{nc_js}\',\'min\',this.value)">'
             f'<span class="nsep">–</span>'
@@ -1221,7 +1263,7 @@ def _build_render_functions(
                 f"function rf_{cid}(d){{\n  var g={{}};\n  d.forEach(function(r){{var v=+r['{nc}'],k=String(r['{cc}']??'');if(!isNaN(v)){{if(!g[k])g[k]=[];g[k].push(v);}}}});\n  var ks=Object.keys(g).sort().slice(0,20),C={COLORS};\n  var traces=ks.map(function(k,i){{return{{y:g[k],type:'box',name:k,marker:{{color:C[i%15],size:3}},boxpoints:'outliers'}};}});\n  var layout=Object.assign({{}},{_lyt(380)},{{showlegend:false,yaxis:{{title:'{nc}',gridcolor:'{grid_c}'}}}});\n  Plotly.react('{cid}',traces,am(layout),{PCFG});\n}}"
             )
         elif t == "corr":
-            nc_list = _json.dumps(numeric_cols[:15])
+            nc_list = json_for_script([str(c) for c in numeric_cols[:15]])
             rfns.append(
                 f"function rf_{cid}(d){{\n  var cols={nc_list},n=d.length;if(n<2)return;\n  var z=cols.map(function(r){{return cols.map(function(c){{\n    var xv=d.map(row=>+row[r]),yv=d.map(row=>+row[c]),pr=[];\n    for(var i=0;i<n;i++)if(!isNaN(xv[i])&&!isNaN(yv[i]))pr.push([xv[i],yv[i]]);\n    if(pr.length<2)return 0;\n    var mx=pr.reduce((s,p)=>s+p[0],0)/pr.length,my=pr.reduce((s,p)=>s+p[1],0)/pr.length;\n    var num=0,dx=0,dy=0;pr.forEach(p=>{{num+=(p[0]-mx)*(p[1]-my);dx+=(p[0]-mx)**2;dy+=(p[1]-my)**2;}});\n    return dx&&dy?num/Math.sqrt(dx*dy):0;\n  }});}});\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:11}},autosize:true,margin:{{l:120,r:20,t:10,b:120}}}};\n  Plotly.react('{cid}',[{{z:z,x:cols,y:cols,type:'heatmap',colorscale:'RdBu_r',zmid:0,zmin:-1,zmax:1,text:z.map(r=>r.map(v=>v.toFixed(2))),texttemplate:'%{{text}}',textfont:{{size:10}}}}],am(layout),{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
             )
@@ -1349,7 +1391,7 @@ function ddToggle(btn){{
 }}
 
 function ddChange(col){{
-  var ct=document.querySelector('.ddw[data-col="'+col+'"]');if(!ct)return;
+  var ct=document.querySelector('.ddw[data-col="'+CSS.escape(col)+'"]');if(!ct)return;
   var cbs=ct.querySelectorAll('input[data-val]'),chk=Array.from(cbs).filter(c=>c.checked);
   var btn=ct.querySelector('.ddbtn');
   if(chk.length===cbs.length||chk.length===0){{delete _CF[col];if(btn)btn.textContent='All \u25be';}}
@@ -1358,13 +1400,13 @@ function ddChange(col){{
 }}
 
 function ddAll(col,val){{
-  var ct=document.querySelector('.ddw[data-col="'+col+'"]');if(!ct)return;
+  var ct=document.querySelector('.ddw[data-col="'+CSS.escape(col)+'"]');if(!ct)return;
   ct.querySelectorAll('input[data-val]').forEach(function(cb){{cb.checked=val;}});
   ddChange(col);
 }}
 
 function ddSrch(inp,col){{
-  var q=inp.value.toLowerCase(),ct=document.querySelector('.ddw[data-col="'+col+'"]');if(!ct)return;
+  var q=inp.value.toLowerCase(),ct=document.querySelector('.ddw[data-col="'+CSS.escape(col)+'"]');if(!ct)return;
   ct.querySelectorAll('.optlbl').forEach(function(el){{el.style.display=el.textContent.toLowerCase().includes(q)?'':'none';}});
 }}
 

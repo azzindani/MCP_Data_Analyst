@@ -24,6 +24,23 @@ All notable changes to this project will be documented in this file.
   the column, and reading the number silently would have turned a year-over-year
   difference into `1.0`.
 
+### Security — a column name can no longer run as code in a dashboard
+
+- Column names come from the CSV, and the dashboard wrote them raw into
+  JavaScript string literals in every chart template, into inline `onchange`
+  handlers in the filter bar, and into the numeric range's HTML label. A header
+  holding `'` broke every chart on the page. A crafted header (`</script>…`,
+  `x" onmouseover="…`, `<img src=x onerror=…>`) ran script in the browser of
+  whoever opened the dashboard, and the dashboard is the file people send to a
+  colleague. Names are now escaped for JavaScript at one choke point before the
+  templates see them, escaped again for HTML inside attributes, and the
+  correlation column list goes through `json_for_script`. Tested on the whole
+  page against a benign twin: identical tags and attribute names, the same
+  number of scripts, and every inline script passes `node --check`.
+- The filter JavaScript looked up its dropdown with
+  `querySelector('.ddw[data-col="'+col+'"]')`, so a name holding `"` threw and
+  that filter stopped working. It uses `CSS.escape` now.
+
 ### Fixed — a dashboard spec reaches the page, not only the response
 
 - **`generate_dashboard(spec=…)` echoed the spec and drew the detection.**
