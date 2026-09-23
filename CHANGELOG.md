@@ -6,6 +6,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added — a file on the caller's side reaches the server, or the refusal says how
+
+- A Google Drive, Docs/Sheets/Slides, Dropbox, GitHub or GitLab share link is
+  rewritten to the address that serves the file (a Sheet to its CSV export,
+  the tab in `gid` when named). As the browser shows them, each answered with
+  a web page, which was saved as `data.csv` and parsed.
+- A web page served where a file was asked for is refused, not written: a
+  share link that is not public answers with a sign-in page even at the right
+  address. A URL may serve a page only when its name says it is one.
+- A path from the caller's side -- `/mnt/user-data/…` (a claude.ai upload),
+  `/home/claude/…`, `/mnt/data/…`, a Windows drive or `/Users/…` on a server
+  that is neither -- is refused as what it is, naming the routes in that work
+  on this server, instead of "outside the folders this server can use".
+
 ### Fixed — one ordinary merge OOM-killed the whole server
 
 - `merge_datasets(Ad_Data.csv, ad_clean.csv, how="inner", dry_run=True)` took

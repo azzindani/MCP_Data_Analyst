@@ -19,6 +19,7 @@ import pandas as pd
 from shared.exchange import (
     apply_default_mode,
     attach_public_url,
+    client_side_refusal,
     fetch_url,
     get_inbox_dir,
     get_output_dir,
@@ -102,6 +103,9 @@ def confine(path: Path, what: str = "Path") -> Path:
     if any(resolved == root or resolved.is_relative_to(root) for root in roots):
         return resolved
     shown = ", ".join(str(r) for r in roots[:3])
+    elsewhere = client_side_refusal(str(path))
+    if elsewhere:
+        raise PathOutsideRootError(elsewhere)
     raise PathOutsideRootError(
         f"{what} {str(path)!r} is outside the folders this server can use ({shown}). "
         "Pass a path inside the data folder -- a relative path is read from it -- or a URL."
