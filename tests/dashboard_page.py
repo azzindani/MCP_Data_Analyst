@@ -33,12 +33,17 @@ function __el(id){
 }
 var document={getElementById:__el,querySelector(){return null;},querySelectorAll(){return [];},
   addEventListener(){},createElement(){return __el('_new');},body:__el('body'),documentElement:__el('html')};
-var sessionStorage={getItem(){return null;},setItem(){}};
+var __store=__STORE__;
+var sessionStorage={getItem(k){return k in __store?__store[k]:null;},setItem(k,v){__store[k]=String(v);}};
 var CSS={escape:function(s){return s;}};
 var window={addEventListener(){},matchMedia(){return{matches:__DARK__,addEventListener(){}};}};
 var Plotly={react:function(id,data,layout){__figs[id]={data:data,layout:layout};},newPlot(){},purge(){},relayout(){}};
 console.warn=function(){__warn.push(Array.prototype.map.call(arguments,String).join(' '));};
 """
+
+
+def _stub(dark: bool = False, storage: dict[str, str] | None = None) -> str:
+    return _STUB.replace("__DARK__", "true" if dark else "false").replace("__STORE__", json.dumps(storage or {}))
 
 
 def main_script(html: str) -> str:
@@ -61,20 +66,21 @@ def drawn(html: str, rows: list[dict] | None = None, dark: bool = False) -> dict
         "var __h={};Object.keys(__els).forEach(function(id){if(__els[id].innerHTML)__h[id]=__els[id].innerHTML;});"
         "process.stdout.write(JSON.stringify({figures:__figs,kpis:__k,html:__h,warnings:__warn,panels:_PANELS}));"
     )
-    program = _STUB.replace("__DARK__", "true" if dark else "false") + main_script(html) + "\n" + tail
+    program = _stub(dark) + main_script(html) + "\n" + tail
     done = subprocess.run([NODE, "-"], input=program, capture_output=True, encoding="utf-8", timeout=120)
     assert done.returncode == 0, done.stderr[-3000:]
     return json.loads(done.stdout)
 
 
-def run_js(html: str, expression: str) -> object:
-    """Evaluate `expression` in the page's script (after it has loaded) and return its JSON value."""
+def run_js(html: str, expression: str, storage: dict[str, str] | None = None) -> object:
+    """Evaluate `expression` in the page's script (after it has loaded) and return its JSON value.
+
+    `storage` is the tab's sessionStorage when the page opens, key to text.
+    After the page's own opening render, `__figs` holds what it drew and
+    `__el(id).textContent` what it wrote.
+    """
     assert NODE, "node is not installed"
-    program = (
-        _STUB.replace("__DARK__", "false")
-        + main_script(html)
-        + f"\nprocess.stdout.write(JSON.stringify({expression}));"
-    )
+    program = _stub(storage=storage) + main_script(html) + f"\nprocess.stdout.write(JSON.stringify({expression}));"
     done = subprocess.run([NODE, "-"], input=program, capture_output=True, encoding="utf-8", timeout=120)
     assert done.returncode == 0, done.stderr[-3000:]
     return json.loads(done.stdout)

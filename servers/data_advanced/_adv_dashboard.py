@@ -43,7 +43,18 @@ from _adv_helpers import (
 )
 
 from shared.column_utils import is_identifier, parse_date_column
-from shared.dashboard_spec import CHART_KINDS, LAYOUT_SOURCE_KEY, MAX_FILTER_VALUES, SPEC_KEYS, SpecError
+from shared.dashboard_spec import (
+    CHART_KINDS,
+    LAYOUT_SOURCE_KEY,
+    LISTED_CONTROLS,
+    MAX_FILTER_VALUES,
+    SPEC_KEYS,
+    SpecError,
+    filter_entry,
+    filter_kind,
+    filter_values,
+    page_text,
+)
 from shared.dashboard_spec import merge as merge_spec
 from shared.dashboard_spec import resolve as resolve_spec
 from shared.dashboard_spec import validate as validate_spec
@@ -172,6 +183,10 @@ _PLACE_CSS = (
     ".cgrid.g12{grid-template-columns:repeat(12,minmax(0,1fr))}"
     "@media(max-width:68.75rem){.cgrid.g12{grid-template-columns:minmax(0,1fr)}"
     ".cgrid.g12>.cc{grid-column:1/-1!important}}"
+    # The filter bar's date range, and the line saying what is filtered.
+    ".nrng .dinp{flex:1 1 8.5rem;min-width:8.5rem}"
+    ".fsum{flex-basis:100%;font-size:.75rem;color:var(--text-muted);line-height:1.4}"
+    ".fsum:empty{display:none}"
 )
 
 
@@ -218,7 +233,10 @@ def generate_dashboard(
     `spec` overrides any part of the auto-detection:
     `{title, theme, layout:[{slot, chart, cols, agg}], kpis, filters, tabs,
     interactions}`. An absent key means "decide for me", so passing nothing
-    returns exactly what this returned before the parameter existed.
+    returns exactly what this returned before the parameter existed. A
+    `filters` entry is a column name or `{column, control, default, scope}`:
+    pills/dropdown/range/date_range, what the page opens on, and "page" or the
+    layout slots it narrows.
 
     `sources` adds a tab per extra CSV -- the review's "`chargedoff.csv` as tab
     2, `anomalies_only.csv` as tab 3". Each extra tab carries that file's exact
@@ -432,9 +450,8 @@ def generate_dashboard(
         else:
             resolved[LAYOUT_SOURCE_KEY] = "detected"
         kpi_cols = [str(c) for c in resolved["kpis"]]
-        filter_names = [str(c) for c in resolved["filters"]]
-        filter_controls = _build_filter_controls(df, [c for c in filter_names if c not in numeric_cols], limit=None)
-        num_ranges = _build_num_ranges(df, [c for c in filter_names if c in numeric_cols], limit=None)
+        filters = _plan_filters(df, resolved["filters"], numeric_cols)
+        filter_columns = [f["col"] for f in filters]
         dashboard_title = resolved["title"]
         theme = resolved["theme"]
 
@@ -450,7 +467,7 @@ def generate_dashboard(
                     "charts": charts,
                     "kpi_columns": kpi_cols,
                     "column_roles": column_roles,
-                    "filter_columns": [fc["col"] for fc in filter_controls] + [nr["col"] for nr in num_ranges],
+                    "filter_columns": filter_columns,
                 },
                 "progress": progress,
             }
@@ -505,11 +522,12 @@ def generate_dashboard(
             progress.append(warn("Output extension changed", note))
 
         h: list[str] = []
+        data_hash = frame_hash(embed_df)
         page_header = provenance(
             rows_plotted=len(embed_df),
             rows_total=len(df),
             source=path.name,
-            data_hash=frame_hash(embed_df),
+            data_hash=data_hash,
             tool="generate_dashboard",
         )
         h.append(_dash_head(_css, dashboard_title, out.parent, page_header, resolved))
@@ -538,7 +556,7 @@ def generate_dashboard(
         if source_frames:
             h.append(_dash_source_tabs([path.name] + [n for n, _, _ in source_frames]))
             h.append('<section class="src-sec" data-src="0">')
-        h.append(_dash_filterbar(filter_controls, num_ranges))
+        h.append(_dash_filterbar(filters, theme))
         h.append(_dash_kpi_row(df, kpi_cols, sparklines, quality, qual_clr, col_agg))
         # The dashboard is the artifact people actually send to a colleague, and
         # it used to show 26 charts of a dataset without mentioning that two of
@@ -601,7 +619,18 @@ def generate_dashboard(
         # and the theme. One renderer in _dash_js reads them; nothing about a
         # chart is written into code, column names included.
         kpis = [{"col": str(nc), "agg": col_agg.get(nc, "sum"), "el": f"kv-{_safe(nc)}"} for nc in kpi_cols]
-        h.append(_dash_js(raw_json, chart_specs, kpis, _theme(theme), resolved.get("style") or {}))
+        filter_doc = _filters_doc(filters, chart_specs)
+        h.append(
+            _dash_js(
+                raw_json,
+                chart_specs,
+                kpis,
+                _theme(theme),
+                resolved.get("style") or {},
+                filter_doc,
+                _page_key(data_hash, filter_doc),
+            )
+        )
         if source_frames:
             h.append(_dash_source_js())
 
@@ -637,7 +666,7 @@ def generate_dashboard(
             "charts_included": charts,
             "kpi_columns": kpi_cols,
             "column_roles": column_roles,
-            "filter_columns": [fc["col"] for fc in filter_controls] + [nr["col"] for nr in num_ranges],
+            "filter_columns": filter_columns,
             "rows_embedded": len(embed_df),
             "rows_total": len(df),
             "was_sampled": was_sampled,
@@ -718,6 +747,85 @@ def _build_num_ranges(df, numeric_cols, limit: int | None = 3):
     return ranges
 
 
+def _plan_filters(df, entries, numeric_cols) -> list[dict]:
+    """Each filter as the control the page draws: its column, kind, and values or bounds.
+
+    A bare name gets the control its column suits -- a date a date range, a
+    measure a number range, anything else pills (up to ten values) or a
+    dropdown. A dict may name the control, a default selection and a scope.
+    The spec validator has refused every entry that cannot be drawn, so none
+    is dropped here: a named filter with no control is the configuration-
+    ignored failure. A numeric id with more values than a list can offer used
+    to be exactly that, and gets a range instead.
+    """
+    plan: list[dict] = []
+    for raw in entries:
+        entry = filter_entry(raw)
+        col = str(entry["column"])
+        series = df[col]
+        kind = filter_kind(series)
+        distinct = int(series.dropna().nunique())
+        control = entry.get("control")
+        if control is None:
+            if kind == "date":
+                control = "date_range"
+            elif kind == "number" and (col in numeric_cols or distinct > MAX_FILTER_VALUES):
+                control = "range"
+            else:
+                control = "pills" if distinct <= 10 else "dropdown"
+        f: dict = {"col": col, "kind": kind, "control": control}
+        if control in LISTED_CONTROLS:
+            f["values"] = filter_values(series)
+        elif kind == "date":
+            days = pd.to_datetime(series, errors="coerce").dropna()
+            f["min"], f["max"] = days.min().strftime("%Y-%m-%d"), days.max().strftime("%Y-%m-%d")
+        else:
+            f["min"], f["max"] = float(series.min()), float(series.max())
+        if "default" in entry:
+            d = entry["default"]
+            f["default"] = (
+                [page_text(v) for v in d] if control in LISTED_CONTROLS else {"min": d.get("min"), "max": d.get("max")}
+            )
+        if isinstance(entry.get("scope"), list):
+            f["scope"] = sorted(set(entry["scope"]))
+        plan.append(f)
+    return plan
+
+
+def _filters_doc(filters: list[dict], chart_specs: list[dict]) -> list[dict]:
+    """The filter bar as the page's script reads it.
+
+    Per column: whether it keeps a set of values (a list control) or a range
+    (compared as numbers, or as YYYY-MM-DD days), how many values its list has,
+    what it selects when the page opens, and -- when it narrows only some
+    panels -- their card ids. A scope names layout slots; slot N is card N.
+    """
+    doc = []
+    for f in filters:
+        d: dict = {"col": f["col"], "kind": f["kind"], "listed": f["control"] in LISTED_CONTROLS}
+        if d["listed"]:
+            d["n"] = len(f["values"])
+        if "default" in f:
+            d["def"] = f["default"]
+        if f.get("scope"):
+            d["scope"] = [chart_specs[s]["id"] for s in f["scope"]]
+        doc.append(d)
+    return doc
+
+
+def _page_key(data_hash: str, filter_doc: list[dict]) -> str:
+    """The key this page's filter state is saved under for the session.
+
+    It was one key, 'dash-filters', for every dashboard: a filter set on one
+    page narrowed the next page opened in that tab wherever a column name
+    matched, with every control on the new page reading "all".
+    """
+    import hashlib
+
+    seed = data_hash + _json.dumps(filter_doc, sort_keys=True, default=str)
+    return "dash-filters:" + hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
+
+
 def _trend(df, col: str) -> tuple[str, str]:
     mid = len(df) // 2
     if mid == 0:
@@ -786,12 +894,17 @@ def _dash_header(dashboard_title, embed_df, was_sampled, rows_total: int = 0, fu
 </header>"""
 
 
-def _dash_filterbar(filter_controls, num_ranges):
-    if not filter_controls and not num_ranges:
+def _dash_filterbar(filters: list[dict], theme: str = "device"):
+    if not filters:
         return ""
     h = ['<div class="filter-bar">']
-    for fc in filter_controls:
-        col, vals, style = fc["col"], fc["values"], fc["style"]
+    # The date picker's own icons follow the page, not the operating system.
+    scheme = {"dark": "dark", "light": "light"}.get(theme, "light dark")
+    for fc in filters:
+        if fc["control"] not in LISTED_CONTROLS:
+            h.append(_range_control(fc, scheme))
+            continue
+        col, vals, style = fc["col"], fc["values"], fc["control"]
         # escape(), not a quote-only replace: a column named "<script>" used to
         # reach the page intact, and both column names and cell values here come
         # straight from whatever CSV was loaded.
@@ -822,21 +935,33 @@ def _dash_filterbar(filter_controls, num_ranges):
                 f'<button class="btn" onclick="ddAll(\'{col_js}\',false)">None</button></div>{opts}</div></div>'
             )
         h.append("</div>")
-    for nr in num_ranges:
-        nc = nr["col"]
-        nc_js = _html_esc.escape(_js(nc))
-        mn_s = _compact_num(nr["min"])
-        mx_s = _compact_num(nr["max"])
-        h.append(
-            f'<div class="fgrp"><div class="flbl">{_html_esc.escape(nc)}</div>'
-            f'<div class="nrng">'
-            f'<input type="number" class="ninp" placeholder="Min ({mn_s})" onchange="numCh(\'{nc_js}\',\'min\',this.value)">'
-            f'<span class="nsep">–</span>'
-            f'<input type="number" class="ninp" placeholder="Max ({mx_s})" onchange="numCh(\'{nc_js}\',\'max\',this.value)">'
-            f"</div></div>"
-        )
+    # Filled in by the page's script: what the page is showing, in words.
+    h.append('<div class="fsum" id="fsum" aria-live="polite"></div>')
     h.append("</div>")
     return "\n".join(h)
+
+
+def _range_control(fc: dict, scheme: str) -> str:
+    """A from-to pair: numbers, or the days of a date column.
+
+    The column travels as a data attribute, read by the handler, rather than
+    pasted into an onchange string as JavaScript.
+    """
+    lbl = _html_esc.escape(fc["col"])
+    dated = fc["kind"] == "date"
+
+    def box(bound: str) -> str:
+        if dated:
+            word = "from" if bound == "min" else "to"
+            lo, hi = _html_esc.escape(fc["min"]), _html_esc.escape(fc["max"])
+            kind = f'type="date" class="ninp dinp" min="{lo}" max="{hi}" style="color-scheme:{scheme}"'
+        else:
+            word = "minimum" if bound == "min" else "maximum"
+            kind = f'type="number" class="ninp" placeholder="{bound.title()} ({_compact_num(fc[bound])})"'
+        return f'<input {kind} data-bound="{bound}" aria-label="{lbl} {word}" onchange="rngCh(this)">'
+
+    pair = box("min") + '<span class="nsep">–</span>' + box("max")
+    return f'<div class="fgrp"><div class="flbl">{lbl}</div><div class="nrng" data-col="{lbl}">{pair}</div></div>'
 
 
 def _compact_num(v: float) -> str:
@@ -989,6 +1114,10 @@ def _parse_dates(df, spec) -> None:
         cols = panel.get("cols") if isinstance(panel, dict) else None
         if isinstance(cols, dict) and cols.get("date"):
             named.add(str(cols["date"]))
+    # So is a column a filter asks a date range of.
+    for entry in (spec or {}).get("filters") or []:
+        if isinstance(entry, dict) and entry.get("control") == "date_range" and entry.get("column"):
+            named.add(str(entry["column"]))
     for col in list(df.columns):
         if pd.api.types.is_datetime64_any_dtype(df[col]):
             continue
@@ -1512,7 +1641,7 @@ function updKPIs(d){
 
 function renderAll(d){
   updKPIs(d);
-  _PANELS.forEach(function(p){try{renderPanel(p,d);}catch(_e){console.warn('chart '+p.id,_e);}});
+  _PANELS.forEach(function(p){try{renderPanel(p,_rowsFor(p,d));}catch(_e){console.warn('chart '+p.id,_e);}});
 }
 // A device page redraws when the reader switches light and dark.
 if(_THEME.device&&typeof window!=='undefined'&&window.matchMedia){
@@ -1521,7 +1650,15 @@ if(_THEME.device&&typeof window!=='undefined'&&window.matchMedia){
 """
 
 
-def _dash_js(raw_json, panels: list[dict], kpis: list[dict], theme: dict, page_style: dict | None = None):
+def _dash_js(
+    raw_json,
+    panels: list[dict],
+    kpis: list[dict],
+    theme: dict,
+    page_style: dict | None = None,
+    filters: list[dict] | None = None,
+    page_key: str = "dash-filters",
+):
     # json_for_script escapes <, > and &, so no name or value in the panels can
     # end the <script> block -- and none is ever read as code.
     state = (
@@ -1529,12 +1666,15 @@ def _dash_js(raw_json, panels: list[dict], kpis: list[dict], theme: dict, page_s
         f"const _KPIS={json_for_script(kpis)};\n"
         f"const _THEME={json_for_script(theme)};\n"
         f"const _STYLE={json_for_script(page_style or {})};\n"
+        f"const _FILTERS={json_for_script(filters or [])};\n"
+        f"const _FKEY={json_for_script(page_key)};\n"
     )
     return f"""<script>
 let _RAW={raw_json};
 {state}const _TOTAL=_RAW.length;
-let _CF={{}};
-let _NF={{}};
+let _CF={{}};  // a list filter: column -> the Set of values it keeps
+let _NF={{}};  // a range: column -> {{min, max}}, numbers or YYYY-MM-DD days
+var _FK={{}};_FILTERS.forEach(function(f){{_FK[f.col]=f;}});
 
 // A missing cell arrives as null, and +null is 0 -- so every chart and KPI
 // counted a missing value as a real zero: a group with [10, missing] averaged
@@ -1552,11 +1692,6 @@ function _agg(v,how){{var x=v.filter(function(a){{return!isNaN(a);}});
   if(how==='min')return x.reduce(function(a,b){{return a<b?a:b;}});
   return x.reduce(function(a,b){{return a+b;}},0);}}
 
-(function(){{
-  const _SAVED=sessionStorage.getItem('dash-filters');
-  if(_SAVED){{try{{const s=JSON.parse(_SAVED);if(s.cf)Object.assign(_CF,s.cf);if(s.nf)Object.assign(_NF,s.nf);}}catch(e){{}}}}
-}})();
-
 // Every axis grows its own margin to fit the labels it draws. At 390px the
 // dashboard's fixed margins sheared the y-axis ticks off: '2000', '4000',
 // '6000' and '8000' were all cut. Applied here rather than in each of the
@@ -1570,19 +1705,115 @@ function am(l){{
   return l;
 }}
 
-function getFilt(){{
-  return _RAW.filter(function(row){{
-    for(var c in _CF){{var s=_CF[c];if(s&&s.size>0&&!s.has(String(row[c]??'')))return false;}}
-    for(var c in _NF){{var r=_NF[c],v=_num(row[c]);if(isNaN(v)){{if(r.min!==null||r.max!==null)return false;}}else{{if(r.min!==null&&v<r.min)return false;if(r.max!==null&&v>r.max)return false;}}}}
-    return true;
+// The filters in force, in the filter bar's order.
+function _on(){{
+  return _FILTERS.filter(function(f){{
+    var s=_CF[f.col],r=_NF[f.col];
+    return (s&&s.size>0)||(r&&(r.min!==null||r.max!==null));
+  }});
+}}
+// The test one filter makes of a row. A list keeps its values; a range keeps
+// what lies inside it, and a missing cell lies outside every bound.
+function _keeps(f){{
+  var c=f.col,s=_CF[c];
+  if(s&&s.size>0)return function(row){{return s.has(String(row[c]??''));}};
+  var r=_NF[c],lo=r.min,hi=r.max;
+  if(f.kind==='date')return function(row){{var v=row[c];return !!v&&(lo===null||v>=lo)&&(hi===null||v<=hi);}};
+  return function(row){{var v=_num(row[c]);return !isNaN(v)&&(lo===null||v>=lo)&&(hi===null||v<=hi);}};
+}}
+function _narrow(rows,fs){{
+  var ks=fs.map(_keeps);
+  return rows.filter(function(row){{for(var i=0;i<ks.length;i++)if(!ks[i](row))return false;return true;}});
+}}
+// The page's rows: every filter whose scope is the whole page. The KPI row,
+// the row count, the rows table and the export all read these.
+function getFilt(){{return _narrow(_RAW,_on().filter(function(f){{return !f.scope;}}));}}
+// A panel's rows: the page's, narrowed again by any filter scoped to it.
+function _rowsFor(p,d){{
+  var fs=_on().filter(function(f){{return f.scope&&f.scope.indexOf(p.id)>=0;}});
+  return fs.length?_narrow(d,fs):d;
+}}
+
+// The state as plain data -- what the session saves, and what a default is.
+function _state(){{
+  var s={{}};
+  Object.keys(_CF).forEach(function(c){{s[c]=Array.from(_CF[c]);}});
+  Object.keys(_NF).forEach(function(c){{s[c]={{min:_NF[c].min,max:_NF[c].max}};}});
+  return s;
+}}
+// Set the state from plain data, keeping only what a control on this page can
+// show: a filter the reader cannot see is a filter they cannot clear.
+function _load(s){{
+  _CF={{}};_NF={{}};
+  if(!s||typeof s!=='object')return;
+  _FILTERS.forEach(function(f){{
+    var v=s[f.col];if(v===undefined||v===null)return;
+    if(f.listed){{
+      if(!Array.isArray(v))return;
+      var set=new Set(v.map(String));
+      if(set.size>0&&set.size<f.n)_CF[f.col]=set;  // every value, or none, is no filter
+      return;
+    }}
+    if(typeof v!=='object')return;
+    function ok(b){{
+      if(b===null||b===undefined||b==='')return null;
+      if(f.kind==='date')return(typeof b==='string'&&/^\\d{{4}}-\\d{{2}}-\\d{{2}}$/.test(b))?b:null;
+      return isFinite(+b)?+b:null;
+    }}
+    var lo=ok(v.min),hi=ok(v.max);
+    if(lo!==null||hi!==null)_NF[f.col]={{min:lo,max:hi}};
+  }});
+}}
+var _DEF={{}};_FILTERS.forEach(function(f){{if(f.def!==undefined)_DEF[f.col]=f.def;}});
+
+// The controls show the state, whatever set it: a default, the session, or
+// Clear. A restored range used to narrow the page while its inputs sat empty
+// and every pill read "all".
+function _sync(){{
+  document.querySelectorAll('.pills[data-col]').forEach(function(ct){{
+    var s=_CF[ct.dataset.col];
+    ct.querySelectorAll('.pill').forEach(function(p){{p.classList.toggle('active',!s||s.has(p.dataset.val));}});
+  }});
+  document.querySelectorAll('.ddw[data-col]').forEach(function(ct){{
+    var s=_CF[ct.dataset.col],n=0;
+    ct.querySelectorAll('input[data-val]').forEach(function(cb){{cb.checked=!s||s.has(cb.dataset.val);if(cb.checked)n++;}});
+    var btn=ct.querySelector('.ddbtn');if(btn)btn.textContent=s?n+' selected ▾':'All ▾';
+  }});
+  document.querySelectorAll('.nrng[data-col]').forEach(function(ct){{
+    var r=_NF[ct.dataset.col];
+    ct.querySelectorAll('input[data-bound]').forEach(function(inp){{
+      var v=r?r[inp.dataset.bound]:null;inp.value=(v===null||v===undefined)?'':String(v);
+    }});
   }});
 }}
 
+// What the page is showing, in words. A page that opens on a default
+// selection looks exactly like one showing every row until something says so.
+function _fsum(){{
+  var el=document.getElementById('fsum');if(!el)return;
+  function n(v){{return typeof v==='number'?v.toLocaleString():v;}}
+  var parts=_on().map(function(f){{
+    var c=f.col,s=_CF[c],t;
+    if(s&&s.size>0){{var v=Array.from(s);t=c+': '+(v.length<=3?v.join(', '):v.length+' of '+f.n);}}
+    else{{
+      var r=_NF[c];
+      t=(r.min!==null&&r.max!==null)?c+' '+n(r.min)+' – '+n(r.max):r.min!==null?c+' ≥ '+n(r.min):c+' ≤ '+n(r.max);
+    }}
+    if(f.scope)t+=' (on '+f.scope.map(function(id){{
+      var p=_PANELS.filter(function(q){{return q.id===id;}})[0];return(p&&p.title)||id;
+    }}).join(', ')+')';
+    return t;
+  }});
+  el.textContent=parts.length?'Filtered: '+parts.join(' · '):'';
+}}
+
 function applyF(){{
-  try{{renderTable(getFilt());}}catch(_e){{}}
   const d=getFilt();
+  try{{renderTable(d);}}catch(_e){{}}
   document.getElementById('row-ctr').textContent=d.length.toLocaleString()+' of '+_TOTAL.toLocaleString()+' rows';
-  sessionStorage.setItem('dash-filters',JSON.stringify({{cf:Object.fromEntries(Object.entries(_CF).map(([k,v])=>[k,v instanceof Set?Array.from(v):v])),nf:_NF}}));
+  // Storage can be switched off; the page still filters without it.
+  try{{sessionStorage.setItem(_FKEY,JSON.stringify(_state()));}}catch(_e){{}}
+  _fsum();
   renderAll(d);
 }}
 
@@ -1620,18 +1851,18 @@ function ddSrch(inp,col){{
   ct.querySelectorAll('.optlbl').forEach(function(el){{el.style.display=el.textContent.toLowerCase().includes(q)?'':'none';}});
 }}
 
-function numCh(col,bound,val){{
-  if(!_NF[col])_NF[col]={{min:null,max:null}};
-  _NF[col][bound]=val===''?null:+val;
+// A bound of a number or date range; the column is the control's data-col.
+function rngCh(inp){{
+  var ct=inp.closest('.nrng');if(!ct)return;
+  var c=ct.dataset.col,f=_FK[c]||{{}},v=inp.value,r=_NF[c]||{{min:null,max:null}};
+  r[inp.dataset.bound]=v===''?null:(f.kind==='date'?v:+v);
+  if(r.min===null&&r.max===null)delete _NF[c];else _NF[c]=r;
   applyF();
 }}
 
 function clearAll(){{
   _CF={{}};_NF={{}};
-  document.querySelectorAll('.pill').forEach(p=>p.classList.add('active'));
-  document.querySelectorAll('.ddw input[data-val]').forEach(cb=>{{cb.checked=true;}});
-  document.querySelectorAll('.ddbtn').forEach(btn=>{{btn.textContent='All \u25be';}});
-  document.querySelectorAll('.ninp').forEach(inp=>{{inp.value='';}});
+  _sync();
   applyF();
 }}
 
@@ -1737,6 +1968,14 @@ function renderTable(rows){{
   show(btns[0]);
 }})();
 
+// The page opens on this session's filters if it has any, else on the
+// spec's defaults -- and the controls say which.
+(function(){{
+  var saved=null;
+  try{{saved=JSON.parse(sessionStorage.getItem(_FKEY)||'null');}}catch(_e){{}}
+  _load(saved&&typeof saved==='object'?saved:_DEF);
+}})();
+_sync();
 applyF();
 </script>"""
 

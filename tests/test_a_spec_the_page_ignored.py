@@ -80,11 +80,11 @@ class TestKpisAndFilters:
         html = page(make(sales, spec={"filters": ["region"]}))
         assert 'data-col="region"' in html
         assert 'data-col="channel"' not in html
-        assert "numCh(" not in html.split('<div class="kpi-row">')[0], "no numeric range was asked for"
+        assert 'class="nrng"' not in html.split('<div class="kpi-row">')[0], "no numeric range was asked for"
 
     def test_a_numeric_filter_becomes_a_range(self, sales):
         html = page(make(sales, spec={"filters": ["units"]}))
-        assert "numCh('units'" in html
+        assert '<div class="nrng" data-col="units">' in html
         assert 'class="pills"' not in html
 
     def test_the_defaults_describe_the_page_that_is_drawn(self, sales):
@@ -94,7 +94,7 @@ class TestKpisAndFilters:
         # eight over a row of seven.
         assert len(kpi_labels(html)) == 1 + len(r["spec"]["kpis"])
         for col in r["spec"]["filters"]:
-            assert f'data-col="{col}"' in html or f"numCh('{col}'" in html
+            assert f'data-col="{col}"' in html
 
     def test_a_text_kpi_is_refused(self, sales):
         r = make(sales, spec={"kpis": ["region"]})

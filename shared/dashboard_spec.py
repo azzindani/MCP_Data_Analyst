@@ -181,9 +181,208 @@ LAYOUT_SOURCE_KEY = "_layout_source"
 # Distinct values above which a text column is not offered as a filter.
 MAX_FILTER_VALUES = 100
 
+# A filter is a column name, or {column, control, default, scope}: the control
+# the reader gets, what it selects when the page opens, and the panels it
+# narrows. The control follows what the column holds -- a text column is pills
+# or a dropdown, a number a min-max range (or pills, with few enough values), a
+# date a from-to range over its days.
+FILTER_KEYS: tuple[str, ...] = ("column", "control", "default", "scope")
+FILTER_CONTROLS: dict[str, tuple[str, ...]] = {
+    "text": ("pills", "dropdown"),
+    "number": ("range", "pills", "dropdown"),
+    "date": ("date_range",),
+}
+LISTED_CONTROLS = ("pills", "dropdown")
+_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
 
 class SpecError(ValueError):
     """A spec that cannot be honoured, named precisely enough to fix."""
+
+
+def filter_kind(series: pd.Series) -> str:
+    """What a filter on this column compares: text, number or date."""
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return "date"
+    return "number" if is_numeric_col(series) else "text"
+
+
+def page_text(value: Any) -> str:
+    """A cell as the page's script reads it: String() of the value embedded as JSON.
+
+    A pill has to carry exactly that text or it matches nothing. Python's str()
+    wrote a boolean as 'True' and a whole float as '3.0', where the page reads
+    'true' and '3' -- so those pills filtered every row away.
+    """
+    if isinstance(value, bool) or type(value).__name__ == "bool_":
+        return "true" if value else "false"
+    if pd.api.types.is_integer(value):
+        return str(int(value))
+    if pd.api.types.is_float(value):
+        v = float(value)
+        if v.is_integer() and abs(v) < 1e21:
+            return str(int(v))
+        return repr(v).replace("e-0", "e-").replace("e+0", "e+")
+    return str(value)
+
+
+def filter_values(series: pd.Series) -> list[str]:
+    """A listed filter's values, in the page's own text, numbers in numeric order."""
+    values = series.dropna().unique().tolist()
+    if is_numeric_col(series):
+        return [page_text(v) for v in sorted(values)]
+    return sorted({page_text(v) for v in values})
+
+
+def filter_entry(entry: Any) -> dict[str, Any]:
+    """A filter as a dict: a bare column name is {"column": name}."""
+    return dict(entry) if isinstance(entry, dict) else {"column": entry}
+
+
+def _filter_mask(series: pd.Series, kind: str, listed: bool, default: Any) -> pd.Series:
+    """The rows a filter's default keeps -- the same test the page's script makes."""
+    if listed:
+        chosen = {page_text(v) for v in default}
+        if len(chosen) >= series.dropna().nunique():
+            return pd.Series(True, index=series.index)  # every value selected is no filter
+        return series.map(lambda v: not pd.isna(v) and page_text(v) in chosen)
+    if kind == "date":
+        # The page holds each date as its YYYY-MM-DD day, and compares that text.
+        values = pd.to_datetime(series, errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
+        keep = values != ""
+    else:
+        values = pd.to_numeric(series, errors="coerce")
+        keep = values.notna()
+    if default.get("min") is not None:
+        keep &= values >= default["min"]
+    if default.get("max") is not None:
+        keep &= values <= default["max"]
+    return keep
+
+
+def _check_default(at: str, name: str, series: pd.Series, kind: str, listed: bool, default: Any) -> None:
+    if listed:
+        have = filter_values(series)
+        if not isinstance(default, list) or not default:
+            raise SpecError(
+                f"{at}.default is what is selected when the page opens: a list of values of {name!r}, e.g. {have[:2]}"
+            )
+        held = set(have)
+        unknown = [v for v in default if isinstance(v, (dict, list)) or page_text(v) not in held]
+        if unknown:
+            shown = ", ".join(have[:12]) + (", ..." if len(have) > 12 else "")
+            raise SpecError(
+                f"{at}.default names value(s) {name!r} does not hold: {', '.join(map(repr, unknown[:5]))}. "
+                f"It holds: {shown}"
+            )
+        return
+    what = "a date written YYYY-MM-DD" if kind == "date" else "a number"
+    if not isinstance(default, dict) or not default or set(default) - {"min", "max"}:
+        raise SpecError(f"{at}.default of a range is {{'min': ..., 'max': ...}}, each {what}, either one optional")
+    for bound, value in default.items():
+        if kind == "date":
+            ok = isinstance(value, str) and bool(_DAY.match(value))
+            if ok:
+                try:
+                    pd.Timestamp(value)
+                except ValueError:
+                    ok = False
+        else:
+            ok = not isinstance(value, bool) and isinstance(value, (int, float)) and value == value
+            ok = ok and abs(value) != float("inf")
+        if not ok:
+            raise SpecError(f"{at}.default.{bound} must be {what}; got {value!r}")
+    lo, hi = default.get("min"), default.get("max")
+    if lo is not None and hi is not None and lo > hi:
+        raise SpecError(f"{at}.default has min {lo!r} above max {hi!r}")
+
+
+def _check_scope(at: str, scope: Any, layout: Any, detected: bool) -> list[int]:
+    if scope == "page":
+        return []
+    if not isinstance(scope, list) or not scope or any(isinstance(s, bool) or not isinstance(s, int) for s in scope):
+        raise SpecError(f"{at}.scope is 'page' or a list of the layout slots it narrows, e.g. [0, 2]")
+    if not isinstance(layout, list) or detected:
+        raise SpecError(
+            f"{at}.scope names panels by layout slot, and this spec has no layout of its own; "
+            "pass a layout, or scope 'page'"
+        )
+    out_of_range = [s for s in scope if not 0 <= s < len(layout)]
+    if out_of_range:
+        raise SpecError(f"{at}.scope refers to slot(s) {out_of_range} but layout has {len(layout)} panel(s)")
+    for s in scope:
+        chart = layout[s].get("chart")
+        if chart in ("section", "text"):
+            raise SpecError(f"{at}.scope names slot {s}, a {chart} panel, which draws no rows to filter")
+    return sorted(set(scope))
+
+
+def validate_filters(filters: Any, df, layout: Any = None, detected: bool = False) -> None:
+    """Each filter's column, control, default and scope -- and that the page opens on some rows."""
+    if not isinstance(filters, list):
+        raise SpecError("filters must be a list of column names or {column, control, default, scope} entries")
+    entries = []
+    for i, raw in enumerate(filters):
+        if isinstance(raw, dict):
+            extra = sorted(str(k) for k in raw if k not in FILTER_KEYS)
+            if extra:
+                raise SpecError(
+                    f"filters[{i}] has unknown key(s): {', '.join(extra)}. A filter takes: {', '.join(FILTER_KEYS)}"
+                )
+            if not isinstance(raw.get("column"), str) or not raw["column"]:
+                raise SpecError(f"filters[{i}] needs a column: {{'column': 'region', ...}}")
+        elif not isinstance(raw, str):
+            raise SpecError(f"filters[{i}] must be a column name or a dict with keys {', '.join(FILTER_KEYS)}")
+        entries.append(filter_entry(raw))
+    cols = set(_valid_columns(df))
+    missing = [e["column"] for e in entries if e["column"] not in cols]
+    if missing:
+        raise SpecError(
+            f"filters names column(s) not in the file: {', '.join(map(str, missing))}. "
+            f"Available: {', '.join(sorted(cols))}"
+        )
+    seen: set[str] = set()
+    page = pd.Series(True, index=df.index)
+    by_slot: dict[int, pd.Series] = {}
+    for i, e in enumerate(entries):
+        at, name = f"filters[{i}]", e["column"]
+        if name in seen:
+            raise SpecError(f"filters name {name!r} twice; a column takes one filter")
+        seen.add(name)
+        series = df[name]
+        kind = filter_kind(series)
+        distinct = series.dropna().nunique()
+        if distinct < 2:
+            raise SpecError(f"filters: {name!r} has {distinct} distinct value(s), so a filter on it would do nothing")
+        control = e.get("control")
+        if control is not None and control not in FILTER_CONTROLS[kind]:
+            raise SpecError(
+                f"{at}.control={control!r} does not fit {name!r}, a {kind} column; "
+                f"valid: {', '.join(FILTER_CONTROLS[kind])}"
+            )
+        listed = control in LISTED_CONTROLS or (control is None and kind == "text")
+        if listed and distinct > MAX_FILTER_VALUES:
+            raise SpecError(
+                f"filters: {name!r} has {distinct} distinct values; a list filter offers at most {MAX_FILTER_VALUES}"
+                + (". Use control 'range'" if kind == "number" else "")
+            )
+        slots = _check_scope(at, e["scope"], layout, detected) if "scope" in e else []
+        if "default" not in e:
+            continue
+        _check_default(at, name, series, kind, listed, e["default"])
+        keep = _filter_mask(series, kind, listed, e["default"])
+        if not keep.any():
+            raise SpecError(f"{at}.default keeps no rows of {name!r}, so the page would open empty")
+        if slots:
+            for s in slots:
+                by_slot[s] = by_slot.get(s, pd.Series(True, index=df.index)) & keep
+        else:
+            page &= keep
+    if not page.any():
+        raise SpecError("filters: the defaults together keep no rows, so the page would open empty")
+    for s, keep in sorted(by_slot.items()):
+        if not (page & keep).any():
+            raise SpecError(f"filters: the defaults on slot {s} together keep no rows, so that panel would open empty")
 
 
 _HEX = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
@@ -302,37 +501,21 @@ def validate(spec: dict[str, Any] | None, df) -> dict[str, Any]:
     if spec.get("style") is not None:
         validate_page_style(spec["style"])
 
-    for key in ("kpis", "filters"):
-        names = spec.get(key)
-        if names is None:
-            continue
-        if not isinstance(names, list):
-            raise SpecError(f"{key} must be a list of column names")
-        missing = [n for n in names if n not in cols]
+    kpis = spec.get("kpis")
+    if kpis is not None:
+        if not isinstance(kpis, list):
+            raise SpecError("kpis must be a list of column names")
+        missing = [n for n in kpis if n not in cols]
         if missing:
-            raise SpecError(
-                f"{key} names column(s) not in the file: {', '.join(map(str, missing))}. Available: {available}"
-            )
+            raise SpecError(f"kpis names column(s) not in the file: {', '.join(map(str, missing))}. Available: {available}")
 
     numeric = [c for c in df.columns if is_numeric_col(df[c])]
-    kpis = spec.get("kpis")
     if kpis:
         not_numeric = [k for k in kpis if k not in numeric]
         if not_numeric:
             raise SpecError(
                 f"kpis must be numeric columns; not numeric: {', '.join(map(str, not_numeric))}. "
                 f"Numeric: {', '.join(map(str, numeric))}"
-            )
-    for name in spec.get("filters") or []:
-        series = df[name]
-        if pd.api.types.is_datetime64_any_dtype(series):
-            raise SpecError(f"filters: {name!r} is a date column, which the filter bar has no control for")
-        distinct = series.dropna().nunique()
-        if distinct < 2:
-            raise SpecError(f"filters: {name!r} has {distinct} distinct value(s), so a filter on it would do nothing")
-        if name not in numeric and distinct > MAX_FILTER_VALUES:
-            raise SpecError(
-                f"filters: {name!r} has {distinct} distinct values; a text filter offers at most {MAX_FILTER_VALUES}"
             )
 
     layout = spec.get("layout")
@@ -424,6 +607,10 @@ def validate(spec: dict[str, Any] | None, df) -> dict[str, Any]:
                     )
                 if chart == "pie" and agg != "sum":
                     raise SpecError(f"layout[{i}] is a pie, which shows shares of a total, so its only agg is sum")
+
+    # After the layout, which a filter's scope names by slot.
+    if spec.get("filters") is not None:
+        validate_filters(spec["filters"], df, layout, spec.get(LAYOUT_SOURCE_KEY) == "detected")
 
     tabs = spec.get("tabs")
     if tabs is not None:
