@@ -243,10 +243,30 @@ def generate_chart(
 
         # Build chart_df
         if chart_type in ("bar", "pie", "line", "scatter"):
+            # The colour splits each category into a trace per value, so it is
+            # grouped on too. It was not: the grouping dropped the column, and
+            # every bar, line or scatter given a color_column failed with
+            # "Value of 'color' is not the name of a column in 'data_frame'".
+            split = color_column if color_column and chart_type != "pie" and color_column != category_column else ""
+            if split and split not in df.columns:
+                return {
+                    "success": False,
+                    "op": "generate_chart",
+                    "error": f"color_column {split!r} is not a column. Columns: {', '.join(map(str, df.columns))}",
+                    "hint": "Name the column whose values split each category into coloured traces.",
+                    "progress": [fail("Unknown column", split)],
+                    "token_estimate": 40,
+                }
             if category_column:
-                grouped = df.groupby(category_column, as_index=False)[value_column].agg(agg_func)
+                keys = [category_column, split] if split else category_column
+                grouped = df.groupby(keys, as_index=False)[value_column].agg(agg_func)
                 if chart_type == "line":
                     grouped = _sort_along_x(grouped, category_column)
+                elif split:
+                    # Categories by their total, largest first; the traces within them.
+                    rank = grouped.groupby(category_column)[value_column].sum().rank(ascending=False, method="first")
+                    grouped = grouped.assign(_rank=grouped[category_column].map(rank))
+                    grouped = grouped.sort_values(["_rank", split]).drop(columns="_rank")
                 else:
                     grouped = grouped.sort_values(by=value_column, ascending=False)
                 chart_df = grouped

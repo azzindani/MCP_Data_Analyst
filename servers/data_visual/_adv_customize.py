@@ -15,6 +15,7 @@ for _p in (str(_ROOT), _ADV):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+from shared.chart_ops import CHART_OPS, ChartOpError, apply_chart_ops
 from shared.file_utils import atomic_write_text, embed_content, error_text, hint_for_error, resolve_path
 from shared.plotly_payload import decode_array, encode_array, scan_balanced, split_newplot
 from shared.progress import fail, info, ok, warn
@@ -102,8 +103,17 @@ def customize_chart(
     height: int = 0,
     output_path: str = "",
     return_content: bool = False,
+    ops: list[dict] = None,
+    dry_run: bool = False,
 ) -> dict:
-    """Modify existing Plotly HTML chart. Changes title labels colors annotations."""
+    """Modify existing Plotly HTML chart. Changes title labels colors annotations.
+
+    `ops` edit the figure itself, after the keywords, over an allow-list of
+    paths (shared/chart_ops.py): {op: set, path, value} -- a log axis, the
+    legend on the right, bars drawn as a line, a trace on a second y axis --
+    and {op: reference_line, axis, value, label}. `dry_run` applies them to
+    the parsed figure and writes nothing.
+    """
     progress = []
     try:
         path = resolve_path(chart_path)
@@ -342,11 +352,24 @@ def customize_chart(
             changes_applied.append(f"{len(built)} annotation(s) added")
             progress.append(info("Annotations", f"{len(built)} added"))
 
+        if ops is not None:
+            try:
+                changes_applied.extend(apply_chart_ops(traces, layout, ops))
+            except ChartOpError as exc:
+                return {
+                    "success": False,
+                    "op": "customize_chart",
+                    "error": str(exc),
+                    "hint": f"Chart ops: {', '.join(CHART_OPS)}. Nothing was written.",
+                    "progress": [*progress, fail("Invalid op", str(exc))],
+                    "token_estimate": 60,
+                }
+
         if not changes_applied:
             return {
                 "success": False,
                 "error": "No customization parameters provided.",
-                "hint": "Provide at least one of: title, x_label, y_label, z_label, color_scheme, sort_bars, annotations, show_value_labels, width, height.",
+                "hint": "Provide at least one of: title, x_label, y_label, z_label, color_scheme, sort_bars, annotations, show_value_labels, width, height, ops.",
                 "progress": [fail("Nothing to change", "")],
                 "token_estimate": 20,
             }
@@ -387,6 +410,17 @@ def customize_chart(
             out_path = resolve_path(output_path)
         else:
             out_path = path.parent / f"{path.stem}_customized{path.suffix}"
+        if dry_run:
+            return {
+                "success": True,
+                "dry_run": True,
+                "op": "customize_chart",
+                "input": path.name,
+                "would_write": str(out_path),
+                "changes_applied": changes_applied,
+                "progress": [*progress, info("Dry run — no file written", out_path.name)],
+                "token_estimate": 40 + 12 * len(changes_applied),
+            }
         atomic_write_text(str(out_path), html)
         progress.append(ok("Chart customized", f"{len(changes_applied)} changes applied"))
 

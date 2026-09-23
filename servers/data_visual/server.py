@@ -403,8 +403,10 @@ def customize_chart(
     height: int = 0,
     output_path: str = "",
     return_content: bool = False,
+    ops: list[dict] = None,
+    dry_run: bool = False,
 ) -> dict:
-    """Customize existing chart. changes: title labels colors annotations."""
+    """Customize a chart: title labels colors; ops set axes, legend, traces."""
     # Keyword, not positional. Inserting z_label between y_label and
     # color_scheme silently rebinds every argument after it when the call is
     # positional -- the chart would have been "coloured" with the z label.
@@ -423,6 +425,8 @@ def customize_chart(
         height=height,
         output_path=output_path,
         return_content=return_content,
+        ops=ops,
+        dry_run=dry_run,
     )
 
 

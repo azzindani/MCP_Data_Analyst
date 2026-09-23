@@ -505,7 +505,7 @@ so a typo silently chose a date interpretation and the response said nothing.
 | `generate_pairwise_plot` | Scatter matrix for numeric columns |
 | `generate_multi_chart` | Multi-variable bar/line chart (2+ metrics) |
 | `export_data` | Export to CSV, Excel, or JSON. The workbook carries a README sheet, frozen header, autofilter, number formats and column validation |
-| `customize_chart` | Post-generate edits to an existing HTML chart: title, axis labels, colour scheme, annotations, value labels, dimensions |
+| `customize_chart` | Post-generate edits to an existing HTML chart: title, axis labels, colour scheme, annotations, value labels, dimensions. `ops` edit the figure by path over an allow-list -- `{op: set, path: "layout.yaxis.type", value: "log"}`, `data[N]` or `data[*]` for traces (type bar/scatter, mode, colours, line width and dash, `yaxis: "y2"` for a right-hand axis) -- and `{op: reference_line, axis, value, label}`; anything outside the list is refused by name. `dry_run` writes nothing |
 
 #### New chart types in `generate_chart`
 
