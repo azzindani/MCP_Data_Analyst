@@ -136,7 +136,7 @@ PANEL_STYLE: dict[str, dict] = {
     "grouped_bar": {"top_n": 20, "series": 10},
     "cscat": {"series": 15},
     "box": {"top_n": 20},
-    "corr": {"colorscale": "RdBu_r"},
+    "corr": {"colorscale": "RdBu"},
     "agg_hm": {"top_n": 30, "colorscale": "YlOrRd"},
     "ts": {"color": "#3fb950", "accent": "#f0883e", "ma": 3},
     "dist": {"color": "#58a6ff", "accent": "#f0883e", "bins": 50},
@@ -145,9 +145,20 @@ PANEL_STYLE: dict[str, dict] = {
 }
 
 
-def _panel(spec: dict, title: str) -> dict:
-    """A card's panel: its columns and aggregate, its title, and its own style."""
-    return {**spec, "title": title, "style": dict(PANEL_STYLE.get(spec["type"], {}))}
+def _panel(spec: dict, title: str, style: dict | None = None) -> dict:
+    """A card's panel: its columns and aggregate, its title, and its style -- the kind's, then the caller's."""
+    return {**spec, "title": title, "style": {**PANEL_STYLE.get(spec["type"], {}), **(style or {})}}
+
+
+# A 12-column grid for a page whose panels say where they sit. Below the
+# breakpoint every card takes the full width, as on the default grid; the
+# rule beats a card's inline span, which on a one-column grid would open
+# eleven implicit columns and push the page sideways.
+_PLACE_CSS = (
+    ".cgrid.g12{grid-template-columns:repeat(12,minmax(0,1fr))}"
+    "@media(max-width:68.75rem){.cgrid.g12{grid-template-columns:minmax(0,1fr)}"
+    ".cgrid.g12>.cc{grid-column:1/-1!important}}"
+)
 
 
 def _theme(theme: str) -> dict:
@@ -382,7 +393,7 @@ def generate_dashboard(
         # correlation matrix, a heatmap and a histogram per numeric column, with
         # charts_included saying ["pie"].
         caller_layout = bool(spec) and spec.get("layout") is not None and spec.get(LAYOUT_SOURCE_KEY) != "detected"
-        panel_plan: list[tuple[dict, str, bool, int]] | None = None
+        panel_plan: list | None = None
         if caller_layout:
             try:
                 panel_plan = _plan_panels(
@@ -521,11 +532,14 @@ def generate_dashboard(
         h.append(_dash_alerts(alerts))
 
         chart_specs: list[dict] = []
-        h.append('<div class="sec-hdr">Charts</div><div class="cgrid">')
+        # Placement is all or nothing per page: one placed panel puts the page
+        # on the 12-column grid, where every card states its span.
+        placed = panel_plan is not None and any(entry[5] for entry in panel_plan)
+        h.append(f'<div class="sec-hdr">Charts</div><div class="cgrid{" g12" if placed else ""}">')
         if panel_plan is not None:
-            for chart_spec, title, full, height in panel_plan:
-                _card(h, chart_spec["id"], title, full, height)
-                chart_specs.append(_panel(chart_spec, title))
+            for chart_spec, title, full, height, style, place in panel_plan:
+                _card(h, chart_spec["id"], title, full, height, (place or {}) if placed else None)
+                chart_specs.append(_panel(chart_spec, title, style))
         else:
             _build_chart_cards(
                 h,
@@ -558,7 +572,7 @@ def generate_dashboard(
         # and the theme. One renderer in _dash_js reads them; nothing about a
         # chart is written into code, column names included.
         kpis = [{"col": str(nc), "agg": col_agg.get(nc, "sum"), "el": f"kv-{_safe(nc)}"} for nc in kpi_cols]
-        h.append(_dash_js(raw_json, chart_specs, kpis, _theme(theme)))
+        h.append(_dash_js(raw_json, chart_specs, kpis, _theme(theme), resolved.get("style") or {}))
         if source_frames:
             h.append(_dash_source_js())
 
@@ -693,7 +707,7 @@ def _trend(df, col: str) -> tuple[str, str]:
 def _dash_head(_css, dashboard_title, output_dir, header=None, spec=None):
     import html as _html
 
-    full_css = css_dashboard(_css)
+    full_css = css_dashboard(_css) + _PLACE_CSS
     plotly_script = plotly_script_tag(output_dir)
     # The page carries what it is a picture of, and the document it was built
     # from. The second is what makes customize_dashboard possible: without it,
@@ -890,16 +904,25 @@ def _dash_kpi_row(df, numeric_cols, sparklines, quality, qual_clr, col_agg):
     return "\n".join(h)
 
 
-def _card(h, cid: str, ttl: str, full: bool, height: int) -> None:
+def _card(h, cid: str, ttl: str, full: bool, height: int, place: dict | None = None) -> None:
     cls = "cc full" if full else "cc"
     # Use CSS class for height — tall (>380 px original) gets cc-body--tall
     body_cls = "cc-body--tall" if height > 380 else "cc-body"
     te = _html_esc.escape(ttl)
+    # On a placed page (the g12 grid) every card says its span; a panel that
+    # names none takes the width it has on the default grid.
+    card_style = ""
+    body_style = ""
+    if place is not None:
+        span = int(place.get("span") or (12 if full else 6))
+        card_style = f' style="grid-column:span {span}"'
+        if place.get("height"):
+            body_style = f' style="height:{int(place["height"])}px"'
     h.append(
-        f'<div class="{cls}">'
+        f'<div class="{cls}"{card_style}>'
         f'<div class="cc-hdr"><h3>{te}</h3>'
         f'<button class="exp" data-expand="{cid}" data-expand-title="{te}">&#x2922;</button>'
-        f'</div><div class="{body_cls}">'
+        f'</div><div class="{body_cls}"{body_style}>'
         f'<div id="{cid}" style="width:100%;height:100%"></div>'
         f"</div></div>"
     )
@@ -935,15 +958,16 @@ def _parse_dates(df, spec) -> None:
 def _plan_panels(layout, df, cat_cols, numeric_cols, datetime_cols, geo, col_agg):
     """One card per panel of a caller's layout, drawn from that panel's columns.
 
-    Returns (chart_spec, title, full_width, height) per panel, in layout order,
+    Returns (chart_spec, title, full_width, height, style, place) per panel, in layout order,
     so tab slot N is card N. A role the panel leaves empty is filled the way
     the detected page fills it; a role nothing can fill is refused by name
     rather than swapped for a different chart.
     """
     lat_d, lon_d, loc_d, loc_mode = geo
-    plan: list[tuple[dict, str, bool, int]] = []
+    plan: list = []
     for i, panel in enumerate(layout):
         kind = panel["chart"]
+        before = len(plan)
         cols = dict(panel.get("cols") or {})
         named_agg = panel.get("agg") or ""
         cid = f"p{i}_{_safe(kind)}"
@@ -1029,6 +1053,17 @@ def _plan_panels(layout, df, cat_cols, numeric_cols, datetime_cols, geo, col_agg
             plan.append((spec, f"{agg_label(agg)} {nc} by {loc} (Choropleth)", True, 500))
         else:  # pragma: no cover - the validator refuses every other kind first
             raise SpecError(f"layout[{i}] chart={kind!r} is not drawable. Valid: {', '.join(CHART_KINDS)}")
+        if len(plan) > before:
+            # The caller's own title, style and place for this panel, over what the kind decided.
+            spec_, title_, full_, height_ = plan[-1]
+            plan[-1] = (
+                spec_,
+                panel.get("title") or title_,
+                full_,
+                height_,
+                panel.get("style") or {},
+                panel.get("place"),
+            )
     return plan
 
 
@@ -1199,15 +1234,58 @@ function _groups(d,keyOf,col){
 function _kpi(d,col,how){return _agg(d.map(function(r){return _num(r[col]);}),how);}
 function _axes(extra){return _merge({margin:{l:55,r:20,t:10,b:65},xaxis:{gridcolor:_T().grid,tickangle:'auto'},yaxis:{gridcolor:_T().grid}},extra);}
 function _geo(){return{showland:true,landcolor:_T().land,showocean:true,oceancolor:_T().ocean,showcoastlines:true,coastlinecolor:_T().coast,showcountries:true,countrycolor:_T().coast,showframe:false,bgcolor:_T().bg};}
-function _color(i){return _T().palette[i%_T().palette.length];}
+function _pal(p){return p.style.palette||_STYLE.palette||_T().palette;}
+// A category value's colour: the panel's map, then the page's -- so a value is
+// one colour wherever it is drawn -- else none, and the panel's own applies.
+function _catColor(p,k){var m=p.style.colors,g=_STYLE.colors;return(m&&m[k])||(g&&g[k])||null;}
+function _seriesColor(p,k,i){var pal=_pal(p);return _catColor(p,k)||pal[i%pal.length];}
+// A value as its panel formats it, prefix and suffix included.
+function _fmtv(v,s){
+  var f=s.format||'compact',t;
+  if(f==='integer')t=Math.round(v).toLocaleString('en-US');
+  else if(f==='decimal')t=v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  else if(f==='percent')t=(v*100).toFixed(1)+'%';
+  else t=_fmt(v);
+  return(s.prefix||'')+t+(s.suffix||'');
+}
+var _TICKS={compact:'~s',integer:',.0f',decimal:',.2f',percent:'.1%'};
+// The value axis a panel's style asks for; nothing when it asks for nothing.
+function _vaxis(s){
+  var a={};
+  if(s.format)a.tickformat=_TICKS[s.format];
+  if(s.prefix)a.tickprefix=s.prefix;
+  if(s.suffix)a.ticksuffix=s.suffix;
+  if(s.y_scale==='log')a.type='log';
+  return a;
+}
+// A legend on the right is centred: at the top it sat under the mode bar,
+// which covered its first entry.
+function _legend(s,dflt){
+  if(!s.legend)return dflt;
+  if(s.legend==='none')return{showlegend:false};
+  return{showlegend:true,legend:{top:{orientation:'h',x:0,y:1.12},bottom:{orientation:'h',x:0,y:-0.25},right:{orientation:'v',x:1.02,xanchor:'left',y:0.5,yanchor:'middle'}}[s.legend]};
+}
+// Plotly.js runs its sequential scales from dark to light, so the heatmap and
+// the map drew the largest value palest. Reversed, darker means more.
+var _DARK_FIRST={Blues:1,Greens:1,Greys:1,Reds:1,YlGnBu:1,YlOrRd:1,Hot:1,Blackbody:1,Earth:1};
+function _scale(name){return{colorscale:name,reversescale:!!_DARK_FIRST[name]};}
 
 const FIG={
   bar:function(p,d){
     var s=p.style,how=p.agg||'sum';
     var e=Array.from(_groups(d,function(r){return _key(r,p.category);},p.value),function(g){return[g[0],_agg(g[1],how)];});
-    e.sort(how==='min'?function(x,y){return x[1]-y[1];}:function(x,y){return y[1]-x[1];});
+    // The top_n kept are the largest (the smallest, for min); `sort` then
+    // orders what was kept.
+    var asc=function(x,y){return x[1]-y[1];},desc=function(x,y){return y[1]-x[1];};
+    e.sort(how==='min'?asc:desc);
     e=e.slice(0,s.top_n);
-    return{data:[{x:e.map(function(i){return i[0];}),y:e.map(function(i){return i[1];}),type:'bar',marker:{color:s.color,opacity:0.85},text:e.map(function(i){return _fmt(i[1]);}),textposition:'outside'}],layout:_axes()};
+    if(s.sort==='asc')e.sort(asc);else if(s.sort==='desc')e.sort(desc);
+    else if(s.sort==='label')e.sort(function(x,y){return String(x[0]).localeCompare(String(y[0]));});
+    var named=e.map(function(i){return _catColor(p,i[0]);});
+    var t={x:e.map(function(i){return i[0];}),y:e.map(function(i){return i[1];}),type:'bar',
+      marker:{color:named.some(Boolean)?named.map(function(c){return c||s.color;}):s.color,opacity:0.85}};
+    if(s.value_labels!==false){t.text=e.map(function(i){return _fmtv(i[1],s);});t.textposition='outside';}
+    return{data:[t],layout:_axes({yaxis:_vaxis(s)})};
   },
   pie:function(p,d){
     // With a value column the slices are its sums per category; without one
@@ -1218,8 +1296,8 @@ const FIG={
     // Past a handful of slices, labels drawn outside on leader lines overlap
     // and spill out of the card, repeating names the legend already lists.
     var ti=e.length>6?'percent':'label+percent';
-    return{data:[{values:e.map(function(i){return i[1];}),labels:e.map(function(i){return i[0];}),type:'pie',hole:0.38,marker:{colors:_T().palette},textinfo:ti,textposition:'inside',insidetextorientation:'horizontal',textfont:{size:11},pull:e.map(function(_,i){return i===0?0.04:0;})}],
-           layout:{margin:{l:20,r:20,t:10,b:20},showlegend:true,legend:{orientation:'h',y:-0.14}}};
+    return{data:[{values:e.map(function(i){return i[1];}),labels:e.map(function(i){return i[0];}),type:'pie',hole:0.38,marker:{colors:e.map(function(i,j){return _seriesColor(p,i[0],j);})},textinfo:ti,textposition:'inside',insidetextorientation:'horizontal',textfont:{size:11},pull:e.map(function(_,i){return i===0?0.04:0;})}],
+           layout:_merge({margin:{l:20,r:20,t:10,b:20}},_legend(p.style,{showlegend:true,legend:{orientation:'h',y:-0.14}}))};
   },
   scatter:function(p,d){
     var s=p.style,xs=[],ys=[];
@@ -1233,7 +1311,7 @@ const FIG={
       var lo=_min(xs),hi=_max(xs);
       t.push({x:[lo,hi],y:[sl*lo+ic,sl*hi+ic],type:'scatter',mode:'lines',line:{color:s.accent,width:2,dash:'dash'},name:'r='+r.toFixed(2)});
     }
-    return{data:t,layout:_axes({showlegend:true,legend:{x:0,y:1.1,orientation:'h'},xaxis:{title:p.x},yaxis:{title:p.y}})};
+    return{data:t,layout:_axes(_merge({xaxis:{title:p.x},yaxis:_merge({title:p.y},_vaxis(s))},_legend(s,{showlegend:true,legend:{x:0,y:1.1,orientation:'h'}})))};
   },
   grouped_bar:function(p,d){
     var s=p.style,how=p.agg||'sum',a=new Map(),gs=[],seen=new Set();
@@ -1247,20 +1325,20 @@ const FIG={
     gs=gs.slice(0,s.top_n);
     var t=Array.from(a.keys()).slice(0,s.series).map(function(k,i){
       var m=a.get(k);
-      return{x:gs,y:gs.map(function(g){return m.has(g)?_agg(m.get(g),how):0;}),type:'bar',name:k,marker:{color:_color(i),opacity:0.85}};
+      return{x:gs,y:gs.map(function(g){return m.has(g)?_agg(m.get(g),how):0;}),type:'bar',name:k,marker:{color:_seriesColor(p,k,i),opacity:0.85}};
     });
     return{data:t,layout:_axes({barmode:'group',showlegend:true,legend:{orientation:'h',x:0,y:1.12}})};
   },
   cscat:function(p,d){
     var g=new Map();
     d.forEach(function(r){var x=_num(r[p.x]),y=_num(r[p.y]),k=_key(r,p.group);if(!isNaN(x)&&!isNaN(y)){if(!g.has(k))g.set(k,{x:[],y:[]});g.get(k).x.push(x);g.get(k).y.push(y);}});
-    var t=Array.from(g.keys()).slice(0,p.style.series).map(function(k,i){return{x:g.get(k).x,y:g.get(k).y,type:'scatter',mode:'markers',name:k,marker:{color:_color(i),opacity:0.6,size:5}};});
+    var t=Array.from(g.keys()).slice(0,p.style.series).map(function(k,i){return{x:g.get(k).x,y:g.get(k).y,type:'scatter',mode:'markers',name:k,marker:{color:_seriesColor(p,k,i),opacity:0.6,size:5}};});
     return{data:t,layout:_axes({showlegend:true,legend:{orientation:'h',x:0,y:1.12},xaxis:{title:p.x},yaxis:{title:p.y}})};
   },
   box:function(p,d){
     var g=_groups(d,function(r){return _key(r,p.category);},p.value);
-    var t=Array.from(g.keys()).sort().slice(0,p.style.top_n).map(function(k,i){return{y:g.get(k),type:'box',name:k,marker:{color:_color(i),size:3},boxpoints:'outliers'};});
-    return{data:t,layout:_axes({showlegend:false,yaxis:{title:p.value}})};
+    var t=Array.from(g.keys()).sort().slice(0,p.style.top_n).map(function(k,i){return{y:g.get(k),type:'box',name:k,marker:{color:_seriesColor(p,k,i),size:3},boxpoints:'outliers'};});
+    return{data:t,layout:_axes({showlegend:false,yaxis:_merge({title:p.value},_vaxis(p.style))})};
   },
   corr:function(p,d){
     var cols=p.columns,n=d.length;if(n<2)return null;
@@ -1272,7 +1350,7 @@ const FIG={
       var num=0,dx=0,dy=0;pr.forEach(function(q){num+=(q[0]-mx)*(q[1]-my);dx+=(q[0]-mx)*(q[0]-mx);dy+=(q[1]-my)*(q[1]-my);});
       return dx&&dy?num/Math.sqrt(dx*dy):0;
     });});
-    return{data:[{z:z,x:cols,y:cols,type:'heatmap',colorscale:p.style.colorscale,zmid:0,zmin:-1,zmax:1,text:z.map(function(r){return r.map(function(v){return v.toFixed(2);});}),texttemplate:'%{text}',textfont:{size:10}}],
+    return{data:[{z:z,x:cols,y:cols,type:'heatmap',colorscale:_scale(p.style.colorscale).colorscale,reversescale:_scale(p.style.colorscale).reversescale,zmid:0,zmin:-1,zmax:1,text:z.map(function(r){return r.map(function(v){return v.toFixed(2);});}),texttemplate:'%{text}',textfont:{size:10}}],
            layout:{font:{size:11},margin:{l:120,r:20,t:10,b:120}}};
   },
   agg_hm:function(p,d){
@@ -1284,7 +1362,7 @@ const FIG={
     });
     var rl=Array.from(R).sort().slice(0,s.top_n),cl=Array.from(C).sort().slice(0,s.top_n);
     var z=rl.map(function(r){return cl.map(function(c){var v=a.get(r+'\u0000'+c);return v?_agg(v,how):0;});});
-    return{data:[{z:z,x:cl,y:rl,type:'heatmap',colorscale:s.colorscale,text:z.map(function(r){return r.map(_fmt);}),texttemplate:'%{text}',textfont:{size:9}}],
+    return{data:[{z:z,x:cl,y:rl,type:'heatmap',colorscale:_scale(s.colorscale).colorscale,reversescale:_scale(s.colorscale).reversescale,text:z.map(function(r){return r.map(_fmt);}),texttemplate:'%{text}',textfont:{size:9}}],
            layout:{font:{size:11},margin:{l:130,r:20,t:10,b:130}}};
   },
   ts:function(p,d){
@@ -1292,9 +1370,10 @@ const FIG={
     var bm=_groups(d,function(r){var dt=r[p.date];return dt?String(dt).substring(0,7):null;},p.value);
     var dates=Array.from(bm.keys()).sort(),vals=dates.map(function(k){return _agg(bm.get(k),how);});
     var ma=vals.map(function(_,i){if(i<w-1)return null;var t=0;for(var j=i-w+1;j<=i;j++)t+=vals[j];return t/w;});
-    var t=[{x:dates,y:vals,type:'scatter',mode:'lines+markers',name:p.value,line:{color:s.color,width:2},marker:{size:4}},
-           {x:dates.slice(w-1),y:ma.slice(w-1),type:'scatter',mode:'lines',name:w+'-period MA',line:{color:s.accent,width:2,dash:'dot'}}];
-    return{data:t,layout:_axes({showlegend:true,legend:{x:0,y:1.1,orientation:'h'},xaxis:{title:'Date'},yaxis:{title:p.value}})};
+    var t=[{x:dates,y:vals,type:'scatter',mode:'lines+markers',name:p.value,line:{color:s.color,width:2},marker:{size:4}}];
+    // ma=0 draws the series alone.
+    if(w>0)t.push({x:dates.slice(w-1),y:ma.slice(w-1),type:'scatter',mode:'lines',name:w+'-period MA',line:{color:s.accent,width:2,dash:'dot'}});
+    return{data:t,layout:_axes(_merge({xaxis:{title:'Date'},yaxis:_merge({title:p.value},_vaxis(s))},_legend(s,{showlegend:true,legend:{x:0,y:1.1,orientation:'h'}})))};
   },
   dist:function(p,d){
     var s=p.style,vals=d.map(function(r){return _num(r[p.value]);}).filter(function(v){return!isNaN(v);});
@@ -1314,8 +1393,9 @@ const FIG={
   geo_choro:function(p,d){
     var how=p.agg||'sum',a=_groups(d,function(r){var k=_key(r,p.location);return k?k:null;},p.value);
     var locs=Array.from(a.keys());if(!locs.length)return null;
-    return{data:[{type:'choropleth',locations:locs,z:locs.map(function(k){return _agg(a.get(k),how);}),locationmode:p.mode,coloraxis:'coloraxis',hovertemplate:'%{location}: %{z:.2f}<extra></extra>'}],
-           layout:{geo:_geo(),margin:{l:0,r:0,t:10,b:0},coloraxis:{colorscale:p.style.colorscale,showscale:true,colorbar:{thickness:14,len:0.7,tickfont:{color:_T().font,size:10}}}}};
+    var s=p.style,hover=s.format?_TICKS[s.format]:'.2f';
+    return{data:[{type:'choropleth',locations:locs,z:locs.map(function(k){return _agg(a.get(k),how);}),locationmode:p.mode,coloraxis:'coloraxis',hovertemplate:'%{location}: '+(s.prefix||'')+'%{z:'+hover+'}'+(s.suffix||'')+'<extra></extra>'}],
+           layout:{geo:_geo(),margin:{l:0,r:0,t:10,b:0},coloraxis:_merge(_scale(s.colorscale),{showscale:true,colorbar:_merge({thickness:14,len:0.7,tickfont:{color:_T().font,size:10}},_vaxis(s))})}};
   }
 };
 
@@ -1346,13 +1426,14 @@ if(_THEME.device&&typeof window!=='undefined'&&window.matchMedia){
 """
 
 
-def _dash_js(raw_json, panels: list[dict], kpis: list[dict], theme: dict):
+def _dash_js(raw_json, panels: list[dict], kpis: list[dict], theme: dict, page_style: dict | None = None):
     # json_for_script escapes <, > and &, so no name or value in the panels can
     # end the <script> block -- and none is ever read as code.
     state = (
         f"const _PANELS={json_for_script(panels)};\n"
         f"const _KPIS={json_for_script(kpis)};\n"
         f"const _THEME={json_for_script(theme)};\n"
+        f"const _STYLE={json_for_script(page_style or {})};\n"
     )
     return f"""<script>
 let _RAW={raw_json};

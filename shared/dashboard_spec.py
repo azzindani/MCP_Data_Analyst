@@ -34,6 +34,7 @@ back to auto-detect there produces a dashboard that looks like it worked.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pandas as pd
@@ -88,12 +89,62 @@ DEFAULT_INTERACTIONS: dict[str, Any] = {
     "embed_rows": 0,
 }
 
-SPEC_KEYS: tuple[str, ...] = ("title", "theme", "layout", "kpis", "filters", "tabs", "interactions")
+SPEC_KEYS: tuple[str, ...] = ("title", "theme", "layout", "kpis", "filters", "tabs", "interactions", "style")
 
 # What a panel may carry. Anything else -- "width", "title", a typo of "cols" --
 # used to be accepted and dropped, which is the failure this module exists to
 # refuse.
-PANEL_KEYS: tuple[str, ...] = ("slot", "chart", "cols", "agg")
+PANEL_KEYS: tuple[str, ...] = ("slot", "chart", "cols", "agg", "title", "style", "place")
+
+# How a panel looks, field by field, and which charts read each field. A field
+# a chart does not draw is refused by name rather than accepted and dropped.
+STYLE_ENUMS: dict[str, tuple[str, ...]] = {
+    "sort": ("desc", "asc", "label"),
+    "legend": ("top", "bottom", "right", "none"),
+    "y_scale": ("linear", "log"),
+    "format": ("compact", "integer", "decimal", "percent"),
+    # Plotly.js's own names; "RdBu_r" and the like are Python-only and draw the default.
+    "colorscale": (
+        "Blues",
+        "Greens",
+        "Greys",
+        "Reds",
+        "YlGnBu",
+        "YlOrRd",
+        "Viridis",
+        "Cividis",
+        "Hot",
+        "Blackbody",
+        "Earth",
+        "Electric",
+        "Jet",
+        "Rainbow",
+        "Portland",
+        "Picnic",
+        "Bluered",
+        "RdBu",
+    ),
+}
+STYLE_INTS: dict[str, tuple[int, int]] = {"top_n": (1, 500), "bins": (2, 500), "ma": (0, 60)}
+STYLE_TEXT: dict[str, int] = {"prefix": 8, "suffix": 8}
+CHART_STYLE: dict[str, tuple[str, ...]] = {
+    "bar": ("color", "colors", "top_n", "sort", "value_labels", "y_scale", "format", "prefix", "suffix"),
+    "line": ("color", "accent", "ma", "legend", "y_scale", "format", "prefix", "suffix"),
+    "time_series": ("color", "accent", "ma", "legend", "y_scale", "format", "prefix", "suffix"),
+    "pie": ("palette", "colors", "top_n", "legend"),
+    "scatter": ("color", "accent", "legend", "y_scale"),
+    "histogram": ("color", "accent", "bins"),
+    "box": ("palette", "colors", "top_n", "y_scale", "format", "prefix", "suffix"),
+    "geo_scatter": ("color",),
+    "choropleth": ("colorscale", "format", "prefix", "suffix"),
+}
+# The page's own style: a palette, and colours by category value that every
+# panel uses -- so "North" is one colour wherever it is drawn.
+PAGE_STYLE_KEYS: tuple[str, ...] = ("palette", "colors")
+PLACE_LIMITS: dict[str, tuple[int, int]] = {"span": (1, 12), "height": (160, 1200)}
+MAX_TITLE = 120
+MAX_PALETTE = 30
+MAX_COLOR_MAP = 200
 
 # Roles a chart can take beyond the ones it needs.
 CHART_OPTIONAL: dict[str, tuple[str, ...]] = {"box": ("category",)}
@@ -118,6 +169,87 @@ MAX_FILTER_VALUES = 100
 
 class SpecError(ValueError):
     """A spec that cannot be honoured, named precisely enough to fix."""
+
+
+_HEX = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
+_RGB = re.compile(r"^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(?:,\s*(?:0|1|0?\.\d+)\s*)?\)$")
+
+
+def _colour(where: str, value: Any) -> None:
+    if not (isinstance(value, str) and (_HEX.match(value) or _RGB.match(value))):
+        raise SpecError(f"{where} {value!r} is not a colour; write '#58a6ff' or 'rgb(88,166,255)'")
+
+
+def _palette(where: str, value: Any) -> None:
+    if not isinstance(value, list) or not 1 <= len(value) <= MAX_PALETTE:
+        raise SpecError(f"{where} must be a list of 1 to {MAX_PALETTE} colours")
+    for j, c in enumerate(value):
+        _colour(f"{where}[{j}]", c)
+
+
+def _colour_map(where: str, value: Any) -> None:
+    if not isinstance(value, dict) or len(value) > MAX_COLOR_MAP:
+        raise SpecError(f"{where} must map category values to colours, e.g. {{'North': '#2f81f7'}}")
+    for key, c in value.items():
+        _colour(f"{where}[{key!r}]", c)
+
+
+def validate_page_style(style: Any) -> None:
+    """The page's palette and category colours."""
+    if not isinstance(style, dict):
+        raise SpecError(f"style must be a dict with keys {', '.join(PAGE_STYLE_KEYS)}")
+    unknown = sorted(str(k) for k in style if k not in PAGE_STYLE_KEYS)
+    if unknown:
+        raise SpecError(
+            f"style has unknown key(s): {', '.join(unknown)}. The page's style takes: {', '.join(PAGE_STYLE_KEYS)}"
+        )
+    if "palette" in style:
+        _palette("style.palette", style["palette"])
+    if "colors" in style:
+        _colour_map("style.colors", style["colors"])
+
+
+def validate_panel_style(where: str, chart: str, style: Any) -> None:
+    """A panel's style: only the fields its chart draws, each with a value it can draw."""
+    if not isinstance(style, dict):
+        raise SpecError(f"{where}.style must be a dict")
+    allowed = CHART_STYLE.get(chart, ())
+    for key, value in style.items():
+        at = f"{where}.style.{key}"
+        if key not in allowed:
+            raise SpecError(f"{at}: a {chart} chart does not draw {key!r}. Its style takes: {', '.join(allowed)}")
+        if key in ("color", "accent"):
+            _colour(at, value)
+        elif key == "palette":
+            _palette(at, value)
+        elif key == "colors":
+            _colour_map(at, value)
+        elif key == "value_labels":
+            if not isinstance(value, bool):
+                raise SpecError(f"{at} must be true or false")
+        elif key in STYLE_ENUMS:
+            if value not in STYLE_ENUMS[key]:
+                raise SpecError(f"{at}={value!r}; valid: {', '.join(STYLE_ENUMS[key])}")
+        elif key in STYLE_INTS:
+            lo, hi = STYLE_INTS[key]
+            if isinstance(value, bool) or not isinstance(value, int) or not lo <= value <= hi:
+                raise SpecError(f"{at} must be a whole number from {lo} to {hi}")
+        elif key in STYLE_TEXT:
+            if not isinstance(value, str) or len(value) > STYLE_TEXT[key]:
+                raise SpecError(f"{at} must be text of at most {STYLE_TEXT[key]} characters, e.g. '$' or ' kg'")
+
+
+def validate_place(where: str, place: Any) -> None:
+    """Where a panel sits on a 12-column grid, and how tall it is."""
+    if not isinstance(place, dict):
+        raise SpecError(f"{where}.place must be a dict with keys {', '.join(PLACE_LIMITS)}")
+    for key, value in place.items():
+        if key not in PLACE_LIMITS:
+            raise SpecError(f"{where}.place has unknown key {key!r}. It takes: {', '.join(PLACE_LIMITS)}")
+        lo, hi = PLACE_LIMITS[key]
+        if isinstance(value, bool) or not isinstance(value, int) or not lo <= value <= hi:
+            unit = " columns of 12" if key == "span" else " pixels"
+            raise SpecError(f"{where}.place.{key} must be a whole number from {lo} to {hi}{unit}")
 
 
 def _valid_columns(df) -> list[str]:
@@ -152,6 +284,8 @@ def validate(spec: dict[str, Any] | None, df) -> dict[str, Any]:
     theme = spec.get("theme")
     if theme is not None and theme not in THEMES:
         raise SpecError(f"theme must be one of {', '.join(THEMES)}; got {theme!r}")
+    if spec.get("style") is not None:
+        validate_page_style(spec["style"])
 
     for key in ("kpis", "filters"):
         names = spec.get(key)
@@ -161,7 +295,9 @@ def validate(spec: dict[str, Any] | None, df) -> dict[str, Any]:
             raise SpecError(f"{key} must be a list of column names")
         missing = [n for n in names if n not in cols]
         if missing:
-            raise SpecError(f"{key} names column(s) not in the file: {', '.join(map(str, missing))}. Available: {available}")
+            raise SpecError(
+                f"{key} names column(s) not in the file: {', '.join(map(str, missing))}. Available: {available}"
+            )
 
     numeric = [c for c in df.columns if is_numeric_col(df[c])]
     kpis = spec.get("kpis")
@@ -187,24 +323,34 @@ def validate(spec: dict[str, Any] | None, df) -> dict[str, Any]:
     layout = spec.get("layout")
     if layout is not None:
         if not isinstance(layout, list):
-            raise SpecError("layout must be a list of {slot, chart, cols, agg} panels")
+            raise SpecError("layout must be a list of {slot, chart, cols, agg, title, style, place} panels")
         for i, panel in enumerate(layout):
             if not isinstance(panel, dict):
                 raise SpecError(f"layout[{i}] must be a dict, got {type(panel).__name__}")
             extra = sorted(str(k) for k in panel if k not in PANEL_KEYS)
             if extra:
-                raise SpecError(f"layout[{i}] has unknown key(s): {', '.join(extra)}. A panel takes: {', '.join(PANEL_KEYS)}")
+                raise SpecError(
+                    f"layout[{i}] has unknown key(s): {', '.join(extra)}. A panel takes: {', '.join(PANEL_KEYS)}"
+                )
             chart = panel.get("chart")
             if chart not in CHART_KINDS:
-                raise SpecError(
-                    f"layout[{i}] chart={chart!r} is not drawable. Valid: {', '.join(CHART_KINDS)}"
-                )
+                raise SpecError(f"layout[{i}] chart={chart!r} is not drawable. Valid: {', '.join(CHART_KINDS)}")
+            if "title" in panel and not (
+                isinstance(panel["title"], str) and 0 < len(panel["title"].strip()) <= MAX_TITLE
+            ):
+                raise SpecError(f"layout[{i}].title must be text of 1 to {MAX_TITLE} characters")
+            if panel.get("style") is not None:
+                validate_panel_style(f"layout[{i}]", chart, panel["style"])
+            if panel.get("place") is not None:
+                validate_place(f"layout[{i}]", panel["place"])
             panel_cols = panel.get("cols") or {}
             if not isinstance(panel_cols, dict):
                 raise SpecError(f"layout[{i}] cols must be a dict of role -> column name")
             bad = [str(v) for v in panel_cols.values() if v and str(v) not in cols]
             if bad:
-                raise SpecError(f"layout[{i}] names column(s) not in the file: {', '.join(bad)}. Available: {available}")
+                raise SpecError(
+                    f"layout[{i}] names column(s) not in the file: {', '.join(bad)}. Available: {available}"
+                )
             # No cols at all means "you pick" -- which is both a reasonable
             # request ("give me a bar chart of something sensible") and the
             # shape the detector emits. The resolved spec has to be valid input
@@ -270,9 +416,7 @@ def validate(spec: dict[str, Any] | None, df) -> dict[str, Any]:
             if slot_count is not None:
                 out_of_range = [s for s in slots if not isinstance(s, int) or s < 0 or s >= slot_count]
                 if out_of_range:
-                    raise SpecError(
-                        f"tabs[{i}] refers to slot(s) {out_of_range} but layout has {slot_count} panel(s)"
-                    )
+                    raise SpecError(f"tabs[{i}] refers to slot(s) {out_of_range} but layout has {slot_count} panel(s)")
 
     interactions = spec.get("interactions")
     if interactions is not None:
@@ -281,8 +425,7 @@ def validate(spec: dict[str, Any] | None, df) -> dict[str, Any]:
         unknown_i = sorted(set(interactions) - set(DEFAULT_INTERACTIONS))
         if unknown_i:
             raise SpecError(
-                f"interactions has unknown key(s): {', '.join(unknown_i)}. "
-                f"Valid: {', '.join(DEFAULT_INTERACTIONS)}"
+                f"interactions has unknown key(s): {', '.join(unknown_i)}. Valid: {', '.join(DEFAULT_INTERACTIONS)}"
             )
     return spec
 
@@ -313,6 +456,7 @@ def resolve(
         "filters": spec.get("filters") if spec.get("filters") is not None else list(filter_columns),
         "tabs": spec.get("tabs") or [],
         "interactions": interactions,
+        "style": dict(spec.get("style") or {}),
     }
 
 
