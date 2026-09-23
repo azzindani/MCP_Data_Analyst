@@ -1,8 +1,8 @@
 """A handful of domain tools, each an `action` plus an `args` object, over the tools this repo already has.
 
-Every tool a model can see costs it attention on every turn, and 68 narrow
-tools make it hunt. A domain tool names one job -- inspect, edit, reshape,
-stats, chart, report, ingest, workspace -- and its `action` picks the
+Every tool a model can see costs it attention on every turn, and dozens of
+narrow tools make it hunt. A domain tool names one job -- reading a document,
+editing a workbook, testing a hypothesis -- and its `action` picks the
 operation. The shape is the one the Pipeline server uses: `action` is an
 enum, `args` is one object whose every property says which actions take it,
 and the description lists each action with its argument names.
@@ -102,22 +102,26 @@ def _refusal(tool_name: str, error: str, hint: str) -> dict[str, Any]:
 
 
 def register_domain(
-    mcp: Any, name: str, summary: str, actions: dict[str, Any], elsewhere: dict[str, str] | None = None
+    mcp: Any, name: str, summary: str, actions: dict[str, Any], elsewhere: dict[str, list[str]] | None = None
 ) -> None:
     """Register domain tool `name` on `mcp`, dispatching each action to the tier tool of that name.
 
-    `elsewhere` maps every action of the OTHER domain tools to its domain, so
-    an action asked of the wrong tool is pointed at the right one.
+    `elsewhere` maps every action of the OTHER domain tools to the domains
+    that have it -- one name can be an action of several, `set_cell` for a
+    document and for a workbook -- so an action asked of the wrong tool is
+    pointed at every right one.
     """
     elsewhere = elsewhere or {}
 
     async def run(action: str, args: dict | None = None) -> dict:
         tool = actions.get(action)
         if tool is None:
-            home = elsewhere.get(action)
-            if home:
+            homes = elsewhere.get(action)
+            if homes:
                 return _refusal(
-                    name, f"{action} is an action of {home}, not {name}.", f"Call {home}(action={action!r})."
+                    name,
+                    f"{action} is an action of {' and '.join(homes)}, not {name}.",
+                    "Call " + " or ".join(f"{home}(action={action!r})" for home in homes) + ".",
                 )
             return _refusal(name, f"{name} has no action {action!r}.", f"Actions: {', '.join(actions)}.")
         given = dict(args or {})
@@ -169,7 +173,10 @@ def register_domains(mcp: Any, domains: dict[str, tuple[str, list[tuple[Any, str
     resolved: dict[str, dict[str, Any]] = {}
     for name, (_, members) in domains.items():
         resolved[name] = {tool: tier._tool_manager._tools[tool] for tier, tool in members}
-    home = {action: name for name, actions in resolved.items() for action in actions}
+    homes: dict[str, list[str]] = {}
+    for name, actions in resolved.items():
+        for action in actions:
+            homes.setdefault(action, []).append(name)
     for name, (summary, _) in domains.items():
-        others = {a: d for a, d in home.items() if d != name}
-        register_domain(mcp, name, summary, resolved[name], others)
+        others = {a: [d for d in ds if d != name] for a, ds in homes.items()}
+        register_domain(mcp, name, summary, resolved[name], {a: ds for a, ds in others.items() if ds})
