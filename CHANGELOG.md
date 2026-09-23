@@ -6,6 +6,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added — one endpoint, eight tools
+
+- `/mcp` serves the whole surface as eight domain tools -- `data_inspect`,
+  `data_edit`, `data_reshape`, `data_stats`, `data_chart`, `data_report`,
+  `data_ingest`, `data_workspace` -- each an `action` (one of the 68 tier
+  tools, by its own name) plus an `args` object whose properties say which
+  actions take them, in the Pipeline server's shape. A model connected to every
+  tier read 68 tool names on every turn; here it reads eight. Each action runs
+  the tier tool itself, so validation, inline files, missing-file suggestions
+  and answers are identical. An action asked of the wrong tool is pointed at
+  the right one; an argument the action does not take is refused by name. The
+  tier endpoints keep serving unchanged.
+
 ### Changed — four duplicate tools retired from the list
 
 - `extended_stats` (served identically by the statistics server),

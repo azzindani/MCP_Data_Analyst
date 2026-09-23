@@ -6,6 +6,7 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 
 ## Features
 
+- **One endpoint, eight tools** — `/mcp` serves the whole surface as eight domain tools: `data_inspect`, `data_edit`, `data_reshape`, `data_stats`, `data_chart`, `data_report`, `data_ingest`, `data_workspace`. Each takes an `action` (one of the 68 tools below, by its own name) and an `args` object whose every property says which actions take it. Same validation and answers as the tiers; the tier endpoints below keep serving for small local models and existing connections
 - **68 tools** across 7 servers: workspace (6), basic (9), medium (7), transform (11), statistics (12), visual (13), ingest (10) — no name listed twice. Four older medium tools are retired: `extended_stats`, `statistical_tests`, `filter_rows` and `compute_aggregations` are no longer listed, still answer as before, and each answer names the tool that replaced it
 - **LOCATE → INSPECT → PATCH → VERIFY** workflow for surgical data edits
 - **Automatic version control** — every write is snapshotted and fully restorable (Windows-safe: collision-proof timestamps)
@@ -258,6 +259,32 @@ Replace the `"command"` and `"args"` in each entry with the bash equivalent:
 ```
 
 ## Available Tools
+
+### One endpoint: eight domain tools at `/mcp`
+
+For a capable model, connect `/mcp` instead of the seven tiers: eight tools
+instead of 68. `action` names a tool below; `args` holds its arguments.
+
+```json
+{"action": "statistical_test",
+ "args": {"file_path": "Ad_Data.csv", "test": "t_test", "column_a": "clicks", "group_column": "campaign_platform"}}
+```
+
+| Tool | Actions |
+|---|---|
+| `data_inspect` | load_dataset, load_geo_dataset, inspect_dataset, read_column_stats, search_columns, sample_data, auto_detect_schema, validate_dataset, scan_nulls_zeros, read_receipt |
+| `data_edit` | apply_patch, list_patch_ops, run_cleaning_pipeline, smart_impute, feature_engineering, list_derive_ops, filter_dataset, enrich_with_geo, restore_version |
+| `data_reshape` | reshape_dataset, aggregate_dataset, pivot_table, merge_datasets, concat_datasets, resample_timeseries, export_data |
+| `data_stats` | extended_stats, statistical_test, check_outliers, correlation_analysis, lag_correlation, regression_analysis, time_series_analysis, period_comparison, cohort_analysis, detect_anomalies, analyze_text_column, compare_datasets |
+| `data_chart` | generate_chart, generate_distribution_plot, generate_correlation_heatmap, generate_pairwise_plot, generate_multi_chart, generate_geo_map, generate_3d_chart, customize_chart, cross_tabulate, value_counts |
+| `data_report` | run_eda, generate_auto_profile, generate_dashboard, customize_dashboard |
+| `data_ingest` | list_sheets, extract_sheet, extract_all_sheets, detect_tables, extract_table, normalize_headers, trim_empty, promote_header, flatten_merged_cells, convert_file |
+| `data_workspace` | create_workspace, open_workspace, register_workspace_file, list_workspace_files, save_workspace_pipeline, run_workspace_pipeline |
+
+An action asked of the wrong tool is pointed at the right one; an argument
+the action does not take is refused by name.
+
+### The tiers
 
 ### Tier — Ingest (10 tools)
 

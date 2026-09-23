@@ -33,6 +33,7 @@ from starlette.responses import JSONResponse, RedirectResponse
 from starlette.routing import Mount, Route
 
 from servers.data_basic.server import mcp as basic_mcp
+from servers.data_domain.server import mcp as domain_mcp
 from servers.data_ingest.server import mcp as ingest_mcp
 from servers.data_medium.server import mcp as medium_mcp
 from servers.data_statistics.server import mcp as statistics_mcp
@@ -66,16 +67,19 @@ _SUB_SERVERS = {
 # a 421 "Invalid Host header" -- healthy container, working /health, and every
 # tool call refused. Caddy is already the trust boundary, so disable it for the
 # mounted sub-apps. Same fix as MCP_Microsoft_Office, which hit this first.
-for _sub_mcp in _SUB_SERVERS.values():
+for _sub_mcp in (*_SUB_SERVERS.values(), domain_mcp):
     _sub_mcp.settings.transport_security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
 _sub_apps = {name: mcp.streamable_http_app() for name, mcp in _SUB_SERVERS.items()}
+# The eight domain tools, served at the root: /mcp. Every tier above keeps its
+# own endpoint; see servers/data_domain/server.py.
+_domain_app = domain_mcp.streamable_http_app()
 
 
 @asynccontextmanager
 async def _combined_lifespan(app):
     async with AsyncExitStack() as stack:
-        for sub_app in _sub_apps.values():
+        for sub_app in (*_sub_apps.values(), _domain_app):
             await stack.enter_async_context(sub_app.router.lifespan_context(sub_app))
         yield
 
@@ -94,6 +98,7 @@ async def _root(request: Request) -> JSONResponse:
     return JSONResponse(
         {
             "server": "MCP_Data_Analyst",
+            "mcp": "/mcp",
             "sub_servers": {name: f"/{name}/mcp" for name in _SUB_SERVERS},
         }
     )
@@ -139,6 +144,9 @@ app = Starlette(
         Route("/", _root),
         *_discovery_redirects,
         *(Mount(f"/{name}", app=sub_app) for name, sub_app in _sub_apps.items()),
+        # Last, so every route above wins: /mcp and the domain server's own
+        # OAuth routes answer at the root.
+        Mount("", app=_domain_app),
     ],
     lifespan=_combined_lifespan,
 )

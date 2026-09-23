@@ -51,6 +51,7 @@ services:
       DA_VISUAL_OAUTH_STATE_DIR: /home/app/.oauth-state/visual
       DA_WORKSPACE_OAUTH_STATE_DIR: /home/app/.oauth-state/workspace
       DA_INGEST_OAUTH_STATE_DIR: /home/app/.oauth-state/ingest
+      DA_DOMAIN_OAUTH_STATE_DIR: /home/app/.oauth-state/domain
       DA_OAUTH_CLIENT_ID: ${DA_OAUTH_CLIENT_ID:-}
       DA_OAUTH_CLIENT_SECRET: ${DA_OAUTH_CLIENT_SECRET:-}
       # Hybrid file exchange — see README "Hybrid local + remote file handling".

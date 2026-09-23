@@ -319,8 +319,15 @@ append_receipt(file_path, tool="fill_nulls",
 
 ## Token Budget
 
-Keep tool schemas small — this server is designed for local models with limited
-context windows.
+Two surfaces, two budgets. The **tier endpoints** (`/basic/mcp` ... `/ingest/mcp`)
+are for local models with limited context windows, and every rule below applies
+to them. The **domain endpoint** (`/mcp`, `servers/data_domain/`) is for capable
+models: eight tools whose descriptions list every action, so it is exempt from
+the per-docstring and combined-schema limits. It is generated from the tiers
+(`shared/domain_tools.py`) and never gets a hand-written schema; a new tier tool
+must be added to a domain in `DOMAINS`, which a test enforces.
+
+Keep tier tool schemas small:
 
 | Budget item | Limit |
 |---|---|
