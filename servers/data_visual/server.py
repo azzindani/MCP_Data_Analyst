@@ -331,7 +331,7 @@ def customize_dashboard(
     ops: list[dict] = None,
     dry_run: bool = False,
 ) -> dict:
-    """Rebuild a dashboard with its spec changed. ops edit panels: set/add/remove/move_panel."""
+    """Rebuild a dashboard with its spec changed; ops add/set/move/remove panels."""
     return engine.customize_dashboard(
         dashboard_path, changes, output_path, open_after, return_content, ops=ops, dry_run=dry_run
     )
