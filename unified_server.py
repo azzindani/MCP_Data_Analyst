@@ -33,6 +33,7 @@ from starlette.responses import JSONResponse, RedirectResponse
 from starlette.routing import Mount, Route
 
 from servers.data_basic.server import mcp as basic_mcp
+from servers.data_domain.server import _oauth_bridge as _domain_bridge
 from servers.data_domain.server import mcp as domain_mcp
 from servers.data_ingest.server import mcp as ingest_mcp
 from servers.data_medium.server import mcp as medium_mcp
@@ -137,12 +138,28 @@ _discovery_redirects = [
     )
 ]
 
+# Discovery for /mcp. A client connecting https://host/mcp asks, per RFC 9728,
+# for /.well-known/oauth-protected-resource/mcp, and the 401 names the bare
+# /.well-known/oauth-protected-resource. Mounted at the root, the SDK's own
+# metadata route answered the second with the origin as the resource (not
+# .../mcp), and nothing answered the first. The bridge's metadata is the one
+# consistent with its authorization server at the root, so both paths go to it.
+_domain_discovery = (
+    []
+    if _domain_bridge is None
+    else [
+        Route("/.well-known/oauth-protected-resource/mcp", _domain_bridge.protected_resource),
+        Route("/.well-known/oauth-protected-resource", _domain_bridge.protected_resource),
+    ]
+)
+
 app = Starlette(
     routes=[
         Route("/health", _root_health),
         Route("/version", _root_version),
         Route("/", _root),
         *_discovery_redirects,
+        *_domain_discovery,
         *(Mount(f"/{name}", app=sub_app) for name, sub_app in _sub_apps.items()),
         # Last, so every route above wins: /mcp and the domain server's own
         # OAuth routes answer at the root.

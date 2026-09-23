@@ -160,3 +160,46 @@ def test_the_unified_server_serves_it_at_mcp():
         reply = client.post("/mcp", json=body, headers={"Accept": "application/json, text/event-stream"})
         assert reply.status_code == 200 and '"serverInfo"' in reply.text
         assert client.get("/basic/health").status_code == 200
+
+
+def test_a_connector_can_discover_how_to_sign_in_to_mcp(tmp_path):
+    """RFC 9728 discovery for /mcp agrees with itself, and the tiers' is unchanged.
+
+    Mounted at the root, the SDK's own metadata route answered
+    /.well-known/oauth-protected-resource with the bare origin as the resource,
+    and /.well-known/oauth-protected-resource/mcp -- the path a client derives
+    from https://host/mcp -- was a 404. Run in a fresh interpreter, since the
+    OAuth bridge exists only when a key is configured at import time.
+    """
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    env = {**os.environ, "DA_API_KEY": "test-key-not-a-secret", "DA_PUBLIC_URL": "https://data.example.test"}
+    for tier in ("BASIC", "MEDIUM", "STATISTICS", "TRANSFORM", "VISUAL", "WORKSPACE", "INGEST", "DOMAIN"):
+        env[f"DA_{tier}_OAUTH_STATE_DIR"] = str(tmp_path / tier.lower())
+    probe = (
+        "import json\n"
+        "from starlette.testclient import TestClient\n"
+        "import unified_server\n"
+        "with TestClient(unified_server.app) as c:\n"
+        "    out = {p: c.get(p).json() for p in ('/.well-known/oauth-protected-resource/mcp',\n"
+        "        '/.well-known/oauth-protected-resource', '/.well-known/oauth-authorization-server',\n"
+        "        '/basic/.well-known/oauth-protected-resource')}\n"
+        "    r = c.post('/mcp', json={}, headers={'Accept': 'application/json, text/event-stream'})\n"
+        "    out['status'] = r.status_code\n"
+        "    out['hint'] = r.headers.get('www-authenticate', '')\n"
+        "print(json.dumps(out))\n"
+    )
+    done = subprocess.run([sys.executable, "-c", probe], cwd=root, env=env, capture_output=True, text=True, timeout=120)
+    assert done.returncode == 0, done.stderr[-2000:]
+    out = json.loads(done.stdout.strip().splitlines()[-1])
+    at_mcp = out["/.well-known/oauth-protected-resource/mcp"]
+    assert at_mcp["resource"].endswith("/mcp")
+    assert out["/.well-known/oauth-protected-resource"] == at_mcp
+    assert at_mcp["authorization_servers"] == [out["/.well-known/oauth-authorization-server"]["issuer"]]
+    assert out["status"] == 401
+    assert out["/basic/.well-known/oauth-protected-resource"]["resource"].endswith("/basic/mcp")
