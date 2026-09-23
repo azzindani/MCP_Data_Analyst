@@ -79,6 +79,19 @@ WEIGHTS: dict[str, float] = {
 
 COMPONENTS: tuple[str, ...] = ("completeness", "validity", "uniqueness", "drift")
 
+# Alerts about a fact another component already prices. Duplicate rows cost
+# `uniqueness` through dup_pct and missing values cost `completeness` through
+# null_pct; charging their alerts to `validity` as well priced one fact twice --
+# Ad_Data.csv's 205 duplicate rows cost both components. They stay in the alert
+# list and in alert_counts; they no longer cost validity.
+_PRICED_ELSEWHERE: frozenset[str] = frozenset(
+    {"duplicate_rows", "duplicates", "high_missing", "high_nulls", "missing_values"}
+)
+
+
+def _alert_type(alert: dict[str, Any]) -> str:
+    return str(alert.get("type", "")).strip().lower().replace(" ", "_")
+
 
 def severity_of(alert: dict[str, Any]) -> str:
     """Normalised severity for an alert dict from either repo."""
@@ -117,7 +130,9 @@ def quality_report(
 
     completeness = _component(float(null_pct) * _NULL_COST_PER_PCT)
     uniqueness = _component(float(dup_pct) * _DUP_COST_PER_PCT)
-    validity = _component(sum(_SEVERITY_COST[severity_of(a)] for a in alerts))
+    validity = _component(
+        sum(_SEVERITY_COST[severity_of(a)] for a in alerts if _alert_type(a) not in _PRICED_ELSEWHERE)
+    )
 
     components: dict[str, float | None] = {
         "completeness": completeness,

@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed — a quality score prices each fact once
+
+- A duplicate-rows or missing-values alert no longer costs `validity`: the
+  uniqueness and completeness components already price them
+  (`shared/quality.py`, byte-identical with Machine_Learning's).
+
 ### Fixed — every tool sees the same dates
 
 - `inspect_dataset`, `run_eda` and `generate_auto_profile` read a date column
