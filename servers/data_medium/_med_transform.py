@@ -32,7 +32,7 @@ from shared.counts import counted
 from shared.derive_ops import DeriveError, apply_derivations
 from shared.file_utils import error_text, hint_for_error, resolve_path
 from shared.patch_validator import unwrap_params, validate_ops
-from shared.platform_utils import get_max_rows
+from shared.platform_utils import get_max_merge_bytes, get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
 from shared.small_sample import is_missing
@@ -795,6 +795,63 @@ def _fanout_warning(left_rows: int, right_rows: int, result_rows: int, left_on: 
     )
 
 
+_MAX_MERGE_ROWS = 2_000_000
+
+
+def _join_size(left_df: pd.DataFrame, right_df: pd.DataFrame, left_on: str, right_on: str, how: str) -> tuple[int, int]:
+    """(result rows, matched rows) the join would produce, counted from its keys alone.
+
+    Joining the two keys' value counts costs one row per distinct key, and pandas
+    applies the same rules to it as to the real merge: NaN meets NaN, 1 meets
+    1.0, and an integer key against a text key raises the same error. The count
+    is exact, so a dry run can answer from it without building the table.
+    """
+    lk = left_df[left_on].value_counts(dropna=False).rename_axis("_k").reset_index(name="_l")
+    rk = right_df[right_on].value_counts(dropna=False).rename_axis("_k").reset_index(name="_r")
+    keys = lk.merge(rk, on="_k", how=how)
+    both = keys["_l"].notna() & keys["_r"].notna()
+    matched = int((keys.loc[both, "_l"] * keys.loc[both, "_r"]).sum())
+    alone = int(keys.loc[~both, "_l"].fillna(0).sum() + keys.loc[~both, "_r"].fillna(0).sum())
+    return matched + alone, matched
+
+
+def _row_bytes(df: pd.DataFrame) -> float:
+    """Mean in-memory size of one row, text included."""
+    return float(df.memory_usage(deep=True, index=False).sum()) / max(len(df), 1)
+
+
+def _pick_join_key(left_df: pd.DataFrame, right_df: pd.DataFrame, common: list[str]) -> tuple[str, list[str]]:
+    """The shared column that identifies rows on at least one side, and why each other one was passed over.
+
+    The first shared column used to win. On two ad exports that was Date, which
+    repeats on both sides: 1.8M rows out of 16,834 and 16,834, and a server
+    OOM-killed along with every session on it. A key picked unasked must be
+    unique on one side (a lookup), match something, and be neither a date nor
+    a measurement. Among those, the one that matches the most left rows wins.
+    """
+    best, best_matched, passed = "", -1, []
+    for col in common:
+        left, right = left_df[col], right_df[col]
+        if pd.api.types.is_datetime64_any_dtype(left) or (
+            not pd.api.types.is_numeric_dtype(left) and looks_like_dates(left)[0]
+        ):
+            passed.append(f"{col} (a date)")
+            continue
+        if pd.api.types.is_float_dtype(left) and bool((left.dropna() % 1 != 0).any()):
+            passed.append(f"{col} (a measurement)")
+            continue
+        if not (left.dropna().is_unique or right.dropna().is_unique):
+            passed.append(f"{col} (repeats on both sides)")
+            continue
+        matched = int(left.isin(right.dropna()).sum())
+        if matched == 0:
+            passed.append(f"{col} (matches nothing)")
+            continue
+        if matched > best_matched:
+            best, best_matched = col, matched
+    return best, passed
+
+
 def merge_datasets(
     file_path: str,
     right_file_path: str,
@@ -834,7 +891,11 @@ def merge_datasets(
         left_df = _read_csv(str(path))
         right_df = _read_csv(str(right_path))
 
-        if not left_on or not right_on:
+        if bool(left_on) != bool(right_on):
+            # One side named: the same column on the other. It used to be
+            # thrown away and replaced by an auto-detected key.
+            left_on = right_on = left_on or right_on
+        if not left_on:
             common = [c for c in left_df.columns if c in right_df.columns]
             if not common:
                 return {
@@ -844,8 +905,19 @@ def merge_datasets(
                     "progress": [fail("No common columns", "")],
                     "token_estimate": 20,
                 }
-            left_on = right_on = common[0]
-            progress.append(info("Auto-detected join key", left_on))
+            key, passed = _pick_join_key(left_df, right_df, common)
+            if not key:
+                shown = ", ".join(passed[:8]) + (f" (+{len(passed) - 8} more)" if len(passed) > 8 else "")
+                return {
+                    "success": False,
+                    "op": "merge_datasets",
+                    "error": "No shared column identifies rows on either side, so no join key was picked.",
+                    "hint": f"Checked: {shown}. Pass left_on and right_on to join on one of them anyway.",
+                    "progress": [fail("No join key", f"{len(passed)} shared columns checked")],
+                    "token_estimate": 40,
+                }
+            left_on = right_on = key
+            progress.append(info("Auto-detected join key", key))
 
         if left_on not in left_df.columns:
             return {
@@ -870,33 +942,67 @@ def merge_datasets(
         unmatched_right = list(right_vals - left_vals)[:20]
 
         # A join key that isn't actually unique on either side fans out
-        # combinatorially (e.g. two ~7K-row tables sharing a low-cardinality
-        # key can produce tens of millions of result rows) — pandas.merge()
-        # will happily materialize that in memory with no limit, which OOM-
-        # kills the whole shared container (every other concurrent request
-        # dies with it), not just this call. Estimate the matched-row count
-        # from value_counts — cheap — before running the real merge, which
-        # is not. Found live via the opencode harness real-tool retest
-        # sweep: a badly-keyed merge crashed and repeatedly restarted the
-        # container (RestartCount climbed to 4, confirmed via `dmesg`
-        # oom-kill entries for the server's python process).
-        _MAX_MERGE_ROWS = 2_000_000
-        left_counts = left_df[left_on].astype(str).value_counts()
-        right_counts = right_df[right_on].astype(str).value_counts()
-        common = set(left_counts.index) & set(right_counts.index)
-        estimated_rows = sum(int(left_counts[k]) * int(right_counts[k]) for k in common)
-        estimated_rows += len(left_df) + len(right_df)  # conservative allowance for unmatched rows
-        if estimated_rows > _MAX_MERGE_ROWS:
+        # combinatorially, and pandas.merge() materialises the result whole
+        # with no limit -- which OOM-kills the whole shared container (every
+        # other concurrent request dies with it), not just this call. Found
+        # twice: a low-cardinality key on two ~7K-row tables (RestartCount 4,
+        # dmesg oom-kill), and, under the old 2M-row cap, 1.8M rows of 31
+        # mostly-text columns on a 1 GB container. Rows alone cannot see the
+        # second: the guard is on bytes too, from the exact row count and the
+        # inputs' mean row width, and it runs before anything is built.
+        estimated_rows, rows_matched = _join_size(left_df, right_df, left_on, right_on, how)
+        estimated_bytes = int(estimated_rows * (_row_bytes(left_df) + _row_bytes(right_df)))
+        max_bytes = get_max_merge_bytes()
+        estimated_mb = round(estimated_bytes / 2**20, 1)
+        if estimated_rows > _MAX_MERGE_ROWS or estimated_bytes > max_bytes:
             return {
                 "success": False,
-                "error": f"Join would produce an estimated {estimated_rows:,} rows (limit {_MAX_MERGE_ROWS:,}).",
+                "op": "merge_datasets",
+                "error": (
+                    f"Join would produce {estimated_rows:,} rows, about {estimated_mb:,} MB in memory "
+                    f"(limits {_MAX_MERGE_ROWS:,} rows, {max_bytes // 2**20:,} MB)."
+                ),
                 "hint": (
                     f"'{left_on}'/'{right_on}' isn't unique enough on one or both sides for this join — "
                     "check for a more selective key, or deduplicate first with run_cleaning_pipeline."
                 ),
-                "progress": [fail("Join too large", f"~{estimated_rows:,} estimated rows")],
-                "token_estimate": 40,
+                "left_on": left_on,
+                "right_on": right_on,
+                "estimated_rows": estimated_rows,
+                "estimated_mb": estimated_mb,
+                "progress": [fail("Join too large", f"{estimated_rows:,} rows, ~{estimated_mb:,} MB")],
+                "token_estimate": 60,
             }
+        fanout = _fanout_warning(len(left_df), len(right_df), estimated_rows, left_on, right_on)
+        if fanout:
+            progress.append(warn("Join fanned out", fanout))
+
+        if dry_run:
+            # Answered from the count, which is exact: the merge is the one
+            # step here that can take the server down, and a dry run is how a
+            # caller asks whether it would.
+            progress.append(info("Dry run — no changes written", path.name))
+            result = {
+                "success": True,
+                "dry_run": True,
+                "op": "merge_datasets",
+                "file_path": str(path),
+                "left_on": left_on,
+                "right_on": right_on,
+                "left_rows": len(left_df),
+                "right_rows": len(right_df),
+                "result_rows": estimated_rows,
+                "matched": rows_matched,
+                "estimated_mb": estimated_mb,
+                "unmatched_left": unmatched_left,
+                "unmatched_right": unmatched_right,
+                "how": how,
+                "progress": progress,
+            }
+            if fanout:
+                result["warning"] = fanout
+            result["token_estimate"] = _token_estimate(result)
+            return result
 
         merged = left_df.merge(
             right_df,
@@ -918,30 +1024,6 @@ def merge_datasets(
         # say. pandas' own indicator answers it exactly.
         rows_matched = int((merged["_merge_side"] == "both").sum())
         merged = merged.drop(columns=["_merge_side"])
-        fanout = _fanout_warning(len(left_df), len(right_df), len(merged), left_on, right_on)
-        if fanout:
-            progress.append(warn("Join fanned out", fanout))
-
-        if dry_run:
-            progress.append(info("Dry run — no changes written", path.name))
-            result = {
-                "success": True,
-                "dry_run": True,
-                "op": "merge_datasets",
-                "file_path": str(path),
-                "left_rows": len(left_df),
-                "right_rows": len(right_df),
-                "result_rows": len(merged),
-                "matched": rows_matched,
-                "unmatched_left": unmatched_left,
-                "unmatched_right": unmatched_right,
-                "how": how,
-                "progress": progress,
-            }
-            if fanout:
-                result["warning"] = fanout
-            result["token_estimate"] = _token_estimate(result)
-            return result
 
         if output_path:
             out = resolve_path(output_path)
@@ -971,6 +1053,8 @@ def merge_datasets(
             "success": True,
             "op": "merge_datasets",
             "file_path": str(path),
+            "left_on": left_on,
+            "right_on": right_on,
             "left_rows": len(left_df),
             "right_rows": len(right_df),
             "result_rows": len(merged),

@@ -348,7 +348,7 @@ Focused transformation server — richer filtering, reshaping, and aggregation t
 | `reshape_dataset` | Reshape data: `pivot`, `melt`, `split_column`, `combine_columns`, `transpose` |
 | `aggregate_dataset` | Aggregate: `groupby`, `crosstab`, `value_counts`, `describe`, `window` |
 | `resample_timeseries` | Resample time series (D/W/M/Q/Y/H). `agg_func`: `sum mean count min max median std first last`. `dayfirst`: `auto` (default), `true`, `false` |
-| `merge_datasets` | Merge two datasets with auto-detected join keys |
+| `merge_datasets` | Merge two datasets; a key is picked unasked only when it identifies rows |
 | `concat_datasets` | Stack multiple CSVs. `direction`: `rows`, or `columns` (side by side — needs equal row counts) |
 | `smart_impute` | Auto-impute: numeric→median, datetime→ffill, categorical→mode |
 | `run_cleaning_pipeline` | Multi-op cleaning with single snapshot + rollback |
@@ -608,6 +608,7 @@ For lower-memory machines, set `MCP_CONSTRAINED_MODE=1` in the `env` section of 
 | `MCP_FETCH_URLS` | `0` | `1` lets any `file_path` argument be an `http(s)` URL |
 | `MCP_FETCH_ALLOW_PRIVATE` | `0` | `1` permits fetching hosts on private/loopback addresses |
 | `MCP_MAX_FETCH_MB` | `100` | Size cap for a fetched URL |
+| `MCP_MAX_MERGE_MB` | `256` | Largest table `merge_datasets` will build in memory; a bigger join is refused before it runs |
 
 ### Hybrid local + remote file handling
 

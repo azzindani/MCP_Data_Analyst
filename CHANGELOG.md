@@ -6,6 +6,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed — one ordinary merge OOM-killed the whole server
+
+- `merge_datasets(Ad_Data.csv, ad_clean.csv, how="inner", dry_run=True)` took
+  down every tier and every session: auto-detect picked the first shared
+  column, `Date`, the guard counted 1,804,677 rows against a 2,000,000-row cap,
+  and the dry run performed the real merge -- about 750 MB of mostly-text rows
+  in a 1 GB container. The guard now sizes the join in bytes as well as rows
+  (`MCP_MAX_MERGE_MB`, default 256) from an exact count of the keys, and
+  refuses before anything is built; a dry run answers from that count and never
+  builds the table. A key is picked unasked only when it is unique on one side,
+  matches something, and is neither a date nor a measurement -- otherwise the
+  call says why each shared column was passed over. A key named on one side is
+  used on both, and every answer reports `left_on`/`right_on`. Found by driving
+  the deployed tools directly.
+
 ### Security — `extract_all_sheets` wrote its CSVs wherever it was pointed
 
 - Every output here goes through `get_output_path`, which resolves and

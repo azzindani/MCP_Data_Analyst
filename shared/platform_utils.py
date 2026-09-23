@@ -22,6 +22,22 @@ def get_max_results() -> int:
     return 10 if _constrained() else 50
 
 
+def get_max_merge_bytes() -> int:
+    """Largest merged table merge_datasets may build in memory, in bytes.
+
+    pandas materialises a join whole, and every tier shares one container: 1.8M
+    rows of 31 mostly-text columns is ~750 MB, which on top of the server's own
+    footprint OOM-killed a 1 GB container and every session on it. A row count
+    alone could not see that -- the same rows are 20 MB with two numeric
+    columns. MCP_MAX_MERGE_MB raises the ceiling where the container is bigger.
+    """
+    try:
+        mb = float(os.environ.get("MCP_MAX_MERGE_MB", "").strip() or 256)
+    except ValueError:
+        mb = 256.0
+    return int(max(mb, 1.0) * 2**20)
+
+
 def get_max_lag() -> int:
     """Largest lag a lag-correlation sweep may test, in periods.
 
