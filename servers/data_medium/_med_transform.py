@@ -21,7 +21,7 @@ from _med_helpers import (
     _token_estimate,
     is_numeric_col,
 )
-from _patch_ops import OP_HANDLERS  # type: ignore[import-not-found]
+from _patch_ops import OP_HANDLERS, note_non_finite  # type: ignore[import-not-found]
 
 from shared.arg_alias import missing, pick, pick_list
 from shared.choice import AGG_ALIASES, AGG_FUNCS, NUMERIC_AGG_FUNCS, UnknownChoice
@@ -523,6 +523,7 @@ def run_cleaning_pipeline(
             handler = handler_map[op_name]
             try:
                 df, op_result = handler(df, op)
+                op_result = note_non_finite(df, op_result)
                 summary.append(op_result)
                 progress.append(ok(f"Applied {op_name}", str(op_result)))
             except Exception as exc:

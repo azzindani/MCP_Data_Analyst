@@ -38,7 +38,7 @@ _HERE = str(Path(__file__).resolve().parent)
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-from _patch_ops import OP_HANDLERS, _parse_expr
+from _patch_ops import OP_HANDLERS, _parse_expr, note_non_finite
 
 from shared.counts import counted
 from shared.file_utils import atomic_write_text, count_data_rows, error_text, hint_for_error, resolve_path
@@ -843,7 +843,8 @@ def _apply_op(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     """Apply a single op to df. Pure; raises on error. No I/O."""
     op_name = op.get("op", "")
     handler = _OP_HANDLERS[op_name]
-    return handler(df, op)
+    df, result = handler(df, op)
+    return df, note_non_finite(df, result)
 
 
 def apply_patch(

@@ -6,6 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed — an inf written is an inf reported
+
+- A patch op that writes a numeric column (`apply_patch` and
+  `run_cleaning_pipeline` alike) reports `non_finite_count` beside
+  `null_count`, and a `warning` naming the column when it holds +/-inf, with
+  the guard that writes a null instead (`a / b if b != 0 else None`).
+  `spends/clicks` on Ad_Data.csv answered `null_count: 4104` with 426 rows of
+  inf written and unmentioned.
+
 ### Fixed — a t-test names its groups
 
 - `statistical_test` (t_test) and `statistical_tests` (ttest) answer with

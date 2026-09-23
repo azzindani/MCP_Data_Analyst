@@ -1434,6 +1434,38 @@ def _op_melt(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
 # tools take the same op dicts through the same validator, so they take the
 # same ops. A second table listing a subset of the first is a defect waiting
 # for someone to add the 53rd handler.
+# The keys a column-writing op names its output under.
+_WRITTEN_COLUMN_KEYS = ("name", "new_column", "target_column", "column")
+
+
+def note_non_finite(df: pd.DataFrame, result: dict) -> dict:
+    """Count +/-inf in the column an op wrote, beside its null_count, and say so.
+
+    A formula that divides by zero writes inf, and a result that reports only
+    null_count calls that column clean: `ctr = clicks/impressions*100` came back
+    null_count 0 with 4 rows of inf, and `cpc` null_count 4104 with 426 inf
+    unmentioned. inf is not missing -- it is a value, and every mean, sum and
+    chart built on the column inherits it.
+    """
+    if "null_count" not in result:
+        return result
+    column = next(
+        (result[k] for k in _WRITTEN_COLUMN_KEYS if isinstance(result.get(k), str) and result[k] in df.columns),
+        None,
+    )
+    if column is None or not pd.api.types.is_numeric_dtype(df[column]):
+        return result
+    values = pd.to_numeric(df[column], errors="coerce")
+    count = int((values == float("inf")).sum() + (values == float("-inf")).sum())
+    result["non_finite_count"] = count
+    if count:
+        result["warning"] = (
+            f"{count} row(s) of '{column}' are +/-inf -- a division by zero? inf is written as a value, "
+            "not counted in null_count. Guard the division to write a null instead: `a / b if b != 0 else None`."
+        )
+    return result
+
+
 OP_HANDLERS: dict[str, object] = {
     # --- original 13 ops ---
     "drop_column": _op_drop_column,
