@@ -41,6 +41,7 @@ from servers.data_statistics.server import mcp as statistics_mcp
 from servers.data_transform.server import mcp as transform_mcp
 from servers.data_visual.server import mcp as visual_mcp
 from servers.data_workspace.server import mcp as workspace_mcp
+from shared.exchange import upload_route
 
 _VERSION = "0.3.0"
 
@@ -167,6 +168,10 @@ app = Starlette(
         Route("/health", _root_health),
         Route("/version", _root_version),
         Route("/", _root),
+        # Off unless MCP_UPLOAD_URLS=1 and MCP_UPLOAD_BASE_URL are set, and then
+        # outside the tiers' bearer auth: the signed, single-use token in the
+        # path is the credential (shared/exchange.py, upload URLs).
+        Route("/upload/{token}", upload_route, methods=["PUT", "POST"]),
         *_discovery_redirects,
         *_domain_discovery,
         *(Mount(f"/{name}", app=sub_app) for name, sub_app in _sub_apps.items()),
