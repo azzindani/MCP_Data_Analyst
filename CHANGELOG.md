@@ -6,6 +6,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added — a file's bytes may go wherever a path goes
+
+- `data:text/csv;name=sales.csv;base64,<bytes>` in place of a path is saved to
+  `MCP_OUTPUT_DIR/inbox` under its name before the tool runs, and the tool
+  reads that path. A wrapper on every tier does it, so no tool's schema changes
+  and no tool echoes the bytes back. Capped at `MCP_MAX_INLINE_MB` (default 10)
+  before decoding; a name cannot leave the inbox; the same bytes sent twice are
+  one file, and a taken name is never overwritten. For a caller whose file is
+  in its own sandbox -- a claude.ai upload -- with no link to give; the
+  caller's-side refusal names this route first.
+
 ### Added — a file on the caller's side reaches the server, or the refusal says how
 
 - A Google Drive, Docs/Sheets/Slides, Dropbox, GitHub or GitLab share link is

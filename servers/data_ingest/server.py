@@ -22,6 +22,7 @@ from starlette.responses import JSONResponse
 from servers.data_ingest import engine
 from shared.arg_errors import contract_errors
 from shared.deploy_auth import build_auth, build_oauth_bridge
+from shared.exchange import accept_inline_files
 from shared.json_safe import sanitize_responses
 from shared.missing_file import suggest_missing_files
 from shared.schema_enum import one_of
@@ -190,6 +191,9 @@ def convert_file(
 suggest_missing_files(mcp)
 sanitize_responses(mcp)
 measure_responses(mcp)
+# A file sent inline -- a data: URI where a path goes -- is saved to the inbox
+# and the tool sees its path; see shared/exchange.py.
+accept_inline_files(mcp)
 # A known argument with the WRONG TYPE is rejected by pydantic before any of
 # this runs, and used to escape as a raw dump with no success/hint/token_estimate
 # and a pydantic.dev URL. Give it the fleet's failure shape instead.

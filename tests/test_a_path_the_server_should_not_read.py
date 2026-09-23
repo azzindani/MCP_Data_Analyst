@@ -235,3 +235,19 @@ class TestAPathOnTheCallersSideIsNamedAsOne:
     def test_any_other_outside_path_keeps_the_plain_refusal(self, served):
         with pytest.raises(PathOutsideRootError, match="outside the folders"):
             resolve_path("/etc/hostname")
+
+
+class TestAFileSentInlineIsRead:
+    """A CSV sent as data:...;base64 is read by a registered tool like any file."""
+
+    def test_inspect_reads_an_inline_csv(self, served):
+        import base64
+        import importlib
+
+        uri = "data:text/csv;name=sent.csv;base64," + base64.b64encode(b"x,y\n1,2\n3,4\n5,6\n").decode()
+        tools = importlib.import_module("servers.data_basic.server").mcp._tool_manager._tools
+        r = tools["inspect_dataset"].fn(file_path=uri)
+        assert r["success"] is True, r
+        assert "base64" not in str(r)
+        assert (served / "inbox" / "sent.csv").exists()
+        assert "3" in str(r.get("rows", r.get("row_count", "")))
