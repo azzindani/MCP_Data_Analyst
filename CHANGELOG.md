@@ -13,6 +13,11 @@ All notable changes to this project will be documented in this file.
   so on a confined server a relative folder landed beside the process and an
   absolute one was used as given. It now goes through `resolve_path` like the
   rest. Found by reading the output paths during a direct sweep of the fleet.
+- A refused path is always an answer in the usual failure shape (`success:
+  false`, `op`, `error`, `hint`). A resolver outside a tool's own `try` let the
+  refusal escape as "Error executing tool" with no hint, as it did on the ML
+  server's `anomaly_detection`; the per-tool wrapper now catches it wherever it
+  is raised.
 
 ### Added — a missing file is answered with the files that exist
 
