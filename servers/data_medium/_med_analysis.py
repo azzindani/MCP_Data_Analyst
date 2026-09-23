@@ -79,6 +79,7 @@ from shared.small_sample import (
     shapiro_sample,
 )
 from shared.stats_format import format_p, round_p
+from shared.two_groups import WELCH, not_two_groups, two_groups, welch_t
 
 logger = logging.getLogger(__name__)
 
@@ -380,18 +381,25 @@ def statistical_tests(
         test_result = {}
 
         if test_type == "ttest":
-            groups = df[group_column].dropna().unique() if group_column else []
+            groups = list(df[group_column].dropna().unique()) if group_column else []
             if len(groups) == 2:
                 g1 = df[df[group_column] == groups[0]][column_a].dropna()
                 g2 = df[df[group_column] == groups[1]][column_a].dropna()
+                name_1, name_2 = groups
             elif column_a and column_b:
                 g1 = df[column_a].dropna()
                 g2 = df[column_b].dropna()
+                name_1, name_2 = column_a, column_b
             else:
                 return {
                     "success": False,
-                    "error": "t-test requires two numeric columns or one numeric + binary group column.",
-                    "hint": "Set column_a + column_b, or column_a + group_column (2 groups).",
+                    "op": "statistical_tests",
+                    "error": (
+                        not_two_groups(group_column, groups)
+                        if group_column
+                        else "t-test requires two numeric columns or one numeric + binary group column."
+                    ),
+                    "hint": "Set column_a + column_b, or column_a + group_column (2 groups); for 3+ groups use anova.",
                     "progress": [fail("Invalid t-test params", "")],
                     "token_estimate": 20,
                 }
@@ -403,17 +411,19 @@ def statistical_tests(
                 hint="A t-test compares variances, so each group needs 2+ values. Use describe() to see the counts.",
             ):
                 return err
-            stat, pval = scipy_stats.ttest_ind(g1, g2)
+            stat, pval = welch_t(g1, g2)
+            compared = two_groups(g1, g2, name_1, name_2)
             test_result = {
-                "test": "Independent t-test",
+                "test": WELCH,
                 "statistic": rounded(stat),
                 "p_value": round_p(float(pval)),
                 "significant": float(pval) < 0.05,
                 "interpretation": (
-                    "Means differ significantly (p<0.05)"
+                    f"Means differ significantly (p<0.05): {compared['direction']}"
                     if float(pval) < 0.05
-                    else "No significant difference (p≥0.05)"
+                    else f"No significant difference (p≥0.05). {compared['direction']}"
                 ),
+                **compared,
             }
 
         elif test_type == "anova":
@@ -809,7 +819,11 @@ def statistical_tests(
             progress.append(warn("Verdict withheld", test_result["interpretation"]))
         progress.append(ok(f"Statistical test on {path.name}", test_result.get("test", test_type)))
 
-        hint = "Call apply_patch() or run_cleaning_pipeline() to act on findings."
+        # A test's result is a finding to read, not a table to patch: the hint
+        # used to send every test to apply_patch() and run_cleaning_pipeline().
+        hint = "statistical_test on the statistics server adds effect sizes, alpha and post-hoc comparisons."
+        if "groups" in test_result:
+            hint = "Which group is higher, and by how much, is in `groups` and `direction`."
         if test_result.get("undetermined"):
             hint = "There is no finding to act on. Re-run the test on a sample large enough to produce a p-value."
         result = {

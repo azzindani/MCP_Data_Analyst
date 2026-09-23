@@ -103,7 +103,9 @@ class TestAnActionIsTheTierTool:
         ("tool", "action", "args"),
         [
             ("data_inspect", "inspect_dataset", {}),
-            ("data_stats", "statistical_test", {"test": "t_test", "column_a": "units", "group_column": "region"}),
+            # region has three groups: an anova. (A t_test here once "passed" by quietly
+            # comparing the first two; it now refuses, which is test_two_groups_or_refuse.)
+            ("data_stats", "statistical_test", {"test": "anova", "column_a": "units", "group_column": "region"}),
             ("data_reshape", "aggregate_dataset", {"mode": "groupby", "group_by": ["region"], "agg": {"units": "sum"}}),
             (
                 "data_edit",

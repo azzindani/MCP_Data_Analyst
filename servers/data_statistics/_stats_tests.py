@@ -28,6 +28,7 @@ from shared.small_sample import (
     undetermined_because,
 )
 from shared.stats_format import format_p, round_p
+from shared.two_groups import WELCH, not_two_groups, two_groups, welch_t
 
 try:
     from scipy import stats as _scipy_stats
@@ -364,19 +365,30 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
         elif test == "t_test":
             a = _get_series(column_a, "column_a")
             if group_column and group_column in df.columns:
-                groups = df[group_column].dropna().unique()
+                groups = list(df[group_column].dropna().unique())
                 if len(groups) < 2:
                     raise ValueError(f"Need at least 2 groups in '{group_column}'.")
+                # Three or more groups used to be compared silently as the first
+                # two the file listed; the rest were dropped without a word.
+                if len(groups) > 2:
+                    return {
+                        "success": False,
+                        "op": "statistical_test",
+                        "error": not_two_groups(group_column, groups),
+                        "hint": "Use test='anova' (or 'kruskal') for 3+ groups, or filter to the two to compare.",
+                        "progress": [fail("t-test needs two groups", f"{len(groups)} in '{group_column}'")],
+                        "token_estimate": 40,
+                    }
                 g1 = pd.to_numeric(df.loc[df[group_column] == groups[0], column_a], errors="coerce").dropna()
                 g2 = pd.to_numeric(df.loc[df[group_column] == groups[1], column_a], errors="coerce").dropna()
                 _require(
-                    "Independent t-test",
+                    WELCH,
                     {f"group '{groups[0]}'": len(g1), f"group '{groups[1]}'": len(g2)},
                     2,
                     hint="A t-test compares variances, so each group needs 2+ values.",
                 )
-                stat, p = scipy_stats.ttest_ind(g1.values, g2.values, alternative=alternative)
-                statistic, p_value = float(stat), float(p)
+                statistic, p_value = welch_t(g1, g2, alternative=alternative)
+                extras.update(method=WELCH, **two_groups(g1, g2, groups[0], groups[1]))
                 if compute_effect_size:
                     pooled_std = float(
                         np.sqrt(
@@ -388,20 +400,20 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
             else:
                 b = _get_series(column_b, "column_b")
                 _require(
-                    "Independent t-test",
+                    WELCH,
                     {f"'{column_a}'": len(a), f"'{column_b}'": len(b)},
                     2,
                     hint="A t-test compares variances, so each column needs 2+ non-null values.",
                 )
-                stat, p = scipy_stats.ttest_ind(a.values, b.values, alternative=alternative)
-                statistic, p_value = float(stat), float(p)
+                statistic, p_value = welch_t(a, b, alternative=alternative)
+                extras.update(method=WELCH, **two_groups(a, b, column_a, column_b))
                 if compute_effect_size:
                     pooled_std = float(
                         np.sqrt(((len(a) - 1) * a.std() ** 2 + (len(b) - 1) * b.std() ** 2) / (len(a) + len(b) - 2))
                     )
                     d = float((a.mean() - b.mean()) / pooled_std) if pooled_std > 0 else 0.0
                     effect_size = {"cohens_d": round(d, 4), "interpretation": _cohens_d_label(d)}
-            progress.append(ok("Independent t-test", _interpret_p(p_value, alpha)))
+            progress.append(ok(WELCH, _interpret_p(p_value, alpha)))
 
         elif test == "paired_t_test":
             a = _get_series(column_a, "column_a")
@@ -715,10 +727,15 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
             interpretation = undetermined_because(f"{len(df)} row(s) in {path.name}")
             progress.append(warn("Verdict withheld", interpretation))
         else:
-            interpretation = f"{'Reject' if reject_null else 'Fail to reject'} H0: {_interpret_p(p_value, alpha)}"
+            # _interpret_p already opens with the verdict; prefixing it again
+            # read "Reject H0: Reject H0 (p=...)".
+            interpretation = _interpret_p(p_value, alpha)
+            if "direction" in extras:
+                interpretation += f". {extras['direction']}"
 
         result: dict = {
             "success": True,
+            "op": "statistical_test",
             "test": test,
             "statistic": rounded(statistic, 6),
             "p_value": round_p(p_value) if not np.isnan(p_value) else None,
@@ -743,6 +760,7 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
     except ImportError:
         return {
             "success": False,
+            "op": "statistical_test",
             "error": "scipy not installed",
             "hint": "Install scipy: uv add scipy",
             "progress": [fail("Missing dependency", "scipy")],
@@ -752,6 +770,7 @@ def statistical_test(  # type: ignore[reportGeneralTypeIssues]
         logger.exception("statistical_test error")
         return {
             "success": False,
+            "op": "statistical_test",
             "error": error_text(exc),
             "hint": f"Check column names and test type. Valid tests: {', '.join(sorted(_VALID_TESTS))}",
             "progress": [fail("Unexpected error", str(exc))],

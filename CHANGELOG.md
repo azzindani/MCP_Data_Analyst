@@ -6,6 +6,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed — a t-test names its groups
+
+- `statistical_test` (t_test) and `statistical_tests` (ttest) answer with
+  `groups` -- each group's name, n, mean and std -- and a `direction` naming
+  the group with the higher mean and which group the statistic's sign
+  follows. They answered `statistic: -33.2` with no names, so neither the
+  sign nor the answer to "which is higher" could be read.
+- Both run Welch's t-test (unequal variances) and say so. Student's t was run
+  on groups whose spreads differed seven-fold, where it is wrong.
+- `statistical_test` refuses a t-test on three or more groups, naming them,
+  instead of comparing the first two the file listed. It answers with `op`,
+  and its interpretation no longer reads "Reject H0: Reject H0".
+- `statistical_tests` no longer sends every test result to apply_patch().
+
 ### Added — upload URLs, off by default
 
 - With `MCP_UPLOAD_URLS=1` and `MCP_UPLOAD_BASE_URL`, a path from the caller's
