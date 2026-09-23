@@ -29,6 +29,7 @@ import importlib
 import re
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -73,8 +74,19 @@ NO_ENUM_IS_CORRECT: dict[str, str] = {
 
 
 def _tools(module_name: str):
+    """Every tool a caller can call, listed or retired (shared/retired.py).
+
+    A retired name is unlisted but still answers, so what it declares must
+    still match what it switches on.
+    """
     module = importlib.import_module(module_name)
-    return {t.name: t for t in asyncio.run(module.mcp.list_tools())}
+    listing = module.mcp._tool_manager.list_tools
+    unlisted = getattr(listing, "__retired__", set())
+    listed = {t.name: t for t in asyncio.run(module.mcp.list_tools())}
+    for name in unlisted:
+        tool = module.mcp._tool_manager._tools[name]
+        listed[name] = SimpleNamespace(name=name, inputSchema=tool.parameters)
+    return listed
 
 
 def _dispatch_params():

@@ -24,6 +24,7 @@ from shared.deploy_auth import build_auth, build_oauth_bridge
 from shared.exchange import accept_inline_files
 from shared.json_safe import sanitize_responses
 from shared.missing_file import suggest_missing_files
+from shared.retired import retire
 from shared.schema_enum import one_of
 from shared.strict_args import enforce_known_arguments
 from shared.token_estimate import measure_responses
@@ -252,6 +253,17 @@ def extended_stats(
 # so the number describes what actually goes on the wire.
 # A missing file is answered with the nearest files that exist; see
 # shared/missing_file.py for why this is a choke point.
+# Four tools here duplicate a newer sibling. They leave tools/list and keep
+# answering, each naming the tool that replaced it; see shared/retired.py.
+retire(
+    mcp,
+    {
+        "extended_stats": "extended_stats on the statistics server (the same tool)",
+        "statistical_tests": "statistical_test on the statistics server (17 tests, alpha, effect size, post-hoc)",
+        "filter_rows": "filter_dataset on the transform server",
+        "compute_aggregations": "aggregate_dataset on the transform server, mode='groupby'",
+    },
+)
 suggest_missing_files(mcp)
 sanitize_responses(mcp)
 measure_responses(mcp)

@@ -6,7 +6,7 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 
 ## Features
 
-- **72 tools** across 7 servers: workspace (6), basic (9), medium (11), transform (11), statistics (12), visual (13), ingest (10) — 71 distinct names, `extended_stats` being served by both medium and statistics
+- **68 tools** across 7 servers: workspace (6), basic (9), medium (7), transform (11), statistics (12), visual (13), ingest (10) — no name listed twice. Four older medium tools are retired: `extended_stats`, `statistical_tests`, `filter_rows` and `compute_aggregations` are no longer listed, still answer as before, and each answer names the tool that replaced it
 - **LOCATE → INSPECT → PATCH → VERIFY** workflow for surgical data edits
 - **Automatic version control** — every write is snapshotted and fully restorable (Windows-safe: collision-proof timestamps)
 - **Operation receipt logging** — full audit trail of all modifications
@@ -181,7 +181,7 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
 ```
 
 4. Wait for the blue dot next to each server
-5. Start chatting — the model will see all 72 tools
+5. Start chatting — the model will see all 68 tools
 
 ### macOS / Linux
 
@@ -320,21 +320,21 @@ Files can be referenced anywhere via `workspace:name/alias` syntax — all tools
 | **temporal** (7) | `lag`, `lead`, `diff`, `pct_change`, `rolling_agg`, `ewm`, `cumulative` |
 | **structural** (8) | `column_math`, `conditional_assign`, `split_column`, `combine_columns`, `regex_replace`, `str_slice`, `concat_file`, `melt` |
 
-### Tier 2 — Medium (11 tools)
+### Tier 2 — Medium (7 tools, 4 retired)
 
 | Tool | Purpose |
 |---|---|
-| `compute_aggregations` | Group-by aggregation (sum/mean/count/min/max) |
+| `compute_aggregations` | *Retired: use `aggregate_dataset` (transform), `mode='groupby'`.* Unlisted; still answers |
 | `cross_tabulate` | Contingency tables — saves heatmap HTML |
 | `pivot_table` | Multi-dimensional pivot tables |
 | `value_counts` | Frequency tables — saves bar chart HTML |
-| `filter_rows` | Filter by 8 condition types (equals, contains, gt, lt, gte, lte, not_null, is_null). A condition may compare against `other_column` instead of `value` |
+| `filter_rows` | *Retired: use `filter_dataset` (transform).* Unlisted; still answers |
 | `sample_data` | Random/head/tail sampling |
-| `statistical_tests` | Auto-select: t-test, ANOVA, chi-square, correlation |
+| `statistical_tests` | *Retired: use `statistical_test` (statistics) — 17 tests, alpha, effect size, post-hoc.* Unlisted; still answers |
 | `analyze_text_column` | Character length stats, word frequency top-N, pattern detection (email, URL, phone, number) |
 | `detect_anomalies` | IQR + z-score row flagging — adds `_anomaly_score` column, saves annotated CSV |
 | `compare_datasets` | Schema diff, dtype changes, row count diff, null/mean delta between two CSVs |
-| `extended_stats` | Deep stats: skewness, kurtosis, percentiles, CI, MAD, CV, distribution fit |
+| `extended_stats` | *Retired here: the statistics server serves the same tool.* Unlisted; still answers |
 
 Chart-producing medium tools accept `theme: "dark" | "light" | "device"`, `output_path`, and `open_after`.
 
@@ -782,7 +782,7 @@ MCP_Data_Analyst/
 │   │   ├── server.py        ← thin MCP wrapper (zero domain logic)
 │   │   ├── engine.py        ← public API + list_patch_ops
 │   │   └── _patch_ops.py    ← 51 apply_patch operations
-│   ├── data_medium/         ← T2: aggregation, anomaly, text, comparison (11 tools)
+│   ├── data_medium/         ← T2: aggregation, anomaly, text, comparison (7 tools, 4 retired)
 │   │   ├── server.py
 │   │   ├── engine.py
 │   │   ├── _med_helpers.py
@@ -793,7 +793,7 @@ MCP_Data_Analyst/
 │   ├── data_transform/      ← T2: richer filter/reshape/aggregate (10 tools)
 │   │   ├── server.py
 │   │   └── engine.py        ← filter_dataset, reshape_dataset, aggregate_dataset
-│   ├── data_statistics/     ← T3: full statistics suite (11 tools)
+│   ├── data_statistics/     ← T3: full statistics suite (12 tools)
 │   │   ├── server.py
 │   │   ├── engine.py
 │   │   ├── _stats_tests.py  ← 17 statistical tests + effect sizes

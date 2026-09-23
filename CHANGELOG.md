@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed — four duplicate tools retired from the list
+
+- `extended_stats` (served identically by the statistics server),
+  `statistical_tests` (a subset of `statistical_test`), `filter_rows` (what
+  `filter_dataset` was upgraded from) and `compute_aggregations`
+  (`aggregate_dataset` in groupby mode) leave the medium tier's `tools/list`:
+  68 tools listed instead of 72, and no name listed twice. They still answer
+  exactly as before, and each answer carries `retired`, naming the tool to use.
+  The first step of cutting the tool surface; see `shared/retired.py`.
+
 ### Added — a file too big for one call arrives in parts
 
 - Each part is an inline file with `part=<i>/<n>;sha256=<of the whole file>`
