@@ -293,6 +293,11 @@ def _op_fill_nulls(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
         df[col] = df[col].bfill()
     elif strategy == "drop":
         df = df.dropna(subset=[col])
+    elif strategy == "value":
+        if "value" not in op:
+            raise ValueError("fill_nulls strategy 'value' needs 'value', the fill, e.g. 0 or 'unknown'.")
+        value_used = op["value"]
+        df[col] = df[col].fillna(value_used)
     else:
         # There was no else here, so an unrecognised strategy fell through every
         # branch and the op reported {"filled": 0} -- which reads as "nothing
@@ -302,8 +307,8 @@ def _op_fill_nulls(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
         # path and silently no-op'd in the other.
         raise ValueError(
             f"Invalid fill_nulls strategy '{strategy}'. Valid: {', '.join(sorted(_FILL_STRATEGIES))}. "
-            f"There is no literal-value fill; 'mean' or 'median' on a mostly-zero column is the "
-            f"closest equivalent. Note fill_zeros does the inverse -- it treats existing 0s as null."
+            f"strategy='value' with value=<fill> fills with a literal. Note fill_zeros does the "
+            f"inverse -- it treats existing 0s as null."
         )
 
     null_after = int(df[col].isna().sum()) if col in df.columns else 0

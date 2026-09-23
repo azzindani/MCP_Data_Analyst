@@ -1236,7 +1236,7 @@ _OP_CATALOG: dict[str, list[dict]] = {
         },
         {
             "op": "fill_nulls",
-            "params": "column, strategy: mean|median|mode|ffill|bfill|drop|value, fill_zeros: bool (optional)",
+            "params": "column, strategy: mean|median|mode|ffill|bfill|drop|value, value: the fill (strategy=value), fill_zeros: bool (optional)",
         },
         {"op": "drop_duplicates", "params": "subset: list[str] (default all cols), keep: first|last|False"},
         {"op": "normalize", "params": "column, method: minmax|zscore"},

@@ -633,7 +633,10 @@ def generate_multi_chart(
                 "token_estimate": 30,
             }
 
-        chart_title = title if title else f"Multi-{chart_type.replace('_', ' ').title()}"
+        # chart_type='multi_line' already says multi: prefixing it again titled the
+        # chart "Multi-Multi Line".
+        kind = chart_type.replace("_", " ").title()
+        chart_title = title if title else (kind if kind.lower().startswith("multi") else f"Multi-{kind}")
         fig = go.Figure()
 
         if chart_type == "multi_bar":

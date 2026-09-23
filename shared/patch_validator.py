@@ -199,7 +199,7 @@ _OP_FIELDS: dict[str, frozenset[str]] = {
     "drop_duplicates": frozenset({"subset", "keep"}),
     "ewm": frozenset({"column", "new_column", "span"}),
     "extract_regex": frozenset({"column", "group", "new_column", "pattern"}),
-    "fill_nulls": frozenset({"column", "fill_zeros", "strategy"}),
+    "fill_nulls": frozenset({"column", "fill_zeros", "strategy", "value"}),
     "filter_between": frozenset({"column", "inclusive", "max", "min"}),
     "filter_date_range": frozenset({"column", "end", "start"}),
     "filter_isin": frozenset({"column", "values"}),
@@ -260,7 +260,10 @@ for _op in _NEW_COL_OPS:
 # contents onto the op and leaves the key in place.
 _UNIVERSAL_FIELDS: frozenset[str] = frozenset({"op", "params"})
 
-_FILL_STRATEGIES = frozenset({"mean", "median", "mode", "ffill", "bfill", "drop"})
+# `value` fills with a literal the caller names (`value`: 0, "unknown"). The op
+# catalog advertised it for a long time while the handler had no branch for it,
+# so a caller who read the catalog and used it was refused.
+_FILL_STRATEGIES = frozenset({"mean", "median", "mode", "ffill", "bfill", "drop", "value"})
 _CAST_DTYPES = frozenset({"int", "float", "str", "datetime"})
 _CLEAN_SCOPES = frozenset({"headers", "values", "both"})
 # clean_text applied strip+title unconditionally and read no vocabulary at
@@ -438,9 +441,16 @@ def validate_ops(ops: list[dict]) -> list[str]:
             elif op["strategy"] not in _FILL_STRATEGIES:
                 errors.append(
                     f"{prefix} (fill_nulls): invalid strategy '{op['strategy']}'. "
-                    f"Valid: {', '.join(sorted(_FILL_STRATEGIES))}. There is no literal-value fill; "
-                    f"'mean' or 'median' on a mostly-zero column is the closest equivalent."
+                    f"Valid: {', '.join(sorted(_FILL_STRATEGIES))}."
                 )
+            elif op["strategy"] == "value":
+                if "value" not in op:
+                    errors.append(f"{prefix} (fill_nulls): strategy 'value' needs 'value', the fill, e.g. 0 or 'unknown'")
+                elif isinstance(op["value"], (dict, list)) or op["value"] is None:
+                    errors.append(
+                        f"{prefix} (fill_nulls): 'value' must be a number, string or true/false, "
+                        f"got {type(op['value']).__name__}"
+                    )
 
         elif op_name == "normalize":
             if "column" not in op:

@@ -59,6 +59,14 @@ def served(tmp_path, monkeypatch):
 
 
 class TestThroughTheTool:
+    def test_the_exact_name_found_elsewhere_is_said_to_be_there(self, served):
+        # Found by the sweep: "Nothing is named X there. Closest: X" -- the
+        # exact name, found where the tool did not look, reported as absent.
+        r = _tool("data_basic", "inspect_dataset")(file_path="archive/Ad_Data.csv")
+        assert r["success"] is False and r["did_you_mean"][0] == "Ad_Data.csv"
+        assert "Nothing is named" not in r["hint"]
+        assert "'Ad_Data.csv' is in the data folder" in r["hint"]
+
     def test_a_case_fold_away_is_named_first(self, served):
         if (served / "ad_data.csv").exists():
             pytest.skip("case-insensitive filesystem: the file is found, nothing to suggest")

@@ -6,6 +6,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed — what a tool says is what it does
+
+- Every answer names its `op`: the wrapper every tool passes through
+  (`shared/token_estimate.measure_responses`) fills it from the tool's name
+  when the answer leaves it out. A sweep census found 25 tools answering
+  without it, including `inspect_dataset`, `apply_patch` and
+  `statistical_test` failures.
+- `fill_nulls` takes `strategy: "value"` with `value`, the literal to fill
+  with. `list_patch_ops` advertised it while `apply_patch` refused it.
+- `run_cleaning_pipeline` names the ops it runs, and the closest one, when
+  it refuses an unknown op, instead of pointing at `list_patch_ops` on
+  another endpoint.
+- `run_eda(mode="minimal", output_path=...)` says the page was not written
+  and how to write it (`include={"html": True}`).
+- `generate_multi_chart` no longer titles `multi_line` "Multi-Multi Line".
+
 ### Fixed — a quality score prices each fact once
 
 - A duplicate-rows or missing-values alert no longer costs `validity`: the

@@ -296,6 +296,15 @@ def run_eda(
 
         out = None
         size_kb = 0
+        # A caller who names a file and asks for a mode that writes none was
+        # answered output_path '' and report_size_kb 0 with nothing to say why.
+        dropped_output = ""
+        if output_path and not depth.wants("html"):
+            dropped_output = (
+                f"mode={depth.mode!r} writes no HTML page, so {output_path!r} was not written. "
+                "Add include={'html': True}, or use mode='standard', to write it."
+            )
+            progress.append(warn("No page written", dropped_output))
         if depth.wants("html"):
             # Resolved first: the output path decides where the page is written,
             # and the <head> is assembled around it.
@@ -362,6 +371,7 @@ def run_eda(
             "output_path": str(out.resolve()) if out else "",
             "output_name": out.name if out else "",
             "report_size_kb": size_kb,
+            **({"output_note": dropped_output} if dropped_output else {}),
             "rows": rows,
             "columns": cols,
             "quality_score": quality_score,

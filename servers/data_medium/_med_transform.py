@@ -31,7 +31,7 @@ from shared.column_utils import date_note, looks_like_dates, parse_dates
 from shared.counts import counted
 from shared.derive_ops import DeriveError, apply_derivations
 from shared.file_utils import error_text, hint_for_error, resolve_path
-from shared.patch_validator import unwrap_params, validate_ops
+from shared.patch_validator import _did_you_mean, unwrap_params, validate_ops
 from shared.platform_utils import get_max_merge_bytes, get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
@@ -458,12 +458,19 @@ def run_cleaning_pipeline(
         # caller for a name the catalog told them to use.
         unknown_ops = [op.get("op", "") for op in ops if op.get("op", "") not in handler_map]
         if unknown_ops:
+            # The vocabulary goes in the answer. The hint used to send the caller
+            # to list_patch_ops(), a tool on the data-basic endpoint -- not on
+            # this one -- so a caller connected here alone could not find it.
+            known = sorted(handler_map)
+            near = [m for u in unknown_ops if u and (m := _did_you_mean(str(u), known))]
+            lead = f"Did you mean {', '.join(repr(m) for m in near)}? " if near else ""
             return {
                 "success": False,
-                "error": f"No handler registered for op(s): {unknown_ops}",
-                "hint": "Call list_patch_ops() for the ops this server can run.",
+                "op": "run_cleaning_pipeline",
+                "error": f"Unknown op(s): {', '.join(repr(u) for u in unknown_ops)}.",
+                "hint": f"{lead}This tool runs: {', '.join(known)}.",
                 "applied": 0,
-                "progress": [fail("No handler for op(s)", str(unknown_ops))],
+                "progress": [fail("Unknown op(s)", str(unknown_ops))],
                 "token_estimate": 20,
             }
 
