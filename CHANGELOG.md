@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added — a file too big for one call arrives in parts
+
+- Each part is an inline file with `part=<i>/<n>;sha256=<of the whole file>`
+  in its header. Parts wait in the inbox's hidden `.parts` folder, arrive in
+  any order, and a part sent again replaces itself; until the last one lands
+  the tool answers `tool_ran: false` with the parts still missing. The joined
+  file must match its SHA-256 or nothing is kept. Capped at
+  `MCP_MAX_UPLOAD_MB` (default 100); an upload left unfinished for an hour is
+  dropped.
+
 ### Added — a file's bytes may go wherever a path goes
 
 - `data:text/csv;name=sales.csv;base64,<bytes>` in place of a path is saved to
