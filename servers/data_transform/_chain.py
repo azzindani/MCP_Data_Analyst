@@ -586,11 +586,12 @@ def _derive(df: pd.DataFrame, name: str, expr: str) -> tuple[pd.DataFrame, str]:
 
 
 def _apply_ops(
-    src: pd.DataFrame, ops: list[dict], values: dict[str, Any], field: str
+    src: pd.DataFrame, ops: list[dict], values: dict[str, Any], field: str, seen: list[list[str]]
 ) -> tuple[pd.DataFrame, list[str]]:
     df = src.copy()
     notes: list[str] = []
     for j, raw in enumerate(ops):
+        seen.append([str(c) for c in df.columns])  # what each op read, for the pandas export
         op = _bind(copy.deepcopy(raw), values)
         name = op.get("op", "")
         at = f"{field}[{j}] ({name})"
@@ -686,13 +687,14 @@ def _run_step(step: dict[str, Any], run: _Run, outer: dict[str, Any]) -> dict[st
         return _run_call(step, run)
     src = tables[step["reads"][0]]
     if kind == "ops":
+        seen = step.setdefault("_cols", {})
         try:
-            df, notes = _apply_ops(src, raw["ops"], values, "ops")
+            df, notes = _apply_ops(src, raw["ops"], values, "ops", seen.setdefault("ops", []))
         except StepError as first:
             if "fallback" not in raw:
                 raise
             try:
-                df, notes = _apply_ops(src, raw["fallback"], values, "fallback")
+                df, notes = _apply_ops(src, raw["fallback"], values, "fallback", seen.setdefault("fallback", []))
             except StepError as second:
                 raise StepError(f"{first.message}; the fallback failed too: {second.message}") from second
             notes.insert(0, f"ops failed ({first.message}), so the fallback ran")
@@ -701,6 +703,7 @@ def _run_step(step: dict[str, Any], run: _Run, outer: dict[str, Any]) -> dict[st
         if notes:
             out["notes"] = notes
         return out
+    step["_cols_in"] = [str(c) for c in src.columns]
     if kind == "scalar":
         value = aggregate(substitute(raw["scalar"], values), src)
         values[sid] = value
@@ -885,7 +888,9 @@ def _refusal(error: str, hint: str, **extra: Any) -> dict[str, Any]:
     return result
 
 
-def run_chain(steps: list[dict], dry_run: bool = False, until: str = "", save_as: str = "") -> dict:
+def run_chain(
+    steps: list[dict], dry_run: bool = False, until: str = "", save_as: str = "", export_pandas: bool = False
+) -> dict:
     """Run named steps: load, ops, scalar, join, group_by, write, param, call."""
     try:
         original = copy.deepcopy(steps)
@@ -920,13 +925,28 @@ def run_chain(steps: list[dict], dry_run: bool = False, until: str = "", save_as
                 "Nothing was read or written. Each problem names its step; fix them and call again. " + STEP_SHAPE,
                 problems=problems,
             )
-        return _execute(planned, original, until or "", dry_run, save_path)
+        result = _execute(planned, original, until or "", dry_run, save_path)
+        if export_pandas and result.get("success"):
+            _export(result, planned, until or "")
+        return result
     except Exception as exc:
         logger.exception("run_chain error")
         return _refusal(
             error_text(exc),
             "Nothing was written. Call again with dry_run=true to see each step's rows and columns.",
         )
+
+
+def _export(result: dict[str, Any], planned: list[dict[str, Any]], until: str) -> None:
+    """Add the chain as a pandas script, or say which step has no pandas translation."""
+    from _chain_export import ExportError, export_script  # type: ignore[import-not-found]
+
+    try:
+        result["pandas"] = export_script(planned, until)
+    except ExportError as exc:
+        result["pandas_refused"] = str(exc)
+        result["hint"] += f" The pandas export was refused: {exc}."
+    result["token_estimate"] = _token_estimate(result)
 
 
 def _execute(planned: list[dict[str, Any]], original: list, until: str, dry_run: bool, save_path: Path | None) -> dict:

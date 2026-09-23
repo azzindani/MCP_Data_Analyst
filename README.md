@@ -416,6 +416,17 @@ nothing is written until every step has run.
 nest five deep, a chain that calls itself is refused, and the steps of a whole
 call tree are capped at 200.
 
+`export_pandas=true` returns the chain as a pandas script (`pandas` in the
+answer; a dry run exports too): the same steps, `$names` as variables, a
+called chain as a Python function of its params, and nothing written until
+every step ran. It carries small copies of the chain's rules -- arithmetic on
+floats, element-wise `and`, a missing value in a filter read as false -- so it
+writes the same files; the tests run every exported script and compare them
+byte for byte. It covers `filter`, `derive`, `drop_column`, `sort`,
+`drop_duplicates`, `dedup_subset`, `filter_isin`, `filter_not_isin`,
+`filter_between`, `filter_top_n`, `clip_values`, `round_values`, `abs_values`
+and `fill_nulls`; any other op is refused by name in `pandas_refused`.
+
 #### Derived columns — `feature_engineering(derive=[...])`
 
 Aggregation tools group by columns that are already in the file. `derive` adds

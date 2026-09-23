@@ -327,9 +327,11 @@ def list_derive_ops(op: Op = "") -> dict:
 
 
 @mcp.tool(annotations=EDITS)
-def run_chain(steps: list[dict], dry_run: bool = False, until: str = "", save_as: str = "") -> dict:
+def run_chain(
+    steps: list[dict], dry_run: bool = False, until: str = "", save_as: str = "", export_pandas: bool = False
+) -> dict:
     """Run named steps: load, ops, scalar, join, group_by, write, param, call."""
-    return engine.run_chain(steps, dry_run, until, save_as)
+    return engine.run_chain(steps, dry_run, until, save_as, export_pandas)
 
 
 @mcp.tool(annotations=EDITS)
