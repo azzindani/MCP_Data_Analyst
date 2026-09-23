@@ -245,7 +245,7 @@ run statistics cohort_analysis "{\"file_path\":\"$SALES\",\"cohort_column\":\"re
 run statistics lag_correlation "{\"file_path\":\"$SALES\",\"date_column\":\"date\",\"x_column\":\"units\",\"y_column\":\"revenue\",\"max_lag\":5}" "does units lead revenue by a few days?"
 
 echo
-echo "===== data_transform (10 tools) ====="
+echo "===== data_transform (12 tools) ====="
 FILTER_R=$(call transform 200 filter_dataset "{\"file_path\":\"$SALES\",\"output_path\":\"$D/sales_emea.csv\",\"conditions\":[{\"column\":\"region\",\"op\":\"equals\",\"value\":\"EMEA\"}]}")
 if ok_json "$FILTER_R"; then pass "filter_dataset filtered to EMEA only"; else fail "filter_dataset -> $FILTER_R"; fi
 # The lineage sidecar, checked on the live filesystem rather than in the
@@ -268,6 +268,7 @@ run transform feature_engineering "{\"file_path\":\"$SALES\",\"features\":[\"dat
 run transform feature_engineering "{\"file_path\":\"$SALES\",\"output_path\":\"$D/derived.csv\",\"derive\":[{\"name\":\"year\",\"op\":\"date_part\",\"column\":\"date\",\"part\":\"year\"},{\"name\":\"rev_per_unit\",\"op\":\"arith\",\"column\":\"revenue\",\"how\":\"div\",\"other\":\"units\"}]}" "add a year column and revenue per unit"
 run medium compute_aggregations "{\"file_path\":\"$D/derived.csv\",\"group_by\":[\"year\"],\"agg_column\":\"rev_per_unit\",\"agg_func\":\"mean\"}" "average revenue per unit by the year I just derived"
 run transform enrich_with_geo "{\"file_path\":\"$SALES\",\"geo_file_path\":\"$GEOJSON\",\"join_column\":\"region\",\"geo_join_column\":\"region\"}" "enrich sales with lat/lon"
+run transform run_chain "{\"steps\":[{\"id\":\"sales\",\"load\":\"$SALES\"},{\"id\":\"pop\",\"load\":\"$SALES2\"},{\"id\":\"p90\",\"from\":\"sales\",\"scalar\":\"percentile(revenue, 90)\"},{\"id\":\"joined\",\"join\":[\"sales\",\"pop\"],\"on\":\"region\"},{\"id\":\"by_region\",\"group_by\":\"region\",\"agg\":{\"revenue\":\"sum(revenue)\",\"per_person\":\"sum(revenue) / max(population)\",\"big_sales\":\"count_if(revenue > \$p90)\"}},{\"write\":\"$D/chain_by_region.csv\"}]}" "join sales to population, total revenue by region, count the top-decile sales, and save it"
 
 echo
 echo "===== data_visual (12 tools) ====="

@@ -53,7 +53,7 @@ def _num(value: Any, formula: str) -> Any:
             return value.astype(float)
         try:
             return value.astype(float)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             sample = next((v for v in value.dropna().tolist() if not _is_number(v)), None)
             label = f"Column {value.name!r}" if value.name is not None else "A value in the formula"
             raise FormulaError(
@@ -70,7 +70,7 @@ def _num(value: Any, formula: str) -> Any:
 def _is_number(value: Any) -> bool:
     try:
         float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return False
     return True
 
@@ -348,8 +348,7 @@ class _Evaluator:
         return fn(*args)
 
 
-def evaluate(formula: str, df: pd.DataFrame) -> pd.Series:
-    """Evaluate ``formula`` over ``df`` and return one value per row. Raises FormulaError."""
+def _parse(formula: str, df: pd.DataFrame, allowed: str = ALLOWED) -> tuple[ast.Expression, dict[str, str]]:
     if not isinstance(formula, str) or not formula.strip():
         raise FormulaError("Formula is empty. Example: '(clicks + 1) / impressions * 100'.")
     if len(formula) > MAX_LENGTH:
@@ -359,11 +358,17 @@ def evaluate(formula: str, df: pd.DataFrame) -> pd.Series:
         tree = ast.parse(text.strip(), mode="eval")
     except SyntaxError as exc:
         raise FormulaError(
-            f"Formula {formula!r} could not be read: {exc.msg}. Allowed: {ALLOWED}. "
+            f"Formula {formula!r} could not be read: {exc.msg}. Allowed: {allowed}. "
             "Write a column name that holds operator characters in backticks."
         ) from None
-    except (RecursionError, MemoryError):
+    except RecursionError, MemoryError:
         raise FormulaError(f"Formula {formula!r} is nested too deeply to read.") from None
+    return tree, names
+
+
+def evaluate(formula: str, df: pd.DataFrame) -> pd.Series:
+    """Evaluate ``formula`` over ``df`` and return one value per row. Raises FormulaError."""
+    tree, names = _parse(formula, df)
     with np.errstate(all="ignore"):
         result = _Evaluator(df, names, formula).visit(tree.body)
     if isinstance(result, pd.Series):
@@ -371,3 +376,208 @@ def evaluate(formula: str, df: pd.DataFrame) -> pd.Series:
     if isinstance(result, np.ndarray):
         return pd.Series(result, index=df.index)
     return pd.Series([result] * len(df), index=df.index)
+
+
+# ---------------------------------------------------------------------------
+# Variables: $name in a formula is a value an earlier step computed
+# ---------------------------------------------------------------------------
+
+_VARIABLE = re.compile(r"\$([A-Za-z_]\w*)")
+
+
+def _literal(name: str, value: Any) -> str:
+    if isinstance(value, pd.Timestamp):
+        return repr(value.isoformat())
+    if isinstance(value, str):
+        return repr(value)
+    if isinstance(value, (bool, np.bool_)):
+        return str(bool(value))
+    if isinstance(value, (int, float, np.number)):
+        if not np.isfinite(float(value)):
+            raise FormulaError(f"${name} is {value} -- the step that computed it found no usable values.")
+        return repr(float(value))
+    raise FormulaError(f"${name} holds a {type(value).__name__}, which a formula cannot use.")
+
+
+def substitute(formula: str, values: dict[str, Any]) -> str:
+    """``formula`` with every ``$name`` written as the value it holds.
+
+    Only code is rewritten: a ``$`` inside 'quoted text' or a `backticked`
+    column name stays as written. A ``$name`` nobody computed is refused
+    here, naming the ones that exist.
+    """
+    parts: list[str] = []
+    for kind, raw in _segments(formula):
+        if kind != "code":
+            parts.append(raw)
+            continue
+
+        def value_of(match: re.Match[str]) -> str:
+            name = match.group(1)
+            if name not in values:
+                known = ", ".join(f"${k}" for k in values) or "none yet"
+                raise FormulaError(f"${name} in {formula!r} is not a variable. Variables: {known}.")
+            return _literal(name, values[name])
+
+        parts.append(_VARIABLE.sub(value_of, raw))
+    return "".join(parts)
+
+
+def variables_in(formula: str) -> list[str]:
+    """The ``$names`` a formula reads, outside quotes and backticks."""
+    try:
+        segments = _segments(formula)
+    except FormulaError:
+        return []
+    return [m.group(1) for kind, raw in segments if kind == "code" for m in _VARIABLE.finditer(raw)]
+
+
+# ---------------------------------------------------------------------------
+# Aggregates: one value per table, or one per group
+# ---------------------------------------------------------------------------
+
+# name -> allowed argument counts
+AGGREGATES: dict[str, tuple[int, ...]] = {
+    "sum": (1,),
+    "mean": (1,),
+    "median": (1,),
+    "min": (1,),
+    "max": (1,),
+    "std": (1,),
+    "count": (0, 1),
+    "count_distinct": (1,),
+    "count_if": (1,),
+    "percentile": (2,),
+    "first": (1,),
+    "last": (1,),
+}
+
+_NUMERIC_AGGREGATES = frozenset({"sum", "mean", "median", "std", "percentile"})
+
+AGGREGATE_ALLOWED = (
+    "aggregates "
+    + ", ".join(AGGREGATES)
+    + " over any row formula, combined with + - * / // % ** and numbers, "
+    + "e.g. 'sum(clicks) / sum(impressions) * 100', 'percentile(net, 95)', 'count_if(net > 0)'"
+)
+
+
+class _Aggregator:
+    def __init__(self, df: pd.DataFrame, names: dict[str, str], formula: str, by: list[str] | None) -> None:
+        self.rows = _Evaluator(df, names, formula)
+        self.df = df
+        self.formula = formula
+        self.keys = [df[c] for c in by] if by else None
+
+    def refuse(self, what: str) -> FormulaError:
+        return FormulaError(
+            f"Formula {self.formula!r} uses {what}, which an aggregate does not allow. Allowed: {AGGREGATE_ALLOWED}."
+        )
+
+    def visit(self, node: ast.AST) -> Any:
+        match node:
+            case ast.Constant(value=value) if isinstance(value, (int, float)) and not isinstance(value, bool):
+                return np.float64(value)
+            case ast.BinOp(left=left, op=op, right=right):
+                fn = _ARITHMETIC.get(type(op))
+                if fn is None:
+                    raise self.refuse(_NODE_NAMES.get(type(op).__name__, type(op).__name__))
+                try:
+                    return fn(self.visit(left), self.visit(right))
+                except TypeError:
+                    raise FormulaError(
+                        f"Formula {self.formula!r} does arithmetic on a value that is not a number "
+                        "(the min, max, first or last of a text or date column?)."
+                    ) from None
+            case ast.UnaryOp(op=ast.USub(), operand=operand):
+                return -self.visit(operand)
+            case ast.UnaryOp(op=ast.UAdd(), operand=operand):
+                return self.visit(operand)
+            case ast.Call(func=ast.Name(id=name)) if name in AGGREGATES:
+                return self.reduce(node, name)
+            case ast.Call(func=ast.Name(id="round"), args=args) if len(args) in (1, 2) and not node.keywords:
+                return _round(*[self.visit(a) for a in args])
+            case ast.Call(func=ast.Name(id="abs"), args=[arg]) if not node.keywords:
+                return np.abs(self.visit(arg))
+            case ast.Name(id=ident):
+                col = self.rows.names.get(ident, ident)
+                shown = f"`{col}`" if ident in self.rows.names else col
+                raise FormulaError(
+                    f"{col!r} in {self.formula!r} is a column, and an aggregate is one value per "
+                    f"{'group' if self.keys else 'table'}: wrap it, e.g. sum({shown}), mean({shown}), "
+                    f"count_distinct({shown}). Aggregates: {', '.join(AGGREGATES)}."
+                )
+            case ast.Call(func=ast.Name(id=name)):
+                raise FormulaError(
+                    f"Formula {self.formula!r} calls {name}() outside an aggregate. "
+                    f"Put row functions inside one, e.g. sum({name}(...)); aggregates: {', '.join(AGGREGATES)}."
+                )
+            case _:
+                kind = type(node).__name__
+                raise self.refuse(_NODE_NAMES.get(kind, kind))
+
+    def reduce(self, node: ast.Call, name: str) -> Any:
+        if node.keywords or any(isinstance(a, ast.Starred) for a in node.args):
+            raise FormulaError(f"{name}() takes positional arguments only, in {self.formula!r}.")
+        arities = AGGREGATES[name]
+        if len(node.args) not in arities:
+            want = " or ".join(str(n) for n in arities)
+            raise FormulaError(f"{name}() takes {want} argument(s), got {len(node.args)}, in {self.formula!r}.")
+        for arg in node.args:
+            for inner in ast.walk(arg):
+                if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name) and inner.func.id in AGGREGATES:
+                    raise FormulaError(
+                        f"{inner.func.id}() inside {name}() in {self.formula!r}: aggregates do not nest. "
+                        "Compute the inner one in a scalar step and use it here as $its_id."
+                    )
+        if not node.args:
+            return self._reduce(pd.Series(1.0, index=self.df.index), "size")
+        values = self.rows.visit(node.args[0])
+        if not isinstance(values, pd.Series):
+            values = pd.Series([values] * len(self.df), index=self.df.index)
+        if name == "count_if":
+            if not (pd.api.types.is_bool_dtype(values) or values.dropna().map(type).isin([bool, np.bool_]).all()):
+                raise FormulaError(
+                    f"count_if() takes a condition, true or false per row, e.g. count_if(net > 0); "
+                    f"in {self.formula!r} it got {values.dtype} values."
+                )
+            return self._reduce(values.fillna(False).astype(bool).astype(int), "sum")
+        if name in _NUMERIC_AGGREGATES:
+            values = _num(values, self.formula)
+        if name == "percentile":
+            q = node.args[1]
+            if not (
+                isinstance(q, ast.Constant)
+                and isinstance(q.value, (int, float))
+                and not isinstance(q.value, bool)
+                and 0 <= q.value <= 100
+            ):
+                raise FormulaError(
+                    f"percentile(x, q) takes q as a number from 0 to 100, e.g. percentile(net, 95), in {self.formula!r}."
+                )
+            return self._reduce(values, "quantile", float(q.value) / 100)
+        return self._reduce(values, {"count_distinct": "nunique"}.get(name, name))
+
+    def _reduce(self, values: pd.Series, method: str, *args: Any) -> Any:
+        if self.keys is None:
+            if method == "size":
+                return len(values)
+            if method in ("first", "last"):
+                present = values.dropna()
+                return present.iloc[0 if method == "first" else -1] if len(present) else np.nan
+            return getattr(values, method)(*args)
+        grouped = values.groupby(self.keys, dropna=False, sort=True)
+        return getattr(grouped, method)(*args)
+
+
+def aggregate(formula: str, df: pd.DataFrame, by: list[str] | None = None) -> Any:
+    """Evaluate an aggregate formula: one value over ``df``, or a Series with one value per group of ``by``.
+
+    ``sum(amount * (1 - discount))``, ``count_if(net > 0) / count()``,
+    ``percentile(net, 95)``: every aggregate reads a row formula -- the same
+    language as ``evaluate`` -- and the aggregates combine with arithmetic.
+    A bare column outside an aggregate is refused, naming the wrapping it needs.
+    """
+    tree, names = _parse(formula, df, AGGREGATE_ALLOWED)
+    with np.errstate(all="ignore"):
+        return _Aggregator(df, names, formula, by).visit(tree.body)

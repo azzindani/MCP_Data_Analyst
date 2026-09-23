@@ -1,8 +1,8 @@
 """The whole data surface as eight domain tools -- one endpoint, `action` plus `args`.
 
-The seven tier servers list 68 tools between them; a model connected to all of
-them reads 68 names on every turn. This endpoint lists eight, one per job, and
-each tool's `action` is one of those 68 tools by its own name. Schemas,
+The seven tier servers list 69 tools between them; a model connected to all of
+them reads 69 names on every turn. This endpoint lists eight, one per job, and
+each tool's `action` is one of those 69 tools by its own name. Schemas,
 validation, wrappers and answers are the tiers' own: see shared/domain_tools.py.
 The tier endpoints keep serving unchanged, for small local models and for
 every client already connected to one.
@@ -70,7 +70,7 @@ DOMAINS = {
         ],
     ),
     "data_edit": (
-        "Change a dataset's rows and columns: patch ops, cleaning, imputing, derived columns, filtering, undo.",
+        "Change a dataset's rows and columns: patch ops, cleaning, imputing, derived columns, filtering, whole multi-step jobs (run_chain), undo.",
         [
             (basic, "apply_patch"),
             (basic, "list_patch_ops"),
@@ -80,6 +80,7 @@ DOMAINS = {
             (transform, "list_derive_ops"),
             (transform, "filter_dataset"),
             (transform, "enrich_with_geo"),
+            (transform, "run_chain"),
             (basic, "restore_version"),
         ],
     ),

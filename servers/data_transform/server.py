@@ -327,6 +327,12 @@ def list_derive_ops(op: Op = "") -> dict:
 
 
 @mcp.tool(annotations=EDITS)
+def run_chain(steps: list[dict], dry_run: bool = False, until: str = "") -> dict:
+    """Run named steps in one call: load, ops, scalar, join, group_by, write."""
+    return engine.run_chain(steps, dry_run, until)
+
+
+@mcp.tool(annotations=EDITS)
 def enrich_with_geo(
     file_path: str,
     geo_file_path: str,

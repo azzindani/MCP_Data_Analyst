@@ -60,9 +60,14 @@ class TestTheListIsShorter:
         assert "statistical_test" in _listed("data_statistics")
         assert {"filter_dataset", "aggregate_dataset"} <= set(_listed("data_transform"))
 
-    def test_the_repo_lists_68_tools_and_none_twice(self):
+    # 68 once the four were retired; a tool added since joins this tuple, so the
+    # count still proves the retired names left the list and nothing came back.
+    ADDED_SINCE = ("run_chain",)
+
+    def test_the_repo_lists_68_tools_plus_the_ones_added_since_and_none_twice(self):
         listed = [name for tier in TIERS for name in _listed(tier)]
-        assert len(listed) == 68, len(listed)
+        assert set(self.ADDED_SINCE) <= set(listed)
+        assert len(listed) == 68 + len(self.ADDED_SINCE), len(listed)
         assert len(set(listed)) == len(listed)
 
 

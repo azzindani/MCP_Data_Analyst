@@ -6,8 +6,8 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 
 ## Features
 
-- **One endpoint, eight tools** — `/mcp` serves the whole surface as eight domain tools: `data_inspect`, `data_edit`, `data_reshape`, `data_stats`, `data_chart`, `data_report`, `data_ingest`, `data_workspace`. Each takes an `action` (one of the 68 tools below, by its own name) and an `args` object whose every property says which actions take it. Same validation and answers as the tiers; the tier endpoints below keep serving for small local models and existing connections
-- **68 tools** across 7 servers: workspace (6), basic (9), medium (7), transform (11), statistics (12), visual (13), ingest (10) — no name listed twice. Four older medium tools are retired: `extended_stats`, `statistical_tests`, `filter_rows` and `compute_aggregations` are no longer listed, still answer as before, and each answer names the tool that replaced it
+- **One endpoint, eight tools** — `/mcp` serves the whole surface as eight domain tools: `data_inspect`, `data_edit`, `data_reshape`, `data_stats`, `data_chart`, `data_report`, `data_ingest`, `data_workspace`. Each takes an `action` (one of the 69 tools below, by its own name) and an `args` object whose every property says which actions take it. Same validation and answers as the tiers; the tier endpoints below keep serving for small local models and existing connections
+- **69 tools** across 7 servers: workspace (6), basic (9), medium (7), transform (12), statistics (12), visual (13), ingest (10) — no name listed twice. Four older medium tools are retired: `extended_stats`, `statistical_tests`, `filter_rows` and `compute_aggregations` are no longer listed, still answer as before, and each answer names the tool that replaced it
 - **LOCATE → INSPECT → PATCH → VERIFY** workflow for surgical data edits
 - **Automatic version control** — every write is snapshotted and fully restorable (Windows-safe: collision-proof timestamps)
 - **Operation receipt logging** — full audit trail of all modifications
@@ -182,7 +182,7 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
 ```
 
 4. Wait for the blue dot next to each server
-5. Start chatting — the model will see all 68 tools
+5. Start chatting — the model will see all 69 tools
 
 ### macOS / Linux
 
@@ -263,7 +263,7 @@ Replace the `"command"` and `"args"` in each entry with the bash equivalent:
 ### One endpoint: eight domain tools at `/mcp`
 
 For a capable model, connect `/mcp` instead of the seven tiers: eight tools
-instead of 68. `action` names a tool below; `args` holds its arguments.
+instead of 69. `action` names a tool below; `args` holds its arguments.
 
 ```json
 {"action": "statistical_test",
@@ -273,7 +273,7 @@ instead of 68. `action` names a tool below; `args` holds its arguments.
 | Tool | Actions |
 |---|---|
 | `data_inspect` | load_dataset, load_geo_dataset, inspect_dataset, read_column_stats, search_columns, sample_data, auto_detect_schema, validate_dataset, scan_nulls_zeros, read_receipt |
-| `data_edit` | apply_patch, list_patch_ops, run_cleaning_pipeline, smart_impute, feature_engineering, list_derive_ops, filter_dataset, enrich_with_geo, restore_version |
+| `data_edit` | apply_patch, list_patch_ops, run_cleaning_pipeline, smart_impute, feature_engineering, list_derive_ops, filter_dataset, enrich_with_geo, run_chain, restore_version |
 | `data_reshape` | reshape_dataset, aggregate_dataset, pivot_table, merge_datasets, concat_datasets, resample_timeseries, export_data |
 | `data_stats` | extended_stats, statistical_test, check_outliers, correlation_analysis, lag_correlation, regression_analysis, time_series_analysis, period_comparison, cohort_analysis, detect_anomalies, analyze_text_column, compare_datasets |
 | `data_chart` | generate_chart, generate_distribution_plot, generate_correlation_heatmap, generate_pairwise_plot, generate_multi_chart, generate_geo_map, generate_3d_chart, customize_chart, cross_tabulate, value_counts |
@@ -382,6 +382,32 @@ Focused transformation server — richer filtering, reshaping, and aggregation t
 | `feature_engineering` | `features`: `bins date_parts one_hot text_length` — or add named columns with `derive` (see below). `one_hot` is capped at 10 distinct values per column and 5 columns per call; skipped columns come back in `one_hot_skipped` with a reason each |
 | `list_derive_ops` | The `derive` grammar for `feature_engineering`: every op with its required and optional keys, and a worked example. Omit `op` for all of them |
 | `enrich_with_geo` | Merge dataset with geo data on a location key |
+| `run_chain` | A whole job in one call: named steps that load files, run ops, compute a value, join, group and write -- checked whole before any file is read, and nothing written until every step ran (see below) |
+
+#### Chains — `run_chain(steps=[...])`
+
+One call for a job that used to take one call per step, each re-reading the
+file the last one wrote. Every step has an `id` and ONE action; it reads the
+table above it, or any earlier step named in `from`.
+
+| Action | Step | Makes |
+|---|---|---|
+| `load` | `{"id": "orders", "load": "orders.csv"}` | a table from a CSV |
+| `ops` | `{"ops": [...], "fallback": [...]}` | the table after the ops: every `apply_patch` op, plus `{"op": "filter", "where": "<formula>"}` and `{"op": "derive", "name": "net", "expr": "<formula>"}`; `fallback` runs instead when an op fails |
+| `scalar` | `{"id": "p95", "scalar": "percentile(net, 95)"}` | one value, read by later formulas as `$p95` |
+| `join` | `{"join": ["clean", "cust"], "on": "customer_id", "how": "left"}` | the joined table (refused before it is built when it would not fit) |
+| `group_by` | `{"group_by": ["region"], "agg": {"revenue": "sum(net)", "big": "count_if(net > $p95)"}}` | one row per group |
+| `write` | `{"write": "region_summary.csv"}` | the table, saved as CSV (a file it replaces is snapshotted first) |
+
+Formulas are the `add_column` language (precedence, parentheses, comparisons,
+`and`/`or`, `if_else`, `coalesce`, ...). Aggregates: `sum mean median min max
+std count count_distinct count_if percentile first last`, combined with
+arithmetic (`sum(clicks) / sum(impressions) * 100`). `on_error: "skip"` lets a
+step fail without stopping the chain; `until` runs the steps up to one id;
+`dry_run` runs everything in memory and returns each step's rows, columns and
+three sample rows. The whole chain -- every id, reference, op field and
+`$name` -- is checked before any file is read, and nothing is written until
+every step has run.
 
 #### Derived columns — `feature_engineering(derive=[...])`
 
@@ -778,7 +804,7 @@ requires a bearer token even while it's publicly reachable.
 
 Run in CI against a container (the `e2e` job) and by hand against the
 deployment. `pytest` itself stays offline. Exercises a running HTTP endpoint: auth enforcement plus a real
-handwritten-prompt-style call for **all 71 tools** across all 7 sub-servers
+handwritten-prompt-style call for **all 73 tools** (69 listed, 4 retired) across all 7 sub-servers
 (basic, medium, statistics, transform, visual, workspace, ingest), against
 real generated fixtures (a 200-row sales CSV, a region-population CSV, a real
 GeoJSON, and a real messy multi-sheet `.xlsx` with merged cells), chaining

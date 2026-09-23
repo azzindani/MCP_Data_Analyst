@@ -7,12 +7,14 @@ import sys
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[2]
+_HERE = str(Path(__file__).resolve().parent)
 _MED = str(Path(__file__).resolve().parents[1] / "data_medium")
-for _p in (str(_ROOT), _MED):
+for _p in (str(_ROOT), _HERE, _MED):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
 import pandas as pd
+from _chain import run_chain  # type: ignore[import-not-found]  # noqa: F401  (re-exported for server.py)
 
 # Re-export existing data_medium transforms
 from _med_transform import (  # type: ignore[import]
