@@ -24,6 +24,25 @@ All notable changes to this project will be documented in this file.
   the column, and reading the number silently would have turned a year-over-year
   difference into `1.0`.
 
+### Fixed — the dashboard knows what a column is before choosing what to do with it
+
+- **Identifiers are no longer quantities.** Every integer column was summed
+  into a KPI and charted as a value: "Total customer_id", zip codes on a bar
+  chart, the `Unnamed: 0` row counter a pandas export leaves behind. An
+  identifier is now recognised by the last word of its name (`customer_id`,
+  `zip_code`, `orderKey`, `sku`) or by being a row counter (unique integers
+  rising by exactly one). It is never summed, averaged or charted as a value.
+  An `agg_overrides` entry for it (`"zip:sum"`) says it is a quantity after
+  all, and a spec may still name one explicitly.
+- **CSV dates are dates.** The loader leaves `2024-01-05` as text, so no CSV
+  ever got a time series, and a column of dates became a pie chart and a
+  filter. A text column where at least 90% of values have a date's shape and
+  parse is now read as dates. Version strings, IP addresses and codes are left
+  alone.
+- **`column_roles` in the response and the dry-run preview**:
+  identifier / date / measure / dimension / text per column. A wrong guess is
+  visible before anyone opens the page.
+
 ### Fixed — the aggregate is guessed from a column's words, not letters inside them
 
 - `infer_agg` (the dashboard, pivot tables and lag correlation) matched its

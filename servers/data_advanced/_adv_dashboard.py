@@ -42,6 +42,7 @@ from _adv_helpers import (
     warn,
 )
 
+from shared.column_utils import is_identifier, parse_date_column
 from shared.dashboard_spec import CHART_KINDS, LAYOUT_SOURCE_KEY, MAX_FILTER_VALUES, SPEC_KEYS, SpecError
 from shared.dashboard_spec import merge as merge_spec
 from shared.dashboard_spec import resolve as resolve_spec
@@ -280,10 +281,27 @@ def generate_dashboard(
         if err := no_rows_error("generate_dashboard", df, path.name, "Building a dashboard"):
             return err
         dashboard_title = title if title else path.stem
-        if isinstance(spec, dict):
-            _parse_named_dates(df, spec)
+        _parse_dates(df, spec if isinstance(spec, dict) else None)
 
-        numeric_cols = [c for c in df.columns if is_numeric_col(df[c])]
+        numeric_all = [c for c in df.columns if is_numeric_col(df[c])]
+        # An override names what a column is, so it is checked against every
+        # numeric column, identifiers included: "store_no:sum" is the caller
+        # saying store_no is a quantity after all.
+        try:
+            overrides = parse_agg_overrides(agg_overrides, [str(c) for c in numeric_all])
+        except ValueError as exc:
+            return {
+                "success": False,
+                "op": "generate_dashboard",
+                "error": str(exc),
+                "hint": "Fix the agg_overrides named above and call again. Nothing was written.",
+                "progress": [fail("Invalid agg_overrides", str(exc))],
+                "token_estimate": 60,
+            }
+        # Identifiers are never summed or averaged: no KPI, no chart value, no
+        # correlation. A spec may still name one explicitly.
+        identifiers = [c for c in numeric_all if str(c) not in overrides and is_identifier(str(c), df[c])]
+        numeric_cols = [c for c in numeric_all if c not in identifiers]
         datetime_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])]
         cat_cols = [
             c for c in df.columns if c not in numeric_cols and c not in datetime_cols and df[c].nunique() <= 100
@@ -299,17 +317,21 @@ def generate_dashboard(
         chart_cat_cols = [c for c in cat_cols if df[c].nunique() > 1]
 
         col_agg: dict[str, str] = {nc: infer_agg(nc, df[nc]) for nc in numeric_cols}
-        try:
-            col_agg.update(parse_agg_overrides(agg_overrides, [str(c) for c in numeric_cols]))
-        except ValueError as exc:
-            return {
-                "success": False,
-                "op": "generate_dashboard",
-                "error": str(exc),
-                "hint": "Fix the agg_overrides named above and call again. Nothing was written.",
-                "progress": [fail("Invalid agg_overrides", str(exc))],
-                "token_estimate": 60,
-            }
+        col_agg.update(overrides)
+        # What each column was taken to be, returned so a wrong guess is seen in
+        # the response and fixed with one override, not found on the page.
+        column_roles = {
+            str(c): "identifier"
+            if c in identifiers
+            else "date"
+            if c in datetime_cols
+            else "measure"
+            if c in numeric_cols
+            else "dimension"
+            if c in cat_cols
+            else "text"
+            for c in df.columns[:60]
+        }
 
         _d_geo_lat, _d_geo_lon, _d_geo_loc = _find_geo_cols(df)
         _d_geo_loc_mode = _detect_location_mode(df, _d_geo_loc) if _d_geo_loc else ""
@@ -430,6 +452,7 @@ def generate_dashboard(
                     "title": dashboard_title,
                     "charts": charts,
                     "kpi_columns": kpi_cols,
+                    "column_roles": column_roles,
                     "filter_columns": [fc["col"] for fc in filter_controls] + [nr["col"] for nr in num_ranges],
                 },
                 "progress": progress,
@@ -646,6 +669,7 @@ def generate_dashboard(
             "dashboard_title": dashboard_title,
             "charts_included": charts,
             "kpi_columns": kpi_cols,
+            "column_roles": column_roles,
             "filter_columns": [fc["col"] for fc in filter_controls] + [nr["col"] for nr in num_ranges],
             "rows_embedded": len(embed_df),
             "rows_total": len(df),
@@ -956,24 +980,25 @@ def _card(h, cid: str, ttl: str, full: bool, height: int) -> None:
 _SPEC_KIND = {"geo_choropleth": "choropleth"}
 
 
-def _parse_named_dates(df, spec) -> None:
-    """Read a text column as dates when a panel names it as its `date` and nearly all of it parses.
+def _parse_dates(df, spec) -> None:
+    """Read date columns as dates, in place.
 
-    The CSV loader leaves "2024-01-05" as text, so a line chart over a named
-    date column was refused as "not a date" although every value was one. Only
-    columns a caller names are touched: the detected page is unchanged.
+    The CSV loader leaves "2024-01-05" as text, so a date column was never seen
+    as one: no CSV ever got a time series, and a pie of 90 dates took its place.
+    Every text column that holds dates is now read as dates, and so is any
+    column a panel names as its `date` (the caller has said what it is, so the
+    shape check is skipped for it).
     """
+    named = set()
     for panel in (spec or {}).get("layout") or []:
         cols = panel.get("cols") if isinstance(panel, dict) else None
-        col = cols.get("date") if isinstance(cols, dict) else None
-        if not col or col not in df.columns:
+        if isinstance(cols, dict) and cols.get("date"):
+            named.add(str(cols["date"]))
+    for col in list(df.columns):
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
             continue
-        series = df[col]
-        if pd.api.types.is_datetime64_any_dtype(series) or is_numeric_col(series):
-            continue
-        parsed = pd.to_datetime(series, errors="coerce", format="mixed")
-        present = int(series.notna().sum())
-        if present and int(parsed.notna().sum()) / present >= 0.9:
+        parsed = parse_date_column(df[col], named=str(col) in named)
+        if parsed is not None:
             df[col] = parsed
 
 

@@ -149,6 +149,80 @@ def infer_agg(col: str, series: pd.Series | None = None) -> str:
     return "sum"
 
 
+# The last word of a name that makes a numeric column an identifier: a key to
+# find a row by, not a quantity -- customer_id, zip_code, productKey, sku.
+_ID_WORDS = frozenset(
+    {"id", "uuid", "guid", "key", "code", "zip", "zipcode", "postcode", "sku", "ref", "phone", "isbn", "ssn"}
+)
+
+
+def _ordered_words(col: str) -> list[str]:
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", str(col))
+    return [w for w in re.split(r"[^a-z0-9]+", spaced.lower()) if w]
+
+
+def is_identifier(col: str, series: pd.Series) -> bool:
+    """A numeric column that identifies rows rather than measuring anything.
+
+    Summing one is not a rougher answer, it is a wrong one: the dashboard drew a
+    "Total customer_id" KPI and charted zip codes as values. Recognised by the
+    last word of the name (customer_id, zip_code, orderKey), or -- with no
+    telling name -- by being a row counter: unique integers rising by exactly
+    one, the "Unnamed: 0" a pandas export leaves behind.
+    """
+    if not is_numeric_col(series):
+        return False
+    words = _ordered_words(col)
+    if words and words[-1] in _ID_WORDS:
+        return True
+    values = series.dropna()
+    if len(values) < 20 or not bool((values == values.round()).all()):
+        return False
+    if values.nunique() != len(values):
+        return False
+    return bool((values.diff().dropna() == 1).all())
+
+
+# What a date looks like before it is parsed: a 19xx/20xx year, a d/m/y run,
+# or a month name. Parsing is the final word; this only keeps "1.2.3" version
+# strings and plain codes from being offered to a lenient parser at all.
+_DATE_SHAPE = re.compile(
+    r"(?<!\d)(?:19|20)\d{2}(?!\d)|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}"
+    r"|(?i:\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b)"
+)
+
+
+def parse_date_column(series: pd.Series, named: bool = False, threshold: float = 0.9) -> pd.Series | None:
+    """The column read as dates when it holds dates, else None.
+
+    CSV readers leave "2024-01-05" as text, so a date column was never seen as
+    one and no time series was ever drawn from a CSV. A text column qualifies
+    when at least `threshold` of its values have a date's shape and parse.
+    `named=True` (the caller said it is a date) skips the shape check.
+    """
+    if is_numeric_col(series) or pd.api.types.is_bool_dtype(series):
+        return None
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return series
+    values = series.dropna().astype(str)
+    if values.empty:
+        return None
+    sample = values.sample(200, random_state=0) if len(values) > 200 else values
+    if not named and sample.str.contains(_DATE_SHAPE).mean() < threshold:
+        return None
+    present = int(series.notna().sum())
+    for fmt in ("ISO8601", "mixed"):
+        try:
+            if pd.to_datetime(sample, errors="coerce", format=fmt).notna().mean() < threshold:
+                continue
+            parsed = pd.to_datetime(series, errors="coerce", format=fmt)
+        except (ValueError, TypeError, OverflowError):
+            continue
+        if present and int(parsed.notna().sum()) / present >= threshold:
+            return parsed
+    return None
+
+
 def agg_label(agg: str) -> str:
     """Human-readable label prefix for an aggregation function."""
     return {"sum": "Total", "mean": "Avg", "max": "Max", "min": "Min"}.get(agg, "Total")
