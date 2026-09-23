@@ -54,6 +54,7 @@ def served(tmp_path, monkeypatch):
     pd.DataFrame({"clicks": [1, 2, 3]}).to_csv(data / "Ad_Data.csv", index=False)
     pd.DataFrame({"x": [1]}).to_csv(data / "archive" / "orders_2023.csv", index=False)
     (data / ".hidden.csv").write_text("x\n1\n")
+    (data / "Ad_Data.csv.mcp_receipt.json").write_text("{}")
     return data
 
 
@@ -71,6 +72,10 @@ class TestThroughTheTool:
         r = _tool("data_basic", "inspect_dataset")(file_path="Ad_Data.xlsx")
         assert r["did_you_mean"][0] == "Ad_Data.csv"
 
+    def test_the_fleets_own_sidecars_are_never_suggested(self, served):
+        r = _tool("data_basic", "inspect_dataset")(file_path="Ad_Data.xlsx")
+        assert not [name for name in r["did_you_mean"] if ".mcp_" in name], r["did_you_mean"]
+
     def test_a_file_in_a_subfolder_is_named_by_the_path_to_pass(self, served):
         r = _tool("data_basic", "inspect_dataset")(file_path="orders_2024.csv")
         assert str(Path("archive") / "orders_2023.csv") in r["did_you_mean"]
@@ -80,6 +85,7 @@ class TestThroughTheTool:
         assert "did_you_mean" not in r
         assert "Ad_Data.csv" in r["hint"]
         assert ".hidden.csv" not in r["hint"]
+        assert ".mcp_" not in r["hint"], "a receipt is bookkeeping, not a file to pass"
 
     def test_the_token_estimate_counts_the_suggestion(self, served):
         r = _tool("data_basic", "inspect_dataset")(file_path="Ad_Data.xlsx")
