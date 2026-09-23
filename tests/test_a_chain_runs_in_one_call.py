@@ -159,8 +159,8 @@ class TestTheWholeChainIsCheckedFirst:
         assert "did you mean load" in text
         assert "'nope', which is not a step" in text
         assert "did you mean 'fill_nulls'" in text
-        assert "$missing, which no scalar step above it computes" in text
-        assert "a chain writes .csv" in text
+        assert "$missing, which no scalar or param step above it defines" in text
+        assert "'out.xlsx' must end in .csv" in text
 
     def test_a_step_cannot_read_one_below_it(self, data):
         r = engine.run_chain(

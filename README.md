@@ -398,6 +398,8 @@ table above it, or any earlier step named in `from`.
 | `join` | `{"join": ["clean", "cust"], "on": "customer_id", "how": "left"}` | the joined table (refused before it is built when it would not fit) |
 | `group_by` | `{"group_by": ["region"], "agg": {"revenue": "sum(net)", "big": "count_if(net > $p95)"}}` | one row per group |
 | `write` | `{"write": "region_summary.csv"}` | the table, saved as CSV (a file it replaces is snapshotted first) |
+| `param` | `{"id": "min_amount", "param": 50}` | a value with a default, read as `$min_amount` -- also inside a `load`/`write` path |
+| `call` | `{"call": "clean.chain.json", "args": {"min_amount": 100}, "tables": {"orders": "raw"}}` | the last table of a saved chain, run with its params set by `args` and any of its `load` steps handed a table from this chain by `tables` |
 
 Formulas are the `add_column` language (precedence, parentheses, comparisons,
 `and`/`or`, `if_else`, `coalesce`, ...). Aggregates: `sum mean median min max
@@ -406,8 +408,13 @@ arithmetic (`sum(clicks) / sum(impressions) * 100`). `on_error: "skip"` lets a
 step fail without stopping the chain; `until` runs the steps up to one id;
 `dry_run` runs everything in memory and returns each step's rows, columns and
 three sample rows. The whole chain -- every id, reference, op field and
-`$name` -- is checked before any file is read, and nothing is written until
-every step has run.
+`$name`, and every chain it calls -- is checked before any file is read, and
+nothing is written until every step has run.
+
+`save_as="clean.chain.json"` saves the chain once it has run: a function whose
+`param` steps are its arguments. Another chain `call`s it by that path. Calls
+nest five deep, a chain that calls itself is refused, and the steps of a whole
+call tree are capped at 200.
 
 #### Derived columns — `feature_engineering(derive=[...])`
 
