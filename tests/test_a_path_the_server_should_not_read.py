@@ -141,3 +141,34 @@ class TestLocal:
         monkeypatch.setenv("MCP_WORKSPACE_DIR", str(tmp_path))
         with pytest.raises(ValueError, match="not a plain name"):
             get_workspace_dir(name)
+
+
+class TestOutputFolderConfined:
+    """extract_all_sheets built its output folder with a bare Path(output_dir).
+
+    Every other output here goes through get_output_path, which resolves and
+    confines; this one did not, so a relative folder landed beside the process
+    and an absolute one was used as given. Found by reading the output paths
+    during a direct sweep of the deployed fleet.
+    """
+
+    @pytest.fixture
+    def workbook(self, served):
+        pd.DataFrame({"a": [1, 2], "b": [3, 4]}).to_excel(served / "book.xlsx", index=False, sheet_name="S1")
+        return "book.xlsx"
+
+    def test_an_outside_output_dir_is_refused_and_nothing_written(self, served, workbook, tmp_path):
+        from servers.data_ingest.engine import extract_all_sheets
+
+        target = tmp_path / "elsewhere"
+        r = extract_all_sheets(workbook, output_dir=str(target))
+        assert r["success"] is False, r
+        assert "outside the folders" in r["error"]
+        assert not target.exists()
+
+    def test_a_relative_output_dir_is_the_data_folder(self, served, workbook):
+        from servers.data_ingest.engine import extract_all_sheets
+
+        r = extract_all_sheets(workbook, output_dir="sheets")
+        assert r["success"] is True, r
+        assert (served / "sheets" / "book_S1.csv").exists()

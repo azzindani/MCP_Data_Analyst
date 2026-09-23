@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Security — `extract_all_sheets` wrote its CSVs wherever it was pointed
+
+- Every output here goes through `get_output_path`, which resolves and
+  confines; `extract_all_sheets` built its folder with a bare `Path(output_dir)`,
+  so on a confined server a relative folder landed beside the process and an
+  absolute one was used as given. It now goes through `resolve_path` like the
+  rest. Found by reading the output paths during a direct sweep of the fleet.
+
 ### Added — a missing file is answered with the files that exist
 
 - "File not found: ad_data.csv", hint "Check file_path is absolute and the file

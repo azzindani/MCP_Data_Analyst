@@ -467,7 +467,10 @@ def extract_all_sheets(file_path: str, output_dir: str = "", dry_run: bool = Fal
         if ext not in _XLSX_EXTS:
             return _needs_a_workbook("extract_all_sheets", ext)
 
-        out_dir = Path(output_dir) if output_dir else get_default_output_dir(str(path))
+        # Through the resolver like every other path: a bare Path(output_dir)
+        # read a relative folder from the process cwd and took an absolute one
+        # as given, so a confined server wrote its CSVs wherever it was pointed.
+        out_dir = resolve_path(output_dir) if output_dir else get_default_output_dir(str(path))
 
         if ext == ".ods":
             xl = pd.ExcelFile(str(path), engine="odf")
