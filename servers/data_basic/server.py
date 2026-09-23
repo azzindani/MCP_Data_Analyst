@@ -21,6 +21,7 @@ from starlette.responses import JSONResponse
 from shared.arg_errors import contract_errors
 from shared.deploy_auth import build_auth, build_oauth_bridge
 from shared.json_safe import sanitize_responses
+from shared.missing_file import suggest_missing_files
 from shared.strict_args import enforce_known_arguments
 from shared.token_estimate import measure_responses
 from shared.tool_annotations import EDITS, READS
@@ -165,6 +166,9 @@ def list_patch_ops(category: str = "") -> dict:
 # shared/token_estimate.py for why this is a choke point and not 325 edits.
 # Infinity and NaN are not JSON; strip them before the estimate is taken
 # so the number describes what actually goes on the wire.
+# A missing file is answered with the nearest files that exist; see
+# shared/missing_file.py for why this is a choke point.
+suggest_missing_files(mcp)
 sanitize_responses(mcp)
 measure_responses(mcp)
 # A known argument with the WRONG TYPE is rejected by pydantic before any of

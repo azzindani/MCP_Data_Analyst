@@ -6,6 +6,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added — a missing file is answered with the files that exist
+
+- "File not found: ad_data.csv", hint "Check file_path is absolute and the file
+  exists", was the commonest failure a remote caller met, and both halves were
+  wrong for it: a relative path is read from the data folder, and the caller
+  cannot look to see what does exist. Every tool's missing-file failure now
+  carries `did_you_mean` (the same name in other letters first, then the same
+  stem with another extension, then close spellings, as the path to pass) and
+  a hint built from it. With nothing close, a confined server's hint lists
+  what the data folder holds. One choke point on the response
+  (`shared/missing_file.py`), not sixty edits.
+- The search is bounded (two folders deep, 2,000 entries, hidden files
+  skipped) and, on a confined server, only looks inside the served folders:
+  a suggestion never names a file the server would refuse to read.
+
 ### Fixed — a column formula means what it says
 
 - **`column_math` and `add_column` ignored operator precedence.** The parser
