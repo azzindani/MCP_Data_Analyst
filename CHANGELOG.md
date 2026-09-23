@@ -24,6 +24,17 @@ All notable changes to this project will be documented in this file.
   the column, and reading the number silently would have turned a year-over-year
   difference into `1.0`.
 
+### Fixed — a missing value is not a zero in the dashboard's numbers
+
+- The dashboard recomputes every chart and KPI in the browser, reading each
+  value with `+r['col']`. A missing cell is embedded as `null`, and `+null` is
+  `0` in JavaScript, which passed the templates' `isNaN` guard. So a group
+  holding [10, missing] averaged to 5, its minimum became 0, and the KPI mean
+  sank once the script ran (the first paint, computed in Python, was right).
+  Every read now goes through `_num`, which keeps missing values missing. A row
+  with no value no longer satisfies a numeric range filter that has been set.
+  Tested by running the generated JavaScript in node on rows with gaps.
+
 ### Fixed — the dashboard knows what a column is before choosing what to do with it
 
 - **Identifiers are no longer quantities.** Every integer column was summed

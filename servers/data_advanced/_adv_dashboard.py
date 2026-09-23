@@ -155,7 +155,7 @@ def _js_agg_block(agg: str, key_expr: str, val_expr: str, top_n: int = 25) -> st
 
 def _js_kpi_expr(nc: str, agg: str) -> str:
     """Return a JS expression (no semicolon) that computes the KPI scalar."""
-    v = f"d.map(function(r){{return+r['{nc}'];}}).filter(function(v){{return!isNaN(v);}})"
+    v = f"d.map(function(r){{return _num(r['{nc}']);}}).filter(function(v){{return!isNaN(v);}})"
     if agg == "mean":
         return f"(function(){{var v={v};return v.length?v.reduce(function(a,b){{return a+b;}},0)/v.length:0;}})()"
     if agg == "max":
@@ -171,7 +171,7 @@ def _js_ts_block(dc: str, nc: str, agg: str) -> tuple[str, str]:
     if agg == "mean":
         acc = (
             f"var bm={{}};\n"
-            f"  d.forEach(function(r){{var dt=r['{dc}'],v=+r['{nc}'];"
+            f"  d.forEach(function(r){{var dt=r['{dc}'],v= _num(r['{nc}']);"
             f"if(dt&&!isNaN(v)){{var ym=String(dt).substring(0,7);"
             f"if(!bm[ym])bm[ym]={{s:0,n:0}};bm[ym].s+=v;bm[ym].n++;}}}});\n"
         )
@@ -179,7 +179,7 @@ def _js_ts_block(dc: str, nc: str, agg: str) -> tuple[str, str]:
     elif agg == "max":
         acc = (
             f"var bm={{}};\n"
-            f"  d.forEach(function(r){{var dt=r['{dc}'],v=+r['{nc}'];"
+            f"  d.forEach(function(r){{var dt=r['{dc}'],v= _num(r['{nc}']);"
             f"if(dt&&!isNaN(v)){{var ym=String(dt).substring(0,7);"
             f"bm[ym]=(bm[ym]===undefined||v>bm[ym])?v:bm[ym];}}}});\n"
         )
@@ -187,7 +187,7 @@ def _js_ts_block(dc: str, nc: str, agg: str) -> tuple[str, str]:
     elif agg == "min":
         acc = (
             f"var bm={{}};\n"
-            f"  d.forEach(function(r){{var dt=r['{dc}'],v=+r['{nc}'];"
+            f"  d.forEach(function(r){{var dt=r['{dc}'],v= _num(r['{nc}']);"
             f"if(dt&&!isNaN(v)){{var ym=String(dt).substring(0,7);"
             f"bm[ym]=(bm[ym]===undefined||v<bm[ym])?v:bm[ym];}}}});\n"
         )
@@ -195,7 +195,7 @@ def _js_ts_block(dc: str, nc: str, agg: str) -> tuple[str, str]:
     else:  # sum
         acc = (
             f"var bm={{}};\n"
-            f"  d.forEach(function(r){{var dt=r['{dc}'],v=+r['{nc}'];"
+            f"  d.forEach(function(r){{var dt=r['{dc}'],v= _num(r['{nc}']);"
             f"if(dt&&!isNaN(v)){{var ym=String(dt).substring(0,7);bm[ym]=(bm[ym]||0)+v;}}}});\n"
         )
         vals = "dates.map(function(d){return bm[d]||0;})"
@@ -1236,7 +1236,7 @@ def _build_render_functions(
         if t == "bar":
             cc, nc = s["cc"], s["nc"]
             agg = s.get("agg", "sum")
-            agg_blk = _js_agg_block(agg, f"String(r['{cc}']??'')", f"+r['{nc}']", 25)
+            agg_blk = _js_agg_block(agg, f"String(r['{cc}']??'')", f" _num(r['{nc}'])", 25)
             rfns.append(
                 f"function rf_{cid}(d){{\n  {agg_blk}  var fmt=function(v){{return v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(1)+'K':Math.round(v).toString();}};\n  Plotly.react('{cid}',[{{x:e.map(i=>i[0]),y:e.map(i=>i[1]),type:'bar',marker:{{color:'#58a6ff',opacity:0.85}},text:e.map(i=>fmt(i[1])),textposition:'outside'}}],{_lyt(340)},{PCFG});\n}}"
             )
@@ -1251,7 +1251,7 @@ def _build_render_functions(
         elif t == "scatter":
             nc1, nc2 = s["nc1"], s["nc2"]
             rfns.append(
-                f"function rf_{cid}(d){{\n  var xs=[],ys=[];\n  d.forEach(function(r){{var x=+r['{nc1}'],y=+r['{nc2}'];if(!isNaN(x)&&!isNaN(y)){{xs.push(x);ys.push(y);}}}});\n  var traces=[{{x:xs,y:ys,type:'scatter',mode:'markers',marker:{{color:'#58a6ff',opacity:0.5,size:5}},name:'data'}}];\n  if(xs.length>1){{\n    var n=xs.length,sx=xs.reduce((a,b)=>a+b,0),sy=ys.reduce((a,b)=>a+b,0),sxy=0,sxx=0,syy=0;\n    for(var i=0;i<n;i++){{sxy+=xs[i]*ys[i];sxx+=xs[i]*xs[i];syy+=ys[i]*ys[i];}}\n    var sl=(n*sxy-sx*sy)/(n*sxx-sx*sx||1),ic=(sy-sl*sx)/n;\n    var r=(n*sxy-sx*sy)/Math.sqrt(((n*sxx-sx*sx)*(n*syy-sy*sy))||1);\n    var xmn=Math.min(...xs),xmx=Math.max(...xs);\n    traces.push({{x:[xmn,xmx],y:[sl*xmn+ic,sl*xmx+ic],type:'scatter',mode:'lines',line:{{color:'#f0883e',width:2,dash:'dash'}},name:'r='+r.toFixed(2)}});\n  }}\n  var layout=Object.assign({{}},{_lyt(340)},{{showlegend:true,legend:{{x:0,y:1.1,orientation:'h'}},xaxis:{{title:'{nc1}',gridcolor:'{grid_c}'}},yaxis:{{title:'{nc2}',gridcolor:'{grid_c}'}}}});\n  Plotly.react('{cid}',traces,am(layout),{PCFG});\n}}"
+                f"function rf_{cid}(d){{\n  var xs=[],ys=[];\n  d.forEach(function(r){{var x= _num(r['{nc1}']),y= _num(r['{nc2}']);if(!isNaN(x)&&!isNaN(y)){{xs.push(x);ys.push(y);}}}});\n  var traces=[{{x:xs,y:ys,type:'scatter',mode:'markers',marker:{{color:'#58a6ff',opacity:0.5,size:5}},name:'data'}}];\n  if(xs.length>1){{\n    var n=xs.length,sx=xs.reduce((a,b)=>a+b,0),sy=ys.reduce((a,b)=>a+b,0),sxy=0,sxx=0,syy=0;\n    for(var i=0;i<n;i++){{sxy+=xs[i]*ys[i];sxx+=xs[i]*xs[i];syy+=ys[i]*ys[i];}}\n    var sl=(n*sxy-sx*sy)/(n*sxx-sx*sx||1),ic=(sy-sl*sx)/n;\n    var r=(n*sxy-sx*sy)/Math.sqrt(((n*sxx-sx*sx)*(n*syy-sy*sy))||1);\n    var xmn=Math.min(...xs),xmx=Math.max(...xs);\n    traces.push({{x:[xmn,xmx],y:[sl*xmn+ic,sl*xmx+ic],type:'scatter',mode:'lines',line:{{color:'#f0883e',width:2,dash:'dash'}},name:'r='+r.toFixed(2)}});\n  }}\n  var layout=Object.assign({{}},{_lyt(340)},{{showlegend:true,legend:{{x:0,y:1.1,orientation:'h'}},xaxis:{{title:'{nc1}',gridcolor:'{grid_c}'}},yaxis:{{title:'{nc2}',gridcolor:'{grid_c}'}}}});\n  Plotly.react('{cid}',traces,am(layout),{PCFG});\n}}"
             )
         elif t == "grouped_bar":
             cc1, cc2, nc = s["cc1"], s["cc2"], s["nc"]
@@ -1275,22 +1275,22 @@ def _build_render_functions(
                 inner_acc = "if(!isNaN(v)){if(!a[k2])a[k2]={};a[k2][k1]=(a[k2][k1]||0)+v;}"
                 val_expr = "(a[k]&&a[k][g])||0"
             rfns.append(
-                f"function rf_{cid}(d){{\n  var a={{}};\n  d.forEach(function(r){{var k1=String(r['{cc1}']??''),k2=String(r['{cc2}']??''),v=+r['{nc}'];{inner_acc}}});\n  var gs=Array.from(new Set(d.map(r=>String(r['{cc1}']??'')))).slice(0,20);\n  var ks=Object.keys(a).slice(0,10),C={COLORS};\n  var traces=ks.map(function(k,i){{return{{x:gs,y:gs.map(g=>{val_expr}),type:'bar',name:k,marker:{{color:C[i%15],opacity:0.85}}}};}});\n  var layout=Object.assign({{}},{_lyt(380)},{{barmode:'group',showlegend:true,legend:{{orientation:'h',x:0,y:1.12}}}});\n  Plotly.react('{cid}',traces,am(layout),{PCFG});\n}}"
+                f"function rf_{cid}(d){{\n  var a={{}};\n  d.forEach(function(r){{var k1=String(r['{cc1}']??''),k2=String(r['{cc2}']??''),v= _num(r['{nc}']);{inner_acc}}});\n  var gs=Array.from(new Set(d.map(r=>String(r['{cc1}']??'')))).slice(0,20);\n  var ks=Object.keys(a).slice(0,10),C={COLORS};\n  var traces=ks.map(function(k,i){{return{{x:gs,y:gs.map(g=>{val_expr}),type:'bar',name:k,marker:{{color:C[i%15],opacity:0.85}}}};}});\n  var layout=Object.assign({{}},{_lyt(380)},{{barmode:'group',showlegend:true,legend:{{orientation:'h',x:0,y:1.12}}}});\n  Plotly.react('{cid}',traces,am(layout),{PCFG});\n}}"
             )
         elif t == "cscat":
             nc1, nc2, cc = s["nc1"], s["nc2"], s["cc"]
             rfns.append(
-                f"function rf_{cid}(d){{\n  var g={{}};\n  d.forEach(function(r){{var x=+r['{nc1}'],y=+r['{nc2}'],k=String(r['{cc}']??'');if(!isNaN(x)&&!isNaN(y)){{if(!g[k])g[k]={{x:[],y:[]}};g[k].x.push(x);g[k].y.push(y);}}}});\n  var ks=Object.keys(g).slice(0,15),C={COLORS};\n  var traces=ks.map(function(k,i){{return{{x:g[k].x,y:g[k].y,type:'scatter',mode:'markers',name:k,marker:{{color:C[i%15],opacity:0.6,size:5}}}};}});\n  var layout=Object.assign({{}},{_lyt(380)},{{showlegend:true,legend:{{orientation:'h',x:0,y:1.12}},xaxis:{{title:'{nc1}',gridcolor:'{grid_c}'}},yaxis:{{title:'{nc2}',gridcolor:'{grid_c}'}}}});\n  Plotly.react('{cid}',traces,am(layout),{PCFG});\n}}"
+                f"function rf_{cid}(d){{\n  var g={{}};\n  d.forEach(function(r){{var x= _num(r['{nc1}']),y= _num(r['{nc2}']),k=String(r['{cc}']??'');if(!isNaN(x)&&!isNaN(y)){{if(!g[k])g[k]={{x:[],y:[]}};g[k].x.push(x);g[k].y.push(y);}}}});\n  var ks=Object.keys(g).slice(0,15),C={COLORS};\n  var traces=ks.map(function(k,i){{return{{x:g[k].x,y:g[k].y,type:'scatter',mode:'markers',name:k,marker:{{color:C[i%15],opacity:0.6,size:5}}}};}});\n  var layout=Object.assign({{}},{_lyt(380)},{{showlegend:true,legend:{{orientation:'h',x:0,y:1.12}},xaxis:{{title:'{nc1}',gridcolor:'{grid_c}'}},yaxis:{{title:'{nc2}',gridcolor:'{grid_c}'}}}});\n  Plotly.react('{cid}',traces,am(layout),{PCFG});\n}}"
             )
         elif t == "box":
             nc, cc = s["nc"], s["cc"]
             rfns.append(
-                f"function rf_{cid}(d){{\n  var g={{}};\n  d.forEach(function(r){{var v=+r['{nc}'],k=String(r['{cc}']??'');if(!isNaN(v)){{if(!g[k])g[k]=[];g[k].push(v);}}}});\n  var ks=Object.keys(g).sort().slice(0,20),C={COLORS};\n  var traces=ks.map(function(k,i){{return{{y:g[k],type:'box',name:k,marker:{{color:C[i%15],size:3}},boxpoints:'outliers'}};}});\n  var layout=Object.assign({{}},{_lyt(380)},{{showlegend:false,yaxis:{{title:'{nc}',gridcolor:'{grid_c}'}}}});\n  Plotly.react('{cid}',traces,am(layout),{PCFG});\n}}"
+                f"function rf_{cid}(d){{\n  var g={{}};\n  d.forEach(function(r){{var v= _num(r['{nc}']),k=String(r['{cc}']??'');if(!isNaN(v)){{if(!g[k])g[k]=[];g[k].push(v);}}}});\n  var ks=Object.keys(g).sort().slice(0,20),C={COLORS};\n  var traces=ks.map(function(k,i){{return{{y:g[k],type:'box',name:k,marker:{{color:C[i%15],size:3}},boxpoints:'outliers'}};}});\n  var layout=Object.assign({{}},{_lyt(380)},{{showlegend:false,yaxis:{{title:'{nc}',gridcolor:'{grid_c}'}}}});\n  Plotly.react('{cid}',traces,am(layout),{PCFG});\n}}"
             )
         elif t == "corr":
             nc_list = json_for_script([str(c) for c in numeric_cols[:15]])
             rfns.append(
-                f"function rf_{cid}(d){{\n  var cols={nc_list},n=d.length;if(n<2)return;\n  var z=cols.map(function(r){{return cols.map(function(c){{\n    var xv=d.map(row=>+row[r]),yv=d.map(row=>+row[c]),pr=[];\n    for(var i=0;i<n;i++)if(!isNaN(xv[i])&&!isNaN(yv[i]))pr.push([xv[i],yv[i]]);\n    if(pr.length<2)return 0;\n    var mx=pr.reduce((s,p)=>s+p[0],0)/pr.length,my=pr.reduce((s,p)=>s+p[1],0)/pr.length;\n    var num=0,dx=0,dy=0;pr.forEach(p=>{{num+=(p[0]-mx)*(p[1]-my);dx+=(p[0]-mx)**2;dy+=(p[1]-my)**2;}});\n    return dx&&dy?num/Math.sqrt(dx*dy):0;\n  }});}});\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:11}},autosize:true,margin:{{l:120,r:20,t:10,b:120}}}};\n  Plotly.react('{cid}',[{{z:z,x:cols,y:cols,type:'heatmap',colorscale:'RdBu_r',zmid:0,zmin:-1,zmax:1,text:z.map(r=>r.map(v=>v.toFixed(2))),texttemplate:'%{{text}}',textfont:{{size:10}}}}],am(layout),{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
+                f"function rf_{cid}(d){{\n  var cols={nc_list},n=d.length;if(n<2)return;\n  var z=cols.map(function(r){{return cols.map(function(c){{\n    var xv=d.map(row=> _num(row[r])),yv=d.map(row=> _num(row[c])),pr=[];\n    for(var i=0;i<n;i++)if(!isNaN(xv[i])&&!isNaN(yv[i]))pr.push([xv[i],yv[i]]);\n    if(pr.length<2)return 0;\n    var mx=pr.reduce((s,p)=>s+p[0],0)/pr.length,my=pr.reduce((s,p)=>s+p[1],0)/pr.length;\n    var num=0,dx=0,dy=0;pr.forEach(p=>{{num+=(p[0]-mx)*(p[1]-my);dx+=(p[0]-mx)**2;dy+=(p[1]-my)**2;}});\n    return dx&&dy?num/Math.sqrt(dx*dy):0;\n  }});}});\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:11}},autosize:true,margin:{{l:120,r:20,t:10,b:120}}}};\n  Plotly.react('{cid}',[{{z:z,x:cols,y:cols,type:'heatmap',colorscale:'RdBu_r',zmid:0,zmin:-1,zmax:1,text:z.map(r=>r.map(v=>v.toFixed(2))),texttemplate:'%{{text}}',textfont:{{size:10}}}}],am(layout),{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
             )
         elif t == "agg_hm":
             cc1, cc2, nc = s["cc1"], s["cc2"], s["nc"]
@@ -1308,7 +1308,7 @@ def _build_render_functions(
                 inner_acc = "Rs.add(r1);Cs.add(c1);if(!a[r1])a[r1]={};a[r1][c1]=(a[r1][c1]||0)+v;"
                 z_val = "(a[r]&&a[r][c])||0"
             rfns.append(
-                f"function rf_{cid}(d){{\n  var a={{}},Rs=new Set(),Cs=new Set();\n  d.forEach(function(r){{var r1=String(r['{cc1}']??''),c1=String(r['{cc2}']??''),v=+r['{nc}'];if(!isNaN(v)){{{inner_acc}}}}});\n  var rl=Array.from(Rs).sort().slice(0,30),cl=Array.from(Cs).sort().slice(0,30);\n  var z=rl.map(function(r){{return cl.map(function(c){{return {z_val};}});}});\n  var fmt=function(v){{return v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(1)+'K':Math.round(v).toString();}};\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:11}},autosize:true,margin:{{l:130,r:20,t:10,b:130}}}};\n  Plotly.react('{cid}',[{{z:z,x:cl,y:rl,type:'heatmap',colorscale:'YlOrRd',text:z.map(r=>r.map(fmt)),texttemplate:'%{{text}}',textfont:{{size:9}}}}],am(layout),{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
+                f"function rf_{cid}(d){{\n  var a={{}},Rs=new Set(),Cs=new Set();\n  d.forEach(function(r){{var r1=String(r['{cc1}']??''),c1=String(r['{cc2}']??''),v= _num(r['{nc}']);if(!isNaN(v)){{{inner_acc}}}}});\n  var rl=Array.from(Rs).sort().slice(0,30),cl=Array.from(Cs).sort().slice(0,30);\n  var z=rl.map(function(r){{return cl.map(function(c){{return {z_val};}});}});\n  var fmt=function(v){{return v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(1)+'K':Math.round(v).toString();}};\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:11}},autosize:true,margin:{{l:130,r:20,t:10,b:130}}}};\n  Plotly.react('{cid}',[{{z:z,x:cl,y:rl,type:'heatmap',colorscale:'YlOrRd',text:z.map(r=>r.map(fmt)),texttemplate:'%{{text}}',textfont:{{size:9}}}}],am(layout),{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
             )
         elif t == "ts":
             dc, nc = s["dc"], s["nc"]
@@ -1320,26 +1320,26 @@ def _build_render_functions(
         elif t == "dist":
             nc = s["nc"]
             rfns.append(
-                f"function rf_{cid}(d){{\n  var vals=d.map(r=>+r['{nc}']).filter(v=>!isNaN(v));if(!vals.length)return;\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:12}},autosize:true,margin:{{l:50,r:20,t:10,b:30}},grid:{{rows:1,columns:2,pattern:'independent'}},xaxis:{{gridcolor:'{grid_c}'}},yaxis:{{title:'Count',gridcolor:'{grid_c}'}},xaxis2:{{gridcolor:'{grid_c}'}},yaxis2:{{gridcolor:'{grid_c}'}}}};\n  Plotly.react('{cid}',[{{x:vals,type:'histogram',nbinsx:50,marker:{{color:'#58a6ff',opacity:0.75}},xaxis:'x',yaxis:'y',name:'hist'}},{{y:vals,type:'box',marker:{{color:'#f0883e',size:3}},xaxis:'x2',yaxis:'y2',boxpoints:'outliers',name:'box'}}],am(layout),{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
+                f"function rf_{cid}(d){{\n  var vals=d.map(r=> _num(r['{nc}'])).filter(v=>!isNaN(v));if(!vals.length)return;\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:12}},autosize:true,margin:{{l:50,r:20,t:10,b:30}},grid:{{rows:1,columns:2,pattern:'independent'}},xaxis:{{gridcolor:'{grid_c}'}},yaxis:{{title:'Count',gridcolor:'{grid_c}'}},xaxis2:{{gridcolor:'{grid_c}'}},yaxis2:{{gridcolor:'{grid_c}'}}}};\n  Plotly.react('{cid}',[{{x:vals,type:'histogram',nbinsx:50,marker:{{color:'#58a6ff',opacity:0.75}},xaxis:'x',yaxis:'y',name:'hist'}},{{y:vals,type:'box',marker:{{color:'#f0883e',size:3}},xaxis:'x2',yaxis:'y2',boxpoints:'outliers',name:'box'}}],am(layout),{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
             )
         elif t == "geo_scatter":
             lat_c, lon_c = s["lat"], s["lon"]
             val_c = s.get("val", "")
             txt_expr = f"'{val_c}: '+String(r['{val_c}'])" if val_c else "lt.toFixed(4)+', '+ln.toFixed(4)"
             rfns.append(
-                f"function rf_{cid}(d){{\n  var lts=[],lns=[],txts=[];\n  d.forEach(function(r){{var lt=+r['{lat_c}'],ln=+r['{lon_c}'];if(!isNaN(lt)&&!isNaN(ln)){{lts.push(lt);lns.push(ln);txts.push({txt_expr});}}}});\n  if(!lts.length)return;\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',geo:{{showland:true,landcolor:'{geo_land_c}',showocean:true,oceancolor:'{geo_ocean_c}',showcoastlines:true,coastlinecolor:'{geo_coast_c}',showcountries:true,countrycolor:'{geo_coast_c}',showframe:false,bgcolor:'{bg}',projection:{{type:'natural earth'}}}},font:{{color:'{font_c}',size:12}},autosize:true,margin:{{l:0,r:0,t:10,b:0}}}};\n  Plotly.react('{cid}',[{{type:'scattergeo',lat:lts,lon:lns,mode:'markers',marker:{{color:'#58a6ff',size:6,opacity:0.75,line:{{color:'rgba(255,255,255,0.25)',width:0.5}}}},text:txts,hovertemplate:'%{{text}}<extra></extra>'}}],am(layout),{PCFG});\n}}"
+                f"function rf_{cid}(d){{\n  var lts=[],lns=[],txts=[];\n  d.forEach(function(r){{var lt= _num(r['{lat_c}']),ln= _num(r['{lon_c}']);if(!isNaN(lt)&&!isNaN(ln)){{lts.push(lt);lns.push(ln);txts.push({txt_expr});}}}});\n  if(!lts.length)return;\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',geo:{{showland:true,landcolor:'{geo_land_c}',showocean:true,oceancolor:'{geo_ocean_c}',showcoastlines:true,coastlinecolor:'{geo_coast_c}',showcountries:true,countrycolor:'{geo_coast_c}',showframe:false,bgcolor:'{bg}',projection:{{type:'natural earth'}}}},font:{{color:'{font_c}',size:12}},autosize:true,margin:{{l:0,r:0,t:10,b:0}}}};\n  Plotly.react('{cid}',[{{type:'scattergeo',lat:lts,lon:lns,mode:'markers',marker:{{color:'#58a6ff',size:6,opacity:0.75,line:{{color:'rgba(255,255,255,0.25)',width:0.5}}}},text:txts,hovertemplate:'%{{text}}<extra></extra>'}}],am(layout),{PCFG});\n}}"
             )
         elif t == "geo_choro":
             loc_c, nc, mode = s["loc"], s["nc"], s["mode"]
             agg = s.get("agg", "sum")
             if agg == "mean":
-                choro_acc = f"var a={{}},cnt={{}};\n  d.forEach(function(r){{var k=String(r['{loc_c}']??''),v=+r['{nc}'];if(k&&!isNaN(v)){{a[k]=(a[k]||0)+v;cnt[k]=(cnt[k]||0)+1;}}}});\n  var locs=Object.keys(a),vals=locs.map(k=>a[k]/(cnt[k]||1));"
+                choro_acc = f"var a={{}},cnt={{}};\n  d.forEach(function(r){{var k=String(r['{loc_c}']??''),v= _num(r['{nc}']);if(k&&!isNaN(v)){{a[k]=(a[k]||0)+v;cnt[k]=(cnt[k]||0)+1;}}}});\n  var locs=Object.keys(a),vals=locs.map(k=>a[k]/(cnt[k]||1));"
             elif agg == "max":
-                choro_acc = f"var a={{}};\n  d.forEach(function(r){{var k=String(r['{loc_c}']??''),v=+r['{nc}'];if(k&&!isNaN(v))a[k]=(a[k]===undefined||v>a[k])?v:a[k];}});\n  var locs=Object.keys(a),vals=locs.map(k=>a[k]);"
+                choro_acc = f"var a={{}};\n  d.forEach(function(r){{var k=String(r['{loc_c}']??''),v= _num(r['{nc}']);if(k&&!isNaN(v))a[k]=(a[k]===undefined||v>a[k])?v:a[k];}});\n  var locs=Object.keys(a),vals=locs.map(k=>a[k]);"
             elif agg == "min":
-                choro_acc = f"var a={{}};\n  d.forEach(function(r){{var k=String(r['{loc_c}']??''),v=+r['{nc}'];if(k&&!isNaN(v))a[k]=(a[k]===undefined||v<a[k])?v:a[k];}});\n  var locs=Object.keys(a),vals=locs.map(k=>a[k]);"
+                choro_acc = f"var a={{}};\n  d.forEach(function(r){{var k=String(r['{loc_c}']??''),v= _num(r['{nc}']);if(k&&!isNaN(v))a[k]=(a[k]===undefined||v<a[k])?v:a[k];}});\n  var locs=Object.keys(a),vals=locs.map(k=>a[k]);"
             else:
-                choro_acc = f"var a={{}};\n  d.forEach(function(r){{var k=String(r['{loc_c}']??''),v=+r['{nc}'];if(k&&!isNaN(v))a[k]=(a[k]||0)+v;}});\n  var locs=Object.keys(a),vals=locs.map(k=>a[k]);"
+                choro_acc = f"var a={{}};\n  d.forEach(function(r){{var k=String(r['{loc_c}']??''),v= _num(r['{nc}']);if(k&&!isNaN(v))a[k]=(a[k]||0)+v;}});\n  var locs=Object.keys(a),vals=locs.map(k=>a[k]);"
             rfns.append(
                 f"function rf_{cid}(d){{\n  {choro_acc}\n  if(!locs.length)return;\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',geo:{{showland:true,landcolor:'{geo_land_c}',showocean:true,oceancolor:'{geo_ocean_c}',showcoastlines:true,coastlinecolor:'{geo_coast_c}',showcountries:true,countrycolor:'{geo_coast_c}',showframe:false,bgcolor:'{bg}'}},font:{{color:'{font_c}',size:12}},autosize:true,margin:{{l:0,r:0,t:10,b:0}},coloraxis:{{colorscale:'YlOrRd',showscale:true,colorbar:{{thickness:14,len:0.7,tickfont:{{color:'{font_c}',size:10}}}}}}}};\n  Plotly.react('{cid}',[{{type:'choropleth',locations:locs,z:vals,locationmode:'{mode}',coloraxis:'coloraxis',hovertemplate:'%{{location}}: %{{z:.2f}}<extra></extra>'}}],am(layout),{PCFG});\n}}"
             )
@@ -1367,6 +1367,11 @@ const _TOTAL=_RAW.length;
 let _CF={{}};
 let _NF={{}};
 
+// A missing cell arrives as null, and +null is 0 -- so every chart and KPI
+// counted a missing value as a real zero: a group with [10, missing] averaged
+// to 5, its minimum became 0, the KPI mean sank. _num keeps missing missing.
+function _num(v){{return(v===null||v===undefined||v==='')?NaN:+v;}}
+
 (function(){{
   const _SAVED=sessionStorage.getItem('dash-filters');
   if(_SAVED){{try{{const s=JSON.parse(_SAVED);if(s.cf)Object.assign(_CF,s.cf);if(s.nf)Object.assign(_NF,s.nf);}}catch(e){{}}}}
@@ -1388,7 +1393,7 @@ function am(l){{
 function getFilt(){{
   return _RAW.filter(function(row){{
     for(var c in _CF){{var s=_CF[c];if(s&&s.size>0&&!s.has(String(row[c]??'')))return false;}}
-    for(var c in _NF){{var r=_NF[c],v=+row[c];if(!isNaN(v)){{if(r.min!==null&&v<r.min)return false;if(r.max!==null&&v>r.max)return false;}}}}
+    for(var c in _NF){{var r=_NF[c],v=_num(row[c]);if(isNaN(v)){{if(r.min!==null||r.max!==null)return false;}}else{{if(r.min!==null&&v<r.min)return false;if(r.max!==null&&v>r.max)return false;}}}}
     return true;
   }});
 }}
