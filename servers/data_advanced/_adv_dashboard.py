@@ -73,11 +73,6 @@ def _bad_source(name: str, why: str) -> dict:
     }
 
 
-# Aggregates the page computes from every value in a group rather than a
-# running total: _agg() in the page script does the work.
-ARRAY_AGGS = ("median", "count", "count_distinct")
-
-
 def _safe(s: str) -> str:
     return _re.sub(r"[^a-zA-Z0-9]", "_", str(s))
 
@@ -109,118 +104,74 @@ def _js(s: object) -> str:
     return "".join(_JS_ESCAPES.get(ch, ch) for ch in str(s))
 
 
-# Keys of a chart spec that hold column names. Everything else in a spec is
-# the generator's own vocabulary (type, agg, mode) or an id built by _safe().
-_NAME_KEYS = frozenset({"cc", "nc", "nc1", "nc2", "dc", "cc1", "cc2", "lat", "lon", "val", "loc"})
-
-
-def _js_specs(chart_specs: list[dict]) -> list[dict]:
-    """The chart specs with every column name escaped for a JS string literal."""
-    return [{k: _js(v) if k in _NAME_KEYS and v else v for k, v in s.items()} for s in chart_specs]
-
-
 # ---------------------------------------------------------------------------
-# JS aggregation code-generators
+# Panels: every card is a complete description, drawn by one renderer
 # ---------------------------------------------------------------------------
 
-
-def _js_agg_block(agg: str, key_expr: str, val_expr: str, top_n: int = 25) -> str:
-    """Return JS that builds sorted entries `e` using the given agg function."""
-    if agg in ARRAY_AGGS:
-        return (
-            f"var a={{}};\n"
-            f"  d.forEach(function(r){{var k={key_expr},v={val_expr};(a[k]=a[k]||[]).push(v);}});\n"
-            f"  var e=Object.entries(a).map(function(p){{return[p[0],_agg(p[1],'{agg}')];}})"
-            f".sort((x,y)=>y[1]-x[1]).slice(0,{top_n});\n"
-        )
-    if agg == "mean":
-        return (
-            f"var a={{}},cnt={{}};\n"
-            f"  d.forEach(function(r){{var k={key_expr},v={val_expr};"
-            f"if(!isNaN(v)){{a[k]=(a[k]||0)+v;cnt[k]=(cnt[k]||0)+1;}}}});\n"
-            f"  var e=Object.entries(a)"
-            f".map(function(p){{return[p[0],p[1]/(cnt[p[0]]||1)];}})"
-            f".sort((x,y)=>y[1]-x[1]).slice(0,{top_n});\n"
-        )
-    if agg == "max":
-        return (
-            f"var a={{}};\n"
-            f"  d.forEach(function(r){{var k={key_expr},v={val_expr};"
-            f"if(!isNaN(v))a[k]=(a[k]===undefined||v>a[k])?v:a[k];}});\n"
-            f"  var e=Object.entries(a).sort((x,y)=>y[1]-x[1]).slice(0,{top_n});\n"
-        )
-    if agg == "min":
-        return (
-            f"var a={{}};\n"
-            f"  d.forEach(function(r){{var k={key_expr},v={val_expr};"
-            f"if(!isNaN(v))a[k]=(a[k]===undefined||v<a[k])?v:a[k];}});\n"
-            f"  var e=Object.entries(a).sort((x,y)=>x[1]-y[1]).slice(0,{top_n});\n"
-        )
-    # sum (default)
-    return (
-        f"var a={{}};\n"
-        f"  d.forEach(function(r){{var k={key_expr},v={val_expr};"
-        f"if(!isNaN(v))a[k]=(a[k]||0)+v;}});\n"
-        f"  var e=Object.entries(a).sort((x,y)=>y[1]-x[1]).slice(0,{top_n});\n"
-    )
+# The page's categorical palette, and the style each kind of panel starts from.
+# Each panel carries its own copy in the page's _PANELS document, so a colour,
+# a cap or a bin count is a field the renderer reads -- never a value baked
+# into one chart's template, which is how nine kinds each grew their own.
+PALETTE = [
+    "#58a6ff",
+    "#3fb950",
+    "#f0883e",
+    "#f85149",
+    "#bc8cff",
+    "#79c0ff",
+    "#7ee787",
+    "#ffa657",
+    "#ff7b72",
+    "#d2a8ff",
+    "#a5d6ff",
+    "#aff5b4",
+    "#ffd6a5",
+    "#ffabab",
+    "#e0b0ff",
+]
+PANEL_STYLE: dict[str, dict] = {
+    "bar": {"color": "#58a6ff", "top_n": 25},
+    "pie": {"top_n": 15},
+    "scatter": {"color": "#58a6ff", "accent": "#f0883e"},
+    "grouped_bar": {"top_n": 20, "series": 10},
+    "cscat": {"series": 15},
+    "box": {"top_n": 20},
+    "corr": {"colorscale": "RdBu_r"},
+    "agg_hm": {"top_n": 30, "colorscale": "YlOrRd"},
+    "ts": {"color": "#3fb950", "accent": "#f0883e", "ma": 3},
+    "dist": {"color": "#58a6ff", "accent": "#f0883e", "bins": 50},
+    "geo_scatter": {"color": "#58a6ff"},
+    "geo_choro": {"colorscale": "YlOrRd"},
+}
 
 
-def _js_kpi_expr(nc: str, agg: str) -> str:
-    """Return a JS expression (no semicolon) that computes the KPI scalar."""
-    v = f"d.map(function(r){{return _num(r['{nc}']);}}).filter(function(v){{return!isNaN(v);}})"
-    if agg in ARRAY_AGGS:
-        return f"_agg({v},'{agg}')"
-    if agg == "mean":
-        return f"(function(){{var v={v};return v.length?v.reduce(function(a,b){{return a+b;}},0)/v.length:0;}})()"
-    if agg == "max":
-        return f"(function(){{var v={v};return v.length?Math.max.apply(null,v):0;}})()"
-    if agg == "min":
-        return f"(function(){{var v={v};return v.length?Math.min.apply(null,v):0;}})()"
-    # sum
-    return f"{v}.reduce(function(a,b){{return a+b;}},0)"
+def _panel(spec: dict, title: str) -> dict:
+    """A card's panel: its columns and aggregate, its title, and its own style."""
+    return {**spec, "title": title, "style": dict(PANEL_STYLE.get(spec["type"], {}))}
 
 
-def _js_ts_block(dc: str, nc: str, agg: str) -> tuple[str, str]:
-    """Return (accumulation_js, vals_expr) for a time-series render function."""
-    if agg in ARRAY_AGGS:
-        acc = (
-            f"var bm={{}};\n"
-            f"  d.forEach(function(r){{var dt=r['{dc}'],v= _num(r['{nc}']);"
-            f"if(dt){{var ym=String(dt).substring(0,7);(bm[ym]=bm[ym]||[]).push(v);}}}});\n"
-        )
-        return acc, "dates.map(function(d){return bm[d]?_agg(bm[d],'" + agg + "'):0;})"
-    if agg == "mean":
-        acc = (
-            f"var bm={{}};\n"
-            f"  d.forEach(function(r){{var dt=r['{dc}'],v= _num(r['{nc}']);"
-            f"if(dt&&!isNaN(v)){{var ym=String(dt).substring(0,7);"
-            f"if(!bm[ym])bm[ym]={{s:0,n:0}};bm[ym].s+=v;bm[ym].n++;}}}});\n"
-        )
-        vals = "dates.map(function(d){return bm[d]?bm[d].s/bm[d].n:0;})"
-    elif agg == "max":
-        acc = (
-            f"var bm={{}};\n"
-            f"  d.forEach(function(r){{var dt=r['{dc}'],v= _num(r['{nc}']);"
-            f"if(dt&&!isNaN(v)){{var ym=String(dt).substring(0,7);"
-            f"bm[ym]=(bm[ym]===undefined||v>bm[ym])?v:bm[ym];}}}});\n"
-        )
-        vals = "dates.map(function(d){return bm[d]!==undefined?bm[d]:0;})"
-    elif agg == "min":
-        acc = (
-            f"var bm={{}};\n"
-            f"  d.forEach(function(r){{var dt=r['{dc}'],v= _num(r['{nc}']);"
-            f"if(dt&&!isNaN(v)){{var ym=String(dt).substring(0,7);"
-            f"bm[ym]=(bm[ym]===undefined||v<bm[ym])?v:bm[ym];}}}});\n"
-        )
-        vals = "dates.map(function(d){return bm[d]!==undefined?bm[d]:0;})"
-    else:  # sum
-        acc = (
-            f"var bm={{}};\n"
-            f"  d.forEach(function(r){{var dt=r['{dc}'],v= _num(r['{nc}']);"
-            f"if(dt&&!isNaN(v)){{var ym=String(dt).substring(0,7);bm[ym]=(bm[ym]||0)+v;}}}});\n"
-        )
-        vals = "dates.map(function(d){return bm[d]||0;})"
-    return acc, vals
+def _theme(theme: str) -> dict:
+    """The colours every panel is drawn over, for the page's theme.
+
+    A "device" page follows the reader's light/dark setting, so it carries both
+    and the renderer draws with the one in force. It used to carry one set, and
+    the script meant to recolour the charts looked for a class these charts do
+    not have: in dark mode every chart was a light panel on a dark page.
+    """
+    if theme == "device":
+        return {"device": True, "light": _theme("light"), "dark": _theme("dark")}
+    bg, font_c, _ = theme_plot_colors(theme)
+    dark = theme == "dark"
+    land, ocean, coast = ("#1a2332", "#0d1117", "#3d4f60") if dark else ("#e8ede6", "#c8ddef", "#aabbc8")
+    return {
+        "bg": bg,
+        "font": font_c,
+        "grid": "rgba(255,255,255,0.07)" if dark else "rgba(0,0,0,0.07)",
+        "land": land,
+        "ocean": ocean,
+        "coast": coast,
+        "palette": PALETTE,
+    }
 
 
 def generate_dashboard(
@@ -521,12 +472,6 @@ def generate_dashboard(
         qual_clr = "var(--green)" if quality >= 80 else "var(--orange)" if quality >= 60 else "var(--red)"
 
         _css = css_vars(theme)
-        bg, font_c, _ = theme_plot_colors(theme)
-        grid_c = "rgba(255,255,255,0.07)" if theme == "dark" else "rgba(0,0,0,0.07)"
-        if theme == "dark":
-            geo_land_c, geo_ocean_c, geo_coast_c = "#1a2332", "#0d1117", "#3d4f60"
-        else:
-            geo_land_c, geo_ocean_c, geo_coast_c = "#e8ede6", "#c8ddef", "#aabbc8"
 
         # Resolved first: the output path decides where the page is written,
         # and the <head> is assembled around it.
@@ -580,7 +525,7 @@ def generate_dashboard(
         if panel_plan is not None:
             for chart_spec, title, full, height in panel_plan:
                 _card(h, chart_spec["id"], title, full, height)
-                chart_specs.append(chart_spec)
+                chart_specs.append(_panel(chart_spec, title))
         else:
             _build_chart_cards(
                 h,
@@ -609,53 +554,11 @@ def generate_dashboard(
                 h.append(_dash_source_section(i, name, src_df, summary, page_size))
         h.append(_dash_modal())
 
-        COLORS = "['#58a6ff','#3fb950','#f0883e','#f85149','#bc8cff','#79c0ff','#7ee787','#ffa657','#ff7b72','#d2a8ff','#a5d6ff','#aff5b4','#ffd6a5','#ffabab','#e0b0ff']"
-        PCFG = "{responsive:true,displayModeBar:true,scrollZoom:true}"
-
-        def _lyt(_h_px: int = 0, extra: str = "") -> str:
-            # Height is intentionally omitted — CSS (.cc-body / .cc-body--tall) controls it
-            # autosize:true makes Plotly fill the CSS-sized container div
-            return (
-                f"{{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',"
-                f"font:{{color:'{font_c}',size:12}},"
-                f"autosize:true,margin:{{l:55,r:20,t:10,b:65}},"
-                # 'auto' rotates only when labels would collide. The fixed -38
-                # tilted "Google Ads" and "Facebook Ads" diagonally across an
-                # otherwise empty axis, which is harder to read than level text
-                # and bought nothing. (automargin is not set here on purpose --
-                # am() applies it to every axis of every layout.)
-                f"xaxis:{{gridcolor:'{grid_c}',tickangle:'auto'}},"
-                f"yaxis:{{gridcolor:'{grid_c}'}}{extra}}}"
-            )
-
-        # The templates interpolate column names into JS string literals, so
-        # they are handed the escaped names; one choke point, not forty sites.
-        rfns = _build_render_functions(
-            _js_specs(chart_specs),
-            bg,
-            font_c,
-            grid_c,
-            geo_land_c,
-            geo_ocean_c,
-            geo_coast_c,
-            numeric_cols,
-            COLORS,
-            PCFG,
-            _lyt,
-            col_agg,
-        )
-        kpi_upd = "\n".join(
-            f"  (function(){{var s={_js_kpi_expr(_js(nc), col_agg.get(nc, 'sum'))};"
-            f"var el=document.getElementById('kv-{_safe(nc)}');"
-            f"if(el)el.textContent=s>=1e6?(s/1e6).toFixed(1)+'M':s>=1e3?(s/1e3).toFixed(1)+'K':Math.round(s).toLocaleString();}})();"
-            for nc in kpi_cols
-        )
-        render_calls = "\n".join(
-            "  try{rf_" + s["id"] + "(d);}catch(_e){console.warn('chart " + s["id"] + "',_e);}" for s in chart_specs
-        )
-        rfns_str = "\n\n".join(rfns)
-
-        h.append(_dash_js(raw_json, kpi_upd, rfns_str, render_calls))
+        # The page's whole drawing state, as data: every card's panel, every KPI,
+        # and the theme. One renderer in _dash_js reads them; nothing about a
+        # chart is written into code, column names included.
+        kpis = [{"col": str(nc), "agg": col_agg.get(nc, "sum"), "el": f"kv-{_safe(nc)}"} for nc in kpi_cols]
+        h.append(_dash_js(raw_json, chart_specs, kpis, _theme(theme)))
         if source_frames:
             h.append(_dash_source_js())
 
@@ -1060,7 +963,7 @@ def _plan_panels(layout, df, cat_cols, numeric_cols, datetime_cols, geo, col_agg
             agg = named_agg or col_agg.get(nc, "sum")
             plan.append(
                 (
-                    {"id": cid, "type": "bar", "cc": cc, "nc": nc, "agg": agg},
+                    {"id": cid, "type": "bar", "category": cc, "value": nc, "agg": agg},
                     f"{agg_label(agg)} {nc} by {cc}",
                     False,
                     340,
@@ -1070,14 +973,14 @@ def _plan_panels(layout, df, cat_cols, numeric_cols, datetime_cols, geo, col_agg
             cc = pick("category", cat_cols, "text column with 2-100 values")
             nc = str(cols.get("value") or "")
             title = f"{nc} share by {cc}" if nc else f"{cc} Distribution"
-            plan.append(({"id": cid, "type": "pie", "cc": cc, "nc": nc}, title, False, 340))
+            plan.append(({"id": cid, "type": "pie", "category": cc, "value": nc}, title, False, 340))
         elif kind in ("line", "time_series"):
             dc = pick("date", datetime_cols, "date column")
             nc = pick("value", numeric_cols, "numeric column")
             agg = named_agg or col_agg.get(nc, "sum")
             plan.append(
                 (
-                    {"id": cid, "type": "ts", "dc": dc, "nc": nc, "agg": agg},
+                    {"id": cid, "type": "ts", "date": dc, "value": nc, "agg": agg},
                     f"{agg_label(agg)} {nc} Over Time",
                     True,
                     380,
@@ -1086,23 +989,23 @@ def _plan_panels(layout, df, cat_cols, numeric_cols, datetime_cols, geo, col_agg
         elif kind == "scatter":
             x = pick("x", numeric_cols, "numeric column")
             y = pick("y", [c for c in numeric_cols if c != x], "second numeric column")
-            plan.append(({"id": cid, "type": "scatter", "nc1": x, "nc2": y}, f"{x} vs {y}", False, 340))
+            plan.append(({"id": cid, "type": "scatter", "x": x, "y": y}, f"{x} vs {y}", False, 340))
         elif kind == "histogram":
             nc = pick("value", numeric_cols, "numeric column")
-            plan.append(({"id": cid, "type": "dist", "nc": nc}, f"{nc} Distribution", False, 320))
+            plan.append(({"id": cid, "type": "dist", "value": nc}, f"{nc} Distribution", False, 320))
         elif kind == "box":
             nc = pick("value", numeric_cols, "numeric column")
             # Named cols without a category ask for one box; no cols at all
             # asks for the detected page's box, grouped by the first category.
             cc = str(cols.get("category") or ("" if cols or not cat_cols else cat_cols[0]))
             title = f"{nc} distribution by {cc}" if cc else f"{nc} distribution"
-            plan.append(({"id": cid, "type": "box", "nc": nc, "cc": cc}, title, True, 380))
+            plan.append(({"id": cid, "type": "box", "value": nc, "category": cc}, title, True, 380))
         elif kind == "geo_scatter":
             lat = pick("lat", [lat_d] if lat_d else [], "latitude column")
             lon = pick("lon", [lon_d] if lon_d else [], "longitude column")
             val = str(numeric_cols[0]) if numeric_cols else ""
             cc = str(cat_cols[0]) if cat_cols else ""
-            spec = {"id": cid, "type": "geo_scatter", "lat": lat, "lon": lon, "val": val, "cc": cc}
+            spec = {"id": cid, "type": "geo_scatter", "lat": lat, "lon": lon, "value": val, "category": cc}
             plan.append((spec, "Geographic Distribution (Scatter)", True, 500))
         elif kind == "choropleth":
             loc = pick("location", [loc_d] if loc_d else [], "location column")
@@ -1115,7 +1018,14 @@ def _plan_panels(layout, df, cat_cols, numeric_cols, datetime_cols, geo, col_agg
                     f"layout[{i}] choropleth location={loc!r} holds no place names a map can shade "
                     f"(e.g. {values[0]!r}); use a bar chart for it instead"
                 )
-            spec = {"id": cid, "type": "geo_choro", "loc": loc, "nc": nc, "mode": mode or "country names", "agg": agg}
+            spec = {
+                "id": cid,
+                "type": "geo_choro",
+                "location": loc,
+                "value": nc,
+                "mode": mode or "country names",
+                "agg": agg,
+            }
             plan.append((spec, f"{agg_label(agg)} {nc} by {loc} (Choropleth)", True, 500))
         else:  # pragma: no cover - the validator refuses every other kind first
             raise SpecError(f"layout[{i}] chart={kind!r} is not drawable. Valid: {', '.join(CHART_KINDS)}")
@@ -1135,18 +1045,23 @@ def _build_chart_cards(
     _d_geo_loc_mode,
     col_agg,
 ):
+    """The detected page: a card and a panel for every chart this file supports."""
+
+    def add(spec: dict, title: str, full: bool, height: int) -> None:
+        _card(h, spec["id"], title, full, height)
+        chart_specs.append(_panel(spec, title))
+
     if "bar" in charts and cat_cols and numeric_cols:
         for cc in cat_cols[:3]:
             for nc in numeric_cols[:2]:
                 agg = col_agg.get(nc, "sum")
-                cid = f"bar_{_safe(cc)}_{_safe(nc)}"
-                _card(h, cid, f"{agg_label(agg)} {nc} by {cc}", False, 340)
-                chart_specs.append({"id": cid, "type": "bar", "cc": cc, "nc": nc, "agg": agg})
+                spec = {"id": f"bar_{_safe(cc)}_{_safe(nc)}", "type": "bar", "category": cc, "value": nc, "agg": agg}
+                add(spec, f"{agg_label(agg)} {nc} by {cc}", False, 340)
     if "pie" in charts and cat_cols:
         for cc in cat_cols[:3]:
-            cid = f"pie_{_safe(cc)}"
-            _card(h, cid, f"{cc} Distribution", False, 340)
-            chart_specs.append({"id": cid, "type": "pie", "cc": cc})
+            add(
+                {"id": f"pie_{_safe(cc)}", "type": "pie", "category": cc, "value": ""}, f"{cc} Distribution", False, 340
+            )
     if "scatter" in charts and len(numeric_cols) >= 2:
         pairs = [
             (numeric_cols[i], numeric_cols[j])
@@ -1154,84 +1069,81 @@ def _build_chart_cards(
             for j in range(i + 1, min(i + 3, len(numeric_cols)))
         ]
         for nc1, nc2 in pairs:
-            cid = f"scat_{_safe(nc1)}_{_safe(nc2)}"
-            _card(h, cid, f"{nc1} vs {nc2}", False, 340)
-            chart_specs.append({"id": cid, "type": "scatter", "nc1": nc1, "nc2": nc2})
+            spec = {"id": f"scat_{_safe(nc1)}_{_safe(nc2)}", "type": "scatter", "x": nc1, "y": nc2}
+            add(spec, f"{nc1} vs {nc2}", False, 340)
     if len(cat_cols) >= 2 and numeric_cols:
         cc1, cc2, nc = cat_cols[0], cat_cols[1], numeric_cols[0]
         agg = col_agg.get(nc, "sum")
-        cid = f"grp_{_safe(cc1)}_{_safe(cc2)}"
-        _card(h, cid, f"{agg_label(agg)} {nc} by {cc1}, grouped by {cc2}", True, 380)
-        chart_specs.append(
-            {
-                "id": cid,
-                "type": "grouped_bar",
-                "cc1": cc1,
-                "cc2": cc2,
-                "nc": nc,
-                "agg": agg,
-            }
-        )
+        spec = {
+            "id": f"grp_{_safe(cc1)}_{_safe(cc2)}",
+            "type": "grouped_bar",
+            "category": cc1,
+            "group": cc2,
+            "value": nc,
+            "agg": agg,
+        }
+        add(spec, f"{agg_label(agg)} {nc} by {cc1}, grouped by {cc2}", True, 380)
     if len(numeric_cols) >= 2 and cat_cols:
         nc1, nc2, cc = numeric_cols[0], numeric_cols[1], cat_cols[0]
-        cid = f"cscat_{_safe(nc1)}_{_safe(nc2)}"
-        _card(h, cid, f"{nc1} vs {nc2} by {cc}", True, 380)
-        chart_specs.append({"id": cid, "type": "cscat", "nc1": nc1, "nc2": nc2, "cc": cc})
+        spec = {"id": f"cscat_{_safe(nc1)}_{_safe(nc2)}", "type": "cscat", "x": nc1, "y": nc2, "group": cc}
+        add(spec, f"{nc1} vs {nc2} by {cc}", True, 380)
     if numeric_cols and cat_cols:
         nc, cc = numeric_cols[0], cat_cols[0]
-        cid = f"box_{_safe(nc)}_{_safe(cc)}"
-        _card(h, cid, f"{nc} distribution by {cc}", True, 380)
-        chart_specs.append({"id": cid, "type": "box", "nc": nc, "cc": cc})
+        add(
+            {"id": f"box_{_safe(nc)}_{_safe(cc)}", "type": "box", "value": nc, "category": cc},
+            f"{nc} distribution by {cc}",
+            True,
+            380,
+        )
     if len(numeric_cols) >= 2:
-        _card(h, "corr_hm", "Correlation Matrix", True, 480)
-        chart_specs.append({"id": "corr_hm", "type": "corr"})
+        add(
+            {"id": "corr_hm", "type": "corr", "columns": [str(c) for c in numeric_cols[:15]]},
+            "Correlation Matrix",
+            True,
+            480,
+        )
     if len(cat_cols) >= 2 and numeric_cols:
         cc1, cc2, nc = cat_cols[0], cat_cols[1], numeric_cols[0]
         agg = col_agg.get(nc, "sum")
-        cid = f"aghm_{_safe(cc1)}_{_safe(cc2)}"
-        _card(h, cid, f"{agg_label(agg)} {nc}: {cc1} \u00d7 {cc2}", True, 460)
-        chart_specs.append({"id": cid, "type": "agg_hm", "cc1": cc1, "cc2": cc2, "nc": nc, "agg": agg})
+        spec = {
+            "id": f"aghm_{_safe(cc1)}_{_safe(cc2)}",
+            "type": "agg_hm",
+            "category": cc1,
+            "group": cc2,
+            "value": nc,
+            "agg": agg,
+        }
+        add(spec, f"{agg_label(agg)} {nc}: {cc1} \u00d7 {cc2}", True, 460)
     if "time_series" in charts and datetime_cols and numeric_cols:
         for dc in datetime_cols[:2]:
             for nc in numeric_cols[:2]:
                 agg = col_agg.get(nc, "sum")
-                cid = f"ts_{_safe(dc)}_{_safe(nc)}"
-                _card(h, cid, f"{agg_label(agg)} {nc} Over Time", True, 380)
-                chart_specs.append({"id": cid, "type": "ts", "dc": dc, "nc": nc, "agg": agg})
+                spec = {"id": f"ts_{_safe(dc)}_{_safe(nc)}", "type": "ts", "date": dc, "value": nc, "agg": agg}
+                add(spec, f"{agg_label(agg)} {nc} Over Time", True, 380)
     for nc in numeric_cols[:6]:
-        cid = f"dist_{_safe(nc)}"
-        _card(h, cid, f"{nc} Distribution", False, 320)
-        chart_specs.append({"id": cid, "type": "dist", "nc": nc})
+        add({"id": f"dist_{_safe(nc)}", "type": "dist", "value": nc}, f"{nc} Distribution", False, 320)
     if "geo_scatter" in charts and _d_geo_lat and _d_geo_lon:
-        _val_c = numeric_cols[0] if numeric_cols else ""
-        _cc_c = cat_cols[0] if cat_cols else ""
-        cid = f"geo_scat_{_safe(_d_geo_lat)}"
-        _card(h, cid, "Geographic Distribution (Scatter)", True, 500)
-        chart_specs.append(
-            {
-                "id": cid,
-                "type": "geo_scatter",
-                "lat": _d_geo_lat,
-                "lon": _d_geo_lon,
-                "val": _val_c,
-                "cc": _cc_c,
-            }
-        )
+        spec = {
+            "id": f"geo_scat_{_safe(_d_geo_lat)}",
+            "type": "geo_scatter",
+            "lat": _d_geo_lat,
+            "lon": _d_geo_lon,
+            "value": numeric_cols[0] if numeric_cols else "",
+            "category": cat_cols[0] if cat_cols else "",
+        }
+        add(spec, "Geographic Distribution (Scatter)", True, 500)
     if "geo_choropleth" in charts and _d_geo_loc and numeric_cols:
         nc = numeric_cols[0]
         agg = col_agg.get(nc, "sum")
-        cid = f"geo_choro_{_safe(_d_geo_loc)}"
-        _card(h, cid, f"{agg_label(agg)} {nc} by {_d_geo_loc} (Choropleth)", True, 500)
-        chart_specs.append(
-            {
-                "id": cid,
-                "type": "geo_choro",
-                "loc": _d_geo_loc,
-                "nc": nc,
-                "mode": _d_geo_loc_mode or "country names",
-                "agg": agg,
-            }
-        )
+        spec = {
+            "id": f"geo_choro_{_safe(_d_geo_loc)}",
+            "type": "geo_choro",
+            "location": _d_geo_loc,
+            "value": nc,
+            "mode": _d_geo_loc_mode or "country names",
+            "agg": agg,
+        }
+        add(spec, f"{agg_label(agg)} {nc} by {_d_geo_loc} (Choropleth)", True, 500)
 
 
 def _dash_modal():
@@ -1241,144 +1153,6 @@ def _dash_modal():
         '<button class="mclose" onclick="closeM()">&#x2715;</button></div>'
         '<div id="mdiv"></div></div></div>'
     )
-
-
-def _build_render_functions(
-    chart_specs,
-    bg,
-    font_c,
-    grid_c,
-    geo_land_c,
-    geo_ocean_c,
-    geo_coast_c,
-    numeric_cols,
-    COLORS,
-    PCFG,
-    _lyt,
-    col_agg,
-):
-    rfns: list[str] = []
-    for s in chart_specs:
-        cid, t = s["id"], s["type"]
-        if t == "bar":
-            cc, nc = s["cc"], s["nc"]
-            agg = s.get("agg", "sum")
-            agg_blk = _js_agg_block(agg, f"String(r['{cc}']??'')", f" _num(r['{nc}'])", 25)
-            rfns.append(
-                f"function rf_{cid}(d){{\n  {agg_blk}  var fmt=function(v){{return v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(1)+'K':Math.round(v).toString();}};\n  Plotly.react('{cid}',[{{x:e.map(i=>i[0]),y:e.map(i=>i[1]),type:'bar',marker:{{color:'#58a6ff',opacity:0.85}},text:e.map(i=>fmt(i[1])),textposition:'outside'}}],{_lyt(340)},{PCFG});\n}}"
-            )
-        elif t == "pie":
-            cc = s["cc"]
-            # With a value column the slices are its sums per category; without
-            # one they are row counts, which is what the detected pie draws.
-            weight = f"(+r['{s['nc']}']||0)" if s.get("nc") else "1"
-            rfns.append(
-                f"function rf_{cid}(d){{\n  var c={{}};\n  d.forEach(function(r){{var k=String(r['{cc}']??'');c[k]=(c[k]||0)+{weight};}});\n  var e=Object.entries(c).sort((x,y)=>y[1]-x[1]).slice(0,15);\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:12}},autosize:true,margin:{{l:20,r:20,t:10,b:20}},showlegend:true,legend:{{orientation:'h',y:-0.14}}}};\n  // Past a handful of slices, per-slice labels are drawn outside on\n  // leader lines that overlap each other and spill out of the card, while\n  // repeating names the legend already lists. Keep the percent inside the\n  // slice and let the legend carry the names.\n  var ti=e.length>6?'percent':'label+percent';\n  Plotly.react('{cid}',[{{values:e.map(i=>i[1]),labels:e.map(i=>i[0]),type:'pie',hole:0.38,marker:{{colors:{COLORS}}},textinfo:ti,textposition:'inside',insidetextorientation:'horizontal',textfont:{{size:11}},pull:e.map((_,i)=>i===0?0.04:0)}}],am(layout),{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
-            )
-        elif t == "scatter":
-            nc1, nc2 = s["nc1"], s["nc2"]
-            rfns.append(
-                f"function rf_{cid}(d){{\n  var xs=[],ys=[];\n  d.forEach(function(r){{var x= _num(r['{nc1}']),y= _num(r['{nc2}']);if(!isNaN(x)&&!isNaN(y)){{xs.push(x);ys.push(y);}}}});\n  var traces=[{{x:xs,y:ys,type:'scatter',mode:'markers',marker:{{color:'#58a6ff',opacity:0.5,size:5}},name:'data'}}];\n  if(xs.length>1){{\n    var n=xs.length,sx=xs.reduce((a,b)=>a+b,0),sy=ys.reduce((a,b)=>a+b,0),sxy=0,sxx=0,syy=0;\n    for(var i=0;i<n;i++){{sxy+=xs[i]*ys[i];sxx+=xs[i]*xs[i];syy+=ys[i]*ys[i];}}\n    var sl=(n*sxy-sx*sy)/(n*sxx-sx*sx||1),ic=(sy-sl*sx)/n;\n    var r=(n*sxy-sx*sy)/Math.sqrt(((n*sxx-sx*sx)*(n*syy-sy*sy))||1);\n    var xmn=Math.min(...xs),xmx=Math.max(...xs);\n    traces.push({{x:[xmn,xmx],y:[sl*xmn+ic,sl*xmx+ic],type:'scatter',mode:'lines',line:{{color:'#f0883e',width:2,dash:'dash'}},name:'r='+r.toFixed(2)}});\n  }}\n  var layout=Object.assign({{}},{_lyt(340)},{{showlegend:true,legend:{{x:0,y:1.1,orientation:'h'}},xaxis:{{title:'{nc1}',gridcolor:'{grid_c}'}},yaxis:{{title:'{nc2}',gridcolor:'{grid_c}'}}}});\n  Plotly.react('{cid}',traces,am(layout),{PCFG});\n}}"
-            )
-        elif t == "grouped_bar":
-            cc1, cc2, nc = s["cc1"], s["cc2"], s["nc"]
-            agg = s.get("agg", "sum")
-            if agg in ARRAY_AGGS:
-                inner_acc = "if(!isNaN(v)){if(!a[k2])a[k2]={};(a[k2][k1]=a[k2][k1]||[]).push(v);}"
-                val_expr = "(a[k]&&a[k][g])?_agg(a[k][g],'" + agg + "'):0"
-            elif agg == "mean":
-                inner_acc = (
-                    "if(!isNaN(v)){if(!a[k2])a[k2]={};if(!a[k2][k1])a[k2][k1]={s:0,n:0};a[k2][k1].s+=v;a[k2][k1].n++;}"
-                )
-                val_expr = "a[k]&&a[k][g]?a[k][g].s/a[k][g].n:0"
-            elif agg == "max":
-                inner_acc = (
-                    "if(!isNaN(v)){if(!a[k2])a[k2]={};a[k2][k1]=(a[k2][k1]===undefined||v>a[k2][k1])?v:a[k2][k1];}"
-                )
-                val_expr = "(a[k]&&a[k][g]!==undefined)?a[k][g]:0"
-            elif agg == "min":
-                inner_acc = (
-                    "if(!isNaN(v)){if(!a[k2])a[k2]={};a[k2][k1]=(a[k2][k1]===undefined||v<a[k2][k1])?v:a[k2][k1];}"
-                )
-                val_expr = "(a[k]&&a[k][g]!==undefined)?a[k][g]:0"
-            else:
-                inner_acc = "if(!isNaN(v)){if(!a[k2])a[k2]={};a[k2][k1]=(a[k2][k1]||0)+v;}"
-                val_expr = "(a[k]&&a[k][g])||0"
-            rfns.append(
-                f"function rf_{cid}(d){{\n  var a={{}};\n  d.forEach(function(r){{var k1=String(r['{cc1}']??''),k2=String(r['{cc2}']??''),v= _num(r['{nc}']);{inner_acc}}});\n  var gs=Array.from(new Set(d.map(r=>String(r['{cc1}']??'')))).slice(0,20);\n  var ks=Object.keys(a).slice(0,10),C={COLORS};\n  var traces=ks.map(function(k,i){{return{{x:gs,y:gs.map(g=>{val_expr}),type:'bar',name:k,marker:{{color:C[i%15],opacity:0.85}}}};}});\n  var layout=Object.assign({{}},{_lyt(380)},{{barmode:'group',showlegend:true,legend:{{orientation:'h',x:0,y:1.12}}}});\n  Plotly.react('{cid}',traces,am(layout),{PCFG});\n}}"
-            )
-        elif t == "cscat":
-            nc1, nc2, cc = s["nc1"], s["nc2"], s["cc"]
-            rfns.append(
-                f"function rf_{cid}(d){{\n  var g={{}};\n  d.forEach(function(r){{var x= _num(r['{nc1}']),y= _num(r['{nc2}']),k=String(r['{cc}']??'');if(!isNaN(x)&&!isNaN(y)){{if(!g[k])g[k]={{x:[],y:[]}};g[k].x.push(x);g[k].y.push(y);}}}});\n  var ks=Object.keys(g).slice(0,15),C={COLORS};\n  var traces=ks.map(function(k,i){{return{{x:g[k].x,y:g[k].y,type:'scatter',mode:'markers',name:k,marker:{{color:C[i%15],opacity:0.6,size:5}}}};}});\n  var layout=Object.assign({{}},{_lyt(380)},{{showlegend:true,legend:{{orientation:'h',x:0,y:1.12}},xaxis:{{title:'{nc1}',gridcolor:'{grid_c}'}},yaxis:{{title:'{nc2}',gridcolor:'{grid_c}'}}}});\n  Plotly.react('{cid}',traces,am(layout),{PCFG});\n}}"
-            )
-        elif t == "box":
-            nc, cc = s["nc"], s["cc"]
-            rfns.append(
-                f"function rf_{cid}(d){{\n  var g={{}};\n  d.forEach(function(r){{var v= _num(r['{nc}']),k=String(r['{cc}']??'');if(!isNaN(v)){{if(!g[k])g[k]=[];g[k].push(v);}}}});\n  var ks=Object.keys(g).sort().slice(0,20),C={COLORS};\n  var traces=ks.map(function(k,i){{return{{y:g[k],type:'box',name:k,marker:{{color:C[i%15],size:3}},boxpoints:'outliers'}};}});\n  var layout=Object.assign({{}},{_lyt(380)},{{showlegend:false,yaxis:{{title:'{nc}',gridcolor:'{grid_c}'}}}});\n  Plotly.react('{cid}',traces,am(layout),{PCFG});\n}}"
-            )
-        elif t == "corr":
-            nc_list = json_for_script([str(c) for c in numeric_cols[:15]])
-            rfns.append(
-                f"function rf_{cid}(d){{\n  var cols={nc_list},n=d.length;if(n<2)return;\n  var z=cols.map(function(r){{return cols.map(function(c){{\n    var xv=d.map(row=> _num(row[r])),yv=d.map(row=> _num(row[c])),pr=[];\n    for(var i=0;i<n;i++)if(!isNaN(xv[i])&&!isNaN(yv[i]))pr.push([xv[i],yv[i]]);\n    if(pr.length<2)return 0;\n    var mx=pr.reduce((s,p)=>s+p[0],0)/pr.length,my=pr.reduce((s,p)=>s+p[1],0)/pr.length;\n    var num=0,dx=0,dy=0;pr.forEach(p=>{{num+=(p[0]-mx)*(p[1]-my);dx+=(p[0]-mx)**2;dy+=(p[1]-my)**2;}});\n    return dx&&dy?num/Math.sqrt(dx*dy):0;\n  }});}});\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:11}},autosize:true,margin:{{l:120,r:20,t:10,b:120}}}};\n  Plotly.react('{cid}',[{{z:z,x:cols,y:cols,type:'heatmap',colorscale:'RdBu_r',zmid:0,zmin:-1,zmax:1,text:z.map(r=>r.map(v=>v.toFixed(2))),texttemplate:'%{{text}}',textfont:{{size:10}}}}],am(layout),{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
-            )
-        elif t == "agg_hm":
-            cc1, cc2, nc = s["cc1"], s["cc2"], s["nc"]
-            agg = s.get("agg", "sum")
-            if agg in ARRAY_AGGS:
-                inner_acc = "Rs.add(r1);Cs.add(c1);if(!a[r1])a[r1]={};(a[r1][c1]=a[r1][c1]||[]).push(v);"
-                z_val = "(a[r]&&a[r][c])?_agg(a[r][c],'" + agg + "'):0"
-            elif agg == "mean":
-                inner_acc = "Rs.add(r1);Cs.add(c1);if(!a[r1])a[r1]={};if(!a[r1][c1])a[r1][c1]={s:0,n:0};a[r1][c1].s+=v;a[r1][c1].n++;"
-                z_val = "a[r]&&a[r][c]?a[r][c].s/a[r][c].n:0"
-            elif agg == "max":
-                inner_acc = "Rs.add(r1);Cs.add(c1);if(!a[r1])a[r1]={};a[r1][c1]=(a[r1][c1]===undefined||v>a[r1][c1])?v:a[r1][c1];"
-                z_val = "(a[r]&&a[r][c]!==undefined)?a[r][c]:0"
-            elif agg == "min":
-                inner_acc = "Rs.add(r1);Cs.add(c1);if(!a[r1])a[r1]={};a[r1][c1]=(a[r1][c1]===undefined||v<a[r1][c1])?v:a[r1][c1];"
-                z_val = "(a[r]&&a[r][c]!==undefined)?a[r][c]:0"
-            else:
-                inner_acc = "Rs.add(r1);Cs.add(c1);if(!a[r1])a[r1]={};a[r1][c1]=(a[r1][c1]||0)+v;"
-                z_val = "(a[r]&&a[r][c])||0"
-            rfns.append(
-                f"function rf_{cid}(d){{\n  var a={{}},Rs=new Set(),Cs=new Set();\n  d.forEach(function(r){{var r1=String(r['{cc1}']??''),c1=String(r['{cc2}']??''),v= _num(r['{nc}']);if(!isNaN(v)){{{inner_acc}}}}});\n  var rl=Array.from(Rs).sort().slice(0,30),cl=Array.from(Cs).sort().slice(0,30);\n  var z=rl.map(function(r){{return cl.map(function(c){{return {z_val};}});}});\n  var fmt=function(v){{return v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(1)+'K':Math.round(v).toString();}};\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:11}},autosize:true,margin:{{l:130,r:20,t:10,b:130}}}};\n  Plotly.react('{cid}',[{{z:z,x:cl,y:rl,type:'heatmap',colorscale:'YlOrRd',text:z.map(r=>r.map(fmt)),texttemplate:'%{{text}}',textfont:{{size:9}}}}],am(layout),{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
-            )
-        elif t == "ts":
-            dc, nc = s["dc"], s["nc"]
-            agg = s.get("agg", "sum")
-            acc, vals_expr = _js_ts_block(dc, nc, agg)
-            rfns.append(
-                f"function rf_{cid}(d){{\n  {acc}  var dates=Object.keys(bm).sort(),vals={vals_expr};\n  var ma=vals.map(function(_,i){{if(i<2)return null;return(vals[i]+vals[i-1]+vals[i-2])/3;}});\n  var traces=[{{x:dates,y:vals,type:'scatter',mode:'lines+markers',name:'{nc}',line:{{color:'#3fb950',width:2}},marker:{{size:4}}}},{{x:dates.slice(2),y:ma.slice(2),type:'scatter',mode:'lines',name:'3-period MA',line:{{color:'#f0883e',width:2,dash:'dot'}}}}];\n  var layout=Object.assign({{}},{_lyt(380)},{{showlegend:true,legend:{{x:0,y:1.1,orientation:'h'}},xaxis:{{title:'Date',gridcolor:'{grid_c}'}},yaxis:{{title:'{nc}',gridcolor:'{grid_c}'}}}});\n  Plotly.react('{cid}',traces,am(layout),{PCFG});\n}}"
-            )
-        elif t == "dist":
-            nc = s["nc"]
-            rfns.append(
-                f"function rf_{cid}(d){{\n  var vals=d.map(r=> _num(r['{nc}'])).filter(v=>!isNaN(v));if(!vals.length)return;\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',font:{{color:'{font_c}',size:12}},autosize:true,margin:{{l:50,r:20,t:10,b:30}},grid:{{rows:1,columns:2,pattern:'independent'}},xaxis:{{gridcolor:'{grid_c}'}},yaxis:{{title:'Count',gridcolor:'{grid_c}'}},xaxis2:{{gridcolor:'{grid_c}'}},yaxis2:{{gridcolor:'{grid_c}'}}}};\n  Plotly.react('{cid}',[{{x:vals,type:'histogram',nbinsx:50,marker:{{color:'#58a6ff',opacity:0.75}},xaxis:'x',yaxis:'y',name:'hist'}},{{y:vals,type:'box',marker:{{color:'#f0883e',size:3}},xaxis:'x2',yaxis:'y2',boxpoints:'outliers',name:'box'}}],am(layout),{{responsive:true,displayModeBar:true,scrollZoom:true}});\n}}"
-            )
-        elif t == "geo_scatter":
-            lat_c, lon_c = s["lat"], s["lon"]
-            val_c = s.get("val", "")
-            txt_expr = f"'{val_c}: '+String(r['{val_c}'])" if val_c else "lt.toFixed(4)+', '+ln.toFixed(4)"
-            rfns.append(
-                f"function rf_{cid}(d){{\n  var lts=[],lns=[],txts=[];\n  d.forEach(function(r){{var lt= _num(r['{lat_c}']),ln= _num(r['{lon_c}']);if(!isNaN(lt)&&!isNaN(ln)){{lts.push(lt);lns.push(ln);txts.push({txt_expr});}}}});\n  if(!lts.length)return;\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',geo:{{showland:true,landcolor:'{geo_land_c}',showocean:true,oceancolor:'{geo_ocean_c}',showcoastlines:true,coastlinecolor:'{geo_coast_c}',showcountries:true,countrycolor:'{geo_coast_c}',showframe:false,bgcolor:'{bg}',projection:{{type:'natural earth'}}}},font:{{color:'{font_c}',size:12}},autosize:true,margin:{{l:0,r:0,t:10,b:0}}}};\n  Plotly.react('{cid}',[{{type:'scattergeo',lat:lts,lon:lns,mode:'markers',marker:{{color:'#58a6ff',size:6,opacity:0.75,line:{{color:'rgba(255,255,255,0.25)',width:0.5}}}},text:txts,hovertemplate:'%{{text}}<extra></extra>'}}],am(layout),{PCFG});\n}}"
-            )
-        elif t == "geo_choro":
-            loc_c, nc, mode = s["loc"], s["nc"], s["mode"]
-            agg = s.get("agg", "sum")
-            if agg in ARRAY_AGGS:
-                choro_acc = f"var a={{}};\n  d.forEach(function(r){{var k=String(r['{loc_c}']??''),v= _num(r['{nc}']);if(k)(a[k]=a[k]||[]).push(v);}});\n  var locs=Object.keys(a),vals=locs.map(k=>_agg(a[k],'{agg}'));"
-            elif agg == "mean":
-                choro_acc = f"var a={{}},cnt={{}};\n  d.forEach(function(r){{var k=String(r['{loc_c}']??''),v= _num(r['{nc}']);if(k&&!isNaN(v)){{a[k]=(a[k]||0)+v;cnt[k]=(cnt[k]||0)+1;}}}});\n  var locs=Object.keys(a),vals=locs.map(k=>a[k]/(cnt[k]||1));"
-            elif agg == "max":
-                choro_acc = f"var a={{}};\n  d.forEach(function(r){{var k=String(r['{loc_c}']??''),v= _num(r['{nc}']);if(k&&!isNaN(v))a[k]=(a[k]===undefined||v>a[k])?v:a[k];}});\n  var locs=Object.keys(a),vals=locs.map(k=>a[k]);"
-            elif agg == "min":
-                choro_acc = f"var a={{}};\n  d.forEach(function(r){{var k=String(r['{loc_c}']??''),v= _num(r['{nc}']);if(k&&!isNaN(v))a[k]=(a[k]===undefined||v<a[k])?v:a[k];}});\n  var locs=Object.keys(a),vals=locs.map(k=>a[k]);"
-            else:
-                choro_acc = f"var a={{}};\n  d.forEach(function(r){{var k=String(r['{loc_c}']??''),v= _num(r['{nc}']);if(k&&!isNaN(v))a[k]=(a[k]||0)+v;}});\n  var locs=Object.keys(a),vals=locs.map(k=>a[k]);"
-            rfns.append(
-                f"function rf_{cid}(d){{\n  {choro_acc}\n  if(!locs.length)return;\n  var layout={{paper_bgcolor:'{bg}',plot_bgcolor:'{bg}',geo:{{showland:true,landcolor:'{geo_land_c}',showocean:true,oceancolor:'{geo_ocean_c}',showcoastlines:true,coastlinecolor:'{geo_coast_c}',showcountries:true,countrycolor:'{geo_coast_c}',showframe:false,bgcolor:'{bg}'}},font:{{color:'{font_c}',size:12}},autosize:true,margin:{{l:0,r:0,t:10,b:0}},coloraxis:{{colorscale:'YlOrRd',showscale:true,colorbar:{{thickness:14,len:0.7,tickfont:{{color:'{font_c}',size:10}}}}}}}};\n  Plotly.react('{cid}',[{{type:'choropleth',locations:locs,z:vals,locationmode:'{mode}',coloraxis:'coloraxis',hovertemplate:'%{{location}}: %{{z:.2f}}<extra></extra>'}}],am(layout),{PCFG});\n}}"
-            )
-    return rfns
 
 
 def _close_tag_safe(js: str) -> str:
@@ -1392,13 +1166,197 @@ def _close_tag_safe(js: str) -> str:
     return _re.sub(r"</(script)", r"<\\/\1", js, flags=_re.IGNORECASE)
 
 
-def _dash_js(raw_json, kpi_upd, rfns_str, render_calls):
-    kpi_upd = _close_tag_safe(kpi_upd)
-    rfns_str = _close_tag_safe(rfns_str)
-    render_calls = _close_tag_safe(render_calls)
+_RENDERER_JS = r"""
+// --- one renderer --------------------------------------------------------
+// Every card is a panel in _PANELS: its columns, aggregate, title and style.
+// FIG[type] turns a panel and the filtered rows into Plotly traces and layout,
+// and renderPanel lays the panel's style over the theme. A new option is a
+// field of the panel read here -- never a new template -- and a column name is
+// data in _PANELS, never text pasted into code.
+const PCFG={responsive:true,displayModeBar:true,scrollZoom:true};
+// The theme in force. A device page holds a light and a dark one and follows
+// the reader's setting, at every draw.
+function _dark(){return typeof window!=='undefined'&&!!window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;}
+function _T(){return _THEME.device?(_dark()?_THEME.dark:_THEME.light):_THEME;}
+const _ARRAY={median:1,count:1,count_distinct:1};
+function _fmt(v){return v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(1)+'K':Math.round(v).toString();}
+function _key(r,c){return String(r[c]??'');}
+function _isObj(v){return v!==null&&typeof v==='object'&&!Array.isArray(v);}
+function _merge(a,b){
+  var o=Object.assign({},a);
+  Object.keys(b||{}).forEach(function(k){o[k]=(_isObj(b[k])&&_isObj(o[k]))?_merge(o[k],b[k]):b[k];});
+  return o;
+}
+function _min(v){return v.reduce(function(a,b){return a<b?a:b;});}
+function _max(v){return v.reduce(function(a,b){return a>b?a:b;});}
+// The values of `col` grouped by `keyOf`, in the order groups are first seen.
+// A missing value never makes a group -- only a present one does.
+function _groups(d,keyOf,col){
+  var m=new Map();
+  d.forEach(function(r){var k=keyOf(r),v=_num(r[col]);if(k===null||isNaN(v))return;if(!m.has(k))m.set(k,[]);m.get(k).push(v);});
+  return m;
+}
+function _kpi(d,col,how){return _agg(d.map(function(r){return _num(r[col]);}),how);}
+function _axes(extra){return _merge({margin:{l:55,r:20,t:10,b:65},xaxis:{gridcolor:_T().grid,tickangle:'auto'},yaxis:{gridcolor:_T().grid}},extra);}
+function _geo(){return{showland:true,landcolor:_T().land,showocean:true,oceancolor:_T().ocean,showcoastlines:true,coastlinecolor:_T().coast,showcountries:true,countrycolor:_T().coast,showframe:false,bgcolor:_T().bg};}
+function _color(i){return _T().palette[i%_T().palette.length];}
+
+const FIG={
+  bar:function(p,d){
+    var s=p.style,how=p.agg||'sum';
+    var e=Array.from(_groups(d,function(r){return _key(r,p.category);},p.value),function(g){return[g[0],_agg(g[1],how)];});
+    e.sort(how==='min'?function(x,y){return x[1]-y[1];}:function(x,y){return y[1]-x[1];});
+    e=e.slice(0,s.top_n);
+    return{data:[{x:e.map(function(i){return i[0];}),y:e.map(function(i){return i[1];}),type:'bar',marker:{color:s.color,opacity:0.85},text:e.map(function(i){return _fmt(i[1]);}),textposition:'outside'}],layout:_axes()};
+  },
+  pie:function(p,d){
+    // With a value column the slices are its sums per category; without one
+    // they are row counts.
+    var c=new Map();
+    d.forEach(function(r){var k=_key(r,p.category),w=p.value?(_num(r[p.value])||0):1;c.set(k,(c.get(k)||0)+w);});
+    var e=Array.from(c).sort(function(x,y){return y[1]-x[1];}).slice(0,p.style.top_n);
+    // Past a handful of slices, labels drawn outside on leader lines overlap
+    // and spill out of the card, repeating names the legend already lists.
+    var ti=e.length>6?'percent':'label+percent';
+    return{data:[{values:e.map(function(i){return i[1];}),labels:e.map(function(i){return i[0];}),type:'pie',hole:0.38,marker:{colors:_T().palette},textinfo:ti,textposition:'inside',insidetextorientation:'horizontal',textfont:{size:11},pull:e.map(function(_,i){return i===0?0.04:0;})}],
+           layout:{margin:{l:20,r:20,t:10,b:20},showlegend:true,legend:{orientation:'h',y:-0.14}}};
+  },
+  scatter:function(p,d){
+    var s=p.style,xs=[],ys=[];
+    d.forEach(function(r){var x=_num(r[p.x]),y=_num(r[p.y]);if(!isNaN(x)&&!isNaN(y)){xs.push(x);ys.push(y);}});
+    var t=[{x:xs,y:ys,type:'scatter',mode:'markers',marker:{color:s.color,opacity:0.5,size:5},name:'data'}];
+    if(xs.length>1){
+      var n=xs.length,sx=0,sy=0,sxy=0,sxx=0,syy=0;
+      for(var i=0;i<n;i++){sx+=xs[i];sy+=ys[i];sxy+=xs[i]*ys[i];sxx+=xs[i]*xs[i];syy+=ys[i]*ys[i];}
+      var sl=(n*sxy-sx*sy)/(n*sxx-sx*sx||1),ic=(sy-sl*sx)/n;
+      var r=(n*sxy-sx*sy)/Math.sqrt(((n*sxx-sx*sx)*(n*syy-sy*sy))||1);
+      var lo=_min(xs),hi=_max(xs);
+      t.push({x:[lo,hi],y:[sl*lo+ic,sl*hi+ic],type:'scatter',mode:'lines',line:{color:s.accent,width:2,dash:'dash'},name:'r='+r.toFixed(2)});
+    }
+    return{data:t,layout:_axes({showlegend:true,legend:{x:0,y:1.1,orientation:'h'},xaxis:{title:p.x},yaxis:{title:p.y}})};
+  },
+  grouped_bar:function(p,d){
+    var s=p.style,how=p.agg||'sum',a=new Map(),gs=[],seen=new Set();
+    d.forEach(function(r){
+      var k1=_key(r,p.category),k2=_key(r,p.group),v=_num(r[p.value]);
+      if(!seen.has(k1)){seen.add(k1);gs.push(k1);}
+      if(isNaN(v))return;
+      if(!a.has(k2))a.set(k2,new Map());
+      var m=a.get(k2);if(!m.has(k1))m.set(k1,[]);m.get(k1).push(v);
+    });
+    gs=gs.slice(0,s.top_n);
+    var t=Array.from(a.keys()).slice(0,s.series).map(function(k,i){
+      var m=a.get(k);
+      return{x:gs,y:gs.map(function(g){return m.has(g)?_agg(m.get(g),how):0;}),type:'bar',name:k,marker:{color:_color(i),opacity:0.85}};
+    });
+    return{data:t,layout:_axes({barmode:'group',showlegend:true,legend:{orientation:'h',x:0,y:1.12}})};
+  },
+  cscat:function(p,d){
+    var g=new Map();
+    d.forEach(function(r){var x=_num(r[p.x]),y=_num(r[p.y]),k=_key(r,p.group);if(!isNaN(x)&&!isNaN(y)){if(!g.has(k))g.set(k,{x:[],y:[]});g.get(k).x.push(x);g.get(k).y.push(y);}});
+    var t=Array.from(g.keys()).slice(0,p.style.series).map(function(k,i){return{x:g.get(k).x,y:g.get(k).y,type:'scatter',mode:'markers',name:k,marker:{color:_color(i),opacity:0.6,size:5}};});
+    return{data:t,layout:_axes({showlegend:true,legend:{orientation:'h',x:0,y:1.12},xaxis:{title:p.x},yaxis:{title:p.y}})};
+  },
+  box:function(p,d){
+    var g=_groups(d,function(r){return _key(r,p.category);},p.value);
+    var t=Array.from(g.keys()).sort().slice(0,p.style.top_n).map(function(k,i){return{y:g.get(k),type:'box',name:k,marker:{color:_color(i),size:3},boxpoints:'outliers'};});
+    return{data:t,layout:_axes({showlegend:false,yaxis:{title:p.value}})};
+  },
+  corr:function(p,d){
+    var cols=p.columns,n=d.length;if(n<2)return null;
+    var z=cols.map(function(a){return cols.map(function(b){
+      var pr=[];
+      d.forEach(function(row){var x=_num(row[a]),y=_num(row[b]);if(!isNaN(x)&&!isNaN(y))pr.push([x,y]);});
+      if(pr.length<2)return 0;
+      var mx=0,my=0;pr.forEach(function(q){mx+=q[0];my+=q[1];});mx/=pr.length;my/=pr.length;
+      var num=0,dx=0,dy=0;pr.forEach(function(q){num+=(q[0]-mx)*(q[1]-my);dx+=(q[0]-mx)*(q[0]-mx);dy+=(q[1]-my)*(q[1]-my);});
+      return dx&&dy?num/Math.sqrt(dx*dy):0;
+    });});
+    return{data:[{z:z,x:cols,y:cols,type:'heatmap',colorscale:p.style.colorscale,zmid:0,zmin:-1,zmax:1,text:z.map(function(r){return r.map(function(v){return v.toFixed(2);});}),texttemplate:'%{text}',textfont:{size:10}}],
+           layout:{font:{size:11},margin:{l:120,r:20,t:10,b:120}}};
+  },
+  agg_hm:function(p,d){
+    var s=p.style,how=p.agg||'sum',a=new Map(),R=new Set(),C=new Set();
+    d.forEach(function(r){
+      var k1=_key(r,p.category),k2=_key(r,p.group),v=_num(r[p.value]);if(isNaN(v))return;
+      R.add(k1);C.add(k2);
+      var key=k1+'\u0000'+k2;if(!a.has(key))a.set(key,[]);a.get(key).push(v);
+    });
+    var rl=Array.from(R).sort().slice(0,s.top_n),cl=Array.from(C).sort().slice(0,s.top_n);
+    var z=rl.map(function(r){return cl.map(function(c){var v=a.get(r+'\u0000'+c);return v?_agg(v,how):0;});});
+    return{data:[{z:z,x:cl,y:rl,type:'heatmap',colorscale:s.colorscale,text:z.map(function(r){return r.map(_fmt);}),texttemplate:'%{text}',textfont:{size:9}}],
+           layout:{font:{size:11},margin:{l:130,r:20,t:10,b:130}}};
+  },
+  ts:function(p,d){
+    var s=p.style,how=p.agg||'sum',w=s.ma;
+    var bm=_groups(d,function(r){var dt=r[p.date];return dt?String(dt).substring(0,7):null;},p.value);
+    var dates=Array.from(bm.keys()).sort(),vals=dates.map(function(k){return _agg(bm.get(k),how);});
+    var ma=vals.map(function(_,i){if(i<w-1)return null;var t=0;for(var j=i-w+1;j<=i;j++)t+=vals[j];return t/w;});
+    var t=[{x:dates,y:vals,type:'scatter',mode:'lines+markers',name:p.value,line:{color:s.color,width:2},marker:{size:4}},
+           {x:dates.slice(w-1),y:ma.slice(w-1),type:'scatter',mode:'lines',name:w+'-period MA',line:{color:s.accent,width:2,dash:'dot'}}];
+    return{data:t,layout:_axes({showlegend:true,legend:{x:0,y:1.1,orientation:'h'},xaxis:{title:'Date'},yaxis:{title:p.value}})};
+  },
+  dist:function(p,d){
+    var s=p.style,vals=d.map(function(r){return _num(r[p.value]);}).filter(function(v){return!isNaN(v);});
+    if(!vals.length)return null;
+    var g=_T().grid;
+    return{data:[{x:vals,type:'histogram',nbinsx:s.bins,marker:{color:s.color,opacity:0.75},xaxis:'x',yaxis:'y',name:'hist'},
+                 {y:vals,type:'box',marker:{color:s.accent,size:3},xaxis:'x2',yaxis:'y2',boxpoints:'outliers',name:'box'}],
+           layout:{margin:{l:50,r:20,t:10,b:30},grid:{rows:1,columns:2,pattern:'independent'},xaxis:{gridcolor:g},yaxis:{title:'Count',gridcolor:g},xaxis2:{gridcolor:g},yaxis2:{gridcolor:g}}};
+  },
+  geo_scatter:function(p,d){
+    var lts=[],lns=[],txts=[];
+    d.forEach(function(r){var lt=_num(r[p.lat]),ln=_num(r[p.lon]);if(!isNaN(lt)&&!isNaN(ln)){lts.push(lt);lns.push(ln);txts.push(p.value?p.value+': '+String(r[p.value]):lt.toFixed(4)+', '+ln.toFixed(4));}});
+    if(!lts.length)return null;
+    return{data:[{type:'scattergeo',lat:lts,lon:lns,mode:'markers',marker:{color:p.style.color,size:6,opacity:0.75,line:{color:'rgba(255,255,255,0.25)',width:0.5}},text:txts,hovertemplate:'%{text}<extra></extra>'}],
+           layout:{geo:_merge(_geo(),{projection:{type:'natural earth'}}),margin:{l:0,r:0,t:10,b:0}}};
+  },
+  geo_choro:function(p,d){
+    var how=p.agg||'sum',a=_groups(d,function(r){var k=_key(r,p.location);return k?k:null;},p.value);
+    var locs=Array.from(a.keys());if(!locs.length)return null;
+    return{data:[{type:'choropleth',locations:locs,z:locs.map(function(k){return _agg(a.get(k),how);}),locationmode:p.mode,coloraxis:'coloraxis',hovertemplate:'%{location}: %{z:.2f}<extra></extra>'}],
+           layout:{geo:_geo(),margin:{l:0,r:0,t:10,b:0},coloraxis:{colorscale:p.style.colorscale,showscale:true,colorbar:{thickness:14,len:0.7,tickfont:{color:_T().font,size:10}}}}};
+  }
+};
+
+// The panel's figure, drawn over the theme's frame, with the panel's own
+// layout fields last so they win.
+function figure(p,d){
+  var f=FIG[p.type](p,d);if(!f)return null;
+  var frame={paper_bgcolor:_T().bg,plot_bgcolor:_T().bg,font:{color:_T().font,size:12},autosize:true};
+  return{data:f.data,layout:am(_merge(_merge(frame,f.layout),p.style.layout||{}))};
+}
+function renderPanel(p,d){var f=figure(p,d);if(f)Plotly.react(p.id,f.data,f.layout,PCFG);}
+
+function updKPIs(d){
+  _KPIS.forEach(function(k){
+    var s=_kpi(d,k.col,k.agg),el=document.getElementById(k.el);
+    if(el)el.textContent=s>=1e6?(s/1e6).toFixed(1)+'M':s>=1e3?(s/1e3).toFixed(1)+'K':Math.round(s).toLocaleString();
+  });
+}
+
+function renderAll(d){
+  updKPIs(d);
+  _PANELS.forEach(function(p){try{renderPanel(p,d);}catch(_e){console.warn('chart '+p.id,_e);}});
+}
+// A device page redraws when the reader switches light and dark.
+if(_THEME.device&&typeof window!=='undefined'&&window.matchMedia){
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',function(){renderAll(getFilt());});
+}
+"""
+
+
+def _dash_js(raw_json, panels: list[dict], kpis: list[dict], theme: dict):
+    # json_for_script escapes <, > and &, so no name or value in the panels can
+    # end the <script> block -- and none is ever read as code.
+    state = (
+        f"const _PANELS={json_for_script(panels)};\n"
+        f"const _KPIS={json_for_script(kpis)};\n"
+        f"const _THEME={json_for_script(theme)};\n"
+    )
     return f"""<script>
 let _RAW={raw_json};
-const _TOTAL=_RAW.length;
+{state}const _TOTAL=_RAW.length;
 let _CF={{}};
 let _NF={{}};
 
@@ -1531,16 +1489,7 @@ document.getElementById('modal').addEventListener('click',function(e){{if(e.targ
 document.addEventListener('keydown',function(e){{if(e.key==='Escape')closeM();}});
 document.addEventListener('click',function(e){{if(!e.target.closest('.ddw'))document.querySelectorAll('.ddmenu').forEach(m=>m.classList.add('hid'));}});
 
-function updKPIs(d){{
-{kpi_upd}
-}}
-
-{rfns_str}
-
-function renderAll(d){{
-  updKPIs(d);
-{render_calls}
-}}
+{_RENDERER_JS}
 
 // --- rows table: sortable and paged, over the same filtered rows ---------
 // Rendered from getFilt() so the table and the charts can never disagree about

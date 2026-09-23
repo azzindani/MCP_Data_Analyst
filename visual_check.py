@@ -25,6 +25,7 @@ Checks per page, at each viewport:
   clipped     no axis tick label escapes its own plot box
   overflow    document does not scroll sideways
   contrast    body text is not the same colour as the body background
+  panels      no chart is a light panel on a dark page, or a dark one on a light page
   console     no page errors (a missing plotly.min.js sidecar shows up here)
 
 Usage:
@@ -63,6 +64,7 @@ _PROBE = """() => {
     overflow: doc.scrollWidth - doc.clientWidth,
     color: cs.color,
     background: cs.backgroundColor,
+    panels: plots.map(p => (p._fullLayout || {}).paper_bgcolor).filter(Boolean),
     plotlyLoaded: typeof Plotly !== 'undefined',
   };
 }"""
@@ -91,6 +93,35 @@ def _same_colour(a: str, b: str) -> bool:
         return nums(a) == nums(b)
     except ValueError:
         return False
+
+
+def _rgba(colour: str) -> tuple[float, float, float, float] | None:
+    """'#rrggbb', 'rgb(...)' or 'rgba(...)' as 0-1 channels; None for anything else."""
+    c = colour.strip().lower()
+    try:
+        if c.startswith("#") and len(c) == 7:
+            return (int(c[1:3], 16) / 255, int(c[3:5], 16) / 255, int(c[5:7], 16) / 255, 1.0)
+        if c.startswith("rgb"):
+            parts = [float(x) for x in c[c.index("(") + 1 : c.index(")")].split(",")]
+            return (parts[0] / 255, parts[1] / 255, parts[2] / 255, parts[3] if len(parts) > 3 else 1.0)
+    except ValueError:
+        return None
+    return None
+
+
+def _luminance(colour: str) -> float | None:
+    rgba = _rgba(colour)
+    if rgba is None or rgba[3] == 0:
+        return None  # transparent: the page shows through, so it cannot clash
+    return 0.2126 * rgba[0] + 0.7152 * rgba[1] + 0.0722 * rgba[2]
+
+
+def _clashing_panels(background: str, panels: list[str]) -> list[str]:
+    """Charts whose own background is the opposite of the page they sit on."""
+    page = _luminance(background)
+    if page is None:
+        return []
+    return [p for p in panels if (lum := _luminance(p)) is not None and abs(lum - page) > 0.5]
 
 
 def check(paths: list[str], widths: list[int], scheme: str, shots: Path | None) -> int:
@@ -134,6 +165,9 @@ def check(paths: list[str], widths: list[int], scheme: str, shots: Path | None) 
                     problems.append(f"page scrolls sideways by {r['overflow']}px")
                 if _same_colour(r["color"], r["background"]):
                     problems.append(f"body text and background are both {r['color']}")
+                clash = _clashing_panels(r["background"], r["panels"])
+                if clash:
+                    problems.append(f"{len(clash)} chart(s) drawn {clash[0]} on a {r['background']} page")
                 if errors:
                     problems.append(f"{len(errors)} console error(s): {errors[0][:70]}")
 

@@ -495,7 +495,7 @@ so a typo silently chose a date interpretation and the response said nothing.
 |---|---|
 | `run_eda` | Fast EDA: stats, nulls, correlations, outliers — saves HTML. `target_column` adds an association ranking and a leakage panel; `compare_to` adds drift; `mode` / `sample_n` / `include` control depth |
 | `generate_auto_profile` | Full column profile: per-column charts, correlation network, quality dashboard |
-| `generate_dashboard` | Interactive HTML dashboard: KPI cards, sparklines, violin plots, geo maps. Accepts a declarative `spec`, and `sources=[…]` for extra files as tabs |
+| `generate_dashboard` | Interactive HTML dashboard: KPI cards, sparklines, violin plots, geo maps. Accepts a declarative `spec`, and `sources=[…]` for extra files as tabs. Every card is a panel in the page's own `_PANELS` document -- its columns, aggregate, title and style (colour, caps, bins, moving-average window, layout) -- drawn by one renderer over the theme; a `device` page follows the reader's light/dark setting |
 | `customize_dashboard` | Edit a saved dashboard's embedded spec and re-render — a JSON change, not a described-in-prose rebuild |
 | `generate_chart` | 13 chart types: bar, pie, line, scatter, geo, treemap, radius, time_series, sunburst, waterfall, funnel, parallel_coords, sankey |
 | `generate_geo_map` | Scatter map (lat/lon) or choropleth (country/state) — auto-detected |

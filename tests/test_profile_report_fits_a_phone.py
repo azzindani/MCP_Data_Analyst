@@ -30,6 +30,7 @@ import pytest
 
 from servers.data_advanced.engine import generate_auto_profile
 from shared.html_theme import data_table_html
+from tests.dashboard_page import NODE, drawn
 
 
 @pytest.fixture()
@@ -175,11 +176,15 @@ class TestDashboardChartsKeepTheirAxisLabels:
     def test_the_helper_is_defined(self, tmp_path):
         assert "function am(l)" in self._dashboard(tmp_path)
 
+    @pytest.mark.skipif(NODE is None, reason="node is not installed")
     def test_every_chart_render_goes_through_it(self, tmp_path):
-        page = self._dashboard(tmp_path)
-        assert "am(layout)" in page
-        # No render may bypass it, or that chart clips again.
-        assert ",layout," not in page
+        # No render may bypass it, or that chart clips again: every axis of
+        # every figure the page draws carries automargin.
+        figures = drawn(self._dashboard(tmp_path))["figures"]
+        assert figures
+        for cid, f in figures.items():
+            axes = [k for k in f["layout"] if k.startswith(("xaxis", "yaxis"))]
+            assert all(f["layout"][k].get("automargin") is True for k in axes), cid
 
     def test_geo_layouts_are_not_given_cartesian_axes(self, tmp_path):
         """A map has no x/y axis; inventing one would be meaningless."""

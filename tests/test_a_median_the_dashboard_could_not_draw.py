@@ -7,8 +7,8 @@ and a sum was drawn in its place.
 
 Each aggregator in the page (bar, KPI, time series, grouped bar, heatmap,
 choropleth) now hands median / count / count_distinct to one reducer, `_agg`.
-These tests run the page's own JavaScript in node and check the numbers,
-including that a missing value is never counted.
+These tests run the page's own script in node and check the numbers in the
+figures it draws, including that a missing value is never counted.
 """
 
 from __future__ import annotations
@@ -28,7 +28,9 @@ for _p in (str(ROOT), str(ROOT / "servers" / "data_advanced")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from _adv_dashboard import _js_kpi_expr, generate_dashboard  # noqa: E402
+from _adv_dashboard import generate_dashboard  # noqa: E402
+
+from tests.dashboard_page import drawn, run_js  # noqa: E402
 
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
 
@@ -41,31 +43,13 @@ ROWS = [
 ]
 
 
-def _function(html: str, name: str) -> str:
-    start = html.index(f"function {name}(")
-    depth, i = 0, html.index("{", start)
-    while True:
-        depth += html[i] == "{"
-        depth -= html[i] == "}"
-        i += 1
-        if depth == 0:
-            return html[start:i]
+def _traces(html: str, card: str) -> list:
+    """The traces the page hands Plotly for one card, drawn from ROWS."""
+    return drawn(html, rows=ROWS)["figures"][card]["data"]
 
 
-def _run(html: str, fn: str) -> list:
-    """Call rf-function `fn` on ROWS and return the traces it handed Plotly."""
-    program = (
-        _function(html, "_num")
-        + "\n"
-        + _function(html, "_agg")
-        + "\n"
-        + _function(html, fn)
-        + "\nvar out=null;var Plotly={react:function(id,t){out=t;}};function am(l){return l;}"
-        + f"\n{fn}({json.dumps(ROWS)});console.log(JSON.stringify(out));"
-    )
-    done = subprocess.run(["node", "-e", program], capture_output=True, text=True, timeout=60)
-    assert done.returncode == 0, done.stderr[-2000:]
-    return json.loads(done.stdout.strip().splitlines()[-1])
+def _card(html: str, prefix: str) -> str:
+    return next(cid for cid in drawn(html, rows=ROWS)["figures"] if cid.startswith(prefix))
 
 
 def _page(tmp_path: Path, **kw) -> str:
@@ -84,7 +68,7 @@ def _env(tmp_path, monkeypatch):
 
 def _bar(tmp_path, agg) -> dict:
     html = _page(tmp_path, spec={"layout": [{"chart": "bar", "cols": {"category": "g", "value": "v"}, "agg": agg}]})
-    trace = _run(html, "rf_p0_bar")[0]
+    trace = _traces(html, "p0_bar")[0]
     return dict(zip(trace["x"], trace["y"], strict=True))
 
 
@@ -100,30 +84,20 @@ def test_bar(tmp_path, agg, a, b):
 @pytest.mark.parametrize(("agg", "want"), [("median", 6), ("count", 4), ("count_distinct", 3)])
 def test_kpi(tmp_path, agg, want):
     html = _page(tmp_path)
-    program = (
-        _function(html, "_num")
-        + "\n"
-        + _function(html, "_agg")
-        + f"\nvar d={json.dumps(ROWS)};console.log(JSON.stringify({_js_kpi_expr('v', agg)}));"
-    )
-    done = subprocess.run(["node", "-e", program], capture_output=True, text=True, timeout=60)
-    assert done.returncode == 0, done.stderr[-2000:]
-    assert json.loads(done.stdout.strip()) == pytest.approx(want)
+    assert run_js(html, f"_kpi({json.dumps(ROWS)}, 'v', {json.dumps(agg)})") == pytest.approx(want)
 
 
 def test_time_series_median_per_month(tmp_path):
     spec = {"layout": [{"chart": "line", "cols": {"date": "day", "value": "v"}, "agg": "median"}]}
-    trace = _run(_page(tmp_path, spec=spec), "rf_p0_line")[0]
+    trace = _traces(_page(tmp_path, spec=spec), "p0_line")[0]
     assert dict(zip(trace["x"], trace["y"], strict=True)) == {"2024-01": 10, "2024-02": 6}
 
 
 def test_grouped_bar_and_heatmap_take_an_override(tmp_path):
     html = _page(tmp_path, agg_overrides=["v:count"])
-    grp = next(n for n in re.findall(r"function (rf_grp_\w+)\(", html))
-    counts = {t["name"]: dict(zip(t["x"], t["y"], strict=True)) for t in _run(html, grp)}
+    counts = {t["name"]: dict(zip(t["x"], t["y"], strict=True)) for t in _traces(html, _card(html, "grp_"))}
     assert counts["x"]["a"] == 1, "the missing value in (a, x) is not counted"
-    hm = next(n for n in re.findall(r"function (rf_aghm_\w+)\(", html))
-    z = _run(html, hm)[0]["z"]
+    z = _traces(html, _card(html, "aghm_"))[0]["z"]
     assert sorted(v for row in z for v in row) == [0, 1, 1, 2]
 
 

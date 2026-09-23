@@ -7,8 +7,8 @@ and in JavaScript ``+null`` is ``0`` -- which passes the templates'
 became 0, and the KPI mean sank, while the Python-side first paint of the same
 KPI (which drops missing values) showed the right number until the script ran.
 
-These tests run the generated JavaScript itself, in node, on rows with missing
-values, and check the numbers it produces.
+These tests run the page's own script, in node, on rows with missing values,
+and check the numbers in the figures and KPIs it produces.
 """
 
 from __future__ import annotations
@@ -28,7 +28,9 @@ for _p in (str(ROOT), str(ROOT / "servers" / "data_advanced")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from _adv_dashboard import _js_kpi_expr, generate_dashboard  # noqa: E402
+from _adv_dashboard import generate_dashboard  # noqa: E402
+
+from tests.dashboard_page import drawn, run_js  # noqa: E402
 
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
 
@@ -40,25 +42,6 @@ ROWS = [
 ]
 
 
-def _function(html: str, name: str) -> str:
-    """The source of `function name(...){...}` from the page, by brace matching."""
-    start = html.index(f"function {name}(")
-    depth, i = 0, html.index("{", start)
-    while True:
-        ch = html[i]
-        depth += ch == "{"
-        depth -= ch == "}"
-        i += 1
-        if depth == 0:
-            return html[start:i]
-
-
-def _node(program: str) -> object:
-    done = subprocess.run(["node", "-e", program], capture_output=True, text=True, timeout=60)
-    assert done.returncode == 0, done.stderr[-2000:]
-    return json.loads(done.stdout.strip().splitlines()[-1])
-
-
 def _bar_values(tmp_path: Path, agg: str) -> dict:
     tmp_path.mkdir(parents=True, exist_ok=True)
     csv = tmp_path / "g.csv"
@@ -67,15 +50,8 @@ def _bar_values(tmp_path: Path, agg: str) -> dict:
     r = generate_dashboard(str(csv), output_path=str(tmp_path / "g.html"), open_after=False, spec=spec)
     assert r["success"] is True, r
     html = Path(r["output_path"]).read_text(encoding="utf-8")
-    program = (
-        _function(html, "_num")
-        + "\n"
-        + _function(html, "rf_p0_bar")
-        + "\nvar out=null;var Plotly={react:function(id,t){out={};t[0].x.forEach(function(k,i){out[k]=t[0].y[i];});}};"
-        + "function am(l){return l;}"
-        + f"\nrf_p0_bar({json.dumps(ROWS)});console.log(JSON.stringify(out));"
-    )
-    return _node(program)  # type: ignore[return-value]
+    trace = drawn(html, rows=ROWS)["figures"]["p0_bar"]["data"][0]
+    return dict(zip(trace["x"], trace["y"], strict=True))
 
 
 @pytest.fixture(autouse=True)
@@ -97,6 +73,4 @@ def test_a_kpi_ignores_missing_values(tmp_path, agg, want):
     pd.DataFrame({"v": [1.0, 2.0]}).to_csv(csv, index=False)
     r = generate_dashboard(str(csv), output_path=str(tmp_path / "k.html"), open_after=False)
     html = Path(r["output_path"]).read_text(encoding="utf-8")
-    expr = _js_kpi_expr("v", agg)
-    program = _function(html, "_num") + f"\nvar d={json.dumps(ROWS)};console.log(JSON.stringify({expr}));"
-    assert _node(program) == pytest.approx(want)
+    assert run_js(html, f"_kpi({json.dumps(ROWS)}, 'v', {json.dumps(agg)})") == pytest.approx(want)

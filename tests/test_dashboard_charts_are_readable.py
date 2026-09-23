@@ -34,12 +34,13 @@ were.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
+
+from tests.dashboard_page import NODE, drawn
 
 
 def _generate(*a, **kw):
@@ -107,31 +108,67 @@ class TestConstantColumnsAreNotCharted:
         assert "by only" not in out.read_text(encoding="utf-8")
 
 
+# The classes below read the figures the page's renderer actually draws (run in
+# node by tests/dashboard_page.py), not the text of the script that draws them:
+# a string in the source says nothing about which chart, if any, uses it.
+needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
+
+
+def _cartesian(figures: dict) -> dict:
+    """The figures drawn on x/y axes -- not pies or maps, whatever axes am() gives their layout."""
+    flat = ("pie", "scattergeo", "choropleth")
+    return {cid: f for cid, f in figures.items() if f["data"] and f["data"][0]["type"] not in flat}
+
+
+@needs_node
 class TestAxisLabelsStayLevelUnlessCrowded:
-    def test_the_fixed_rotation_is_gone(self, rendered: str):
-        assert "tickangle:-38" not in rendered
+    def test_rotation_is_left_to_plotly_on_every_axis_that_has_categories(self, rendered: str):
+        figures = drawn(rendered)["figures"]
+        bars = {cid: f for cid, f in figures.items() if f["data"] and f["data"][0]["type"] == "bar"}
+        assert bars, "the fixture draws bar charts"
+        for cid, f in bars.items():
+            assert f["layout"]["xaxis"]["tickangle"] == "auto", cid
 
-    def test_rotation_is_left_to_plotly(self, rendered: str):
-        assert "tickangle:'auto'" in rendered
+    def test_no_chart_pins_the_old_rotation(self, rendered: str):
+        for cid, f in drawn(rendered)["figures"].items():
+            assert f["layout"].get("xaxis", {}).get("tickangle") != -38, cid
 
 
+def _pie(tmp_path: Path, categories: int) -> dict:
+    p = tmp_path / f"pie{categories}.csv"
+    pd.DataFrame({"kind": [f"k{i % categories}" for i in range(200)], "v": range(200)}).to_csv(p, index=False)
+    out = tmp_path / f"pie{categories}.html"
+    r = _generate(str(p), output_path=str(out), open_after=False, spec={"layout": [{"chart": "pie"}]})
+    assert r["success"] is True, r.get("error")
+    return drawn(out.read_text(encoding="utf-8"))["figures"]["p0_pie"]["data"][0]
+
+
+@needs_node
 class TestPieLabelsDegradeWithSliceCount:
-    def test_label_choice_depends_on_the_number_of_slices(self, rendered: str):
-        assert "e.length>6?'percent':'label+percent'" in rendered
+    def test_a_few_slices_are_labelled(self, tmp_path: Path):
+        assert _pie(tmp_path, 4)["textinfo"] == "label+percent"
 
-    def test_slice_text_is_kept_inside_the_slice(self, rendered: str):
+    def test_many_slices_keep_only_the_percent(self, tmp_path: Path):
+        assert _pie(tmp_path, 9)["textinfo"] == "percent"
+
+    def test_slice_text_is_kept_inside_the_slice(self, tmp_path: Path):
         """Outside placement is what produced the overlapping leader lines."""
-        assert "textposition:'inside'" in rendered
-        assert "insidetextorientation:'horizontal'" in rendered
+        trace = _pie(tmp_path, 9)
+        assert trace["textposition"] == "inside"
+        assert trace["insidetextorientation"] == "horizontal"
 
 
+@needs_node
 class TestLegendsDoNotSitOnTheTickLabels:
-    def test_no_horizontal_legend_is_placed_below_the_axis(self, rendered: str):
-        """y:-0.3 is inside the band that rotated tick labels occupy."""
-        assert "legend:{orientation:'h',y:-0.3}" not in rendered
+    def test_no_legend_of_a_chart_with_axes_is_placed_below_them(self, rendered: str):
+        """Below the plot is the band rotated tick labels occupy."""
+        for cid, f in _cartesian(drawn(rendered)["figures"]).items():
+            legend = f["layout"].get("legend") or {}
+            assert legend.get("y", 1) >= 0, cid
 
-    def test_every_axis_still_grows_to_fit_its_labels(self, rendered: str):
-        """am() applies automargin to every layout; the hand-written layouts
-        must keep delegating to it rather than each setting their own."""
-        assert re.search(r"function am\(l\)", rendered)
-        assert "automargin=true" in rendered
+    def test_every_axis_grows_to_fit_its_labels(self, rendered: str):
+        figures = _cartesian(drawn(rendered)["figures"])
+        assert figures
+        for cid, f in figures.items():
+            axes = [k for k in f["layout"] if k.startswith(("xaxis", "yaxis"))]
+            assert axes and all(f["layout"][k].get("automargin") is True for k in axes), cid

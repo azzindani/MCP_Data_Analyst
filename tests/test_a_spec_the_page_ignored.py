@@ -30,6 +30,7 @@ for _p in (str(ROOT), str(ROOT / "servers" / "data_advanced")):
 from _adv_dashboard import customize_dashboard, generate_dashboard  # noqa: E402
 
 from shared.dashboard_spec import LAYOUT_SOURCE_KEY  # noqa: E402
+from tests.dashboard_page import NODE, drawn  # noqa: E402
 
 
 @pytest.fixture
@@ -116,16 +117,21 @@ class TestACallerLayout:
         r = make(sales, spec=spec)
         html = page(r)
         assert cards(html) == ["p0_pie"], "one panel, one card -- no detected extras"
-        assert "(+r['revenue']||0)" in html, "the pie sums the value it was given"
         assert r["charts_included"] == ["pie"]
+        if NODE:  # the pie sums the value it was given -- read off the figure the page draws
+            trace = drawn(html)["figures"]["p0_pie"]["data"][0]
+            want = pd.read_csv(sales).groupby("region")["revenue"].sum()
+            assert dict(zip(trace["labels"], trace["values"], strict=True)) == pytest.approx(want.to_dict())
 
     def test_columns_and_agg_are_the_panels_own(self, sales):
         spec = {"layout": [{"chart": "bar", "cols": {"category": "channel", "value": "units"}, "agg": "mean"}]}
         html = page(make(sales, spec=spec))
         assert cards(html) == ["p0_bar"]
         assert "Avg units by channel" in html
-        rf = html.split("function rf_p0_bar(d)")[1].split("function rf_")[0]
-        assert "r['channel']" in rf and "r['units']" in rf and "cnt[k]" in rf
+        if NODE:  # the bar is the mean of units per channel, as drawn
+            trace = drawn(html)["figures"]["p0_bar"]["data"][0]
+            want = pd.read_csv(sales).groupby("channel")["units"].mean()
+            assert dict(zip(trace["x"], trace["y"], strict=True)) == pytest.approx(want.to_dict())
 
     def test_an_empty_panel_is_filled_by_the_detector(self, sales):
         spec = {"layout": [{"chart": "scatter"}, {"chart": "histogram"}, {"chart": "box", "cols": {}}]}

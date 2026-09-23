@@ -34,6 +34,8 @@ for _p in (str(ROOT), str(ROOT / "servers" / "data_advanced")):
 
 from _adv_dashboard import generate_dashboard  # noqa: E402
 
+from tests.dashboard_page import drawn  # noqa: E402
+
 HOSTILE = {
     "region": "<img src=x onerror=alert(1)>",
     "channel": "re\"gion' </script>",
@@ -136,7 +138,7 @@ def test_hostile_names_add_no_markup(tmp_path, with_spec):
 @pytest.mark.parametrize("with_spec", [False, True], ids=["detected", "caller-layout"])
 def test_every_inline_script_still_parses(tmp_path, with_spec):
     html = _build(tmp_path, HOSTILE, "hostile", _spec(HOSTILE) if with_spec else None)
-    scripts = [s for s in _shape(html).scripts if "function rf_" in s or "numCh" in s or "ddChange" in s]
+    scripts = [s for s in _shape(html).scripts if "_PANELS" in s or "numCh" in s or "ddChange" in s]
     assert scripts, "the page's own script was not found"
     for i, body in enumerate(scripts):
         src = tmp_path / f"script_{i}.js"
@@ -149,3 +151,15 @@ def test_the_names_still_read_as_themselves(tmp_path):
     # Escaping must not mangle what a reader sees: the label is the column name.
     html = _build(tmp_path, HOSTILE, "hostile", _spec(HOSTILE))
     assert "rev&#x27;enue" in html or "rev'enue" in re.sub(r"<script.*?</script>", "", html, flags=re.S)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+@pytest.mark.parametrize("with_spec", [False, True], ids=["detected", "caller-layout"])
+def test_every_card_is_drawn_from_its_hostile_columns(tmp_path, with_spec):
+    # Parsing is not drawing. A name is data in the page's _PANELS document,
+    # so every card still reads its column by that exact name.
+    out = drawn(_build(tmp_path, HOSTILE, "hostile", _spec(HOSTILE) if with_spec else None))
+    assert out["warnings"] == []
+    assert set(out["figures"]) == {p["id"] for p in out["panels"]}
+    for p in out["panels"]:
+        assert all(t for t in out["figures"][p["id"]]["data"]), p["id"]
