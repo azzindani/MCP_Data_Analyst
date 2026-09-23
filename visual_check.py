@@ -41,6 +41,8 @@ Needs `playwright install chromium` once.
 from __future__ import annotations
 
 import argparse
+import json
+import re
 import sys
 from pathlib import Path
 
@@ -68,6 +70,31 @@ _PROBE = """() => {
     plotlyLoaded: typeof Plotly !== 'undefined',
   };
 }"""
+
+
+# Dashboard panels drawn as HTML or written once -- not Plotly figures.
+_NOT_FIGURES = frozenset({"section", "text", "kpi", "table"})
+
+
+def _declared(source: str) -> int:
+    """How many figures the page will draw when it loads.
+
+    Counting "Plotly.newPlot" in the whole source counted text inside an inlined
+    Plotly bundle and the expand dialog's plot, which is only drawn on a click,
+    while a dashboard draws its cards with Plotly.react from _PANELS -- so a
+    page with few cards reported one it never meant to draw as missing. Count
+    the page's own newPlot calls, and its figure panels.
+    """
+    own = [
+        body
+        for body in re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", source, flags=re.S | re.I)
+        if "plotly.js v" not in body[:4000]
+    ]
+    count = sum(len(re.findall(r"Plotly\.newPlot\(\s*['\"](?!mdiv['\"])", body)) for body in own)
+    panels = re.search(r"const _PANELS=(\[.*?\]);\n", source)
+    if panels:
+        count += sum(1 for p in json.loads(panels.group(1)) if p.get("type") not in _NOT_FIGURES)
+    return count
 
 
 def _pages(paths: list[str]) -> list[Path]:
@@ -142,7 +169,7 @@ def check(paths: list[str], widths: list[int], scheme: str, shots: Path | None) 
         ctx = browser.new_context(color_scheme=scheme)
         for page_path in pages:
             source = page_path.read_text(encoding="utf-8", errors="replace")
-            declared = source.count("Plotly.newPlot")
+            declared = _declared(source)
             for width in widths:
                 errors: list[str] = []
                 pg = ctx.new_page()

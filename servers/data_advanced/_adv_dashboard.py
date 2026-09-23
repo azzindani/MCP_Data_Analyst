@@ -142,7 +142,12 @@ PANEL_STYLE: dict[str, dict] = {
     "dist": {"color": "#58a6ff", "accent": "#f0883e", "bins": 50},
     "geo_scatter": {"color": "#58a6ff"},
     "geo_choro": {"colorscale": "YlOrRd"},
+    "table": {"top_n": 10},
 }
+
+# Panels drawn as HTML by the renderer, and panels that are static once written.
+HTML_PANELS = ("kpi", "table")
+STATIC_PANELS = ("section", "text")
 
 
 def _panel(spec: dict, title: str, style: dict | None = None) -> dict:
@@ -155,6 +160,15 @@ def _panel(spec: dict, title: str, style: dict | None = None) -> dict:
 # rule beats a card's inline span, which on a one-column grid would open
 # eleven implicit columns and push the page sideways.
 _PLACE_CSS = (
+    ".cc-sec{grid-column:1/-1;padding:.75rem .125rem .125rem;font-size:.9375rem;font-weight:600;"
+    "color:var(--text);border-bottom:1px solid var(--border)}"
+    ".cc-body--auto{height:auto;max-height:26rem;overflow:auto;padding:.875rem 1rem}"
+    ".ptext{white-space:pre-wrap;color:var(--text);font-size:.875rem;line-height:1.55;margin:0}"
+    ".kpi-big{font-size:clamp(1.5rem,3vw,2.25rem);font-weight:700;color:var(--accent);line-height:1.2}"
+    ".kpi-sub{font-size:.75rem;color:var(--text-muted);margin-top:.25rem}"
+    ".ptable{width:100%;border-collapse:collapse;font-size:.8125rem;color:var(--text)}"
+    ".ptable th,.ptable td{padding:.375rem .5rem;border-bottom:1px solid var(--border);text-align:left}"
+    ".ptable .num{text-align:right;font-variant-numeric:tabular-nums}"
     ".cgrid.g12{grid-template-columns:repeat(12,minmax(0,1fr))}"
     "@media(max-width:68.75rem){.cgrid.g12{grid-template-columns:minmax(0,1fr)}"
     ".cgrid.g12>.cc{grid-column:1/-1!important}}"
@@ -535,10 +549,25 @@ def generate_dashboard(
         # Placement is all or nothing per page: one placed panel puts the page
         # on the 12-column grid, where every card states its span.
         placed = panel_plan is not None and any(entry[5] for entry in panel_plan)
-        h.append(f'<div class="sec-hdr">Charts</div><div class="cgrid{" g12" if placed else ""}">')
+        h.append('<div class="sec-hdr">Charts</div>')
+        # The tab bar goes here, above the cards it shows and hides, once the
+        # cards exist; it used to be written after the grid, under them.
+        tabs_at = len(h)
+        h.append(f'<div class="cgrid{" g12" if placed else ""}">')
         if panel_plan is not None:
             for chart_spec, title, full, height, style, place in panel_plan:
-                _card(h, chart_spec["id"], title, full, height, (place or {}) if placed else None)
+                if chart_spec["type"] == "section":
+                    h.append(f'<div class="cc-sec" id="{chart_spec["id"]}">{_html_esc.escape(title)}</div>')
+                else:
+                    _card(
+                        h,
+                        chart_spec["id"],
+                        title,
+                        full,
+                        height,
+                        (place or {}) if placed else None,
+                        chart_spec.get("text"),
+                    )
                 chart_specs.append(_panel(chart_spec, title, style))
         else:
             _build_chart_cards(
@@ -560,7 +589,7 @@ def generate_dashboard(
         if resolved["interactions"].get("table"):
             h.append(_dash_table(embed_df, int(resolved["interactions"].get("table_page_size") or 25)))
         if resolved.get("tabs"):
-            h.append(_dash_tabs(resolved["tabs"], chart_specs))
+            h.insert(tabs_at, _dash_tabs(resolved["tabs"], chart_specs))
         if source_frames:
             h.append("</section>")
             page_size = int(resolved["interactions"].get("table_page_size") or 25)
@@ -904,10 +933,15 @@ def _dash_kpi_row(df, numeric_cols, sparklines, quality, qual_clr, col_agg):
     return "\n".join(h)
 
 
-def _card(h, cid: str, ttl: str, full: bool, height: int, place: dict | None = None) -> None:
+def _card(h, cid: str, ttl: str, full: bool, height: int, place: dict | None = None, text: str | None = None) -> None:
+    """A card: a Plotly figure's box, or -- with `height` 0 -- an HTML body (a KPI, a table, a note).
+
+    `text` is a note's own words, escaped and written once; the renderer
+    fills every other HTML body from the filtered rows.
+    """
     cls = "cc full" if full else "cc"
     # Use CSS class for height — tall (>380 px original) gets cc-body--tall
-    body_cls = "cc-body--tall" if height > 380 else "cc-body"
+    body_cls = "cc-body--auto" if height == 0 else "cc-body--tall" if height > 380 else "cc-body"
     te = _html_esc.escape(ttl)
     # On a placed page (the g12 grid) every card says its span; a panel that
     # names none takes the width it has on the default grid.
@@ -918,6 +952,14 @@ def _card(h, cid: str, ttl: str, full: bool, height: int, place: dict | None = N
         card_style = f' style="grid-column:span {span}"'
         if place.get("height"):
             body_style = f' style="height:{int(place["height"])}px"'
+    if height == 0:
+        # No figure to expand; the body sizes to what it holds.
+        inner = f'<p class="ptext">{_html_esc.escape(text)}</p>' if text is not None else ""
+        h.append(
+            f'<div class="{cls}"{card_style}><div class="cc-hdr"><h3>{te}</h3></div>'
+            f'<div class="{body_cls}" id="{cid}"{body_style}>{inner}</div></div>'
+        )
+        return
     h.append(
         f'<div class="{cls}"{card_style}>'
         f'<div class="cc-hdr"><h3>{te}</h3>'
@@ -1024,6 +1066,34 @@ def _plan_panels(layout, df, cat_cols, numeric_cols, datetime_cols, geo, col_agg
             cc = str(cols.get("category") or ("" if cols or not cat_cols else cat_cols[0]))
             title = f"{nc} distribution by {cc}" if cc else f"{nc} distribution"
             plan.append(({"id": cid, "type": "box", "value": nc, "category": cc}, title, True, 380))
+        elif kind == "section":
+            plan.append(({"id": f"p{i}_section", "type": "section"}, str(panel.get("title")), True, 0))
+        elif kind == "text":
+            plan.append(
+                (
+                    {"id": cid, "type": "text", "text": str(panel.get("text"))},
+                    str(panel.get("title") or "Note"),
+                    False,
+                    0,
+                )
+            )
+        elif kind == "kpi":
+            nc = pick("value", numeric_cols, "numeric column")
+            agg = named_agg or col_agg.get(nc, "sum")
+            plan.append(({"id": cid, "type": "kpi", "value": nc, "agg": agg}, f"{agg_label(agg)} {nc}", False, 0))
+        elif kind == "table":
+            cc = pick("category", cat_cols, "text column with 2-100 values")
+            nc = pick("value", numeric_cols, "numeric column")
+            agg = named_agg or col_agg.get(nc, "sum")
+            spec = {
+                "id": cid,
+                "type": "table",
+                "category": cc,
+                "value": nc,
+                "agg": agg,
+                "header": f"{agg_label(agg)} {nc}",
+            }
+            plan.append((spec, f"{agg_label(agg)} {nc} by {cc}", False, 0))
         elif kind == "geo_scatter":
             lat = pick("lat", [lat_d] if lat_d else [], "latitude column")
             lon = pick("lon", [lon_d] if lon_d else [], "longitude column")
@@ -1270,17 +1340,38 @@ function _legend(s,dflt){
 var _DARK_FIRST={Blues:1,Greens:1,Greys:1,Reds:1,YlGnBu:1,YlOrRd:1,Hot:1,Blackbody:1,Earth:1};
 function _scale(name){return{colorscale:name,reversescale:!!_DARK_FIRST[name]};}
 
+// [category, aggregate] pairs: the top_n largest (the smallest, for min),
+// then ordered by the panel's `sort`. A bar and a table rank the same way.
+function _ranked(p,d){
+  var s=p.style,how=p.agg||'sum';
+  var e=Array.from(_groups(d,function(r){return _key(r,p.category);},p.value),function(g){return[g[0],_agg(g[1],how)];});
+  var asc=function(x,y){return x[1]-y[1];},desc=function(x,y){return y[1]-x[1];};
+  e.sort(how==='min'?asc:desc);
+  e=e.slice(0,s.top_n);
+  if(s.sort==='asc')e.sort(asc);else if(s.sort==='desc')e.sort(desc);
+  else if(s.sort==='label')e.sort(function(x,y){return String(x[0]).localeCompare(String(y[0]));});
+  return e;
+}
+function _esc(v){return String(v).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+
+// Cards drawn as HTML, from the same filtered rows as every figure. Every
+// value is escaped: a category or a column name is data, never markup.
+const HTMLP={
+  kpi:function(p,d){
+    var s=p.style,v=_kpi(d,p.value,p.agg||'sum');
+    return'<div class="kpi-big"'+(s.color?' style="color:'+_esc(s.color)+'"':'')+'>'+_esc(_fmtv(v,s))+'</div>'
+      +'<div class="kpi-sub">over '+_esc(d.length.toLocaleString('en-US'))+' rows</div>';
+  },
+  table:function(p,d){
+    var s=p.style,rows=_ranked(p,d).map(function(i){return'<tr><td>'+_esc(i[0])+'</td><td class="num">'+_esc(_fmtv(i[1],s))+'</td></tr>';});
+    return'<table class="ptable"><thead><tr><th>'+_esc(p.category)+'</th><th class="num">'+_esc(p.header)+'</th></tr></thead><tbody>'+rows.join('')+'</tbody></table>';
+  }
+};
+
 const FIG={
   bar:function(p,d){
     var s=p.style,how=p.agg||'sum';
-    var e=Array.from(_groups(d,function(r){return _key(r,p.category);},p.value),function(g){return[g[0],_agg(g[1],how)];});
-    // The top_n kept are the largest (the smallest, for min); `sort` then
-    // orders what was kept.
-    var asc=function(x,y){return x[1]-y[1];},desc=function(x,y){return y[1]-x[1];};
-    e.sort(how==='min'?asc:desc);
-    e=e.slice(0,s.top_n);
-    if(s.sort==='asc')e.sort(asc);else if(s.sort==='desc')e.sort(desc);
-    else if(s.sort==='label')e.sort(function(x,y){return String(x[0]).localeCompare(String(y[0]));});
+    var e=_ranked(p,d);
     var named=e.map(function(i){return _catColor(p,i[0]);});
     var t={x:e.map(function(i){return i[0];}),y:e.map(function(i){return i[1];}),type:'bar',
       marker:{color:named.some(Boolean)?named.map(function(c){return c||s.color;}):s.color,opacity:0.85}};
@@ -1406,7 +1497,11 @@ function figure(p,d){
   var frame={paper_bgcolor:_T().bg,plot_bgcolor:_T().bg,font:{color:_T().font,size:12},autosize:true};
   return{data:f.data,layout:am(_merge(_merge(frame,f.layout),p.style.layout||{}))};
 }
-function renderPanel(p,d){var f=figure(p,d);if(f)Plotly.react(p.id,f.data,f.layout,PCFG);}
+function renderPanel(p,d){
+  if(HTMLP[p.type]){var el=document.getElementById(p.id);if(el)el.innerHTML=HTMLP[p.type](p,d);return;}
+  if(!FIG[p.type])return;  // a section or a note: written once, nothing to redraw
+  var f=figure(p,d);if(f)Plotly.react(p.id,f.data,f.layout,PCFG);
+}
 
 function updKPIs(d){
   _KPIS.forEach(function(k){

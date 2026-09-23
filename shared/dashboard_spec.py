@@ -54,6 +54,12 @@ CHART_KINDS: tuple[str, ...] = (
     "box",
     "geo_scatter",
     "choropleth",
+    # Panels that are not plots: a heading across the grid, a note, one
+    # number, and a table of grouped totals -- the last two follow the filters.
+    "section",
+    "text",
+    "kpi",
+    "table",
 )
 
 # What each chart needs before it can be drawn. Stated once, so a refusal can
@@ -68,6 +74,10 @@ CHART_NEEDS: dict[str, tuple[str, ...]] = {
     "box": ("value",),
     "geo_scatter": ("lat", "lon"),
     "choropleth": ("location", "value"),
+    "section": (),
+    "text": (),
+    "kpi": ("value",),
+    "table": ("category", "value"),
 }
 
 THEMES: tuple[str, ...] = ("device", "light", "dark")
@@ -94,7 +104,8 @@ SPEC_KEYS: tuple[str, ...] = ("title", "theme", "layout", "kpis", "filters", "ta
 # What a panel may carry. Anything else -- "width", "title", a typo of "cols" --
 # used to be accepted and dropped, which is the failure this module exists to
 # refuse.
-PANEL_KEYS: tuple[str, ...] = ("slot", "chart", "cols", "agg", "title", "style", "place")
+PANEL_KEYS: tuple[str, ...] = ("slot", "chart", "cols", "agg", "title", "style", "place", "text")
+MAX_TEXT = 2000
 
 # How a panel looks, field by field, and which charts read each field. A field
 # a chart does not draw is refused by name rather than accepted and dropped.
@@ -137,6 +148,10 @@ CHART_STYLE: dict[str, tuple[str, ...]] = {
     "box": ("palette", "colors", "top_n", "y_scale", "format", "prefix", "suffix"),
     "geo_scatter": ("color",),
     "choropleth": ("colorscale", "format", "prefix", "suffix"),
+    "section": (),
+    "text": (),
+    "kpi": ("color", "format", "prefix", "suffix"),
+    "table": ("top_n", "sort", "format", "prefix", "suffix"),
 }
 # The page's own style: a palette, and colours by category value that every
 # panel uses -- so "North" is one colour wherever it is drawn.
@@ -156,7 +171,7 @@ DATE_ROLES = frozenset({"date"})
 # A panel's `agg` means something only where values are grouped; a pie shows
 # shares of a total, so the only aggregate it can draw is a sum.
 PANEL_AGGS: tuple[str, ...] = ("sum", "mean", "median", "max", "min", "count", "count_distinct")
-AGG_CHARTS: tuple[str, ...] = ("bar", "line", "time_series", "pie", "choropleth")
+AGG_CHARTS: tuple[str, ...] = ("bar", "line", "time_series", "pie", "choropleth", "kpi", "table")
 
 # Set by the generator when the layout is its own detection rather than the
 # caller's, so a round-trip through customize_dashboard redraws the detected
@@ -339,6 +354,14 @@ def validate(spec: dict[str, Any] | None, df) -> dict[str, Any]:
                 isinstance(panel["title"], str) and 0 < len(panel["title"].strip()) <= MAX_TITLE
             ):
                 raise SpecError(f"layout[{i}].title must be text of 1 to {MAX_TITLE} characters")
+            if "text" in panel and chart != "text":
+                raise SpecError(f"layout[{i}] is a {chart} panel; only a text panel takes text")
+            if chart == "text" and not (
+                isinstance(panel.get("text"), str) and 0 < len(panel["text"].strip()) <= MAX_TEXT
+            ):
+                raise SpecError(f"layout[{i}] is a text panel and needs text: 1 to {MAX_TEXT} characters")
+            if chart == "section" and not panel.get("title"):
+                raise SpecError(f"layout[{i}] is a section, a heading across the grid, and needs a title")
             if panel.get("style") is not None:
                 validate_panel_style(f"layout[{i}]", chart, panel["style"])
             if panel.get("place") is not None:

@@ -8,7 +8,8 @@ exactly like one that obeyed until something reads the figure.
 
 `drawn(html)` runs the page's main script against a stub DOM and a Plotly
 that records each `Plotly.react`, then returns {card id: {"data", "layout"}},
-the KPI texts by element id, and the page's console warnings. `rows` replaces
+the KPI texts by element id, the HTML the renderer wrote into each HTML panel
+(a KPI, a table), and the page's console warnings. `rows` replaces
 the embedded data, the way the filter bar hands the renderer a subset.
 """
 
@@ -24,7 +25,7 @@ NODE = shutil.which("node")
 _STUB = r"""
 var __figs={}, __els={}, __warn=[];
 function __el(id){
-  if(!__els[id])__els[id]={id:id,textContent:'',style:{},dataset:{},
+  if(!__els[id])__els[id]={id:id,textContent:'',innerHTML:'',style:{},dataset:{},
     classList:{add(){},remove(){},toggle(){},contains(){return false;}},
     addEventListener(){},setAttribute(){},getAttribute(){return null;},
     querySelector(){return null;},querySelectorAll(){return [];},appendChild(){}};
@@ -57,7 +58,8 @@ def drawn(html: str, rows: list[dict] | None = None, dark: bool = False) -> dict
     tail = "__figs={};renderAll(" + (json.dumps(rows) if rows is not None else "_RAW") + ");"
     tail += (
         "var __k={};_KPIS.forEach(function(k){__k[k.el]=__el(k.el).textContent;});"
-        "process.stdout.write(JSON.stringify({figures:__figs,kpis:__k,warnings:__warn,panels:_PANELS}));"
+        "var __h={};Object.keys(__els).forEach(function(id){if(__els[id].innerHTML)__h[id]=__els[id].innerHTML;});"
+        "process.stdout.write(JSON.stringify({figures:__figs,kpis:__k,html:__h,warnings:__warn,panels:_PANELS}));"
     )
     program = _STUB.replace("__DARK__", "true" if dark else "false") + main_script(html) + "\n" + tail
     done = subprocess.run([NODE, "-"], input=program, capture_output=True, encoding="utf-8", timeout=120)
