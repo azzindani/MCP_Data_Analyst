@@ -90,6 +90,30 @@ def is_numeric_col(series: pd.Series) -> bool:
     return pd.api.types.is_numeric_dtype(series) and not pd.api.types.is_bool_dtype(series)
 
 
+def name_words(col: str) -> set[str]:
+    """The words of a column name: split at separators and camelCase humps, lower-cased.
+
+    A plural counts as its singular too ("ratings" is a rating), so a keyword
+    list does not have to carry both.
+    """
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", str(col))
+    words = {w for w in re.split(r"[^a-z0-9]+", spaced.lower()) if w}
+    return words | {w[:-1] for w in words if len(w) > 3 and w.endswith("s")}
+
+
+# A keyword this long is distinctive enough to find inside a run-together name
+# ("averageprice", "populationdensity"). A short one is not: matched as a
+# substring, "low" made followers a minimum, "top" made laptop_sales a maximum,
+# "temp" averaged attempts and "prob" averaged problems_reported.
+_SUBSTRING_MIN_LEN = 7
+
+
+def _names_any(words: set[str], lower: str, keywords: frozenset[str]) -> bool:
+    if words & keywords:
+        return True
+    return any(len(k) >= _SUBSTRING_MIN_LEN and k in lower for k in keywords)
+
+
 def infer_agg(col: str, series: pd.Series | None = None) -> str:
     """
     Infer the best aggregation function for a numeric column.
@@ -102,14 +126,13 @@ def infer_agg(col: str, series: pd.Series | None = None) -> str:
     3. Default: sum
     """
     lower = col.lower()
-    words = set(re.split(r"[^a-zA-Z]+", lower))
-    words.discard("")
+    words = name_words(col)
 
-    if words & _AGG_MEAN or any(k in lower for k in _AGG_MEAN):
+    if _names_any(words, lower, _AGG_MEAN):
         return "mean"
-    if words & _AGG_MAX or any(k in lower for k in _AGG_MAX):
+    if _names_any(words, lower, _AGG_MAX):
         return "max"
-    if words & _AGG_MIN or any(k in lower for k in _AGG_MIN):
+    if _names_any(words, lower, _AGG_MIN):
         return "min"
 
     # Distribution heuristic: proportion/rate columns sit in [0, 1]

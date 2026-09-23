@@ -24,6 +24,17 @@ All notable changes to this project will be documented in this file.
   the column, and reading the number silently would have turned a year-over-year
   difference into `1.0`.
 
+### Fixed — the aggregate is guessed from a column's words, not letters inside them
+
+- `infer_agg` (the dashboard, pivot tables and lag correlation) matched its
+  keywords as substrings, so `followers` became a minimum ("low"),
+  `laptop_sales` a maximum ("top"), `attempts` a mean ("temp"),
+  `database_size` a minimum ("base") and `problems_reported` a mean ("prob").
+  All of those are counts to be summed. Keywords now match whole words, with
+  camelCase split and plurals included. Only keywords of seven letters or more
+  (`average`, `percent`, `density`, …) are still found inside a run-together
+  name like `averageprice`.
+
 ### Security — a column name can no longer run as code in a dashboard
 
 - Column names come from the CSV, and the dashboard wrote them raw into
