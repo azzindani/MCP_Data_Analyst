@@ -1,31 +1,36 @@
-"""A tool name that keeps answering after its successor took over the job.
+"""A tool name that keeps answering after it leaves tools/list.
 
-Four medium-tier tools duplicate a newer sibling: `extended_stats` is the same
-function the statistics server serves, `statistical_tests` runs a subset of
-`statistical_test`'s seventeen tests without its alpha, effect size or
-post-hoc, `filter_rows` is what `filter_dataset` was upgraded from, and
-`compute_aggregations` is `aggregate_dataset` in groupby mode. Every name in
-`tools/list` costs a model attention on every turn, so a duplicate is not free.
+Every name in `tools/list` costs a model attention on every turn. Two cases
+drop a name from the list without breaking anyone who learned it:
 
-Retiring a name drops it from `tools/list` and nothing else: a caller that
-learned it keeps getting the same answer, and that answer says which tool now
-does the job, so the caller moves on. The tool is still declared in the
-server's source and documented in the README as retired.
+- A duplicate whose successor does the job. MCP_Data_Analyst's medium tier
+  served `extended_stats` (the statistics server's own function),
+  `statistical_tests` (a subset of `statistical_test`), `filter_rows` (what
+  `filter_dataset` was upgraded from) and `compute_aggregations`
+  (`aggregate_dataset` in groupby mode). Each still answers, and its answer
+  names the tool to use (`note=True`, the default).
+- A tool now reached as an `action` of a domain tool on the same server
+  (shared/domain_tools.py). It still answers under its own name, unchanged
+  and without a note (`note=False`): the domain tool calls the same tool, and
+  a note there would tell the caller to use what it is already using.
+
+The tool stays registered and declared in source; only the listing changes.
 """
 
 from __future__ import annotations
 
 import functools
+import inspect
 from typing import Any
 
 
-def retire(mcp: Any, successors: dict[str, str]) -> None:
-    """Drop each name in `successors` from tools/list; it still answers, naming its successor.
+def retire(mcp: Any, successors: dict[str, str], note: bool = True) -> None:
+    """Drop each name in `successors` from tools/list; it still answers.
 
-    `successors` maps a retired name to the tool that replaces it, e.g.
-    {"statistical_tests": "statistical_test on the statistics server"}.
-    Raises KeyError for a name this server does not register, so a typo cannot
-    silently retire nothing.
+    `successors` maps a retired name to what replaces it, e.g.
+    {"statistical_tests": "statistical_test on the statistics server"}. With
+    `note`, each answer carries `retired` naming it. Raises KeyError for a name
+    this server does not register, so a typo cannot silently retire nothing.
     """
     manager = mcp._tool_manager
     missing = sorted(name for name in successors if name not in manager._tools)
@@ -41,17 +46,31 @@ def retire(mcp: Any, successors: dict[str, str]) -> None:
         list_tools.__retired__ = retired  # type: ignore[attr-defined]
         manager.list_tools = list_tools
     retired.update(successors)
+    if not note:
+        return
     for name, successor in successors.items():
         tool = manager._tools[name]
         tool.fn = _naming_successor(tool.fn, name, successor)
 
 
 def _naming_successor(fn: Any, name: str, successor: str) -> Any:
+    text = f"{name} is no longer listed; use {successor}, which does this job."
+    if inspect.iscoroutinefunction(fn):
+
+        @functools.wraps(fn)
+        async def answering_async(*a: Any, **kw: Any) -> Any:
+            result = await fn(*a, **kw)
+            if isinstance(result, dict):
+                result["retired"] = text
+            return result
+
+        return answering_async
+
     @functools.wraps(fn)
     def answering(*a: Any, **kw: Any) -> Any:
         result = fn(*a, **kw)
         if isinstance(result, dict):
-            result["retired"] = f"{name} is no longer listed; use {successor}, which does this job."
+            result["retired"] = text
         return result
 
     return answering
