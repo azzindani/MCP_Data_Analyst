@@ -24,6 +24,16 @@ All notable changes to this project will be documented in this file.
   the column, and reading the number silently would have turned a year-over-year
   difference into `1.0`.
 
+### Added — median, count and distinct count in the dashboard
+
+- `agg_overrides` and a panel's `agg` accept `median`, `count` and
+  `count_distinct` (aliases `nunique`, `distinct`, `unique`, `n`) alongside
+  sum/mean/max/min. Every aggregator in the page (bar, KPI, time series,
+  grouped bar, heatmap, choropleth) hands them to one reducer, `_agg`, which
+  never counts or ranks a missing value. KPI labels read "Median units",
+  "Count of orders", "Distinct customer_id". The KPI's first paint, computed in
+  Python, agrees with the number the script computes.
+
 ### Fixed — a missing value is not a zero in the dashboard's numbers
 
 - The dashboard recomputes every chart and KPI in the browser, reading each

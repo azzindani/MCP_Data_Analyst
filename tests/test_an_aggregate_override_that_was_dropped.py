@@ -43,7 +43,9 @@ class TestTheParser:
         got = parse_agg_overrides(["a=avg", "b:average", "c:total", "d:maximum", "e:minimum"])
         assert got == {"a": "mean", "b": "mean", "c": "sum", "d": "max", "e": "min"}
 
-    @pytest.mark.parametrize("item", ["units:count", "units:median"])
+    # Re-anchored when median and count became drawable: the property is that an
+    # aggregate the dashboard cannot draw is refused by name.
+    @pytest.mark.parametrize("item", ["units:mode", "units:variance"])
     def test_an_aggregate_it_cannot_draw_is_refused_with_the_ones_it_can(self, item):
         with pytest.raises(ValueError) as exc:
             parse_agg_overrides([item])
@@ -68,9 +70,9 @@ class TestTheParser:
 
     def test_every_problem_is_named_in_one_refusal(self):
         with pytest.raises(ValueError) as exc:
-            parse_agg_overrides(["units:count", "revenue mean", "nosuchcol:sum"], ["revenue", "units"])
+            parse_agg_overrides(["units:mode", "revenue mean", "nosuchcol:sum"], ["revenue", "units"])
         message = str(exc.value)
-        assert "units:count" in message and "revenue mean" in message and "nosuchcol" in message
+        assert "units:mode" in message and "revenue mean" in message and "nosuchcol" in message
 
 
 @pytest.fixture
@@ -93,9 +95,9 @@ def sales(tmp_path, monkeypatch):
 class TestTheDashboard:
     def test_a_refused_override_writes_nothing(self, sales, tmp_path):
         out = tmp_path / "dash.html"
-        r = generate_dashboard(str(sales), output_path=str(out), open_after=False, agg_overrides=["units:median"])
+        r = generate_dashboard(str(sales), output_path=str(out), open_after=False, agg_overrides=["units:mode"])
         assert r["success"] is False
-        assert "median" in r["error"]
+        assert "mode" in r["error"]
         assert not out.exists()
 
     def test_an_honoured_override_reaches_the_page(self, sales, tmp_path):

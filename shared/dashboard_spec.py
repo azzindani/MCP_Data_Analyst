@@ -104,7 +104,7 @@ DATE_ROLES = frozenset({"date"})
 
 # A panel's `agg` means something only where values are grouped; a pie shows
 # shares of a total, so the only aggregate it can draw is a sum.
-PANEL_AGGS: tuple[str, ...] = ("sum", "mean", "max", "min")
+PANEL_AGGS: tuple[str, ...] = ("sum", "mean", "median", "max", "min", "count", "count_distinct")
 AGG_CHARTS: tuple[str, ...] = ("bar", "line", "time_series", "pie", "choropleth")
 
 # Set by the generator when the layout is its own detection rather than the

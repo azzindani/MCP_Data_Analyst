@@ -73,6 +73,11 @@ def _bad_source(name: str, why: str) -> dict:
     }
 
 
+# Aggregates the page computes from every value in a group rather than a
+# running total: _agg() in the page script does the work.
+ARRAY_AGGS = ("median", "count", "count_distinct")
+
+
 def _safe(s: str) -> str:
     return _re.sub(r"[^a-zA-Z0-9]", "_", str(s))
 
@@ -121,6 +126,13 @@ def _js_specs(chart_specs: list[dict]) -> list[dict]:
 
 def _js_agg_block(agg: str, key_expr: str, val_expr: str, top_n: int = 25) -> str:
     """Return JS that builds sorted entries `e` using the given agg function."""
+    if agg in ARRAY_AGGS:
+        return (
+            f"var a={{}};\n"
+            f"  d.forEach(function(r){{var k={key_expr},v={val_expr};(a[k]=a[k]||[]).push(v);}});\n"
+            f"  var e=Object.entries(a).map(function(p){{return[p[0],_agg(p[1],'{agg}')];}})"
+            f".sort((x,y)=>y[1]-x[1]).slice(0,{top_n});\n"
+        )
     if agg == "mean":
         return (
             f"var a={{}},cnt={{}};\n"
@@ -156,6 +168,8 @@ def _js_agg_block(agg: str, key_expr: str, val_expr: str, top_n: int = 25) -> st
 def _js_kpi_expr(nc: str, agg: str) -> str:
     """Return a JS expression (no semicolon) that computes the KPI scalar."""
     v = f"d.map(function(r){{return _num(r['{nc}']);}}).filter(function(v){{return!isNaN(v);}})"
+    if agg in ARRAY_AGGS:
+        return f"_agg({v},'{agg}')"
     if agg == "mean":
         return f"(function(){{var v={v};return v.length?v.reduce(function(a,b){{return a+b;}},0)/v.length:0;}})()"
     if agg == "max":
@@ -168,6 +182,13 @@ def _js_kpi_expr(nc: str, agg: str) -> str:
 
 def _js_ts_block(dc: str, nc: str, agg: str) -> tuple[str, str]:
     """Return (accumulation_js, vals_expr) for a time-series render function."""
+    if agg in ARRAY_AGGS:
+        acc = (
+            f"var bm={{}};\n"
+            f"  d.forEach(function(r){{var dt=r['{dc}'],v= _num(r['{nc}']);"
+            f"if(dt){{var ym=String(dt).substring(0,7);(bm[ym]=bm[ym]||[]).push(v);}}}});\n"
+        )
+        return acc, "dates.map(function(d){return bm[d]?_agg(bm[d],'" + agg + "'):0;})"
     if agg == "mean":
         acc = (
             f"var bm={{}};\n"
@@ -921,7 +942,13 @@ def _dash_kpi_row(df, numeric_cols, sparklines, quality, qual_clr, col_agg):
         sc = _safe(nc)
         sv = sparklines.get(nc, [])
         series = df[nc].dropna()
-        if agg == "mean":
+        if agg == "median":
+            init_val = float(series.median()) if len(series) else 0.0
+        elif agg == "count":
+            init_val = float(series.count())
+        elif agg == "count_distinct":
+            init_val = float(series.nunique())
+        elif agg == "mean":
             init_val = float(series.mean()) if len(series) else 0.0
         elif agg == "max":
             init_val = float(series.max()) if len(series) else 0.0
@@ -1256,7 +1283,10 @@ def _build_render_functions(
         elif t == "grouped_bar":
             cc1, cc2, nc = s["cc1"], s["cc2"], s["nc"]
             agg = s.get("agg", "sum")
-            if agg == "mean":
+            if agg in ARRAY_AGGS:
+                inner_acc = "if(!isNaN(v)){if(!a[k2])a[k2]={};(a[k2][k1]=a[k2][k1]||[]).push(v);}"
+                val_expr = "(a[k]&&a[k][g])?_agg(a[k][g],'" + agg + "'):0"
+            elif agg == "mean":
                 inner_acc = (
                     "if(!isNaN(v)){if(!a[k2])a[k2]={};if(!a[k2][k1])a[k2][k1]={s:0,n:0};a[k2][k1].s+=v;a[k2][k1].n++;}"
                 )
@@ -1295,7 +1325,10 @@ def _build_render_functions(
         elif t == "agg_hm":
             cc1, cc2, nc = s["cc1"], s["cc2"], s["nc"]
             agg = s.get("agg", "sum")
-            if agg == "mean":
+            if agg in ARRAY_AGGS:
+                inner_acc = "Rs.add(r1);Cs.add(c1);if(!a[r1])a[r1]={};(a[r1][c1]=a[r1][c1]||[]).push(v);"
+                z_val = "(a[r]&&a[r][c])?_agg(a[r][c],'" + agg + "'):0"
+            elif agg == "mean":
                 inner_acc = "Rs.add(r1);Cs.add(c1);if(!a[r1])a[r1]={};if(!a[r1][c1])a[r1][c1]={s:0,n:0};a[r1][c1].s+=v;a[r1][c1].n++;"
                 z_val = "a[r]&&a[r][c]?a[r][c].s/a[r][c].n:0"
             elif agg == "max":
@@ -1332,7 +1365,9 @@ def _build_render_functions(
         elif t == "geo_choro":
             loc_c, nc, mode = s["loc"], s["nc"], s["mode"]
             agg = s.get("agg", "sum")
-            if agg == "mean":
+            if agg in ARRAY_AGGS:
+                choro_acc = f"var a={{}};\n  d.forEach(function(r){{var k=String(r['{loc_c}']??''),v= _num(r['{nc}']);if(k)(a[k]=a[k]||[]).push(v);}});\n  var locs=Object.keys(a),vals=locs.map(k=>_agg(a[k],'{agg}'));"
+            elif agg == "mean":
                 choro_acc = f"var a={{}},cnt={{}};\n  d.forEach(function(r){{var k=String(r['{loc_c}']??''),v= _num(r['{nc}']);if(k&&!isNaN(v)){{a[k]=(a[k]||0)+v;cnt[k]=(cnt[k]||0)+1;}}}});\n  var locs=Object.keys(a),vals=locs.map(k=>a[k]/(cnt[k]||1));"
             elif agg == "max":
                 choro_acc = f"var a={{}};\n  d.forEach(function(r){{var k=String(r['{loc_c}']??''),v= _num(r['{nc}']);if(k&&!isNaN(v))a[k]=(a[k]===undefined||v>a[k])?v:a[k];}});\n  var locs=Object.keys(a),vals=locs.map(k=>a[k]);"
@@ -1371,6 +1406,17 @@ let _NF={{}};
 // counted a missing value as a real zero: a group with [10, missing] averaged
 // to 5, its minimum became 0, the KPI mean sank. _num keeps missing missing.
 function _num(v){{return(v===null||v===undefined||v==='')?NaN:+v;}}
+// The aggregates that need every value, not a running total. Missing values
+// (NaN from _num) are never counted or ranked.
+function _agg(v,how){{var x=v.filter(function(a){{return!isNaN(a);}});
+  if(how==='count')return x.length;
+  if(how==='count_distinct')return new Set(x).size;
+  if(!x.length)return 0;
+  if(how==='median'){{x.sort(function(a,b){{return a-b;}});var m=x.length>>1;return x.length%2?x[m]:(x[m-1]+x[m])/2;}}
+  if(how==='mean')return x.reduce(function(a,b){{return a+b;}},0)/x.length;
+  if(how==='max')return x.reduce(function(a,b){{return a>b?a:b;}});
+  if(how==='min')return x.reduce(function(a,b){{return a<b?a:b;}});
+  return x.reduce(function(a,b){{return a+b;}},0);}}
 
 (function(){{
   const _SAVED=sessionStorage.getItem('dash-filters');

@@ -225,12 +225,30 @@ def parse_date_column(series: pd.Series, named: bool = False, threshold: float =
 
 def agg_label(agg: str) -> str:
     """Human-readable label prefix for an aggregation function."""
-    return {"sum": "Total", "mean": "Avg", "max": "Max", "min": "Min"}.get(agg, "Total")
+    return {
+        "sum": "Total",
+        "mean": "Avg",
+        "median": "Median",
+        "max": "Max",
+        "min": "Min",
+        "count": "Count of",
+        "count_distinct": "Distinct",
+    }.get(agg, "Total")
 
 
-OVERRIDE_AGGS: tuple[str, ...] = ("sum", "mean", "max", "min")
+OVERRIDE_AGGS: tuple[str, ...] = ("sum", "mean", "median", "max", "min", "count", "count_distinct")
 
-_AGG_ALIASES = {"avg": "mean", "average": "mean", "total": "sum", "maximum": "max", "minimum": "min"}
+_AGG_ALIASES = {
+    "avg": "mean",
+    "average": "mean",
+    "total": "sum",
+    "maximum": "max",
+    "minimum": "min",
+    "nunique": "count_distinct",
+    "distinct": "count_distinct",
+    "unique": "count_distinct",
+    "n": "count",
+}
 
 
 def parse_agg_overrides(overrides: list[str] | None, columns: list[str] | None = None) -> dict[str, str]:

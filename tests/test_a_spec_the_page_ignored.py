@@ -159,7 +159,7 @@ class TestRefusals:
             ({"chart": "bar", "cols": {"category": "channel", "value": "region"}}, "value='region' is not numeric"),
             ({"chart": "scatter", "agg": "mean"}, "agg applies to"),
             ({"chart": "pie", "cols": {"category": "region", "value": "units"}, "agg": "mean"}, "only agg is sum"),
-            ({"chart": "bar", "agg": "median"}, "'median' is not one of"),
+            ({"chart": "bar", "agg": "mode"}, "'mode' is not one of"),
             ({"chart": "line", "cols": {"date": "region", "value": "units"}}, "is not read as a date"),
         ],
     )
