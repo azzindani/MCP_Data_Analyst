@@ -702,6 +702,7 @@ For lower-memory machines, set `MCP_CONSTRAINED_MODE=1` in the `env` section of 
 | Variable | Default | Description |
 |---|---|---|
 | `MCP_CONSTRAINED_MODE` | `0` | Set to `1` for low-memory machines |
+| `MCP_REGEX_SECONDS` | `10` (`5` constrained) | Matching time one call's regular expression may use; a pattern still running is stopped and refused by name |
 | `MCP_OUTPUT_DIR` | `~/Downloads` | Where generated charts/reports/CSVs land by default |
 | `MCP_PUBLIC_BASE_URL` | _(unset)_ | Public URL serving `MCP_OUTPUT_DIR`; adds `public_url` to results |
 | `MCP_FETCH_URLS` | `0` | `1` lets any `file_path` argument be an `http(s)` URL |

@@ -25,6 +25,7 @@ from shared.patch_validator import (
     normalize_condition,
 )
 from shared.progress import fail, ok  # noqa: F401 — re-exported for convenience
+from shared.regex_guard import Guard
 
 # The eight the conditional-labelling branch below implements. Named as a
 # subset of the shared table so the refusal message can never offer an op
@@ -463,22 +464,14 @@ def _op_extract_regex(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     group = op.get("group", 0)
 
     try:
-        compiled = re.compile(pattern_str)
+        guard = Guard(pattern_str)
     except re.error as exc:
         raise ValueError(f"Invalid regex pattern: {exc}")
 
-    def _extract(val):
-        if not isinstance(val, str):
-            return None
-        m = compiled.search(val)
-        if m is None:
-            return None
-        try:
-            return m.group(group)
-        except IndexError:
-            return None
-
-    results = df[col].apply(_extract)
+    # Matched in a worker the server can stop (shared/regex_guard): a pattern
+    # with nested repeats used to hang this op on a 29-character cell.
+    with guard:
+        results = pd.Series(guard.first(df[col].tolist(), group), index=df.index)
     matched = int(results.notna().sum())
     failed = len(df) - matched
     df[new_col] = results
@@ -1201,7 +1194,7 @@ def _op_conditional_assign(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, di
         elif cop == "lte":
             mask = df[col] <= val
         elif cop == "contains":
-            mask = df[col].astype(str).str.contains(str(val), na=False)
+            mask = df[col].astype(str).str.contains(str(val), regex=False, na=False)
         elif cop == "isin":
             mask = df[col].isin(val if isinstance(val, list) else [val])
         else:
@@ -1227,7 +1220,7 @@ def _op_split_column(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
     n_splits = int(op.get("n_splits", -1))
     if col not in df.columns:
         raise ValueError(f"Column not found: {col}. Available: {list(df.columns)}")
-    split_df = df[col].astype(str).str.split(delimiter, n=n_splits if n_splits > 0 else -1, expand=True)
+    split_df = df[col].astype(str).str.split(delimiter, n=n_splits if n_splits > 0 else -1, expand=True, regex=False)
     created = []
     if new_columns:
         for i, nc in enumerate(new_columns):

@@ -799,7 +799,7 @@ def _apply_condition(df: pd.DataFrame, cond: dict) -> pd.Series:
     if op == "not_equals":
         return s != val
     if op == "contains":
-        return s.astype(str).str.contains(str(val), case=False, na=False)
+        return s.astype(str).str.contains(str(val), case=False, regex=False, na=False)
     if op == "gt":
         return pd.to_numeric(s, errors="coerce") > float(val)
     if op == "gte":
@@ -874,7 +874,7 @@ def _apply_condition(df: pd.DataFrame, cond: dict) -> pd.Series:
     if op == "not_contains":
         # Present in data_transform since it shipped, never here. Same table
         # now names it, so this server has to be able to answer it.
-        return ~s.astype(str).str.contains(str(val), case=False, na=False)
+        return ~s.astype(str).str.contains(str(val), case=False, regex=False, na=False)
     # Unreachable for a resolvable op -- `resolve_op` above raises first, with
     # the valid list and a did_you_mean. Kept so a newly added canonical op
     # that nobody wired up here fails loudly instead of silently matching all.

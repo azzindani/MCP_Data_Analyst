@@ -138,9 +138,9 @@ def _apply_condition(df: pd.DataFrame, cond: dict) -> pd.Series:
     elif op == "not_equals":
         return s != cond["value"]
     elif op == "contains":
-        return s.astype(str).str.contains(str(cond["value"]), na=False)
+        return s.astype(str).str.contains(str(cond["value"]), regex=False, na=False)
     elif op == "not_contains":
-        return ~s.astype(str).str.contains(str(cond["value"]), na=False)
+        return ~s.astype(str).str.contains(str(cond["value"]), regex=False, na=False)
     elif op == "starts_with":
         return s.astype(str).str.startswith(str(cond["value"]), na=False)
     elif op == "ends_with":
@@ -433,7 +433,7 @@ def reshape_dataset(
                     "progress": [fail("Column not found", split_column)],
                     "token_estimate": 20,
                 }
-            parts = df[split_column].astype(str).str.split(delimiter, expand=True)
+            parts = df[split_column].astype(str).str.split(delimiter, expand=True, regex=False)
             if new_columns:
                 parts.columns = new_columns[: len(parts.columns)]
             else:
