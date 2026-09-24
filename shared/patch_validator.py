@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from shared.semantic import KINDS as SEMANTIC_KINDS
+
 # The group_transform vocabulary lives here, not beside the handler, because
 # the validator and the handler must never disagree about what is legal --
 # _patch_ops imports these back. Reducers collapse a group to one number and
@@ -108,6 +110,7 @@ VALID_OPS: frozenset[str] = frozenset(
         "normalize",
         "label_encode",
         "extract_regex",
+        "normalize_format",
         "date_diff",
         "rank_column",
         # filtering & sorting
@@ -199,6 +202,7 @@ _OP_FIELDS: dict[str, frozenset[str]] = {
     "drop_duplicates": frozenset({"subset", "keep"}),
     "ewm": frozenset({"column", "new_column", "span"}),
     "extract_regex": frozenset({"column", "group", "new_column", "pattern"}),
+    "normalize_format": frozenset({"column", "kind"}),
     "fill_nulls": frozenset({"column", "fill_zeros", "strategy", "value"}),
     "filter_between": frozenset({"column", "inclusive", "max", "min"}),
     "filter_date_range": frozenset({"column", "end", "start"}),
@@ -462,6 +466,14 @@ def validate_ops(ops: list[dict]) -> list[str]:
         elif op_name == "label_encode":
             if "column" not in op:
                 errors.append(f"{prefix} (label_encode): missing 'column'")
+
+        elif op_name == "normalize_format":
+            if "column" not in op:
+                errors.append(f"{prefix} (normalize_format): missing 'column'")
+            if "kind" in op and op["kind"] not in SEMANTIC_KINDS:
+                errors.append(
+                    f"{prefix} (normalize_format): invalid kind {op['kind']!r}. Valid: {', '.join(SEMANTIC_KINDS)}"
+                )
 
         elif op_name == "extract_regex":
             if "column" not in op:

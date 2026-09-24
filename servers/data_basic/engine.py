@@ -1243,6 +1243,10 @@ _OP_CATALOG: dict[str, list[dict]] = {
         {"op": "label_encode", "params": "column, new_column"},
         {"op": "extract_regex", "params": "column, pattern, new_column"},
         {
+            "op": "normalize_format",
+            "params": "column, kind: email|iban|card|phone|postal (default: inferred from the column)",
+        },
+        {
             "op": "date_diff",
             "params": "date_col_a, date_col_b, new_column, unit: days|months|years (computes date_col_a minus date_col_b)",
         },

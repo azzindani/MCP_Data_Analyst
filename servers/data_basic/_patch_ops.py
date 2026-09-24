@@ -24,8 +24,12 @@ from shared.patch_validator import (
     GROUP_REDUCERS,
     normalize_condition,
 )
+from shared.platform_utils import get_max_rows
 from shared.progress import fail, ok  # noqa: F401 — re-exported for convenience
 from shared.regex_guard import Guard
+from shared.semantic import KINDS as SEMANTIC_KINDS
+from shared.semantic import infer_kind, is_valid
+from shared.semantic import normalize as normalize_value
 
 # The eight the conditional-labelling branch below implements. Named as a
 # subset of the shared table so the refusal message can never offer an op
@@ -481,6 +485,38 @@ def _op_extract_regex(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
         "new_column": new_col,
         "matched": matched,
         "failed": failed,
+    }
+
+
+def _op_normalize_format(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
+    """One spelling per value of a kind (shared/semantic.py): +15551234567, GB82WEST..., a@example.com.
+
+    A value that is not a valid `kind` is left exactly as it was and counted,
+    with its rows, so the caller can see what the op declined to touch.
+    """
+    col = op["column"]
+    if col not in df.columns:
+        raise ValueError(f"Column not found: {col}. Available: {list(df.columns)}")
+    kind = op.get("kind")
+    if kind is None:
+        kind, _rate = infer_kind(df[col].dropna().tolist())
+        if kind is None:
+            raise ValueError(
+                f"Column {col!r} is not 90% one kind ({', '.join(SEMANTIC_KINDS)}); pass kind to say which."
+            )
+    present = df[col].notna()
+    before = df[col].copy()
+    df[col] = df[col].map(lambda v: normalize_value(kind, v))
+    invalid = present & ~df[col].map(lambda v: is_valid(kind, v))
+    changed = int((before[present] != df[col][present]).sum())
+    rows = [int(i) for i in df.index[invalid][: get_max_rows()]]
+    return df, {
+        "op": "normalize_format",
+        "column": col,
+        "kind": kind,
+        "changed": changed,
+        "left_invalid": int(invalid.sum()),
+        "invalid_rows": rows,
     }
 
 
@@ -1477,6 +1513,7 @@ OP_HANDLERS: dict[str, object] = {
     "normalize": _op_normalize,
     "label_encode": _op_label_encode,
     "extract_regex": _op_extract_regex,
+    "normalize_format": _op_normalize_format,
     "date_diff": _op_date_diff,
     "rank_column": _op_rank_column,
     # --- filtering & sorting ---

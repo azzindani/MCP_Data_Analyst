@@ -121,9 +121,10 @@ def validate_dataset(
     expected_dtypes: dict = None,
     max_null_pct: float = 5.0,
     check_duplicates: bool = True,
+    semantic_types: dict = None,
 ) -> dict:
     """Validate dataset quality: types nulls duplicates ranges. Score 0-100."""
-    return engine.validate_dataset(file_path, expected_dtypes, max_null_pct, check_duplicates)
+    return engine.validate_dataset(file_path, expected_dtypes, max_null_pct, check_duplicates, semantic_types)
 
 
 @mcp.tool(annotations=READS)

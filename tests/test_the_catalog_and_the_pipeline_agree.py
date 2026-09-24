@@ -128,6 +128,7 @@ def test_the_two_tools_agree_on_every_op(tmp_path):
         "normalize": {"column": "spend", "method": "minmax"},
         "label_encode": {"column": "region", "new_column": "region_code"},
         "extract_regex": {"column": "code", "pattern": r"(\d+)", "new_column": "n"},
+        "normalize_format": {"column": "code", "kind": "postal"},
         "date_diff": {"date_col_a": "d2", "date_col_b": "d1", "new_column": "gap", "unit": "days"},
         "rank_column": {"column": "spend", "new_column": "rk", "method": "dense"},
         "sort": {"by": ["spend"], "ascending": [False]},

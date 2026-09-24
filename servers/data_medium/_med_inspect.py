@@ -68,6 +68,8 @@ from shared.insights import from_outliers, write_insights
 from shared.platform_utils import get_max_results, get_max_rows
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
+from shared.semantic import KINDS as SEMANTIC_KINDS
+from shared.semantic import infer_kind, is_valid
 from shared.small_sample import (
     MIN_N_IQR,
     MIN_N_SHAPIRO,
@@ -493,11 +495,57 @@ def scan_nulls_zeros(
 # ---------------------------------------------------------------------------
 
 
+def _semantic_checks(df: pd.DataFrame, declared: dict, issues: list[dict]) -> dict:
+    """Each text column checked by what it holds (shared/semantic.py): declared, or inferred at 90%.
+
+    The invalid values become issues here and nowhere else: they are this
+    tool's findings, not inputs to the shared quality score.
+    """
+    checks: dict = {}
+    cap = get_max_rows()
+    for col in df.columns:
+        if col in declared:
+            kind, found_by = declared[col], "declared"
+        elif _is_string_col(df[col]):
+            kind, _rate = infer_kind(df[col].dropna().tolist())
+            found_by = "inferred"
+            if kind is None:
+                continue
+        else:
+            continue
+        present = df[col].dropna()
+        present = present[present.astype(str).str.strip() != ""]
+        bad = present[~present.map(lambda v, k=kind: is_valid(k, v if isinstance(v, str) else str(v)))]
+        pct = round(len(bad) / len(present) * 100, 2) if len(present) else 0.0
+        rows = [int(i) for i in bad.index.tolist()[:cap]]
+        checks[str(col)] = {
+            "kind": kind,
+            "found_by": found_by,
+            "checked": int(len(present)),
+            "invalid": int(len(bad)),
+            "invalid_pct": pct,
+            "failing_rows": rows,
+            "failing_rows_truncated": len(bad) > len(rows),
+            "examples": [str(v)[:60] for v in bad.head(3).tolist()],
+        }
+        if len(bad):
+            issues.append(
+                {
+                    "severity": "error",
+                    "column": col,
+                    "issue": f"{len(bad)} invalid {kind} values ({pct}%)",
+                    "failing_rows": rows,
+                }
+            )
+    return checks
+
+
 def validate_dataset(
     file_path: str,
     expected_dtypes: dict = None,
     max_null_pct: float = 5.0,
     check_duplicates: bool = True,
+    semantic_types: dict = None,
 ) -> dict:
     progress = []
     try:
@@ -512,6 +560,22 @@ def validate_dataset(
             }
 
         df = _read_csv(str(path))
+        declared = dict(semantic_types or {})
+        unknown_kinds = {c: k for c, k in declared.items() if k not in SEMANTIC_KINDS}
+        absent = [c for c in declared if c not in df.columns]
+        if unknown_kinds or absent:
+            problems = [f"{c!r}: {k!r} is not a kind" for c, k in unknown_kinds.items()]
+            problems += [f"{c!r} is not a column" for c in absent]
+            return {
+                "success": False,
+                "error": "semantic_types: " + "; ".join(problems),
+                "hint": (
+                    f"Kinds: {', '.join(SEMANTIC_KINDS)}. Columns: "
+                    f"{', '.join(str(c) for c in list(df.columns)[: get_max_results()])}."
+                ),
+                "progress": [fail("semantic_types refused", "; ".join(problems)[:200])],
+                "token_estimate": 40,
+            }
         issues = []
         total_rows = len(df)
         null_summary = {}
@@ -578,6 +642,8 @@ def validate_dataset(
                             }
                         )
 
+        semantic_checks = _semantic_checks(df, declared, issues)
+
         penalty = 0
         for iss in issues:
             if iss["severity"] == "error":
@@ -606,6 +672,8 @@ def validate_dataset(
             "dtype_mismatches": dtype_mismatches,
             "duplicate_count": dup_count,
             "null_summary": null_summary,
+            # failing_rows are row indices, as check_outliers' flagged_rows are.
+            "semantic_checks": semantic_checks,
             "hint": "Call apply_patch() or run_cleaning_pipeline() to act on findings.",
             "progress": progress,
         }
@@ -712,6 +780,14 @@ def auto_detect_schema(
                         info_entry["match_rate"] = round(numeric_match, 3)
                         info_entry["suggestion"] = f"cast_column col={col} dtype=float"
                         suggestions.append(info_entry["suggestion"])
+
+                if info_entry["inferred_type"] is None and len(candidates):
+                    # What the text is, when it is one of shared/semantic's
+                    # kinds: validate_dataset checks every value against it.
+                    kind, rate = infer_kind(list(candidates))
+                    if kind is not None:
+                        info_entry["semantic_type"] = kind
+                        info_entry["semantic_match_rate"] = rate
 
                 if info_entry["inferred_type"] is None:
                     unique_ratio = s.nunique() / max(len(s.dropna()), 1)

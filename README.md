@@ -336,16 +336,16 @@ Files can be referenced anywhere via `workspace:name/alias` syntax — all tools
 | `read_receipt` | Read the operation history log for a file |
 | `list_patch_ops` | List all available `apply_patch` ops; filter by category |
 
-#### `apply_patch` op categories (51 ops total)
+#### `apply_patch` op categories (53 ops total)
 
 | Category | Ops |
 |---|---|
-| **original** (13) | `fill_nulls`, `drop_duplicates`, `clean_text`, `cast_column`, `replace_values`, `add_column`, `cap_outliers`, `drop_column`, `normalize`, `label_encode`, `extract_regex`, `date_diff`, `rank_column` |
+| **original** (14) | `fill_nulls`, `drop_duplicates`, `clean_text`, `cast_column`, `replace_values`, `add_column`, `cap_outliers`, `drop_column`, `normalize`, `label_encode`, `extract_regex`, `normalize_format`, `date_diff`, `rank_column` |
 | **filtering** (9) | `sort`, `filter_isin`, `filter_not_isin`, `filter_between`, `filter_date_range`, `filter_regex`, `filter_quantile`, `filter_top_n`, `dedup_subset` |
 | **numeric** (11) | `log_transform`, `sqrt_transform`, `boxcox_transform`, `yeojohnson_transform`, `robust_scale`, `winsorize`, `bin_column`, `qbin_column`, `clip_values`, `round_values`, `abs_values` |
 | **encoding** (3) | `ordinal_encode`, `binary_encode`, `frequency_encode` |
 | **temporal** (7) | `lag`, `lead`, `diff`, `pct_change`, `rolling_agg`, `ewm`, `cumulative` |
-| **structural** (8) | `column_math`, `conditional_assign`, `split_column`, `combine_columns`, `regex_replace`, `str_slice`, `concat_file`, `melt` |
+| **structural** (9) | `column_math`, `conditional_assign`, `group_transform`, `split_column`, `combine_columns`, `regex_replace`, `str_slice`, `concat_file`, `melt` |
 
 ### Tier 2 — Medium (7 tools, 4 retired)
 
@@ -506,8 +506,8 @@ so a typo silently chose a date interpretation and the response said nothing.
 | `extended_stats` | Deep stats: skewness, kurtosis, percentiles, CI, MAD, CV |
 | `check_outliers` | IQR/std outlier scan |
 | `scan_nulls_zeros` | Null/zero detection + suggested fixes |
-| `validate_dataset` | Data quality score 0–100 |
-| `auto_detect_schema` | Smart column type inference with cleaning suggestions |
+| `validate_dataset` | Data quality score 0–100; checks email, phone, IBAN, postal and card columns (inferred at 90%, or named in `semantic_types`) and lists the invalid values by row |
+| `auto_detect_schema` | Smart column type inference with cleaning suggestions; names a text column's `semantic_type` (email, phone, iban, postal, card) |
 
 ---
 
