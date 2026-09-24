@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import csv
+import hashlib
+import json
 import logging
+import re
 import sys
+import tomllib
 from pathlib import Path
+from typing import Any
 
 _ROOT = str(Path(__file__).resolve().parents[2])
 if _ROOT not in sys.path:
@@ -33,7 +38,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
 _XLSX_EXTS = {".xlsx", ".ods"}
-_ALL_INPUT_EXTS = {".xlsx", ".ods", ".csv", ".json", ".parquet"}
+_ALL_INPUT_EXTS = {".xlsx", ".ods", ".csv", ".json", ".parquet", ".toml", ".xml"}
 _OUTPUT_FMTS = {"csv", "json", "parquet", "excel"}
 _FMT_EXT = {"csv": ".csv", "json": ".json", "parquet": ".parquet", "excel": ".xlsx"}
 
@@ -213,11 +218,11 @@ def _find_tables(ws, min_rows: int, min_cols: int) -> list[dict]:
         row_groups.append((group_start, len(occupied) - 1))
 
     tables = []
-    for rs, re in row_groups:
-        if (re - rs + 1) < min_rows:
+    for rs, rend in row_groups:
+        if (rend - rs + 1) < min_rows:
             continue
         col_occ = [False] * max_col
-        for r in range(rs, re + 1):
+        for r in range(rs, rend + 1):
             for c in range(max_col):
                 if occupied[r][c]:
                     col_occ[c] = True
@@ -234,10 +239,10 @@ def _find_tables(ws, min_rows: int, min_cols: int) -> list[dict]:
                         tables.append(
                             {
                                 "row_start": rs,
-                                "row_end": re,
+                                "row_end": rend,
                                 "col_start": cs,
                                 "col_end": c - 1,
-                                "rows": re - rs + 1,
+                                "rows": rend - rs + 1,
                                 "cols": c - cs,
                             }
                         )
@@ -246,10 +251,10 @@ def _find_tables(ws, min_rows: int, min_cols: int) -> list[dict]:
             tables.append(
                 {
                     "row_start": rs,
-                    "row_end": re,
+                    "row_end": rend,
                     "col_start": cs,
                     "col_end": max_col - 1,
-                    "rows": re - rs + 1,
+                    "rows": rend - rs + 1,
                     "cols": max_col - cs,
                 }
             )
@@ -1205,6 +1210,24 @@ def flatten_merged_cells(
 # ---------------------------------------------------------------------------
 
 
+def _toml_rows(path: Path) -> tuple[list, str]:
+    """A TOML file as table rows: its one array of tables, or the document as one row.
+
+    Several arrays of tables are several tables, and picking one would be a
+    guess -- so that is refused, naming them, with the query that reads each.
+    """
+    doc = tomllib.loads(path.read_text(encoding="utf-8"))
+    tables = [k for k, v in doc.items() if isinstance(v, list) and v and all(isinstance(x, dict) for x in v)]
+    if len(tables) > 1:
+        raise ValueError(
+            f"{path.name} holds {len(tables)} arrays of tables ({', '.join(tables)}); convert_file reads one "
+            f"table. query_json(path='$.{tables[0]}') reads each."
+        )
+    if tables:
+        return doc[tables[0]], f"$.{tables[0]}"
+    return [doc], "$"
+
+
 def convert_file(
     file_path: str,
     output_format: str = "csv",
@@ -1216,6 +1239,7 @@ def convert_file(
     from io import BytesIO
 
     backup = None
+    out: Path | None = None  # unset until the input has been read
     progress = []
     try:
         path = resolve_path(file_path)
@@ -1294,6 +1318,14 @@ def convert_file(
             df = pd.read_json(str(path))
         elif ext == ".parquet":
             df = pd.read_parquet(str(path), engine="pyarrow")
+        elif ext == ".toml":
+            rows, where = _toml_rows(path)
+            df = pd.json_normalize(rows)
+            progress.append(info("Rows from", where))
+        elif ext == ".xml":
+            # The standard library's parser: the rows are the root's children,
+            # their attributes and child elements the columns.
+            df = pd.read_xml(str(path), parser="etree")
         else:
             df = pd.DataFrame()
 
@@ -1369,8 +1401,203 @@ def convert_file(
         return {
             "success": False,
             "error": error_text(exc),
-            "backup": drop_snapshot_if_unwritten(backup, out),
+            "backup": drop_snapshot_if_unwritten(backup, out) if backup and out else backup,
             "hint": f"Valid output formats: {', '.join(sorted(_OUTPUT_FMTS))}",
             "progress": [fail("Unexpected error", str(exc))],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# query_json -- a JSONPath subset over JSON or TOML
+# ---------------------------------------------------------------------------
+
+JSONPATH_SYNTAX = "$, .key, ['key'], [n], [*] or .*, ..key"
+_JSONPATH_TOKEN = re.compile(
+    r"""\.\.(?P<deep>[A-Za-z_][\w-]*)|\.(?P<key>[A-Za-z_][\w-]*)|\.(?P<star>\*)"""
+    r"""|\[(?P<index>-?\d+)\]|\[(?P<bstar>\*)\]|\[(?P<q>['"])(?P<bkey>.*?)(?P=q)\]"""
+)
+
+
+def _jsonpath_steps(path: str) -> list[tuple[str, Any]]:
+    text = path.strip()
+    if not text.startswith("$"):
+        raise ValueError(f"path {path!r} must start at the root, $. Supported: {JSONPATH_SYNTAX}.")
+    steps: list[tuple[str, Any]] = []
+    at = 1
+    while at < len(text):
+        m = _JSONPATH_TOKEN.match(text, at)
+        if not m:
+            raise ValueError(
+                f"path {path!r}: {text[at:]!r} is not supported (filters and slices are not). "
+                f"Supported: {JSONPATH_SYNTAX}."
+            )
+        if m["deep"] is not None:
+            steps.append(("deep", m["deep"]))
+        elif m["key"] is not None:
+            steps.append(("key", m["key"]))
+        elif m["bkey"] is not None:
+            steps.append(("key", m["bkey"]))
+        elif m["index"] is not None:
+            steps.append(("index", int(m["index"])))
+        else:
+            steps.append(("star", None))
+        at = m.end()
+    return steps
+
+
+def _key_step(key: str) -> str:
+    """A key as a path step that reads back: .key where it can be, ['key'] where it cannot."""
+    if re.fullmatch(r"[A-Za-z_][\w-]*", key):
+        return f".{key}"
+    return f'["{key}"]' if "'" in key else f"['{key}']"
+
+
+def _descend(node: Any, where: str) -> list[tuple[str, Any]]:
+    """The node and everything under it, each with its path."""
+    out = [(where, node)]
+    if isinstance(node, dict):
+        for k, v in node.items():
+            out += _descend(v, where + _key_step(k))
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            out += _descend(v, f"{where}[{i}]")
+    return out
+
+
+def _jsonpath(doc: Any, steps: list[tuple[str, Any]]) -> list[tuple[str, Any]]:
+    found: list[tuple[str, Any]] = [("$", doc)]
+    for kind, arg in steps:
+        nxt: list[tuple[str, Any]] = []
+        for where, node in found:
+            if kind == "key" and isinstance(node, dict) and arg in node:
+                nxt.append((where + _key_step(arg), node[arg]))
+            elif kind == "index" and isinstance(node, list) and -len(node) <= arg < len(node):
+                nxt.append((f"{where}[{arg % len(node)}]", node[arg]))
+            elif kind == "star" and isinstance(node, dict):
+                nxt += [(where + _key_step(k), v) for k, v in node.items()]
+            elif kind == "star" and isinstance(node, list):
+                nxt += [(f"{where}[{i}]", v) for i, v in enumerate(node)]
+            elif kind == "deep":
+                nxt += [
+                    (p + _key_step(arg), n[arg]) for p, n in _descend(node, where) if isinstance(n, dict) and arg in n
+                ]
+        found = nxt
+    return found
+
+
+def query_json(file_path: str, path: str = "$") -> dict:
+    progress: list[dict] = []
+    try:
+        src = resolve_path(file_path)
+        if not src.exists():
+            return {
+                "success": False,
+                "error": f"File not found: {src.name}",
+                "hint": "Check that file_path is absolute and the file exists.",
+                "progress": [fail("File not found", str(src))],
+                "token_estimate": 20,
+            }
+        ext = src.suffix.lower()
+        if ext not in {".json", ".geojson", ".toml"}:
+            return {
+                "success": False,
+                "error": f"query_json reads .json, .geojson or .toml, not {ext or 'a file with no extension'!r}",
+                "hint": "convert_file() turns a table into .json first.",
+                "progress": [fail("Unsupported input", ext)],
+                "token_estimate": 20,
+            }
+        text = src.read_text(encoding="utf-8")
+        doc = tomllib.loads(text) if ext == ".toml" else json.loads(text)
+        matches = _jsonpath(doc, _jsonpath_steps(path))
+        cap = get_max_results()
+        shown = [{"path": p, "value": v} for p, v in matches[:cap]]
+        progress.append(ok(f"Queried {src.name}", f"{len(matches)} match(es) for {path}"))
+        return {
+            "success": True,
+            "op": "query_json",
+            "file": src.name,
+            "path": path,
+            "matches": shown,
+            **counted(len(shown), len(matches)),
+            "hint": (
+                f"Supported: {JSONPATH_SYNTAX}. Nothing matched; '$.*' lists the top level."
+                if not matches
+                else f"{len(matches)} match(es); narrow the path to see fewer."
+                if len(matches) > len(shown)
+                else "Each match carries its own path, to query deeper from."
+            ),
+            "progress": progress,
+            "token_estimate": 0,
+        }
+    except (ValueError, tomllib.TOMLDecodeError) as exc:
+        return {
+            "success": False,
+            "error": error_text(exc),
+            "hint": f"Supported: {JSONPATH_SYNTAX}.",
+            "progress": [fail("query_json refused", str(exc)[:200])],
+            "token_estimate": 20,
+        }
+    except Exception as exc:
+        logger.exception("query_json error")
+        return {
+            "success": False,
+            "error": error_text(exc),
+            "hint": hint_for_error(exc, "Check that file_path is absolute and readable."),
+            "progress": [fail("Unexpected error", str(exc)[:200])],
+            "token_estimate": 20,
+        }
+
+
+# ---------------------------------------------------------------------------
+# hash_file -- a checksum, to prove a file is the one expected
+# ---------------------------------------------------------------------------
+
+HASH_ALGORITHMS: tuple[str, ...] = ("sha256", "md5", "sha1")
+
+
+def hash_file(file_path: str, algorithm: str = "sha256") -> dict:
+    try:
+        src = resolve_path(file_path)
+        if not src.is_file():
+            return {
+                "success": False,
+                "error": f"File not found: {src.name}",
+                "hint": "Check that file_path is absolute and the file exists.",
+                "progress": [fail("File not found", str(src))],
+                "token_estimate": 20,
+            }
+        if algorithm not in HASH_ALGORITHMS:
+            return {
+                "success": False,
+                "error": f"Unknown algorithm {algorithm!r}",
+                "hint": f"Valid: {', '.join(HASH_ALGORITHMS)}.",
+                "progress": [fail("Unknown algorithm", algorithm)],
+                "token_estimate": 20,
+            }
+        digest = hashlib.new(algorithm)
+        size = 0
+        with src.open("rb") as fh:
+            while chunk := fh.read(1 << 20):
+                digest.update(chunk)
+                size += len(chunk)
+        return {
+            "success": True,
+            "op": "hash_file",
+            "file": src.name,
+            "algorithm": algorithm,
+            "digest": digest.hexdigest(),
+            "bytes": size,
+            "hint": "Hash the file again later and compare: the same digest means the same bytes.",
+            "progress": [ok(f"Hashed {src.name}", f"{algorithm} over {size:,} bytes")],
+            "token_estimate": 0,
+        }
+    except Exception as exc:
+        logger.exception("hash_file error")
+        return {
+            "success": False,
+            "error": error_text(exc),
+            "hint": hint_for_error(exc, "Check that file_path is absolute and readable."),
+            "progress": [fail("Unexpected error", str(exc)[:200])],
             "token_estimate": 20,
         }

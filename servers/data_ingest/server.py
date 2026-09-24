@@ -42,8 +42,10 @@ _oauth_bridge = build_oauth_bridge(
 # static checker, while a checker only needs to know these are strings.
 if TYPE_CHECKING:
     OutputFormat = str
+    HashAlgorithm = str
 else:
     OutputFormat = one_of("csv", "json", "parquet", "excel")
+    HashAlgorithm = one_of(*engine.HASH_ALGORITHMS)
 _public_origin = os.environ.get("DA_PUBLIC_URL", "").rstrip("/")
 _base_url = f"{_public_origin}/ingest" if _public_origin else None
 _HOST = os.environ.get("DATA_INGEST_HOST", "127.0.0.1")
@@ -178,8 +180,20 @@ def convert_file(
     dry_run: bool = False,
     return_content: bool = False,
 ) -> dict:
-    """Convert xlsx/ods/csv/json/parquet to csv/json/parquet/excel."""
+    """Convert xlsx/ods/csv/json/parquet/toml/xml to csv/json/parquet/excel."""
     return engine.convert_file(file_path, output_format, output_path, sheet, dry_run, return_content)
+
+
+@mcp.tool(annotations=READS)
+def query_json(file_path: str, path: str = "$") -> dict:
+    """Query JSON/TOML by path: $.a.b, $.rows[0], $.rows[*].id, $..id."""
+    return engine.query_json(file_path, path)
+
+
+@mcp.tool(annotations=READS)
+def hash_file(file_path: str, algorithm: HashAlgorithm = "sha256") -> dict:
+    """Checksum a file (sha256/md5/sha1) to prove it is the one expected."""
+    return engine.hash_file(file_path, algorithm)
 
 
 # Every tool above reports what its response actually costs; see

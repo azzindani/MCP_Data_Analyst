@@ -62,7 +62,7 @@ class TestTheListIsShorter:
 
     # 68 once the four were retired; a tool added since joins this tuple, so the
     # count still proves the retired names left the list and nothing came back.
-    ADDED_SINCE = ("run_chain",)
+    ADDED_SINCE = ("run_chain", "query_json", "hash_file")
 
     def test_the_repo_lists_68_tools_plus_the_ones_added_since_and_none_twice(self):
         listed = [name for tier in TIERS for name in _listed(tier)]

@@ -43,8 +43,8 @@ def registered_tools() -> list[str]:
 class TestTheReadmeDocumentsEveryTool:
     def test_the_scan_finds_them(self):
         found = registered_tools()
-        assert len(found) == 73, (
-            f"{len(found)} tools registered, expected 73. If a tool was added or "
+        assert len(found) == 75, (
+            f"{len(found)} tools registered, expected 75. If a tool was added or "
             "removed, update this number AND the counts in README.md -- they are the "
             "thing this file exists to keep honest."
         )

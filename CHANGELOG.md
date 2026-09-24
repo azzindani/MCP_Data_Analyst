@@ -6,6 +6,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added — TOML and XML in, a JSON path query, a file hash
+
+- `convert_file` reads `.toml` (its one array of tables as the rows; several
+  are refused by name, with the `query_json` path that reads each) and `.xml`
+  (the standard library's parser). A file it cannot read now answers with the
+  reason instead of an `UnboundLocalError`.
+- `query_json` reads values out of a JSON, GeoJSON or TOML file by path:
+  `$.a.b`, `$['a b']`, `$.rows[0]`, `$.rows[*].id`, `$..id`. Filters and
+  slices are refused by name. Each match carries its own path.
+- `hash_file`: sha256, md5 or sha1 of a file, streamed, with its size.
+- Standard library only (`tomllib`, `xml.etree`, `hashlib`). YAML is not
+  read: it would need a new dependency.
+
 ### Fixed — what a tool says is what it does
 
 - Every answer names its `op`: the wrapper every tool passes through

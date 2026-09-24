@@ -323,7 +323,7 @@ run workspace save_workspace_pipeline "{\"workspace_name\":\"$WS\",\"pipeline_na
 run workspace run_workspace_pipeline "{\"workspace_name\":\"$WS\",\"pipeline_name\":\"clean\",\"input_alias\":\"sales\",\"output_alias\":\"sales_clean\",\"base_dir\":\"$D\"}" "run the cleaning pipeline"
 
 echo
-echo "===== data_ingest (10 tools) ====="
+echo "===== data_ingest (12 tools) ====="
 run ingest list_sheets "{\"file_path\":\"$XLSX\"}" "what sheets does this workbook have?"
 run ingest extract_sheet "{\"file_path\":\"$XLSX\",\"sheet\":\"Sheet2\",\"output_path\":\"$D/sheet2.csv\"}" "extract Sheet2 to CSV"
 run ingest extract_all_sheets "{\"file_path\":\"$XLSX\",\"output_dir\":\"$D/sheets\"}" "extract every sheet to CSV"
@@ -334,6 +334,8 @@ run ingest trim_empty "{\"file_path\":\"$D/sheet2.csv\"}" "trim empty rows/cols 
 run ingest promote_header "{\"file_path\":\"$D/table0.csv\",\"row_index\":0}" "promote row 0 to the header in table0.csv"
 run ingest flatten_merged_cells "{\"file_path\":\"$XLSX\",\"sheet\":\"Sheet1\",\"output_path\":\"$D/flattened.csv\"}" "flatten the merged cells in Sheet1"
 run ingest convert_file "{\"file_path\":\"$SALES\",\"output_format\":\"excel\"}" "convert sales.csv to xlsx"
+run ingest query_json "{\"file_path\":\"$GEOJSON\",\"path\":\"$.features[*].properties\"}" "what properties does each region in the GeoJSON carry?"
+run ingest hash_file "{\"file_path\":\"$SALES\"}" "give me the sha256 of sales.csv"
 
 echo
 echo "===== hybrid file exchange (remote-only behaviour) ====="
@@ -419,7 +421,7 @@ rm -f "$SHARED_BEFORE"
 
 echo
 if [ "$FAILS" -eq 0 ]; then
-  echo "ALL 70 TOOLS PASSED against $DOMAIN"
+  echo "ALL 75 TOOLS PASSED against $DOMAIN"
 else
   echo "$FAILS TOOL(S) FAILED against $DOMAIN"
   exit 1

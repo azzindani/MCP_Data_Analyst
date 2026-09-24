@@ -138,7 +138,8 @@ DOMAINS = {
         ],
     ),
     "data_ingest": (
-        "Get a table out of a spreadsheet or file: sheets, detected tables, headers, merged cells, conversion.",
+        "Get a table out of a spreadsheet or file: sheets, detected tables, headers, merged cells, conversion;"
+        " read a JSON/TOML value by path; checksum a file.",
         [
             (ingest, "list_sheets"),
             (ingest, "extract_sheet"),
@@ -150,6 +151,8 @@ DOMAINS = {
             (ingest, "promote_header"),
             (ingest, "flatten_merged_cells"),
             (ingest, "convert_file"),
+            (ingest, "query_json"),
+            (ingest, "hash_file"),
         ],
     ),
     "data_workspace": (
