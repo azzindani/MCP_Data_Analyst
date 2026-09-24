@@ -126,6 +126,24 @@ def _as_binary(target: pd.Series) -> pd.Series | None:
     return target == target.value_counts().index[-1]
 
 
+# Grouping by a column with about one row per value explains any target by
+# construction: a row reference or a daily date "explained" a coin flip at
+# strength 1.0, and ranked first. Below this many rows per value on average,
+# the column is reported as not measured, with the reason.
+MIN_ROWS_PER_CATEGORY = 5
+
+
+def _crowded(groups: pd.Series, other: pd.Series) -> str:
+    mask = groups.notna() & other.notna()
+    n, k = int(mask.sum()), int(groups[mask].nunique())
+    if k and n / k < MIN_ROWS_PER_CATEGORY:
+        return (
+            f"not measured: {k:,} distinct values over {n:,} rows ({n / k:.1f} rows each) -- with so few rows "
+            "per value, grouping by it explains any target by construction"
+        )
+    return ""
+
+
 def target_association(df: pd.DataFrame, target_column: str) -> list[dict[str, Any]]:
     """How strongly each column relates to the target, strongest first.
 
@@ -149,6 +167,7 @@ def target_association(df: pd.DataFrame, target_column: str) -> list[dict[str, A
         measure: str | None = None
         value: float | None = None
         failed = ""
+        crowded = ""
         try:
             if _is_numeric(s) and positive is not None:
                 measure, value = "auc", _binary_auc(s, positive)
@@ -160,11 +179,14 @@ def target_association(df: pd.DataFrame, target_column: str) -> list[dict[str, A
                     # frame-shaped input; here it is one float.
                     measure, value = "pearson_abs", (None if bool(pd.isna(r)) else abs(float(r)))
             elif not _is_numeric(s) and target_numeric:
-                measure, value = "correlation_ratio", _correlation_ratio(s, target)
+                measure, crowded = "correlation_ratio", _crowded(s, target)
+                value = None if crowded else _correlation_ratio(s, target)
             elif not _is_numeric(s) and not target_numeric:
-                measure, value = "cramers_v", _cramers_v(s, target)
+                measure, crowded = "cramers_v", _crowded(s, target)
+                value = None if crowded else _cramers_v(s, target)
             elif _is_numeric(s) and not target_numeric:
-                measure, value = "correlation_ratio", _correlation_ratio(target, s)
+                measure, crowded = "correlation_ratio", _crowded(target, s)
+                value = None if crowded else _correlation_ratio(target, s)
         except Exception as exc:
             # Named, not folded into the "not enough rows" note below. A crash
             # reported as a clean "not computable" is indistinguishable from a
@@ -178,7 +200,7 @@ def target_association(df: pd.DataFrame, target_column: str) -> list[dict[str, A
             row["strength"] = None
             row["note"] = (
                 f"measure raised {failed}" if failed
-                else (
+                else crowded or (
                     f"not computable: fewer than {MIN_ROWS} usable rows, a constant column, "
                     "or a dtype pairing with no measure here"
                 )
@@ -256,6 +278,13 @@ def compare_frames(baseline: pd.DataFrame, current: pd.DataFrame) -> dict[str, A
         b, c = baseline[col], current[col]
         if _is_numeric(b) and _is_numeric(c):
             value, measure = _psi(b, c), "psi"
+            if value is None and min(int(b.notna().sum()), int(c.notna().sum())) >= MIN_ROWS:
+                # A number with a handful of values -- a 0/1 flag -- has too few
+                # quantiles to bin, and PSI gave up on it: a churn flag moving
+                # from 10% to 50% came back "not computable: fewer than 30
+                # usable rows" over 300 rows a side. Its values are compared as
+                # the categories they are.
+                value, measure = _total_variation(b, c), "total_variation"
         else:
             value, measure = _total_variation(b, c), "total_variation"
         row: dict[str, Any] = {"column": col, "measure": measure}

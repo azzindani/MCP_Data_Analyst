@@ -16,6 +16,7 @@ import html as _html
 import json
 
 import pandas as pd
+from _adv_eda_columns import column_pages, explorer_html, explorer_nav  # type: ignore[import-not-found]
 from _adv_helpers import (
     _BACK_TO_TOP_HTML,
     _BACK_TO_TOP_JS,
@@ -54,6 +55,7 @@ from shared.insights import from_alerts, from_correlations, from_outliers, rank,
 from shared.leakage import leakage_note, leakage_suspects
 from shared.provenance import frame_hash, provenance, provenance_script
 from shared.quality import quality_report
+from shared.table_payload import json_for_script
 
 logger = logging.getLogger(__name__)
 
@@ -332,6 +334,8 @@ def run_eda(
                 page_header,
                 suspects,
                 target_column,
+                associations,
+                comparison.get("drift") or [],
             )
 
             out.write_text(html_content, encoding="utf-8")
@@ -521,6 +525,8 @@ def _build_eda_html(
     header=None,
     suspects=None,
     target_column="",
+    associations=None,
+    drift=None,
 ):
     # The page carries what it is a picture of. A chart drawn from a sample
     # looks exactly like one drawn from everything, and nothing in the file
@@ -550,7 +556,7 @@ def _build_eda_html(
 <div class="chart-box"><div id="corr-chart" class="chart-div heatmap"></div></div>
 <script>
 (function(){{
-  var z={corr_z};var x={json.dumps(corr_x)};
+  var z={corr_z};var x={json_for_script(corr_x)};
   {_bg_init}
   var data=[{{z:z,x:x,y:x,type:'heatmap',colorscale:'RdBu',zmid:0,
     text:z.map(function(r){{return r.map(function(v){{return v.toFixed(2);}});}}),
@@ -570,7 +576,7 @@ def _build_eda_html(
 <div class="chart-box"><div id="sp-corr-chart" class="chart-div heatmap"></div></div>
 <script>
 (function(){{
-  var z={sp_z};var x={json.dumps(sp_x)};
+  var z={sp_z};var x={json_for_script(sp_x)};
   {_bg_init}
   var data=[{{z:z,x:x,y:x,type:'heatmap',colorscale:'RdBu',zmid:0,
     text:z.map(function(r){{return r.map(function(v){{return v.toFixed(2);}});}}),
@@ -589,7 +595,10 @@ def _build_eda_html(
         if "mean" in s:
             stats_str = f"μ={s['mean']}, σ={s['std']}, [{s['min']}–{s['max']}]"
         elif "top_values" in s:
-            stats_str = "Top: " + ", ".join(f"{k}:{v}" for k, v in list(s["top_values"].items())[:3])
+            # A cell's value, so text: it was written in as markup, and a CSV
+            # cell holding <img src=x onerror=...> ran its script in every
+            # reader's browser the moment the report opened.
+            stats_str = "Top: " + ", ".join(f"{_html.escape(str(k))}:{v}" for k, v in list(s["top_values"].items())[:3])
         else:
             stats_str = "—"
         zero_cell = f"{s.get('zero_count', '')} ({s.get('zero_pct', '')}%)" if "zero_count" in s else "—"
@@ -625,7 +634,7 @@ def _build_eda_html(
                 pass
             if skew_val is not None and abs(skew_val) > 2:
                 insights.append(
-                    f'<li class="warn"><b>{s["column"]}</b>: skewness={skew_val} — consider log transform</li>'
+                    f'<li class="warn"><b>{_html.escape(s["column"])}</b>: skewness={skew_val} — consider log transform</li>'
                 )
     if dup_count > 0:
         insights.append(f'<li class="warn">{dup_count:,} duplicate rows detected — use drop_duplicates</li>')
@@ -659,7 +668,7 @@ def _build_eda_html(
 
     plotly_script = plotly_script_tag(output_dir)
 
-    missing_section = _build_missing_section(df, missing_by_col, rows, accent_color, _plot_bg, _font_color)
+    missing_section = _build_missing_section(df, missing_by_col, rows, accent_color, _bg_init, _bg_ref, _fc_ref)
     corr_section = ""
     if corr_pairs:
         corr_section = f'<div id="correlations" class="section"><h2>Correlations</h2>{corr_json}{spearman_json}<table><tr><th>Variable A</th><th>Variable B</th><th>r</th><th>Strength</th></tr>{corr_rows}</table></div>'
@@ -695,6 +704,11 @@ def _build_eda_html(
     # finding is the one most likely to be read by a person rather than an
     # agent, and the most expensive to discover after a model ships.
     leakage_section = _leakage_html(suspects or [], target_column)
+    # Every column on its own: its numbers, its shape, and -- when a target or
+    # a baseline was named -- how it relates to one and moved against the other.
+    explorer_section = explorer_html(
+        column_pages(df, numeric_cols, datetime_cols, alerts, associations, drift, target_column), theme
+    )
 
     css_block = _eda_css(vars_css)
     dev_js = device_mode_js() if theme == "device" else ""
@@ -721,6 +735,7 @@ def _build_eda_html(
     <a href="#overview">Overview</a>
     <a href="#sample">Data Sample</a>
     <a href="#columns">Column Summary</a>
+    {explorer_nav()}
     {nulls_nav}
     {corr_nav}
     <a href="#outliers">Outliers</a>
@@ -752,6 +767,7 @@ def _build_eda_html(
       </table>
     </div>
   </div>
+  {explorer_section}
   {missing_section}
   {corr_section}
   <div id="outliers" class="section">
@@ -776,7 +792,7 @@ def _build_eda_html(
 </body></html>"""
 
 
-def _build_missing_section(df, missing_by_col, rows, accent_color, _plot_bg, _font_color):
+def _build_missing_section(df, missing_by_col, rows, accent_color, bg_init, bg_ref, fc_ref):
     if not missing_by_col:
         return ""
     missing_rows = "".join(
@@ -798,11 +814,14 @@ def _build_missing_section(df, missing_by_col, rows, accent_color, _plot_bg, _fo
 </div>
 <script>
 (function(){{
-  var z={miss_z};var x={json.dumps(miss_cols)};var y={json.dumps(miss_y)};
+  var z={miss_z};var x={json_for_script(miss_cols)};var y={json_for_script(miss_y)};
+  {bg_init}
   var data=[{{z:z,x:x,y:y,type:'heatmap',colorscale:[['0','rgba(0,0,0,0)'],['1','{accent_color}']],
     showscale:false,hovertemplate:'Column: %{{x}}<br>Row: %{{y}}<br>Missing: %{{z}}<extra></extra>'}}];
-  var layout={{paper_bgcolor:'{_plot_bg}',plot_bgcolor:'{_plot_bg}',
-    font:{{color:'{_font_color}'}},
+  // Drawn in the reader's scheme on a device page, as the correlation charts
+  // are: it was the one chart painted light on a page that turned dark.
+  var layout={{paper_bgcolor:{bg_ref},plot_bgcolor:{bg_ref},
+    font:{{color:{fc_ref}}},
     margin:{{l:60,r:10,t:10,b:80}},autosize:true,
     xaxis:{{tickangle:-45,tickfont:{{size:11}}}},
     yaxis:{{title:'Row index',tickfont:{{size:10}}}}

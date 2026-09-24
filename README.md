@@ -22,7 +22,7 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 - **Chart customization** — post-generate edits to titles, labels, colours, annotations on saved HTML
 - **Composable dashboards** — `generate_dashboard(spec=…)` builds from a declarative JSON spec, the page embeds the spec it was built from, and `customize_dashboard` edits that spec instead of regenerating from prose
 - **Multi-source dashboards** — `sources=[…]` renders extra files as tabs beside the primary one, with server-side exact totals
-- **Target-aware profiling** — `run_eda(target_column=…)` ranks every column by its relation to the target; `compare_to=…` measures PSI / total-variation drift against a baseline and fills the fourth quality component
+- **Target-aware profiling** — `run_eda(target_column=…)` ranks every column by its relation to the target (a column with fewer than 5 rows per value is reported as not measured: grouping by it explains any target); `compare_to=…` measures PSI / total-variation drift against a baseline and fills the fourth quality component
 - **Leakage detection** — a feature that already contains the outcome is named with its evidence: single-feature separation, missingness that tracks the target, and post-outcome column names. Suspects, never verdicts, and kept out of the quality score
 - **Depth control** — `mode="minimal" | "standard" | "full"`, `sample_n`, and per-section `include` overrides, so a loop pays for a summary and a frontier model can ask for everything
 - **Lineage sidecars** — every derived file gets a `.mcp_lineage.json` naming the op, the source, and the row/column counts either side; chained by reference so a filtered-then-reshaped file can be traced back
@@ -553,6 +553,7 @@ The `generate_dashboard` tool also auto-inserts geo charts when it detects these
 
 ### `run_eda`
 - **Alerts panel**: auto-detects CONSTANT columns, HIGH NULLS, ZEROS, HIGH CARDINALITY, IMBALANCED, SKEWED, OUTLIERS, HIGH CORR, DUPLICATES
+- **Column Explorer**: every column in a list, and a page for the one picked -- its counts, spread or top values, a histogram, a month-by-month count or a top-values bar, its alerts, and, when you pass them, how it relates to `target_column` and how far it drifted from `compare_to`. Drawn as text: a name or a cell is never markup
 - **Pearson + Spearman** correlation heatmaps
 - **Missing value matrix**: Plotly heatmap showing WHERE data is absent (up to 300 sampled rows)
 - **Zero counts** in column summary table

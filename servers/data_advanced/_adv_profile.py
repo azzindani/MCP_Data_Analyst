@@ -15,6 +15,7 @@ for _p in (str(_ROOT), _HERE):
 
 import html as _html
 import json
+import re as _re
 
 import pandas as pd
 from _adv_helpers import (
@@ -46,6 +47,7 @@ from _adv_helpers import (
 
 from shared.column_utils import read_dates
 from shared.file_utils import embed_content, error_text, hint_for_error, resolve_path
+from shared.table_payload import json_for_script
 
 logger = logging.getLogger(__name__)
 
@@ -452,9 +454,9 @@ def _profile_sidebar(path, rows, cols, df, col_analysis, ap_alerts):
         '<a href="#sample">Data Sample</a><a href="#quality">Data Quality</a><a href="#stats">Statistics</a><a href="#categorical">Categorical</a><a href="#correlations">Correlations</a><a href="#network">Network</a><a href="#recommendations">Recommendations</a><a href="#insights">Insights</a>'
     )
     h.append(f'<div class="st">Variables ({cols})</div>')
-    for c in df.columns:
+    for i, c in enumerate(df.columns):
         col_info = col_analysis[c]
-        anchor = c.replace(" ", "-")
+        anchor = _anchor(i, c)
         h.append(
             f'<a href="#col-{anchor}">{_html.escape(c)} <span class="badge">{_html.escape(str(col_info["dtype"]))}</span></a>'
         )
@@ -544,7 +546,7 @@ def _profile_missing(df, missing_by_col, rows, ap_accent, _plot_bg, _font_color)
 </div>
 <script>
 (function(){{
-  var z={ap_miss_z};var x={json.dumps(ap_miss_cols)};var y={json.dumps(ap_miss_y)};
+  var z={ap_miss_z};var x={json_for_script(ap_miss_cols)};var y={json_for_script(ap_miss_y)};
   var data=[{{z:z,x:x,y:y,type:'heatmap',colorscale:[['0','rgba(0,0,0,0)'],['1','{ap_accent}']],
     showscale:false,hovertemplate:'Column: %{{x}}<br>Row: %{{y}}<br>Missing: %{{z}}<extra></extra>'}}];
   var layout={{paper_bgcolor:'{_plot_bg}',plot_bgcolor:'{_plot_bg}',
@@ -568,7 +570,7 @@ def _profile_correlations(corr_matrix, corr_pairs, spearman_matrix, _plot_bg, _f
     h.append(f"""<script>
 (function() {{
     var z = {corr_z};
-    var x = {json.dumps(corr_x)};
+    var x = {json_for_script(corr_x)};
     var data = [{{z: z, x: x, y: x, type: 'heatmap', colorscale: 'RdBu', zmid: 0, text: z.map(function(r) {{ return r.map(function(v) {{ return v.toFixed(2); }}); }}), texttemplate: '%{{text}}', textfont: {{size: 11}}}}];
     var layout = {{paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}', font: {{color: '{_font_color}'}}, margin: {{l: 120, r: 20, t: 20, b: 120}}, autosize: true}};
     Plotly.newPlot('corr-heatmap', data, layout, {PLOTLY_CFG_JS});
@@ -599,7 +601,7 @@ def _profile_correlations(corr_matrix, corr_pairs, spearman_matrix, _plot_bg, _f
 <div class="chart-box"><div id="sp-corr-ap" class="chart-div heatmap"></div></div>
 <script>
 (function() {{
-    var z = {sp_z};var x = {json.dumps(sp_x)};
+    var z = {sp_z};var x = {json_for_script(sp_x)};
     var data = [{{z: z, x: x, y: x, type: 'heatmap', colorscale: 'RdBu', zmid: 0, text: z.map(function(r) {{ return r.map(function(v) {{ return v.toFixed(2); }}); }}), texttemplate: '%{{text}}', textfont: {{size: 11}}}}];
     var layout = {{paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}', font: {{color: '{_font_color}'}}, margin: {{l: 120, r: 20, t: 20, b: 120}}, autosize: true}};
     Plotly.newPlot('sp-corr-ap', data, layout, {PLOTLY_CFG_JS});
@@ -799,8 +801,8 @@ def _profile_network(corr_pairs, _plot_bg, _font_color):
     h.append(f"""<div class="chart-box"><div id="corr-network" class="chart-div network"></div></div>
 <script>
 (function() {{
-    var nodePos = {json.dumps(node_positions)};
-    var edges = {json.dumps(edges)};
+    var nodePos = {json_for_script(node_positions)};
+    var edges = {json_for_script(edges)};
     var traces = [];
     for (var i = 0; i < edges.length; i++) {{
         traces.push({{type: 'scatter', mode: 'lines',
@@ -882,11 +884,23 @@ def _profile_recommendations(df, col_analysis, numeric_cols, cat_cols, corr_pair
     return "\n".join(h)
 
 
+def _anchor(i: int, column) -> str:
+    """A column's id on the page: its position and its name's letters and digits.
+
+    It was the name with spaces made dashes, written into an id, an href and
+    a JavaScript string -- so a column called k</script><svg/onload=...>
+    closed the chart's script and ran its own, and one called
+    q"onmouseover="... added an event handler to its card. The position keeps
+    two names that reduce to the same letters apart.
+    """
+    return f"{i}-{_re.sub(r'[^A-Za-z0-9_]+', '-', str(column)).strip('-')}"
+
+
 def _profile_variables(df, col_analysis, numeric_cols, cat_cols, datetime_cols, rows, _plot_bg, _font_color):
     h = ['<div class="section"><h2>Variable Analysis</h2>']
-    for c in df.columns:
+    for i, c in enumerate(df.columns):
         info = col_analysis[c]
-        anchor = c.replace(" ", "-")
+        anchor = _anchor(i, c)
         h.append(
             f'<div id="col-{anchor}" class="cc-card"><div class="cc-hdr"><h3>{_html.escape(c)}</h3><span class="badge">{_html.escape(str(info["dtype"]))}</span></div><div class="cc-body"><div class="split"><div class="split-left"><table>'
         )
@@ -960,7 +974,7 @@ def _col_chart_script(c, chart_id, df, numeric_cols, cat_cols, datetime_cols, _p
         tv = df[c].value_counts().head(15)
         return f"""<script>
 (function() {{
-    var data = [{{x: {json.dumps([str(v) for v in tv.index.tolist()])}, y: {tv.values.tolist()}, type: 'bar',
+    var data = [{{x: {json_for_script([str(v) for v in tv.index.tolist()])}, y: {tv.values.tolist()}, type: 'bar',
         marker: {{color: '#58a6ff'}}, text: {tv.values.tolist()}, textposition: 'outside'}}];
     var layout = {{paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}', font: {{color: '{_font_color}'}},
         autosize: true, margin: {{l: 50, r: 20, t: 10, b: 80}}, xaxis: {{tickangle: -45}}}};
@@ -971,7 +985,7 @@ def _col_chart_script(c, chart_id, df, numeric_cols, cat_cols, datetime_cols, _p
         ts = df[c].value_counts().sort_index()
         return f"""<script>
 (function() {{
-    var data = [{{x: {json.dumps([str(v) for v in ts.index.tolist()])}, y: {ts.values.tolist()}, type: 'scatter', mode: 'lines+markers',
+    var data = [{{x: {json_for_script([str(v) for v in ts.index.tolist()])}, y: {ts.values.tolist()}, type: 'scatter', mode: 'lines+markers',
         marker: {{color: '#3fb950'}}, line: {{color: '#3fb950'}}}}];
     var layout = {{paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}', font: {{color: '{_font_color}'}},
         autosize: true, margin: {{l: 50, r: 20, t: 10, b: 30}}}};
