@@ -19,6 +19,7 @@ from html import escape
 
 import pandas as pd
 
+from shared.quality import is_advice
 from shared.quality import quality_score as _shared_quality_score
 
 _SEVERITIES = ("error", "warning", "info")
@@ -189,7 +190,7 @@ def compute_alerts(
     return alerts
 
 
-def quality_score(null_pct: float, dup_pct: float, alerts: list[dict]) -> int:
+def quality_score(null_pct: float, dup_pct: float, alerts: list[dict], columns: int | None = None) -> int:
     """Score the dataset the report is actually describing.
 
     Scored from nulls and duplicates alone, a frame whose nulls had been imputed
@@ -197,6 +198,10 @@ def quality_score(null_pct: float, dup_pct: float, alerts: list[dict]) -> int:
     "16 alerts, 2 serious" about constant columns, zero-inflation, skew and
     outliers. The headline contradicted the list under it, and the headline is
     the part people read.
+
+    `columns` is the frame's width: a constant column costs its share of it
+    (#22, 2026-09-24), and distribution advice is shown in the panel and not
+    scored -- `alerts_html` says how many of the listed alerts that is.
 
     Alerts carry the findings the percentages cannot see, so they are priced in
     here: a serious one costs more than a warning, and the floor stays at 0.
@@ -216,7 +221,7 @@ def quality_score(null_pct: float, dup_pct: float, alerts: list[dict]) -> int:
     lives in `shared/quality.py`, byte-identical in both, and this stays as the
     name eighteen call sites here already import.
     """
-    return int(round(_shared_quality_score(null_pct, dup_pct, alerts)))
+    return int(round(_shared_quality_score(null_pct, dup_pct, alerts, columns=columns)))
 
 
 def alerts_html(alerts: list[dict]) -> str:
@@ -233,6 +238,18 @@ def alerts_html(alerts: list[dict]) -> str:
             f'<div class="alert-item {severity}">'
             f'<span class="alert-badge {severity}">{escape(str(a["type"]))}</span> '
             f"{escape(str(a['msg']))}</div>"
+        )
+    advice = sum(1 for a in alerts if is_advice({"type": a["type"]}))
+    if advice:
+        # The score counts what breaks a rule, and a reader seeing a high score
+        # above a long panel deserves to know which of these it left out.
+        # A note about the list, not an alert in it: no badge, so nothing that
+        # reads the alerts off the page mistakes it for one.
+        items.append(
+            '<div class="alert-item info alert-note"><b>Not scored:</b> '
+            f"{advice} of these {'is' if advice == 1 else 'are'} advice about a column's distribution "
+            "(zeros, skew, outliers, correlation, imbalance, cardinality): worth reading before a model "
+            "or a chart, and not counted in the quality score.</div>"
         )
     return f'<div class="alert-panel">{"".join(items)}</div>'
 

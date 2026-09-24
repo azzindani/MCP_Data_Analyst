@@ -17,6 +17,8 @@ under it. The headline is the part people read.
 
 The score now prices in the same alerts the panel renders, so the two cannot
 disagree. The alerts are computed once, before the KPI row, and passed to both.
+Since #22 (2026-09-24) the score counts what breaks a rule, and the panel says
+how many of its alerts are distribution advice that the score does not count.
 
 Also here: the numeric filter placeholders carry each column's range and were
 clipped mid-number ("Max (67,4") by a fixed 5.5rem input, which is a hint the
@@ -136,9 +138,16 @@ class TestTheRenderedDashboardAgrees:
     def test_a_flawed_frame_does_not_score_100(self, dashboard: str):
         assert self._score(dashboard) < 100
 
-    def test_alerts_and_score_move_together(self, dashboard: str):
+    def test_the_score_and_the_panel_tell_one_story(self, dashboard: str):
+        """The score counts what breaks a rule and the panel lists everything,
+        so the panel says which of its alerts the score left out (#22,
+        2026-09-24). The constant column is one of five columns: validity
+        loses a fifth, and the zeros, outliers and skew are advice."""
         alerts = self._alert_count(dashboard)
-        assert self._score(dashboard) <= 100 - 3 * alerts + 1
+        advice = re.search(r"(\d+) advice not scored", dashboard)
+        assert advice and 0 < int(advice.group(1)) < alerts, "the panel names the unscored alerts"
+        assert f"<b>Not scored:</b> {advice.group(1)} of these" in dashboard
+        assert self._score(dashboard) <= round(100 - 0.40 * 100 / 5) + 1
 
     def test_the_placeholders_are_not_long_numbers(self, dashboard: str):
         for ph in re.findall(r'placeholder="M(?:in|ax) \(([^)]*)\)"', dashboard):

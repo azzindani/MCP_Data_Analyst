@@ -53,16 +53,14 @@ _SEVERITY_ALIASES: dict[str, str] = {
     "low": "low",
 }
 
-# What one alert costs the `validity` component.
+# What one rule alert costs the `validity` component. Constant columns are
+# priced by their share of the file instead, and distribution advice not at
+# all (below).
 #
-# Calibrated against MCP_Machine_Learning's existing tests, which encode a
-# product judgement rather than an arithmetic one: an otherwise-clean frame
-# with a single constant column must land in 60-85, not "nearly perfect". With
-# validity weighted 0.40, that requires one high-severity alert to cost about
-# half the component -- 50 puts that frame at 80, comfortably inside the band,
-# and still leaves three high alerts short of flooring the composite on their
-# own. Those tests are the reason these numbers are not round: they were chosen
-# to satisfy a constraint someone had already written down, not picked fresh.
+# First calibrated against MCP_Machine_Learning's tests, which wanted an
+# otherwise-clean frame with one constant column in 60-85. With validity
+# weighted 0.40, a high alert costing half the component puts such a frame at
+# 80, and three of them still leave the composite off the floor.
 _SEVERITY_COST: dict[str, float] = {"high": 50.0, "medium": 25.0, "low": 10.0}
 
 # How many points of missingness or duplication a percent costs.
@@ -82,10 +80,56 @@ COMPONENTS: tuple[str, ...] = ("completeness", "validity", "uniqueness", "drift"
 # Alerts about a fact another component already prices. Duplicate rows cost
 # `uniqueness` through dup_pct and missing values cost `completeness` through
 # null_pct; charging their alerts to `validity` as well priced one fact twice --
-# Ad_Data.csv's 205 duplicate rows cost both components. They stay in the alert
-# list and in alert_counts; they no longer cost validity.
+# Ad_Data.csv's 205 duplicate rows cost both components. A column with no value
+# at all is missing values too. They stay in the alert list and in
+# alert_counts; they do not cost validity.
 _PRICED_ELSEWHERE: frozenset[str] = frozenset(
-    {"duplicate_rows", "duplicates", "high_missing", "high_nulls", "missing_values"}
+    {
+        "duplicate_rows",
+        "duplicates",
+        "high_missing",
+        "high_nulls",
+        "missing_values",
+        "all_null",
+        "all_null_column",
+    }
+)
+
+# Advice about a column's distribution, not a value that breaks a rule: mostly
+# zeros, skewed, outliers, two columns that move together, one category that
+# dominates, a great many distinct values. Each is worth reading before a model
+# or a chart, and none makes a value wrong -- a revenue column is supposed to be
+# skewed. Priced at 25 or 50 apiece they took validity to 0 on ordinary files:
+# Ad_Data.csv scored 59.3 in ML and 99 in DA from the same alerts, because the
+# two repos raise different advice. They are counted in `not_scored`.
+_ADVICE: frozenset[str] = frozenset(
+    {
+        "zeros",
+        "zero_inflated",
+        "skewed",
+        "extreme_skewness",
+        "outliers",
+        "high_corr",
+        "multicollinearity",
+        "imbalanced",
+        "class_imbalance",
+        "high_cardinality",
+    }
+)
+
+# A column that holds one value carries nothing, and what that costs depends on
+# how much of the file it is: one of three columns is a third of the file, two
+# of sixteen an eighth. So a constant column costs validity its share of the
+# columns (100 / columns). A flat 50 apiece put a file with two of them at
+# validity 0 however wide it was.
+_COLUMN_WIDE: frozenset[str] = frozenset({"constant", "constant_column"})
+
+VALIDITY_NOTE = (
+    "validity counts what breaks a rule. A constant column costs its share of the columns "
+    "(100 / columns each); any other rule alert costs by severity (high 50, medium 25, low 10). "
+    "Missing values and duplicate rows are priced by completeness and uniqueness. Distribution "
+    "advice (zeros, skew, outliers, correlation, imbalance, cardinality) is reported but not "
+    "scored: see not_scored."
 )
 
 
@@ -102,9 +146,28 @@ def severity_of(alert: dict[str, Any]) -> str:
     return "low"
 
 
+def is_advice(alert: dict[str, Any]) -> bool:
+    """Whether an alert is distribution advice, which the score reports and does not count."""
+    return _alert_type(alert) in _ADVICE
+
+
 def _component(penalty: float) -> float:
     """A component score: 100 down to a floor of 0."""
     return round(max(0.0, 100.0 - max(0.0, penalty)), 1)
+
+
+def _validity_penalty(alerts: list[dict[str, Any]], columns: int | None) -> float:
+    penalty = 0.0
+    constant: set[str] = set()
+    for a in alerts:
+        kind = _alert_type(a)
+        if kind in _PRICED_ELSEWHERE or kind in _ADVICE:
+            continue
+        if kind in _COLUMN_WIDE and columns:
+            constant.add(str(a.get("col", a.get("column", len(constant)))))
+            continue
+        penalty += _SEVERITY_COST[severity_of(a)]
+    return penalty + (100.0 * len(constant) / columns if columns else 0.0)
 
 
 def quality_report(
@@ -112,6 +175,7 @@ def quality_report(
     dup_pct: float,
     alerts: list[dict[str, Any]] | None = None,
     *,
+    columns: int | None = None,
     has_baseline: bool = False,
     drift_pct: float | None = None,
 ) -> dict[str, Any]:
@@ -125,14 +189,14 @@ def quality_report(
 
     `null_pct` and `dup_pct` are percentages, 0-100. `alerts` are the dicts
     either repo already builds; severity is read from `sev` or `severity`.
+    `columns` is the frame's width, which a constant column's cost is a share
+    of; without it a constant column costs by severity, as any rule alert does.
     """
     alerts = alerts or []
 
     completeness = _component(float(null_pct) * _NULL_COST_PER_PCT)
     uniqueness = _component(float(dup_pct) * _DUP_COST_PER_PCT)
-    validity = _component(
-        sum(_SEVERITY_COST[severity_of(a)] for a in alerts if _alert_type(a) not in _PRICED_ELSEWHERE)
-    )
+    validity = _component(_validity_penalty(alerts, columns))
 
     components: dict[str, float | None] = {
         "completeness": completeness,
@@ -157,12 +221,16 @@ def quality_report(
         "alert_counts": {
             level: sum(1 for a in alerts if severity_of(a) == level) for level in ("high", "medium", "low")
         },
+        "not_scored": {"advice": sum(1 for a in alerts if is_advice(a))},
+        "validity_note": VALIDITY_NOTE,
     }
     if note:
         report["drift_note"] = note
     return report
 
 
-def quality_score(null_pct: float, dup_pct: float, alerts: list[dict[str, Any]] | None = None) -> float:
+def quality_score(
+    null_pct: float, dup_pct: float, alerts: list[dict[str, Any]] | None = None, *, columns: int | None = None
+) -> float:
     """Just the headline, for a caller that only shows one number."""
-    return quality_report(null_pct, dup_pct, alerts)["quality_score"]
+    return quality_report(null_pct, dup_pct, alerts, columns=columns)["quality_score"]

@@ -72,6 +72,7 @@ from shared.file_utils import (
 )
 from shared.geo_names import unrecognised_locations
 from shared.provenance import frame_hash, provenance, provenance_script, read_provenance, read_spec, spec_script
+from shared.quality import is_advice
 from shared.table_payload import json_for_script, records_js
 
 logger = logging.getLogger(__name__)
@@ -559,7 +560,7 @@ def generate_dashboard(
 
         null_pct = float(df.isnull().mean().mean() * 100)
         dup_pct = float(df.duplicated().sum() / max(len(df), 1) * 100)
-        quality = _quality_score(null_pct, dup_pct, alerts)
+        quality = _quality_score(null_pct, dup_pct, alerts, columns=len(df.columns))
         qual_clr = "var(--green)" if quality >= 80 else "var(--orange)" if quality >= 60 else "var(--red)"
 
         _css = css_vars(theme)
@@ -1048,6 +1049,9 @@ def _dash_alerts(alerts: list[dict]) -> str:
     label = f"Data quality — {len(alerts)} alert{'s' if len(alerts) != 1 else ''}"
     if errors:
         label += f", {errors} serious"
+    advice = sum(1 for a in alerts if is_advice({"type": a["type"]}))
+    if advice:
+        label += f", {advice} advice not scored"
     return (
         f'<div class="sec-hdr">{label}</div>'
         f'<div style="padding:0 clamp(.875rem,3vw,1.75rem) .5rem">{alerts_html(alerts)}</div>'

@@ -220,11 +220,13 @@ def run_eda(
         # printed "QUALITY SCORE 98" directly beneath "Alerts (16)" -- constant
         # columns, 89.7% zero-inflation, skewness of +17 and outliers at 13% all
         # cost nothing. The shared scorer prices the same alerts the dashboard
+        # (since #22, 2026-09-24: rule alerts and constant columns cost; the
+        # distribution advice is counted as not scored, and the panel says so)
         # does, so the two tools can no longer give one frame two verdicts.
         alerts = (
             _compute_alerts(df, numeric_cols, cat_cols, corr_pairs, rows, dup_count) if depth.wants("alerts") else []
         )
-        quality_score = compute_quality_score(null_pct, dup_pct, alerts)
+        quality_score = compute_quality_score(null_pct, dup_pct, alerts, columns=len(df.columns))
 
         spearman_matrix = None
         if depth.wants("spearman") and len(numeric_cols) >= 2:
@@ -408,6 +410,7 @@ def run_eda(
                 null_pct,
                 dup_pct,
                 alerts,
+                columns=len(df.columns),
                 has_baseline=bool(comparison),
                 drift_pct=comparison.get("drift_pct") if comparison else None,
             ),
