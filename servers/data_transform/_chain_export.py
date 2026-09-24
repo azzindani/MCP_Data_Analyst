@@ -17,12 +17,14 @@ is refused by name rather than approximated.
 from __future__ import annotations
 
 import ast
+import inspect
 import keyword
 import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from servers.data_transform import _chain_shapes as shapes
 from shared.expr import AGGREGATES, _rewrite, _segments
 from shared.file_utils import padded_id_columns, read_csv
 from shared.patch_validator import validate_ops
@@ -369,6 +371,31 @@ def _fill_nulls(o: dict, col: str) -> list[str]:
     return lines
 
 
+# The reshapes of a pivot and a resample, as the chain runs them: their own
+# source, so the script cannot mean something else.
+SHAPES = f"PERIODS = {shapes.PERIODS!r}\n\n\n" + "\n\n".join(
+    inspect.getsource(f)
+    for f in (
+        shapes._groups,
+        shapes._fill,
+        shapes._pivot_wide,
+        shapes._period_starts,
+        shapes._every_period,
+        shapes._resampled,
+    )
+)
+
+
+def _over_nothing(target: str, node: ast.AST, names: dict[str, str], frame: str) -> list[str]:
+    """`target` = the formula over no rows of `frame`, as the chain's _over_nothing computes it."""
+    return [
+        "try:",
+        f"    {target} = {_Agg(names, frame + '.iloc[0:0]', None).code(node)}",
+        "except Exception:",
+        f"    {target} = np.nan",
+    ]
+
+
 EXPORTED_OPS = (
     "filter",
     "derive",
@@ -491,6 +518,34 @@ class _Writer:
         if kind == "scalar":
             node, names = _tree(raw["scalar"], columns)
             return [*head, f"df = {src}", f"{py_name(sid)} = {_Agg(names, 'df', None).code(node)}"]
+        if kind == "pivot":
+            rows, column = step["rows"], raw["pivot"]
+            node, names = _tree(raw["value"], columns)
+            return [
+                *head,
+                f"df = {src}",
+                f"_work = df[df[{column!r}].notna()]",
+                f"_keys = [_work[c] for c in {[*rows, column]!r}]",
+                f"_value = {_Agg(names, '_work', '_keys').code(node)}",
+                *_over_nothing("_empty", node, names, "_work"),
+                f"{t} = _pivot_wide(df, {rows!r}, {column!r}, _work, _value, _empty)",
+            ]
+        if kind == "resample":
+            by, date, every = step["by"], raw["resample"], raw["every"]
+            lines = [
+                *head,
+                f"df = {src}",
+                f"_dates = pd.to_datetime(df[{date!r}], format='mixed', dayfirst={step['_dayfirst']!r}, errors='coerce')",
+                f"_work = df.assign(**{{{date!r}: _period_starts(_dates, {every!r})}})",
+                f"_work = _work[_work[{date!r}].notna()]",
+                f"_keys = [_work[c] for c in {[*by, date]!r}]",
+                "_results, _empties = {}, {}",
+            ]
+            for name, formula in raw["agg"].items():
+                node, names = _tree(formula, columns)
+                lines.append(f"_results[{name!r}] = {_Agg(names, '_work', '_keys').code(node)}")
+                lines += _over_nothing(f"_empties[{name!r}]", node, names, "_work")
+            return [*lines, f"{t} = _resampled(_work, {by!r}, {date!r}, {every!r}, _results, _empties)"]
         # group_by
         by = step["by"]
         lines = [
@@ -553,6 +608,9 @@ def export_script(planned: list[dict[str, Any]], until: str = "") -> str:
         "import numpy as np",
         "import pandas as pd",
         HELPERS.rstrip(),
+        "",
+        "",
+        SHAPES.rstrip(),
         "",
         "",
         *functions,

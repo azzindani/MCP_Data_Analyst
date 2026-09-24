@@ -330,7 +330,7 @@ def list_derive_ops(op: Op = "") -> dict:
 def run_chain(
     steps: list[dict], dry_run: bool = False, until: str = "", save_as: str = "", export_pandas: bool = False
 ) -> dict:
-    """Run named steps: load, ops, scalar, join, group_by, write, param, call."""
+    """Run named steps: load ops scalar join group_by pivot resample write param call."""
     return engine.run_chain(steps, dry_run, until, save_as, export_pandas)
 
 

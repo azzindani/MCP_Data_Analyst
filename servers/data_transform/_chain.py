@@ -30,15 +30,24 @@ from typing import Any
 _ROOT = Path(__file__).resolve().parents[2]
 _MED = str(Path(__file__).resolve().parents[1] / "data_medium")
 _DATA_BASIC = str(Path(__file__).resolve().parents[1] / "data_basic")
-for _p in (str(_ROOT), _MED, _DATA_BASIC):
+_HERE = str(Path(__file__).resolve().parent)
+for _p in (str(_ROOT), _MED, _DATA_BASIC, _HERE):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
 import numpy as np
 import pandas as pd
+from _chain_shapes import (  # type: ignore[import-not-found]
+    PERIODS,
+    _period_starts,
+    _periods_spanned,
+    _pivot_wide,
+    _resampled,
+)
 from _med_transform import _MAX_MERGE_ROWS, _row_bytes  # type: ignore[import]
 from _patch_ops import OP_HANDLERS, note_non_finite  # type: ignore[import-not-found]
 
+from shared.column_utils import parse_dates
 from shared.counts import counted
 from shared.exchange import attach_public_url
 from shared.expr import FormulaError, aggregate, evaluate, substitute, variables_in
@@ -64,13 +73,15 @@ MAX_STEPS = 50
 MAX_DEPTH = 5
 MAX_TOTAL_STEPS = 200
 CHAIN_FORMAT = "mcp-chain/1"
-ACTIONS = ("load", "ops", "scalar", "join", "group_by", "write", "param", "call")
+ACTIONS = ("load", "ops", "scalar", "join", "group_by", "pivot", "resample", "write", "param", "call")
 _FIELDS = {
     "load": {"id", "load", "on_error"},
     "ops": {"id", "from", "ops", "fallback", "on_error"},
     "scalar": {"id", "from", "scalar", "on_error"},
     "join": {"id", "join", "on", "how", "on_error"},
     "group_by": {"id", "from", "group_by", "agg", "on_error"},
+    "pivot": {"id", "from", "pivot", "rows", "value", "on_error"},
+    "resample": {"id", "from", "resample", "every", "by", "agg", "on_error"},
     "write": {"id", "from", "write", "on_error"},
     "param": {"id", "param"},
     "call": {"id", "call", "args", "tables", "on_error"},
@@ -96,8 +107,13 @@ _ANY_VARIABLE = re.compile(r"\$([A-Za-z_]\w*)")
 _SAMPLE_ROWS = 3
 _FANOUT = 2.0
 
+# A pivot makes a column per value; both reshapes make a row per group (and period).
+MAX_PIVOT_COLUMNS = 200
+MAX_RESHAPE_ROWS = 1_000_000
+
 STEP_SHAPE = (
-    "A step is {'id': name, one of load | ops | scalar | join | group_by | write | param | call, "
+    "A step is {'id': name, one of load | ops | scalar | join | group_by | pivot | resample | write | param | "
+    "call, "
     "'from': an earlier id (default: the table above it)}."
 )
 
@@ -212,6 +228,18 @@ class _Planner:
             self.errors.append(f"{where} reads {ref!r}, a {kind} step: use its value inside a formula as ${ref}")
             return None
         return ref if kind != "?" else None
+
+    def agg(self, where: str, agg: Any, keys: list, what: str) -> None:
+        if not (isinstance(agg, dict) and agg):
+            self.errors.append(
+                f"{where}: agg must map each new column to an aggregate, "
+                "e.g. {'revenue': 'sum(net)', 'orders': 'count()'}"
+            )
+            return
+        for name, formula in agg.items():
+            if name in keys:
+                self.errors.append(f"{where}: agg {name!r} is also a {what} column; give it another name")
+            self.variables(where, formula, f"agg {name!r}")
 
     def variables(self, where: str, formula: Any, field: str) -> None:
         if not isinstance(formula, str) or not formula.strip():
@@ -556,17 +584,30 @@ def plan(
                 if by is None:
                     p.errors.append(f"{where}: group_by must name one column or a list of them")
                 step["by"] = by or []
-                agg = raw.get("agg")
-                if not (isinstance(agg, dict) and agg):
-                    p.errors.append(
-                        f"{where}: agg must map each new column to an aggregate, "
-                        "e.g. {'revenue': 'sum(net)', 'orders': 'count()'}"
-                    )
-                else:
-                    for name, formula in agg.items():
-                        if name in (by or []):
-                            p.errors.append(f"{where}: agg {name!r} is also a group_by column; give it another name")
-                        p.variables(where, formula, f"agg {name!r}")
+                p.agg(where, raw.get("agg"), by or [], "group_by")
+            elif kind == "pivot":
+                column = raw["pivot"]
+                if not (isinstance(column, str) and column.strip()):
+                    p.errors.append(f"{where}: pivot names the column whose values become columns, e.g. 'channel'")
+                rows = _names(raw.get("rows"))
+                if rows is None:
+                    p.errors.append(f"{where}: rows must name the column(s) that stay rows, e.g. ['region']")
+                elif column in rows:
+                    p.errors.append(f"{where}: {column!r} is both the pivot and a rows column")
+                step["rows"] = rows or []
+                p.variables(where, raw.get("value"), "value")
+            elif kind == "resample":
+                if not (isinstance(raw["resample"], str) and raw["resample"].strip()):
+                    p.errors.append(f"{where}: resample names the date column, e.g. 'order_date'")
+                if raw.get("every") not in PERIODS:
+                    p.errors.append(f"{where}: every {raw.get('every')!r} -- use one of {', '.join(PERIODS)}")
+                by = _names(raw["by"]) if "by" in raw else []
+                if by is None:
+                    p.errors.append(f"{where}: by must name one column or a list of them")
+                elif raw["resample"] in by:
+                    p.errors.append(f"{where}: {raw['resample']!r} is both the date and a by column")
+                step["by"] = by or []
+                p.agg(where, raw.get("agg"), [*(by or []), raw["resample"]], "by or date")
             elif kind == "write":
                 path = p.path(where, raw["write"], "write")
                 p.target(where, path, f"step {sid!r}", ".csv", "; write the csv, then convert it with export_data")
@@ -845,12 +886,107 @@ def _run_step(step: dict[str, Any], run: _Run, outer: dict[str, Any]) -> dict[st
         df = out_df.reset_index()
         tables[sid] = df
         return {**_shape(step, df), "groups": len(df)}
+    if kind == "pivot":
+        return _run_pivot(step, src, values, tables)
+    if kind == "resample":
+        return _run_resample(step, src, values, tables)
     if kind == "join":
         return _run_join(step, tables)
     # write: the table goes to disk once every step has run
     tables[sid] = src
     run.pending.append((step, src, run.by_id))
     return {**_shape(step, src), "file": step["path"].name}
+
+
+def _absent(step: dict[str, Any], src: pd.DataFrame, needed: list[str]) -> None:
+    missing = [c for c in needed if c not in src.columns]
+    if missing:
+        shown = ", ".join(str(c) for c in list(src.columns)[: get_max_columns()])
+        raise StepError(
+            f"{', '.join(map(repr, missing))} is not a column of {step['reads'][0]!r}. Its columns: {shown}"
+        )
+
+
+def _over_nothing(formula: str, df: pd.DataFrame) -> Any:
+    """The formula over no rows: what a pivot cell or a period no row falls in holds."""
+    try:
+        return aggregate(formula, df.iloc[0:0])
+    except FormulaError:
+        return np.nan
+
+
+def _run_pivot(
+    step: dict[str, Any], src: pd.DataFrame, values: dict[str, Any], tables: dict[str, pd.DataFrame]
+) -> dict[str, Any]:
+    raw, rows = step["raw"], step["rows"]
+    column = raw["pivot"]
+    _absent(step, src, [*rows, column])
+    work = src[src[column].notna()]
+    heads = work[column].unique().tolist()
+    if not heads:
+        raise StepError(f"{column!r} has no values to make columns of")
+    if len(heads) > MAX_PIVOT_COLUMNS:
+        raise StepError(
+            f"{column!r} has {len(heads):,} distinct values; a pivot makes at most {MAX_PIVOT_COLUMNS} columns. "
+            "Group or filter it first."
+        )
+    clash = sorted({str(h) for h in heads} & {str(r) for r in rows})
+    if clash:
+        raise StepError(f"{column!r} holds {clash[0]!r}, which is also a rows column; rename one first")
+    cells = src.groupby(rows, dropna=False).ngroups * len(heads)
+    if cells > MAX_RESHAPE_ROWS:
+        raise StepError(f"the pivot would hold {cells:,} cells, over the limit of {MAX_RESHAPE_ROWS:,}")
+    formula = substitute(raw["value"], values)
+    try:
+        value = aggregate(formula, work, [*rows, column])
+    except FormulaError as exc:
+        raise StepError(f"value: {exc}") from exc
+    df = _pivot_wide(src, rows, column, work, value, _over_nothing(formula, work))
+    tables[step["id"]] = df
+    out = {**_shape(step, df), "columns_made": len(heads)}
+    if len(work) < len(src):
+        out["note"] = f"{len(src) - len(work):,} rows with no {column!r} are in no column"
+    return out
+
+
+def _run_resample(
+    step: dict[str, Any], src: pd.DataFrame, values: dict[str, Any], tables: dict[str, pd.DataFrame]
+) -> dict[str, Any]:
+    raw, by = step["raw"], step["by"]
+    date, every = raw["resample"], raw["every"]
+    _absent(step, src, [*by, date])
+    parsed, how = parse_dates(src[date], "auto")
+    step["_dayfirst"] = bool(how["dayfirst"])  # the export reads the dates the same way
+    work = src.assign(**{date: _period_starts(parsed, every)})
+    work = work[work[date].notna()]
+    if work.empty:
+        sample = src[date].dropna().head(1).tolist()
+        raise StepError(f"no value of {date!r} reads as a date" + (f", e.g. {sample[0]!r}" if sample else ""))
+    rows = _periods_spanned(work, by, date, every)
+    if rows > MAX_RESHAPE_ROWS:
+        raise StepError(
+            f"resampling by {every} makes {rows:,} rows, over the limit of {MAX_RESHAPE_ROWS:,}; use a longer period"
+        )
+    results: dict[str, Any] = {}
+    empties: dict[str, Any] = {}
+    for name, formula in raw["agg"].items():
+        text = substitute(formula, values)
+        try:
+            results[name] = aggregate(text, work, [*by, date])
+        except FormulaError as exc:
+            raise StepError(f"agg {name!r}: {exc}") from exc
+        empties[name] = _over_nothing(text, work)
+    df = _resampled(work, by, date, every, results, empties)
+    tables[step["id"]] = df
+    out = {**_shape(step, df), "periods": len(df)}
+    notes = []
+    if len(work) < len(src):
+        notes.append(f"{len(src) - len(work):,} rows with no readable {date!r} are in no period")
+    if how.get("ambiguous"):
+        notes.append(f"{date!r} was read {'day' if how['dayfirst'] else 'month'}-first: {how['reason']}")
+    if notes:
+        out["notes"] = notes
+    return out
 
 
 def _run_join(step: dict[str, Any], tables: dict[str, pd.DataFrame]) -> dict[str, Any]:

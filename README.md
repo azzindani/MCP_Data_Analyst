@@ -382,7 +382,7 @@ Focused transformation server — richer filtering, reshaping, and aggregation t
 | `feature_engineering` | `features`: `bins date_parts one_hot text_length` — or add named columns with `derive` (see below). `one_hot` is capped at 10 distinct values per column and 5 columns per call; skipped columns come back in `one_hot_skipped` with a reason each |
 | `list_derive_ops` | The `derive` grammar for `feature_engineering`: every op with its required and optional keys, and a worked example. Omit `op` for all of them |
 | `enrich_with_geo` | Merge dataset with geo data on a location key |
-| `run_chain` | A whole job in one call: named steps that load files, run ops, compute a value, join, group and write -- checked whole before any file is read, and nothing written until every step ran (see below) |
+| `run_chain` | A whole job in one call: named steps that load files, run ops, compute a value, join, group, pivot, resample and write -- checked whole before any file is read, and nothing written until every step ran (see below) |
 
 #### Chains — `run_chain(steps=[...])`
 
@@ -397,9 +397,16 @@ table above it, or any earlier step named in `from`.
 | `scalar` | `{"id": "p95", "scalar": "percentile(net, 95)"}` | one value, read by later formulas as `$p95` |
 | `join` | `{"join": ["clean", "cust"], "on": "customer_id", "how": "left"}` | the joined table (refused before it is built when it would not fit) |
 | `group_by` | `{"group_by": ["region"], "agg": {"revenue": "sum(net)", "big": "count_if(net > $p95)"}}` | one row per group |
+| `pivot` | `{"pivot": "channel", "rows": ["region"], "value": "sum(net)"}` | a row per group of `rows`, a column per value of `channel` (at most 200), each cell the formula |
+| `resample` | `{"resample": "order_date", "every": "month", "by": ["region"], "agg": {"revenue": "sum(net)"}}` | a row per period (day, week from Monday, month, quarter, year) and group, every period from a group's first to its last |
 | `write` | `{"write": "region_summary.csv"}` | the table, saved as CSV (a file it replaces is snapshotted first) |
 | `param` | `{"id": "min_amount", "param": 50}` | a value with a default, read as `$min_amount` -- also inside a `load`/`write` path |
 | `call` | `{"call": "clean.chain.json", "args": {"min_amount": 100}, "tables": {"orders": "raw"}}` | the last table of a saved chain, run with its params set by `args` and any of its `load` steps handed a table from this chain by `tables` |
+
+A pivot cell or a period that no row falls in holds the formula over no rows:
+a sum or count of nothing is 0, a mean of nothing is empty. `resample` reads
+its date column the way `resample_timeseries` does (day- or month-first,
+chosen from the data) and says how many rows had no readable date.
 
 `for_each` repeats its `do` ops once per column, expanded before anything runs:
 `$column` (or the name given by `as`) is the column -- backticked inside a

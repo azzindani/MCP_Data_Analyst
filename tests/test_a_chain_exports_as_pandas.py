@@ -22,7 +22,7 @@ import pytest
 from servers.data_transform import engine
 from servers.data_transform._chain_export import EXPORTED_OPS
 
-INPUTS = ("orders.csv", "customers.csv", "staff.csv")
+INPUTS = ("orders.csv", "customers.csv", "staff.csv", "events.csv")
 
 # One case per op the export claims -- every fill_nulls strategy among them.
 OPS = [
@@ -76,6 +76,15 @@ def data(tmp_path, monkeypatch):
         here / "customers.csv", index=False
     )
     (here / "staff.csv").write_text("employee_id,hours\n0007,5\n0012,3\n0031,12\n", encoding="utf-8")
+    # Day-first dates with a gap in March, for the resample: the script must read them the same way.
+    pd.DataFrame(
+        {
+            "when": ["13/01/2024", "20/01/2024", "02/02/2024", "25/02/2024", "03/04/2024", "soon", "16/04/2024"],
+            "team": ["a", "b", "a", None, "b", "a", "a"],
+            "kind": ["x", "y", "x", "x", None, "y", "y"],
+            "size": [1.0, 2.0, None, 4.0, 5.0, 6.0, 7.0],
+        }
+    ).to_csv(here / "events.csv", index=False)
     return here
 
 
@@ -145,6 +154,29 @@ class TestTheScriptWritesTheSameFiles:
     )
     def test_every_op_it_claims(self, data, op):
         _same(data, [{"load": "orders.csv"}, {"ops": [op]}, {"write": "out.csv"}])
+
+    def test_a_pivot_and_a_resample(self, data):
+        _same(
+            data,
+            [
+                {"id": "floor", "param": 1},
+                {"id": "ev", "load": "events.csv"},
+                {"pivot": "kind", "rows": ["team"], "value": "sum(size) + count_if(size > $floor)"},
+                {"write": "wide.csv"},
+                {"from": "ev", "pivot": "team", "rows": "kind", "value": "mean(size)"},
+                {"write": "means.csv"},
+                {
+                    "from": "ev",
+                    "resample": "when",
+                    "every": "month",
+                    "by": "team",
+                    "agg": {"n": "count()", "total": "sum(size)", "avg": "mean(size)"},
+                },
+                {"write": "monthly.csv"},
+                {"from": "ev", "resample": "when", "every": "week", "agg": {"n": "count()"}},
+                {"write": "weekly.csv"},
+            ],
+        )
 
     def test_it_claims_exactly_the_ops_tested_here(self):
         # A translation added without a case here is a claim nothing checks.
