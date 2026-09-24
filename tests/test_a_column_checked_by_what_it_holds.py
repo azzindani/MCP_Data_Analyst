@@ -61,6 +61,10 @@ class TestEachKindHasItsRule:
     def test_ordinary_columns_are_not_claimed(self):
         assert infer_kind([str(10_000_000 + i) for i in range(20)]) == (None, 0.0)  # order numbers
         assert infer_kind(["North", "South", "East"]) == (None, 0.0)
+        # Ad_Data.csv's Date column was inferred as phones, live: 8 digits and a separator.
+        assert infer_kind([f"2019-10-{d:02d}" for d in range(1, 29)]) == (None, 0.0)
+        assert infer_kind([f"{d:02d}.10.2019" for d in range(1, 29)]) == (None, 0.0)
+        assert infer_kind([f"{1_000_000 + d}.25" for d in range(20)]) == (None, 0.0)
 
     @pytest.mark.parametrize(
         ("kind", "value", "canonical"),

@@ -13,7 +13,7 @@ the column's invalid values, which validate_dataset reports by row.
 
 Shapes are deliberately narrow where a loose one would claim ordinary columns: a
 phone needs a leading + or a separator, so a column of bare 8-digit order numbers
-is not a column of phones; a postal code is a US ZIP, a UK or a Canadian postcode,
+is not a column of phones, and a date (2019-10-16) or a decimal is not one either; a postal code is a US ZIP, a UK or a Canadian postcode,
 not any short number.
 
 These checks are reported, and they do not feed the shared quality score
@@ -33,6 +33,9 @@ MATCH_THRESHOLD = 0.9
 _EMAIL = re.compile(r"[A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
 _IBAN = re.compile(r"[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}")
 _PHONE = re.compile(r"\+?[0-9()\-. ]+")
+# Digits and separators that are a date or a decimal, not a phone: 2019-10-16
+# has eight digits and a separator, and was read as one in a real Date column.
+_NOT_PHONE = re.compile(r"[0-9]{4}([-/.])[0-9]{1,2}\1[0-9]{1,2}|[0-9]{1,2}([-/.])[0-9]{1,2}\2[0-9]{2,4}|[0-9]+\.[0-9]+")
 _POSTAL = (
     re.compile(r"[0-9]{5}(?:-[0-9]{4})?"),  # US ZIP, ZIP+4
     re.compile(r"(?:GIR 0AA|[A-Z]{1,2}[0-9][A-Z0-9]? [0-9][A-Z]{2})"),  # UK
@@ -69,7 +72,7 @@ def _card_ok(value: str) -> bool:
 
 def _phone_ok(value: str) -> bool:
     text = value.strip()
-    if not _PHONE.fullmatch(text):
+    if not _PHONE.fullmatch(text) or _NOT_PHONE.fullmatch(text):
         return False
     digits = re.sub(r"\D", "", text)
     separated = text.startswith("+") or any(ch in text for ch in " ()-.")
