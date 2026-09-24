@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import hashlib
 import re
+import subprocess
 import sys
+import textwrap
 import time
 from pathlib import Path
 
@@ -84,6 +86,28 @@ class TestARunawayPatternIsStopped:
             assert g.found(["x", "2"]) == [False, True]
         with pytest.raises(PatternTimeout), Guard(RUNAWAY, limit=0.5) as g:
             g.search(STUCK)
+
+    def test_the_worker_never_imports_the_server(self, tmp_path):
+        """multiprocessing (forkserver, spawn) imports the server's __main__ into
+        every worker -- a 256 MB forkserver and 18s to start in the DA container.
+        The worker runs regex_guard.py alone; a main that refuses to be imported
+        a second time must not stop it."""
+        script = tmp_path / "server_main.py"
+        script.write_text(
+            textwrap.dedent(
+                f"""
+                import sys
+                if __name__ != "__main__":
+                    raise SystemExit("the worker imported the server's __main__")
+                sys.path.insert(0, {str(ROOT)!r})
+                from shared.regex_guard import Guard
+                with Guard(r"\\d") as g:
+                    print(g.search("a1"))
+                """
+            )
+        )
+        done = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, timeout=60)
+        assert done.returncode == 0 and done.stdout.strip() == "True", done.stderr[-500:]
 
 
 class TestEveryOtherPatternAnswersAsReDoes:
