@@ -393,13 +393,18 @@ table above it, or any earlier step named in `from`.
 | Action | Step | Makes |
 |---|---|---|
 | `load` | `{"id": "orders", "load": "orders.csv"}` | a table from a CSV |
-| `ops` | `{"ops": [...], "fallback": [...]}` | the table after the ops: every `apply_patch` op, plus `{"op": "filter", "where": "<formula>"}` and `{"op": "derive", "name": "net", "expr": "<formula>"}`; `fallback` runs instead when an op fails |
+| `ops` | `{"ops": [...], "fallback": [...]}` | the table after the ops: every `apply_patch` op, plus `{"op": "filter", "where": "<formula>"}`, `{"op": "derive", "name": "net", "expr": "<formula>"}`, `{"op": "impute", "columns": [...]}` (smart_impute's fill: median, the value before, or mode) and `{"op": "for_each", "columns": [...], "do": [...]}`; `fallback` runs instead when an op fails |
 | `scalar` | `{"id": "p95", "scalar": "percentile(net, 95)"}` | one value, read by later formulas as `$p95` |
 | `join` | `{"join": ["clean", "cust"], "on": "customer_id", "how": "left"}` | the joined table (refused before it is built when it would not fit) |
 | `group_by` | `{"group_by": ["region"], "agg": {"revenue": "sum(net)", "big": "count_if(net > $p95)"}}` | one row per group |
 | `write` | `{"write": "region_summary.csv"}` | the table, saved as CSV (a file it replaces is snapshotted first) |
 | `param` | `{"id": "min_amount", "param": 50}` | a value with a default, read as `$min_amount` -- also inside a `load`/`write` path |
 | `call` | `{"call": "clean.chain.json", "args": {"min_amount": 100}, "tables": {"orders": "raw"}}` | the last table of a saved chain, run with its params set by `args` and any of its `load` steps handed a table from this chain by `tables` |
+
+`for_each` repeats its `do` ops once per column, expanded before anything runs:
+`$column` (or the name given by `as`) is the column -- backticked inside a
+formula, as-is in any other field, `${column}` inside longer text such as
+`"name": "${column}_log"`. A failure names the column it was for.
 
 Formulas are the `add_column` language (precedence, parentheses, comparisons,
 `and`/`or`, `if_else`, `coalesce`, ...). Aggregates: `sum mean median min max

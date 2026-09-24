@@ -80,8 +80,16 @@ _VALUE_KINDS = ("scalar", "param")
 HOW = ("left", "inner", "outer", "right")
 ON_ERROR = ("stop", "skip")
 # Ops only a chain has: a row filter and a derived column, both written in the
-# formula language. Every other op is one of apply_patch's.
-NATIVE_OPS = {"filter": ("where",), "derive": ("name", "expr")}
+# formula language, and smart_impute's fill as an op. Every other op is one of
+# apply_patch's.
+NATIVE_OPS = {"filter": ("where",), "derive": ("name", "expr"), "impute": ("columns",)}
+# for_each repeats its `do` ops once per column, expanded before anything runs:
+# `$column` (or the name `as` gives) is the column -- backticked inside a
+# formula, as-is anywhere else, and `${column}` inside longer text.
+FOR_EACH_FIELDS = ("columns", "as", "do")
+MAX_FOR_EACH_COLUMNS = 100
+MAX_EXPANDED_OPS = 500
+_FORMULA_FIELDS = ("where", "expr")
 _ID = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _WHOLE_VARIABLE = re.compile(r"^\$([A-Za-z_]\w*)$")
 _ANY_VARIABLE = re.compile(r"\$([A-Za-z_]\w*)")
@@ -144,6 +152,18 @@ def _placeholder(value: Any, variables: set[str]) -> Any:
     return value
 
 
+def _each(value: Any, name: str, column: str, key: str = "") -> Any:
+    """An op of a for_each with $name written as `column`: backticked in a formula, as-is elsewhere."""
+    if isinstance(value, dict):
+        return {k: _each(v, name, column, k) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_each(v, name, column, key) for v in value]
+    if not isinstance(value, str):
+        return value
+    text = f"`{column}`" if key in _FORMULA_FIELDS else column
+    return re.sub(r"\$\{" + re.escape(name) + r"\}|\$" + re.escape(name) + r"(?!\w)", lambda _m: text, value)
+
+
 def read_chain(path: Path) -> list[Any]:
     """The steps of a chain file run_chain(save_as=...) wrote. Raises ValueError naming what is wrong."""
     try:
@@ -204,41 +224,104 @@ class _Planner:
                     f"{where}: {field} uses ${name}, which no scalar or param step above it defines (variables: {known})"
                 )
 
-    def ops(self, where: str, ops: Any, field: str) -> None:
+    def ops(self, where: str, ops: Any, field: str) -> list[tuple[str, dict]]:
+        """The ops as they will run -- each for_each expanded -- each with where it came from."""
         if not isinstance(ops, list) or not ops:
             self.errors.append(
                 f"{where}: {field} must be a non-empty list of ops, e.g. [{{'op': 'filter', 'where': 'amount > 0'}}]"
             )
-            return
+            return []
+        out: list[tuple[str, dict]] = []
         for j, op in enumerate(ops):
-            at = f"{where} {field}[{j}]"
-            if not isinstance(op, dict):
-                self.errors.append(f"{at}: an op is an object with an 'op' field, got {type(op).__name__}")
-                continue
-            name = op.get("op")
-            if name in NATIVE_OPS:
-                needed = NATIVE_OPS[name]
-                unknown = sorted(set(op) - {"op", *needed})
-                if unknown:
-                    guess = _did_you_mean(unknown[0], list(needed))
-                    lead = f"did you mean {guess}? " if guess else ""
+            label = f"{field}[{j}]"
+            if isinstance(op, dict) and op.get("op") == "for_each":
+                for inner_label, inner in self.for_each(where, label, op):
+                    self.one(where, inner_label, inner, out)
+            else:
+                self.one(where, label, op, out)
+        if len(out) > MAX_EXPANDED_OPS:
+            self.errors.append(
+                f"{where}: {field} expands to {len(out)} ops; a step runs at most {MAX_EXPANDED_OPS}. Split it."
+            )
+        return out
+
+    def for_each(self, where: str, label: str, op: dict) -> list[tuple[str, dict]]:
+        at = f"{where} {label} (for_each)"
+        unknown = sorted(set(op) - {"op", *FOR_EACH_FIELDS})
+        if unknown:
+            self.errors.append(f"{at}: unknown field(s) {', '.join(unknown)} -- for_each takes: columns, as, do")
+            return []
+        columns = op.get("columns")
+        if not (isinstance(columns, list) and columns and all(isinstance(c, str) and c for c in columns)):
+            self.errors.append(f"{at}: columns must list the columns to repeat over, e.g. ['price', 'cost']")
+            return []
+        twice = sorted({c for c in columns if columns.count(c) > 1})
+        if twice:
+            self.errors.append(f"{at}: columns names {', '.join(map(repr, twice))} more than once")
+        if len(columns) > MAX_FOR_EACH_COLUMNS:
+            self.errors.append(f"{at}: {len(columns)} columns; a for_each takes at most {MAX_FOR_EACH_COLUMNS}")
+        quoted = [c for c in columns if "`" in c]
+        if quoted:
+            self.errors.append(f"{at}: {quoted[0]!r} holds a backtick, which a formula cannot quote; rename it first")
+        name = op.get("as", "column")
+        if not (isinstance(name, str) and _ID.match(name)):
+            self.errors.append(f"{at}: as {name!r} must be a name -- letters, digits and _ -- used as ${name}")
+            return []
+        if name in self.variables_known:
+            self.errors.append(
+                f"{at}: as {name!r} is also a step above it, so ${name} would mean two things; pick another name"
+            )
+            return []
+        body = op.get("do")
+        if not isinstance(body, list) or not body:
+            self.errors.append(
+                f"{at}: do must be the ops to repeat, e.g. [{{'op': 'fill_nulls', 'column': '${name}', 'strategy': 'median'}}]"
+            )
+            return []
+        if any(isinstance(o, dict) and o.get("op") == "for_each" for o in body):
+            self.errors.append(f"{at}: a for_each inside a for_each -- list the columns it needs in one")
+            return []
+        return [
+            (f"{label} for_each {c!r} do[{k}]", _each(inner, name, c)) for c in columns for k, inner in enumerate(body)
+        ]
+
+    def one(self, where: str, label: str, op: Any, out: list[tuple[str, dict]]) -> None:
+        at = f"{where} {label}"
+        if not isinstance(op, dict):
+            self.errors.append(f"{at}: an op is an object with an 'op' field, got {type(op).__name__}")
+            return
+        out.append((label, op))
+        name = op.get("op")
+        if name in NATIVE_OPS:
+            needed = NATIVE_OPS[name]
+            unknown = sorted(set(op) - {"op", *needed})
+            if unknown:
+                guess = _did_you_mean(unknown[0], list(needed))
+                lead = f"did you mean {guess}? " if guess else ""
+                self.errors.append(
+                    f"{at} ({name}): unknown field(s) {', '.join(unknown)} -- {lead}{name} takes: {', '.join(needed)}"
+                )
+                return
+            if name == "impute":
+                if "columns" in op and _names(op["columns"]) is None:
                     self.errors.append(
-                        f"{at} ({name}): unknown field(s) {', '.join(unknown)} -- {lead}{name} takes: {', '.join(needed)}"
+                        f"{at} (impute): columns must name one column or a list of them; leave it out for every "
+                        "column with nulls"
                     )
-                    continue
-                if name == "derive" and not (isinstance(op.get("name"), str) and op["name"].strip()):
-                    self.errors.append(f"{at} (derive): name must be the new column's name")
-                formula_field = "where" if name == "filter" else "expr"
-                self.variables(f"{at} ({name})", op.get(formula_field), formula_field)
-                continue
-            if name not in VALID_OPS:
-                known = sorted(VALID_OPS | set(NATIVE_OPS))
-                guess = _did_you_mean(str(name), known) if isinstance(name, str) else ""
-                lead = f"did you mean {guess!r}? " if guess else ""
-                self.errors.append(f"{at}: unknown op {name!r} -- {lead}ops: {', '.join(known)}")
-                continue
-            for problem in validate_ops([_placeholder(op, self.variables_known)]):
-                self.errors.append(f"{at}{problem.removeprefix('Op 0')}")
+                return
+            if name == "derive" and not (isinstance(op.get("name"), str) and op["name"].strip()):
+                self.errors.append(f"{at} (derive): name must be the new column's name")
+            formula_field = "where" if name == "filter" else "expr"
+            self.variables(f"{at} ({name})", op.get(formula_field), formula_field)
+            return
+        if name not in VALID_OPS:
+            known = sorted(VALID_OPS | set(NATIVE_OPS) | {"for_each"})
+            guess = _did_you_mean(str(name), known) if isinstance(name, str) else ""
+            lead = f"did you mean {guess!r}? " if guess else ""
+            self.errors.append(f"{at}: unknown op {name!r} -- {lead}ops: {', '.join(known)}")
+            return
+        for problem in validate_ops([_placeholder(op, self.variables_known)]):
+            self.errors.append(f"{at}{problem.removeprefix('Op 0')}")
 
     def text(self, where: str, raw: str, field: str) -> str | None:
         """`raw` with each $param written in; a path is needed before the run, so a scalar cannot be one."""
@@ -463,9 +546,9 @@ def plan(
                 src = p.table(where, ref)
                 step["reads"] = [src] if src else []
             if kind == "ops":
-                p.ops(where, raw["ops"], "ops")
+                step["run_ops"] = {"ops": p.ops(where, raw["ops"], "ops")}
                 if "fallback" in raw:
-                    p.ops(where, raw["fallback"], "fallback")
+                    step["run_ops"]["fallback"] = p.ops(where, raw["fallback"], "fallback")
             elif kind == "scalar":
                 p.variables(where, raw["scalar"], "scalar")
             elif kind == "group_by":
@@ -585,25 +668,56 @@ def _derive(df: pd.DataFrame, name: str, expr: str) -> tuple[pd.DataFrame, str]:
     return df, "; ".join(notes)
 
 
+def _impute(df: pd.DataFrame, columns: Any) -> tuple[pd.DataFrame, str]:
+    """smart_impute's fill: a number column by its median, a date by the value before, text by its mode."""
+    names = _names(columns) if columns else [c for c in df.columns if bool(df[c].isna().to_numpy().any())]
+    absent = [c for c in names or [] if c not in df.columns]
+    if absent:
+        shown = ", ".join(str(c) for c in list(df.columns)[: get_max_columns()])
+        raise StepError(f"impute: no column {', '.join(map(repr, absent))}. Columns: {shown}")
+    filled, empty = [], []
+    for c in names or []:
+        s = df[c]
+        n = int(s.isna().sum())
+        if not n:
+            continue
+        if not bool(s.notna().to_numpy().any()):
+            empty.append(str(c))
+            continue
+        if pd.api.types.is_numeric_dtype(s):
+            df[c], how = s.fillna(s.median()), "median"
+        elif pd.api.types.is_datetime64_any_dtype(s):
+            df[c], how = s.ffill(), "the value before"
+        else:
+            df[c], how = s.fillna(s.mode().iloc[0]), "mode"
+        filled.append(f"{c} ({n} by {how})")
+    notes = [f"filled {', '.join(filled)}" if filled else "no nulls to fill"]
+    if empty:
+        notes.append(f"left {', '.join(map(repr, empty))} as is: every value is null, so there is nothing to fill from")
+    return df, "; ".join(notes)
+
+
 def _apply_ops(
-    src: pd.DataFrame, ops: list[dict], values: dict[str, Any], field: str, seen: list[list[str]]
+    src: pd.DataFrame, ops: list[tuple[str, dict]], values: dict[str, Any], seen: list[list[str]]
 ) -> tuple[pd.DataFrame, list[str]]:
     df = src.copy()
     notes: list[str] = []
-    for j, raw in enumerate(ops):
+    for label, raw in ops:
         seen.append([str(c) for c in df.columns])  # what each op read, for the pandas export
         op = _bind(copy.deepcopy(raw), values)
         name = op.get("op", "")
-        at = f"{field}[{j}] ({name})"
+        at = f"{label} ({name})"
         try:
             if name == "filter":
                 df, note = _filter(df, substitute(raw["where"], values))
             elif name == "derive":
                 df, note = _derive(df, op["name"], substitute(raw["expr"], values))
+            elif name == "impute":
+                df, note = _impute(df, op.get("columns"))
             else:
                 problems = validate_ops([op])
                 if problems:
-                    raise StepError(f"{field}[{j}]{problems[0].removeprefix('Op 0')}")
+                    raise StepError(f"{label}{problems[0].removeprefix('Op 0')}")
                 df, result = OP_HANDLERS[name](df, op)
                 result = note_non_finite(df, result)
                 note = "; ".join(str(result[k]) for k in ("note", "warning") if result.get(k))
@@ -689,12 +803,12 @@ def _run_step(step: dict[str, Any], run: _Run, outer: dict[str, Any]) -> dict[st
     if kind == "ops":
         seen = step.setdefault("_cols", {})
         try:
-            df, notes = _apply_ops(src, raw["ops"], values, "ops", seen.setdefault("ops", []))
+            df, notes = _apply_ops(src, step["run_ops"]["ops"], values, seen.setdefault("ops", []))
         except StepError as first:
             if "fallback" not in raw:
                 raise
             try:
-                df, notes = _apply_ops(src, raw["fallback"], values, "fallback", seen.setdefault("fallback", []))
+                df, notes = _apply_ops(src, step["run_ops"]["fallback"], values, seen.setdefault("fallback", []))
             except StepError as second:
                 raise StepError(f"{first.message}; the fallback failed too: {second.message}") from second
             notes.insert(0, f"ops failed ({first.message}), so the fallback ran")

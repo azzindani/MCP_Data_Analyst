@@ -44,6 +44,16 @@ OPS = [
     {"op": "fill_nulls", "column": "amount", "strategy": "bfill"},
     {"op": "fill_nulls", "column": "customer_id", "strategy": "drop"},
     {"op": "fill_nulls", "column": "customer_id", "strategy": "value", "value": "unknown"},
+    {"op": "impute"},
+    {"op": "impute", "columns": ["customer_id"]},
+    {
+        "op": "for_each",
+        "columns": ["amount", "discount"],
+        "do": [
+            {"op": "clip_values", "column": "$column", "min": 0, "max": 150},
+            {"op": "derive", "name": "${column}_x2", "expr": "$column * 2"},
+        ],
+    },
 ]
 
 

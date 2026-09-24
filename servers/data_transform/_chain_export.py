@@ -125,6 +125,21 @@ def _column(v, index):
     if isinstance(v, pd.Series):
         return v.to_numpy() if v.index.equals(index) else v.reindex(index).to_numpy()
     return v
+
+
+def _impute(df, columns=None):
+    names = columns or [c for c in df.columns if df[c].isna().any()]
+    for c in names:
+        s = df[c]
+        if not s.isna().any() or not s.notna().any():
+            continue
+        if pd.api.types.is_numeric_dtype(s):
+            df[c] = s.fillna(s.median())
+        elif pd.api.types.is_datetime64_any_dtype(s):
+            df[c] = s.ffill()
+        else:
+            df[c] = s.fillna(s.mode().iloc[0])
+    return df
 """
 
 _ARITH = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.Div: "/", ast.FloorDiv: "//", ast.Mod: "%", ast.Pow: "**"}
@@ -357,6 +372,8 @@ def _fill_nulls(o: dict, col: str) -> list[str]:
 EXPORTED_OPS = (
     "filter",
     "derive",
+    "impute",
+    "for_each",
     "drop_column",
     "sort",
     "drop_duplicates",
@@ -376,16 +393,20 @@ class _Writer:
     def __init__(self) -> None:
         self.functions: dict[Path, tuple[str, list[str]]] = {}
 
-    def ops(self, ops: list[dict], columns: list[list[str]] | None, where: str) -> list[str]:
+    def ops(self, ops: list[tuple[str, dict]], columns: list[list[str]] | None, where: str) -> list[str]:
+        """The ops as they ran -- a for_each already written out once per column."""
         lines: list[str] = []
         cols: list[str] | None = None
-        for j, op in enumerate(ops):
+        for j, (label, op) in enumerate(ops):
             # An op after the one that failed never ran; the columns it would
             # have seen are the last ones recorded.
             cols = columns[j] if columns and j < len(columns) else cols
             name = op.get("op")
             try:
-                if name in ("filter", "derive"):
+                if name == "impute":
+                    names = [op["columns"]] if isinstance(op.get("columns"), str) else op.get("columns")
+                    lines.append(f"df = _impute(df, {names!r})")
+                elif name in ("filter", "derive"):
                     if cols is None:
                         raise ExportError("it never ran, so its formulas were never read against its columns")
                     field = "where" if name == "filter" else "expr"
@@ -400,7 +421,7 @@ class _Writer:
                 else:
                     lines.extend(_patch(op))
             except ExportError as exc:
-                raise ExportError(f"{where} op {j} ({name}): {exc}") from None
+                raise ExportError(f"{where} {label} ({name}): {exc}") from None
         return lines
 
     def steps(self, planned: list[dict[str, Any]], until: str, params: dict[str, str]) -> tuple[list[str], str]:
@@ -455,11 +476,11 @@ class _Writer:
             return [*head, f"{t} = {src}", f"_writes.append(({t}, {_path(raw['write'])}))"]
         if kind == "ops":
             recorded = step.get("_cols", {})
-            main = self.ops(raw["ops"], recorded.get("ops"), where)
+            main = self.ops(step["run_ops"]["ops"], recorded.get("ops"), where)
             code = [f"df = {src}.copy()", *main]
             if "fallback" in raw:
                 if "fallback" in recorded:
-                    fallback = self.ops(raw["fallback"], recorded["fallback"], where + " fallback")
+                    fallback = self.ops(step["run_ops"]["fallback"], recorded["fallback"], where)
                     code = ["try:", *("    " + c for c in code), "except Exception:", f"    df = {src}.copy()"]
                     code += ["    " + c for c in fallback]
                 # a fallback that never ran was never needed: the ops above are what ran
