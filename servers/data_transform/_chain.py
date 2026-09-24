@@ -37,6 +37,8 @@ for _p in (str(_ROOT), _MED, _DATA_BASIC, _HERE):
 
 import numpy as np
 import pandas as pd
+from _chain_lazy import plan as plan_lazy  # type: ignore[import-not-found]
+from _chain_lazy import read as lazy_read  # type: ignore[import-not-found]
 from _chain_shapes import (  # type: ignore[import-not-found]
     PERIODS,
     _period_starts,
@@ -810,6 +812,12 @@ class _Run:
         self.values: dict[str, Any] = {}
         self.skipped: dict[str, str] = {}
         self.pending = pending
+        # Loads streamed rather than read whole (_chain_lazy), what each kept,
+        # and the first rows of each file for a dry run's sample.
+        self.lazy: dict[str, dict[str, Any]] = {}
+        self.streamed: dict[str, dict[str, Any]] = {}
+        self.samples: dict[str, pd.DataFrame] = {}
+        self.was_streamed = False
 
     def step(self, step: dict[str, Any], outer: dict[str, Any]) -> dict[str, Any]:
         gone = [ref for ref in step["reads"] if ref in self.skipped]
@@ -835,12 +843,17 @@ def _run_step(step: dict[str, Any], run: _Run, outer: dict[str, Any]) -> dict[st
         values[sid] = value
         return {"id": sid, "kind": kind, "value": _plain(values[sid])}
     if kind == "load":
+        streamed = _stream_load(step, run)
+        if streamed is not None:
+            return streamed
         df = read_csv_preserving_ids(str(step["path"]))
         tables[sid] = df
         return {**_shape(step, df), "file": step["path"].name}
     if kind == "call":
         return _run_call(step, run)
     src = tables[step["reads"][0]]
+    if kind == "ops" and step["reads"][0] in run.streamed:
+        return _after_stream(step, run.streamed.pop(step["reads"][0]), values, tables)
     if kind == "ops":
         seen = step.setdefault("_cols", {})
         try:
@@ -984,6 +997,69 @@ def _run_resample(
         notes.append(f"{len(src) - len(work):,} rows with no readable {date!r} are in no period")
     if how.get("ambiguous"):
         notes.append(f"{date!r} was read {'day' if how['dayfirst'] else 'month'}-first: {how['reason']}")
+    if notes:
+        out["notes"] = notes
+    return out
+
+
+def _stream_load(step: dict[str, Any], run: _Run) -> dict[str, Any] | None:
+    """A big load streamed through its reader's opening filters; None to read it whole."""
+    entry = run.lazy.get(step["id"])
+    if entry is None:
+        return None
+    filters = run.by_id[entry["reader"]]["run_ops"]["ops"][: entry["filters"]]
+    # A filter reading a value no step has computed yet cannot run now.
+    if any(name not in run.values for _, op in filters for name in variables_in(op["where"])):
+        return None
+    try:
+        got = lazy_read(step["path"], entry, filters, run.values, _filter)
+    except Exception:
+        got = None
+    if got is None:
+        return None
+    sid = step["id"]
+    run.tables[sid] = got["table"]
+    run.samples[sid] = got["head"]
+    run.streamed[sid] = got
+    run.was_streamed = True
+    read = {"streamed": True, "rows_kept_by_filters": len(got["table"])}
+    if len(got["columns_read"]) < got["columns"]:
+        read["columns_read"] = got["columns_read"][: get_max_columns()]
+    return {
+        "id": sid,
+        "kind": "load",
+        "rows": got["rows"],
+        "columns": got["columns"],
+        "file": step["path"].name,
+        "read": read,
+    }
+
+
+def _after_stream(
+    step: dict[str, Any], got: dict[str, Any], values: dict[str, Any], tables: dict[str, pd.DataFrame]
+) -> dict[str, Any]:
+    """The rest of an ops step whose opening filters ran as its load streamed."""
+    ops = step["run_ops"]["ops"]
+    done = len(got["counts"])
+    seen = step.setdefault("_cols", {}).setdefault("ops", [])
+    notes: list[str] = []
+    before = got["rows"]
+    for (label, op), kept in zip(ops[:done], got["counts"], strict=True):
+        seen.append(list(got["columns_read"]))
+        if kept == 0 and before:
+            notes.append(f"{label} (filter): no row matched {substitute(op['where'], values)!r}")
+        before = kept
+    df, more = _apply_ops(got["table"], ops[done:], values, seen)
+    notes += more
+    tables[step["id"]] = df
+    out = _shape(step, df, got["table"])
+    # Only the columns the next step names were kept; the ops add and drop
+    # the same columns either way, so the whole table's width is the file's
+    # plus what they changed.
+    out["columns"] = got["columns"] + len(df.columns) - len(got["columns_read"])
+    out.pop("rows_before", None)
+    if len(df) != got["rows"]:
+        out["rows_before"] = got["rows"]
     if notes:
         out["notes"] = notes
     return out
@@ -1199,9 +1275,38 @@ def _export(result: dict[str, Any], planned: list[dict[str, Any]], until: str) -
     result["token_estimate"] = _token_estimate(result)
 
 
+class _ReadWhole(Exception):
+    """A step failed after a load was streamed."""
+
+
+def _forget(planned: list[dict[str, Any]]) -> None:
+    """Drop what a run recorded on its steps, so a second run records afresh."""
+    for s in planned:
+        s.pop("_cols", None)
+        _forget(s.get("sub", []))
+
+
 def _execute(planned: list[dict[str, Any]], original: list, until: str, dry_run: bool, save_path: Path | None) -> dict:
+    """Run the chain, streaming the loads _chain_lazy picks.
+
+    If a step then fails, or fails and is skipped, the chain runs again with
+    every file read whole: an error names its input's columns, and a streamed
+    table may hold only some. Nothing is written before the last step, so the
+    first run leaves nothing behind.
+    """
+    try:
+        return _execute_steps(planned, original, until, dry_run, save_path, lazy=True)
+    except _ReadWhole:
+        _forget(planned)
+        return _execute_steps(planned, original, until, dry_run, save_path, lazy=False)
+
+
+def _execute_steps(
+    planned: list[dict[str, Any]], original: list, until: str, dry_run: bool, save_path: Path | None, lazy: bool
+) -> dict:
     last_read = {ref: k for k, s in enumerate(planned) for ref in s["reads"]}
     run = _Run(planned, [])
+    run.lazy = plan_lazy(planned, until, dry_run) if lazy else {}
     summaries: list[dict[str, Any]] = []
     progress: list[dict] = []
     latest = ""
@@ -1210,6 +1315,8 @@ def _execute(planned: list[dict[str, Any]], original: list, until: str, dry_run:
         try:
             summary = run.step(step, {})
         except Exception as exc:
+            if run.was_streamed:
+                raise _ReadWhole from exc
             message = exc.message if isinstance(exc, StepError) else error_text(exc)
             if step["on_error"] == "skip":
                 run.skipped[sid] = message
@@ -1231,7 +1338,7 @@ def _execute(planned: list[dict[str, Any]], original: list, until: str, dry_run:
                 **extra,
             )
         if dry_run and kind not in (*_VALUE_KINDS, "write"):
-            summary["sample"] = _records(run.tables[sid], _SAMPLE_ROWS)
+            summary["sample"] = _records(run.samples.get(sid, run.tables[sid]), _SAMPLE_ROWS)
         summaries.append(summary)
         if kind not in _VALUE_KINDS:
             latest = sid

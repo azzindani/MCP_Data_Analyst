@@ -439,6 +439,16 @@ byte for byte. It covers `filter`, `derive`, `drop_column`, `sort`,
 `filter_between`, `filter_top_n`, `clip_values`, `round_values`, `abs_values`
 and `fill_nulls`; any other op is refused by name in `pandas_refused`.
 
+A file over `MCP_CHAIN_LAZY_MB` (default 64), loaded for one `ops` step that
+opens with `filter`s, is streamed rather than read whole: the filters run on
+each chunk of `MCP_CHAIN_CHUNK_ROWS` rows (default 200000) as it arrives, and
+when the filtered table feeds one `group_by`, `scalar`, `pivot` or `resample`,
+only the columns the steps name are kept. The load step's `read` says so
+(`streamed`, `rows_kept_by_filters`, `columns_read`). The answer is the whole
+read's: a column typed differently across chunks is read again with the
+whole file's type, and a line with too many fields, a type that cannot be
+settled, or a step that then fails sends the file back to the whole read.
+
 #### Derived columns — `feature_engineering(derive=[...])`
 
 Aggregation tools group by columns that are already in the file. `derive` adds
@@ -703,6 +713,8 @@ For lower-memory machines, set `MCP_CONSTRAINED_MODE=1` in the `env` section of 
 | `MCP_UPLOAD_BASE_URL` | _(unset)_ | This server's public origin, which upload URLs are built on |
 | `MCP_UPLOAD_SECRET` | _(per process)_ | Key upload URLs are signed with; set it to keep them valid across a restart |
 | `MCP_MAX_MERGE_MB` | `256` | Largest table `merge_datasets` will build in memory; a bigger join is refused before it runs |
+| `MCP_CHAIN_LAZY_MB` | `64` | Files at least this big are streamed through a `run_chain` step's opening filters |
+| `MCP_CHAIN_CHUNK_ROWS` | `200000` | Rows per chunk when `run_chain` streams a file |
 
 ### Hybrid local + remote file handling
 
