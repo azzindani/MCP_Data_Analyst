@@ -330,10 +330,18 @@ def customize_dashboard(
     return_content: bool = False,
     ops: list[dict] = None,
     dry_run: bool = False,
+    save_template: str = "",
 ) -> dict:
     """Rebuild a dashboard with its spec changed; ops add/set/move/remove panels."""
     return engine.customize_dashboard(
-        dashboard_path, changes, output_path, open_after, return_content, ops=ops, dry_run=dry_run
+        dashboard_path,
+        changes,
+        output_path,
+        open_after,
+        return_content,
+        ops=ops,
+        dry_run=dry_run,
+        save_template=save_template,
     )
 
 
@@ -351,8 +359,10 @@ def generate_dashboard(
     return_content: bool = False,
     spec: dict = None,
     sources: list[str] = None,
+    template: str = "",
+    save_template: str = "",
 ) -> dict:
-    """Interactive HTML dashboard. spec overrides detection; sources add tabs."""
+    """Interactive HTML dashboard: spec or template shapes it; sources add tabs."""
     return engine.generate_dashboard(
         file_path,
         output_path,
@@ -366,6 +376,8 @@ def generate_dashboard(
         return_content,
         spec,
         sources,
+        template=template,
+        save_template=save_template,
     )
 
 

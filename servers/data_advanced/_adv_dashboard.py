@@ -7,6 +7,7 @@ import json as _json
 import logging
 import re as _re
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -61,7 +62,14 @@ from shared.dashboard_spec import merge as merge_spec
 from shared.dashboard_spec import resolve as resolve_spec
 from shared.dashboard_spec import validate as validate_spec
 from shared.data_alerts import alerts_for_frame, alerts_html, quality_score
-from shared.file_utils import embed_content, error_text, hint_for_error, no_rows_error, resolve_path
+from shared.file_utils import (
+    atomic_write_text,
+    embed_content,
+    error_text,
+    hint_for_error,
+    no_rows_error,
+    resolve_path,
+)
 from shared.geo_names import unrecognised_locations
 from shared.provenance import frame_hash, provenance, provenance_script, read_provenance, read_spec, spec_script
 from shared.table_payload import json_for_script, records_js
@@ -229,6 +237,8 @@ def generate_dashboard(
     return_content: bool = False,
     spec: dict | None = None,
     sources: list[str] = None,
+    template: str = "",
+    save_template: str = "",
 ) -> dict:
     """Generate interactive HTML dashboard with auto-detected charts. Opens HTML.
 
@@ -252,6 +262,10 @@ def generate_dashboard(
     A spec naming a column that is not in the file, or a chart missing a role it
     needs, is refused by name rather than quietly falling back to detection: a
     dashboard that ignored its configuration looks exactly like one that obeyed.
+
+    `save_template` writes that spec to a .json file, and `template` builds
+    another file's dashboard from one: every column the template names must be
+    in the new file, and `spec` changes it on the way in.
     """
     progress = []
     # geo_file_path was declared on the tool, forwarded by the wrapper, and read
@@ -297,7 +311,35 @@ def generate_dashboard(
         df = _read_csv(str(path))
         if err := no_rows_error("generate_dashboard", df, path.name, "Building a dashboard"):
             return err
+        # A template is a spec saved from another file's dashboard: checked
+        # against this file's columns first, then the caller's spec over it.
+        used: dict | None = None
+        try:
+            target = _template_target(save_template) if save_template else None
+            if template:
+                used = _read_template(template)
+                have = {str(c) for c in df.columns}
+                lacking = [c for c in used["columns"] if c not in have]
+                if lacking:
+                    raise SpecError(
+                        f"template {used['name']!r} names column(s) {path.name} does not have: "
+                        f"{', '.join(lacking)}. It was saved from {used['from']}. "
+                        f"Columns here: {', '.join(sorted(have))}"
+                    )
+                spec = merge_spec(used["spec"], spec or {})
+        except SpecError as exc:
+            return {
+                "success": False,
+                "op": "generate_dashboard",
+                "error": str(exc),
+                "hint": "A template is written by generate_dashboard(save_template='name.json') on a file with these columns.",
+                "progress": [fail("Template", str(exc))],
+                "token_estimate": 60,
+            }
         dashboard_title = title if title else path.stem
+        # Whether the page's title is the caller's or only the file's name --
+        # taken now, because the panel loop below rebinds `title`.
+        titled = bool(title) or bool((spec or {}).get("title"))
         _parse_dates(df, spec if isinstance(spec, dict) else None)
 
         numeric_all = [c for c in df.columns if is_numeric_col(df[c])]
@@ -473,6 +515,11 @@ def generate_dashboard(
                 },
                 "progress": progress,
             }
+            if used:
+                result["template"] = {"name": used["name"], "from": used["from"]}
+            if target:
+                result["template_saved"] = None
+                progress.append(info("Template not saved", "a dry run writes nothing"))
             result["token_estimate"] = _token_estimate(result)
             return result
 
@@ -687,6 +734,11 @@ def generate_dashboard(
             "spec": resolved,
             "progress": progress,
         }
+        if used:
+            result["template"] = {"name": used["name"], "from": used["from"]}
+        if target:
+            result["template_saved"] = _save_template(target, resolved, path.name, titled)
+            progress.append(ok("Template saved", target.name))
         embed_content(result, out, return_content)
         result["token_estimate"] = _token_estimate(result)
         return result
@@ -1982,6 +2034,67 @@ applyF();
 </script>"""
 
 
+TEMPLATE_FORMAT = "mcp-dashboard-template/1"
+
+
+def _template_columns(spec: dict) -> list[str]:
+    """Every column a spec names: its panels' columns, its KPIs and its filters."""
+    names: list[str] = []
+    for panel in spec.get("layout") or []:
+        if isinstance(panel, dict) and isinstance(panel.get("cols"), dict):
+            names += [str(v) for v in panel["cols"].values() if v]
+    names += [str(k) for k in spec.get("kpis") or []]
+    names += [str(filter_entry(f).get("column")) for f in spec.get("filters") or []]
+    return list(dict.fromkeys(names))
+
+
+def _template_target(raw: str) -> Path:
+    target = resolve_path(raw)
+    if target.suffix.lower() != ".json":
+        raise SpecError(f"save_template {target.name!r} must end in .json")
+    if target.is_dir():
+        raise SpecError(f"save_template {target.name!r} is a folder; name a .json file")
+    return target
+
+
+def _read_template(raw: str) -> dict:
+    """A saved template: its spec, the columns it needs, and the file it was saved from."""
+    path = resolve_path(raw)
+    if not path.is_file():
+        raise SpecError(f"template {path.name!r} does not exist -- save one with generate_dashboard(save_template=...)")
+    try:
+        data = _json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise SpecError(f"template {path.name!r} could not be read: {error_text(exc)}") from None
+    if not isinstance(data, dict) or data.get("format") != TEMPLATE_FORMAT or not isinstance(data.get("spec"), dict):
+        raise SpecError(f"{path.name!r} is not a dashboard template; generate_dashboard(save_template=...) writes one")
+    return {
+        "name": path.name,
+        "spec": data["spec"],
+        "columns": [str(c) for c in data.get("columns") or _template_columns(data["spec"])],
+        "from": str(data.get("from") or "an unnamed file"),
+    }
+
+
+def _save_template(target: Path, resolved: dict, source: str, own_title: bool) -> str:
+    """The resolved spec as a template: nothing in it points at the file it came from.
+
+    The source path stays behind, and so does a title that was only the
+    file's name -- applied to sales_q4.csv, a template must not call the page
+    "sales_q3".
+    """
+    spec = {k: v for k, v in resolved.items() if k != "_source_path" and (own_title or k != "title")}
+    document = {
+        "format": TEMPLATE_FORMAT,
+        "saved": datetime.now(UTC).strftime("%Y-%m-%d"),
+        "from": source,
+        "columns": _template_columns(spec),
+        "spec": spec,
+    }
+    atomic_write_text(str(target), _json.dumps(document, indent=2, default=str))
+    return str(target)
+
+
 def customize_dashboard(
     dashboard_path: str,
     changes: dict | None = None,
@@ -1990,6 +2103,7 @@ def customize_dashboard(
     return_content: bool = False,
     ops: list | None = None,
     dry_run: bool = False,
+    save_template: str = "",
 ) -> dict:
     """Rebuild an existing dashboard with part of its spec changed.
 
@@ -2096,6 +2210,7 @@ def customize_dashboard(
             open_after=open_after,
             return_content=return_content,
             spec=merged,
+            save_template=save_template,
         )
         if result.get("success"):
             result["op"] = "customize_dashboard"
