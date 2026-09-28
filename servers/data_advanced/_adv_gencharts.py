@@ -35,6 +35,7 @@ from shared.choice import refusal as choice_refusal
 from shared.choice import resolve as resolve_choice
 from shared.column_utils import date_note, parse_dates
 from shared.file_utils import embed_content, error_text, hint_for_error, resolve_path
+from shared.geo_assets import inlined_traces
 from shared.geo_names import unrecognised_locations
 from shared.html_layout import discriminated_suffix
 
@@ -785,13 +786,12 @@ def generate_geo_map(
             progress.append(info("Map type", f"choropleth, mode={loc_mode}, {rows_plotted} locations"))
 
         fig.update_layout(margin={"l": 0, "r": 0, "t": 40, "b": 0}, autosize=True)
-        # Every other chart this server writes is complete once it is on disk.
-        # A map is not: plotly fetches its country outlines from cdn.plot.ly and
-        # tiled maps fetch tiles, so opening one offline gives a colour bar
-        # beside an empty rectangle under success: true. The geometry cannot be
-        # carried in the page without vendoring a world dataset, so what changes
-        # is that the caller is told before they open it.
-        basemap = remote_basemap_traces(fig)
+        # plotly fetches a map's outlines when the page opens, so a map opened
+        # offline was a colour bar beside an empty rectangle under success:
+        # true. The world outlines now travel in the page (shared/geo_assets.py);
+        # a map that still needs the network -- tiles, another scope -- says so.
+        inlined = inlined_traces(fig)
+        basemap = [kind for kind in remote_basemap_traces(fig) if kind not in inlined]
         if basemap:
             progress.append(warn("Map needs a network connection to draw", BASEMAP_NOTE))
         # A map of volume and a map of revenue over the same points are

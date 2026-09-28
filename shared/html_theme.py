@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from shared.chart_page import apply_chart_margins, chart_page_html, take_page_title
+from shared.geo_assets import assets_script, topojson_names
 from shared.html_layout import (  # noqa: F401  (re-exported)
     VIEWPORT_META,
     extension_note,
@@ -479,6 +480,8 @@ def save_chart(
         full_html=False,
         config={"responsive": True, "displayModeBar": True, "scrollZoom": True},
     )
+    # A map's outlines travel with it; see shared/geo_assets.py.
+    chart_html = assets_script(topojson_names(fig)) + chart_html
 
     html = chart_page_html(
         chart_html,
