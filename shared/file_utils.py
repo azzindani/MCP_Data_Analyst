@@ -169,6 +169,43 @@ def get_default_output_dir(input_path: str | None = None) -> Path:
 _ENCODING_FALLBACKS = ("utf-8-sig", "cp1252", "latin-1")
 
 
+class NotATextTableError(ValueError):
+    """A file handed to a CSV reader that is some other format."""
+
+
+# What a file's first bytes say it is, whatever its name says.
+_SIGNATURES: tuple[tuple[bytes, str], ...] = (
+    (b"PK\x03\x04", "a zip container (an .xlsx or .ods workbook, or a Word/PowerPoint file)"),
+    (b"\xd0\xcf\x11\xe0", "an old Excel .xls workbook"),
+    (b"%PDF", "a PDF"),
+    (b"PAR1", "a Parquet file"),
+)
+_NOT_CSV_SUFFIXES = frozenset({".xlsx", ".xlsm", ".xls", ".ods", ".parquet", ".json", ".pdf", ".zip", ".docx", ".pptx"})
+
+
+def refuse_non_csv(file_path: str | Path) -> None:
+    """Refuse, by format, a file that is not CSV text before pandas parses it as one.
+
+    pandas reads any bytes as CSV. An .xlsx is a zip, and inspect_dataset read
+    a small one as 89 rows of one column named `PK\\x03\\x04\\x14` -- the zip
+    signature -- under success: true; a larger one failed as "Buffer overflow
+    caught", with a hint about banner lines. Only load_dataset looked at the
+    extension. Every CSV read goes through read_csv, so the check lives here.
+    A missing or unreadable file is left to the reader, which reports it its own way.
+    """
+    path = Path(file_path)
+    try:
+        with path.open("rb") as fh:
+            head = fh.read(4)
+    except OSError:
+        return
+    kind = next((what for sig, what in _SIGNATURES if head.startswith(sig)), None)
+    if kind is None and path.suffix.lower() in _NOT_CSV_SUFFIXES:
+        kind = f"a {path.suffix.lower()} file"
+    if kind is not None:
+        raise NotATextTableError(f"{path.name} is {kind}, not CSV text, and this tool reads CSV.")
+
+
 def read_csv(
     file_path: str,
     encoding: str = "utf-8",
@@ -187,6 +224,7 @@ def read_csv(
     infer one -- see read_csv_preserving_ids, which uses it to keep a
     zero-padded identifier out of an int64.
     """
+    refuse_non_csv(file_path)
     kwargs: dict = {"sep": separator, "low_memory": False}
     if max_rows > 0:
         kwargs["nrows"] = max_rows
@@ -550,6 +588,11 @@ def hint_for_error(exc: Exception, fallback: str) -> str:
         return (
             f"Nothing here is named {name!r} -- check the column names you passed, and the keys "
             "of any dict argument. inspect_dataset() lists this file's columns."
+        )
+    if isinstance(exc, NotATextTableError):
+        return (
+            "Turn it into CSV first: convert_file(file_path, output_format='csv') for a workbook, JSON "
+            "or Parquet file, or extract_sheet()/extract_table() to take one sheet or table. Then pass the CSV it writes."
         )
     if isinstance(exc, PathOutsideRootError):
         # Before the PermissionError branch it subclasses: "fix the directory's
