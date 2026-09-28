@@ -70,12 +70,15 @@ def constant_col_csv(tmp_path: Path) -> Path:
     return p
 
 
-@pytest.fixture()
-def rendered(constant_col_csv: Path, tmp_path: Path) -> str:
-    out = tmp_path / "dash.html"
-    r = _generate(str(constant_col_csv), output_path=str(out), open_after=False)
+def _render(csv: Path, out: Path, spec: dict | None) -> str:
+    r = _generate(str(csv), output_path=str(out), open_after=False, spec=spec)
     assert r["success"] is True, r.get("error")
     return out.read_text(encoding="utf-8")
+
+
+@pytest.fixture(params=["story", "detected"])
+def rendered(request, constant_col_csv: Path, tmp_path: Path) -> str:
+    return _render(constant_col_csv, tmp_path / "dash.html", {"story": False} if request.param == "detected" else None)
 
 
 class TestConstantColumnsAreNotCharted:
@@ -90,7 +93,9 @@ class TestConstantColumnsAreNotCharted:
     def test_the_columns_that_vary_are_still_charted(self, rendered: str):
         """The point is to drop the useless charts, not to draw fewer charts."""
         assert "by campaign_platform" in rendered
-        assert "campaign_platform Distribution" in rendered
+
+    def test_the_detected_page_still_draws_their_distribution(self, constant_col_csv: Path, tmp_path: Path):
+        assert "campaign_platform Distribution" in _render(constant_col_csv, tmp_path / "d.html", {"story": False})
 
     def test_the_alert_panel_still_reports_them(self, rendered: str):
         """Not charting a constant column must not mean going quiet about it --

@@ -90,7 +90,7 @@ class TestWhatCannotBeDrawnIsRefused:
         assert r["success"] is False and says in r["error"], r.get("error")
 
     def test_the_page_style(self, sales):
-        r = _build(sales, spec={"style": {"font": "serif"}})
+        r = _build(sales, spec={"style": {"typeface": "serif"}})
         assert r["success"] is False and "The page's style takes: palette, colors" in r["error"]
         r = _build(sales, spec={"style": {"colors": {"North": "not-a-colour"}}})
         assert r["success"] is False and "style.colors['North']" in r["error"]
@@ -122,7 +122,9 @@ class TestEachFieldChangesItsFigure:
         f = _one(
             sales, {"chart": "line", "cols": {"date": "day", "value": "revenue"}, "style": {"ma": 0, "legend": "none"}}
         )
-        assert len(f["data"]) == 1 and f["layout"]["showlegend"] is False
+        # The last period's marker, when the data ends inside one, is no average.
+        drawn_lines = [d for d in f["data"] if d.get("name") != "incomplete period"]
+        assert len(drawn_lines) == 1 and f["layout"]["showlegend"] is False
         f = _one(sales, {"chart": "line", "cols": {"date": "day", "value": "revenue"}, "style": {"legend": "right"}})
         assert f["layout"]["legend"]["orientation"] == "v"
 
@@ -161,7 +163,7 @@ class TestACategoryIsOneColourEverywhere:
 
     def test_the_page_palette_colours_the_detected_page(self, sales):
         palette = ["#010101", "#020202", "#030303", "#040404"]
-        figures = drawn(_page(sales, spec={"style": {"palette": palette}}))["figures"]
+        figures = drawn(_page(sales, spec={"story": False, "style": {"palette": palette}}))["figures"]
         pie = next(f for cid, f in figures.items() if cid.startswith("pie_"))["data"][0]
         assert pie["marker"]["colors"] == palette[: len(pie["labels"])]
 
@@ -169,7 +171,7 @@ class TestACategoryIsOneColourEverywhere:
 @needs_node
 class TestDarkerMeansMore:
     def test_the_heatmap_and_the_map_reverse_plotlys_dark_first_scale(self, sales):
-        figures = drawn(_page(sales))["figures"]
+        figures = drawn(_page(sales, spec={"story": False}))["figures"]
         hm = next(f for cid, f in figures.items() if cid.startswith("aghm_"))["data"][0]
         assert (hm["colorscale"], hm["reversescale"]) == ("YlOrRd", True)
         choro = _one(sales, {"chart": "choropleth", "cols": {"location": "country", "value": "revenue"}})
@@ -185,7 +187,7 @@ class TestDarkerMeansMore:
         assert (axis["colorscale"], axis["reversescale"]) == ("Viridis", False)
 
     def test_the_correlation_scale_is_a_name_plotly_js_knows(self, sales):
-        corr = drawn(_page(sales))["figures"]["corr_hm"]["data"][0]
+        corr = drawn(_page(sales, spec={"story": False}))["figures"]["corr_hm"]["data"][0]
         assert corr["colorscale"] == "RdBu" and corr["reversescale"] is False
 
 
@@ -209,7 +211,36 @@ class TestTitleAndPlace:
     def test_a_phone_puts_every_placed_card_full_width(self):
         from servers.data_advanced._adv_dashboard import _PLACE_CSS
 
-        assert "@media(max-width:68.75rem)" in _PLACE_CSS and ".cgrid.g12>.cc{grid-column:1/-1!important}" in _PLACE_CSS
+        assert "@media(max-width:68.75rem)" in _PLACE_CSS
+        assert ".cgrid.g12>.cc{grid-column:1/-1!important;grid-row:auto!important}" in _PLACE_CSS
+
+    def test_a_panel_two_rows_tall_sits_beside_a_column_of_two(self, sales):
+        hist = {"chart": "histogram", "cols": {"value": "units"}, "place": {"span": 6}}
+        html = _page(sales, spec={"layout": [{**BAR, "place": {"span": 6, "rows": 2}}, hist, hist]})
+        assert 'style="grid-column:span 6;grid-row:span 2"' in html
+        assert "height:calc(680px + 1 * (2.75rem" in html, "tall enough for the two it stands beside"
+        assert ".cgrid.g12{grid-auto-flow:row dense}" in html, "the shorter panels fill the column beside it"
+
+    def test_rows_are_one_to_four(self, sales):
+        r = _build(sales, spec={"layout": [{**BAR, "place": {"span": 6, "rows": 5}}]})
+        assert r["success"] is False and "place.rows must be a whole number from 1 to 4 grid rows" in r["error"]
+
+    def test_a_note_with_no_title_has_no_empty_header(self, sales):
+        html = _page(sales, spec={"layout": [BAR, {"chart": "markdown", "text": "Only words"}]})
+        assert '<div class="cc"><div class="cc-body--auto" id="p1_markdown">' in html
+
+
+class TestThePage:
+    def test_the_filters_can_be_a_sidebar(self, sales):
+        html = _page(sales, spec={"layout": [BAR], "style": {"sidebar": True}})
+        assert '<body class="sidebar"' in html and "body.sidebar .filter-bar{position:fixed" in html
+        r = _build(sales, spec={"layout": [BAR], "style": {"sidebar": "left"}})
+        assert r["success"] is False and "style.sidebar is true or false" in r["error"]
+
+    def test_a_storyline_opens_on_its_tabs_not_an_empty_kpi_row(self, sales):
+        html = _page(sales)
+        assert 'class="kpi-row"' not in html and 'sec-hdr">Charts' not in html
+        assert 'class="tab-btn' in html
 
 
 class TestItRoundTrips:

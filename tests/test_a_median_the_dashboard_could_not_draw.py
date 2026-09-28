@@ -43,6 +43,10 @@ ROWS = [
 ]
 
 
+# The page of detected charts: its grouped bar, heatmap and KPI row.
+DETECTED = {"story": False}
+
+
 def _traces(html: str, card: str) -> list:
     """The traces the page hands Plotly for one card, drawn from ROWS."""
     return drawn(html, rows=ROWS)["figures"][card]["data"]
@@ -88,13 +92,18 @@ def test_kpi(tmp_path, agg, want):
 
 
 def test_time_series_median_per_month(tmp_path):
-    spec = {"layout": [{"chart": "line", "cols": {"date": "day", "value": "v"}, "agg": "median"}]}
+    # By month: five weeks of rows would be drawn by week.
+    spec = {
+        "layout": [
+            {"chart": "line", "cols": {"date": "day", "value": "v"}, "agg": "median", "style": {"grain": "month"}}
+        ]
+    }
     trace = _traces(_page(tmp_path, spec=spec), "p0_line")[0]
     assert dict(zip(trace["x"], trace["y"], strict=True)) == {"2024-01": 10, "2024-02": 6}
 
 
 def test_grouped_bar_and_heatmap_take_an_override(tmp_path):
-    html = _page(tmp_path, agg_overrides=["v:count"])
+    html = _page(tmp_path, agg_overrides=["v:count"], spec=DETECTED)
     counts = {t["name"]: dict(zip(t["x"], t["y"], strict=True)) for t in _traces(html, _card(html, "grp_"))}
     assert counts["x"]["a"] == 1, "the missing value in (a, x) is not counted"
     z = _traces(html, _card(html, "aghm_"))[0]["z"]
@@ -102,7 +111,7 @@ def test_grouped_bar_and_heatmap_take_an_override(tmp_path):
 
 
 def test_labels_and_first_paint(tmp_path):
-    html = _page(tmp_path, agg_overrides=["v:median"])
+    html = _page(tmp_path, agg_overrides=["v:median"], spec=DETECTED)
     assert "Median v" in html
     # The KPI's value before any script runs is computed in Python, and has to
     # agree with what the script will compute: median of 10, 4, 6, 6 is 6.
@@ -110,6 +119,6 @@ def test_labels_and_first_paint(tmp_path):
 
 
 def test_distinct_count_label(tmp_path):
-    html = _page(tmp_path, agg_overrides=["v:count_distinct"])
+    html = _page(tmp_path, agg_overrides=["v:count_distinct"], spec=DETECTED)
     assert "Distinct v" in html
     assert re.search(r'id="kv-v">3<', html), "distinct values of 10, 4, 6, 6 are three"

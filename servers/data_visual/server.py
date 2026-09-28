@@ -362,7 +362,7 @@ def generate_dashboard(
     template: str = "",
     save_template: str = "",
 ) -> dict:
-    """Interactive HTML dashboard: spec or template shapes it; sources add tabs."""
+    """HTML dashboard: a storyline unless spec/template lay it out; sources add tabs."""
     return engine.generate_dashboard(
         file_path,
         output_path,

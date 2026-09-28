@@ -75,7 +75,7 @@ def _with_panels(html: str, edit) -> str:
 
 class TestEveryCardIsAPanel:
     def test_one_panel_per_card_with_its_title_and_style(self, sales):
-        html = _page(sales)
+        html = _page(sales, spec={"story": False})
         cards = re.findall(r'<div id="([^"]+)" style="width:100%;height:100%"></div>', html)
         titles = re.findall(r'<div class="cc-hdr"><h3>([^<]+)</h3>', html)
         out = drawn(html)
@@ -154,7 +154,7 @@ class TestTheNumbersAreTheData:
         assert dict(zip(trace["locations"], trace["z"], strict=True)) == pytest.approx(want.to_dict())
 
     def test_detected_grouped_bar_heatmap_and_correlation(self, sales):
-        out = drawn(_page(sales))
+        out = drawn(_page(sales, spec={"story": False}))
         df = pd.read_csv(sales)
         grp = next(f for cid, f in out["figures"].items() if cid.startswith("grp_"))
         panel = next(p for p in out["panels"] if p["id"].startswith("grp_"))

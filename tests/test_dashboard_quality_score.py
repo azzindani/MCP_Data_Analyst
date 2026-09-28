@@ -100,8 +100,9 @@ class TestCompactNumbersFitTheirInput:
 
 
 class TestTheRenderedDashboardAgrees:
-    @pytest.fixture()
-    def dashboard(self, tmp_path: Path) -> str:
+    # The detected page leads with the score; a storyline keeps it for its appendix.
+    @pytest.fixture(params=["story", "detected"])
+    def dashboard(self, request, tmp_path: Path) -> str:
         from servers.data_advanced.engine import generate_dashboard
 
         rng = np.random.default_rng(0)
@@ -118,17 +119,20 @@ class TestTheRenderedDashboardAgrees:
             }
         ).to_csv(csv, index=False)
         out = tmp_path / "dash.html"
-        result = generate_dashboard(str(csv), output_path=str(out), open_after=False)
+        spec = {"story": False} if request.param == "detected" else None
+        result = generate_dashboard(str(csv), output_path=str(out), open_after=False, spec=spec)
         assert result["success"] is True, result.get("error")
         return out.read_text(encoding="utf-8")
 
     def _score(self, page: str) -> int:
-        m = re.search(r'<div class="kpi-val"[^>]*>(\d+)</div><div class="kpi-lbl">Quality Score', page)
+        m = re.search(r'<div class="kpi-val"[^>]*>(\d+)</div><div class="kpi-lbl">Quality Score', page) or re.search(
+            r'<div class="kpi-big">(\d+)<span class="kpi-sub"> / 100 quality score', page
+        )
         assert m, "could not find the quality score in the rendered dashboard"
         return int(m.group(1))
 
     def _alert_count(self, page: str) -> int:
-        m = re.search(r"Data quality — (\d+) alert", page)
+        m = re.search(r"(?:Data quality — |<div class=\"kpi-sub\">)(\d+) alerts?\b", page)
         return int(m.group(1)) if m else 0
 
     def test_the_fixture_actually_raises_alerts(self, dashboard: str):

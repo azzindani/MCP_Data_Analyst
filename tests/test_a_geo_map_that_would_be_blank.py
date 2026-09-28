@@ -186,6 +186,10 @@ class TestAPartlyPlaceableColumnWarnsAndDraws:
         assert "Google Ads" in str(warns[0].get("detail", "")), warns
 
 
+# The detected page draws a map for a country column; a storyline draws none.
+DETECTED = {"story": False}
+
+
 class TestTheDashboardLeavesOutABlankPanel:
     def test_a_non_place_country_column_gets_no_choropleth(self, tmp_path: Path):
         path = write_csv(
@@ -193,7 +197,9 @@ class TestTheDashboardLeavesOutABlankPanel:
             ["country", "spends", "clicks"],
             [["Domestic", 10, 1], ["International", 20, 2], ["Domestic", 5, 3]],
         )
-        r = generate_dashboard(path, output_path=str(tmp_path / "d.html"), open_after=False, dry_run=True)
+        r = generate_dashboard(
+            path, output_path=str(tmp_path / "d.html"), open_after=False, dry_run=True, spec=DETECTED
+        )
         assert "geo_choropleth" not in r["would_generate"]["charts"], r["would_generate"]
 
     def test_the_other_panels_are_still_built(self, tmp_path: Path):
@@ -202,7 +208,9 @@ class TestTheDashboardLeavesOutABlankPanel:
             ["country", "spends", "clicks"],
             [["Domestic", 10, 1], ["International", 20, 2], ["Domestic", 5, 3]],
         )
-        r = generate_dashboard(path, output_path=str(tmp_path / "d.html"), open_after=False, dry_run=True)
+        r = generate_dashboard(
+            path, output_path=str(tmp_path / "d.html"), open_after=False, dry_run=True, spec=DETECTED
+        )
         assert "bar" in r["would_generate"]["charts"]
 
     def test_real_countries_still_get_one(self, tmp_path: Path):
@@ -211,7 +219,9 @@ class TestTheDashboardLeavesOutABlankPanel:
             ["country", "spends", "clicks"],
             [["France", 10, 1], ["Japan", 20, 2], ["Brazil", 5, 3]],
         )
-        r = generate_dashboard(path, output_path=str(tmp_path / "d.html"), open_after=False, dry_run=True)
+        r = generate_dashboard(
+            path, output_path=str(tmp_path / "d.html"), open_after=False, dry_run=True, spec=DETECTED
+        )
         assert "geo_choropleth" in r["would_generate"]["charts"], r["would_generate"]
 
 

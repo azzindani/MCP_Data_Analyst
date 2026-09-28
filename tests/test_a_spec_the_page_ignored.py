@@ -73,8 +73,13 @@ def make(sales, **kw) -> dict:
 
 class TestKpisAndFilters:
     def test_kpis_reach_the_page(self, sales):
-        html = page(make(sales, spec={"kpis": ["revenue"]}))
+        html = page(make(sales, spec={"story": False, "kpis": ["revenue"]}))
         assert kpi_labels(html) == ["Quality Score", "Total revenue"]
+
+    def test_kpis_reach_a_storyline(self, sales):
+        # Its data quality is on the Appendix tab, not in the KPI row.
+        html = page(make(sales, spec={"kpis": ["revenue"]}))
+        assert kpi_labels(html) == ["Total revenue"]
 
     def test_filters_reach_the_page(self, sales):
         html = page(make(sales, spec={"filters": ["region"]}))
@@ -88,7 +93,7 @@ class TestKpisAndFilters:
         assert 'class="pills"' not in html
 
     def test_the_defaults_describe_the_page_that_is_drawn(self, sales):
-        r = make(sales)
+        r = make(sales, spec={"story": False})
         html = page(r)
         # Quality Score plus one card per resolved KPI -- the spec used to name
         # eight over a row of seven.
@@ -184,17 +189,24 @@ class TestRefusals:
 
 
 class TestTheRoundTrip:
-    def test_the_default_page_is_unchanged(self, sales):
-        html = page(make(sales))
+    def test_the_detected_page_is_unchanged(self, sales):
+        html = page(make(sales, spec={"story": False}))
         ids = cards(html)
         assert "corr_hm" in ids and any(i.startswith("dist_") for i in ids)
         assert not any(i.startswith("p0_") for i in ids)
 
     def test_customizing_a_detected_page_keeps_the_detection(self, sales):
-        first = make(sales)
+        first = make(sales, spec={"story": False})
         assert first["spec"][LAYOUT_SOURCE_KEY] == "detected"
         r = customize_dashboard(first["output_path"], {"title": "Renamed"}, open_after=False)
         assert cards(page(r)) == cards(page(first))
+
+    def test_customizing_a_storyline_keeps_it_a_storyline(self, sales):
+        first = make(sales)
+        assert first["spec"][LAYOUT_SOURCE_KEY] == "story"
+        r = customize_dashboard(first["output_path"], {"title": "Renamed"}, open_after=False)
+        assert cards(page(r)) == cards(page(first))
+        assert r["spec"][LAYOUT_SOURCE_KEY] == "story" and r["spec"]["tabs"] == first["spec"]["tabs"]
 
     def test_customizing_the_layout_makes_it_the_callers(self, sales):
         first = make(sales)
@@ -211,7 +223,7 @@ class TestTheRoundTrip:
         pd.DataFrame({"country": ["France", "Germany", "Japan", "Brazil"] * 5, "sales": np.arange(20.0)}).to_csv(
             path, index=False
         )
-        first = generate_dashboard(str(path), open_after=False)
+        first = generate_dashboard(str(path), open_after=False, spec={"story": False})
         assert first["success"] is True, first
         kinds = [p["chart"] for p in first["spec"]["layout"]]
         assert "geo_choropleth" not in kinds

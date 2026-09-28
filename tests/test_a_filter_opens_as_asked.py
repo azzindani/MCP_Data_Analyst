@@ -118,8 +118,13 @@ class TestWhatCannotWorkIsRefused:
         assert r["success"] is False and "filters name 'region' twice" in r["error"]
 
     def test_a_scope_on_a_page_with_no_layout_of_its_own(self, sales):
-        r = _build(sales, filters=[{"column": "units", "scope": [0]}])
+        r = _build(sales, story=False, filters=[{"column": "units", "scope": [0]}])
         assert r["success"] is False and "this spec has no layout of its own" in r["error"]
+
+    def test_a_scope_on_a_storyline_names_its_panels(self, sales):
+        # A storyline's layout is one panel per slot, so a scope is checked against it.
+        r = _build(sales, filters=[{"column": "units", "scope": [0]}])
+        assert r["success"] is False and "names slot 0, a markdown panel, which draws no rows" in r["error"]
 
     def test_defaults_that_together_keep_no_rows(self, sales):
         df = _frame(sales)

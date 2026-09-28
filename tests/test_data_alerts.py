@@ -140,5 +140,5 @@ class TestDashboardCarriesTheSameJudgement:
         csv = tmp_path / "clean.csv"
         pd.DataFrame({"a": range(40), "b": [i % 7 for i in range(40)]}).to_csv(csv, index=False)
         out = tmp_path / "dash.html"
-        generate_dashboard(str(csv), output_path=str(out), open_after=False)
+        generate_dashboard(str(csv), output_path=str(out), open_after=False, spec={"story": False})
         assert "Data quality" not in out.read_text(encoding="utf-8")

@@ -54,6 +54,24 @@ CHART_KINDS: tuple[str, ...] = (
     "box",
     "geo_scatter",
     "choropleth",
+    # Comparisons: stacked and 100% bars, the few that make most, actual
+    # against target, what changed, one small chart per group; a dial and a bar
+    # against a target.
+    "stacked_bar",
+    "pareto",
+    "variance",
+    "waterfall",
+    "small_multiples",
+    "gauge",
+    "bullet",
+    # Written panels, drawn once: a note in markdown, an insight card, a
+    # callout, an image, a divider, and the data-quality score and alerts.
+    "markdown",
+    "insight",
+    "callout",
+    "image",
+    "divider",
+    "quality",
     # Panels that are not plots: a heading across the grid, a note, one
     # number, and a table of grouped totals -- the last two follow the filters.
     "section",
@@ -78,7 +96,32 @@ CHART_NEEDS: dict[str, tuple[str, ...]] = {
     "text": (),
     "kpi": ("value",),
     "table": ("category", "value"),
+    "stacked_bar": ("category", "group", "value"),
+    "pareto": ("category", "value"),
+    "variance": ("category", "value"),
+    "waterfall": ("category", "value"),
+    "small_multiples": ("facet", "value"),
+    "gauge": ("value",),
+    "bullet": ("value",),
+    "markdown": (),
+    "insight": (),
+    "callout": (),
+    "image": (),
+    "divider": (),
+    "quality": (),
 }
+# Panels that hold words or pictures, not rows: nothing filters them.
+WRITTEN: tuple[str, ...] = ("section", "text", "markdown", "insight", "callout", "image", "divider", "quality")
+# Charts whose value may be a metric the page defines (shared/metrics.py): a
+# pie shares out a sum, so it takes a column.
+METRIC_CHARTS: tuple[str, ...] = (
+    "bar", "line", "time_series", "kpi", "table", "choropleth", "stacked_bar", "pareto", "variance",
+    "waterfall", "small_multiples", "gauge", "bullet", "insight",
+)  # fmt: skip
+# Charts whose bars add up to a whole. A ratio's parts do not add up to it --
+# CTR stacked by device is not the CTR of the stack -- so these take a column
+# or a sum metric, not a ratio.
+PARTS_CHARTS: tuple[str, ...] = ("stacked_bar", "pareto", "waterfall")
 
 THEMES: tuple[str, ...] = ("device", "light", "dark")
 
@@ -99,12 +142,27 @@ DEFAULT_INTERACTIONS: dict[str, Any] = {
     "embed_rows": 0,
 }
 
-SPEC_KEYS: tuple[str, ...] = ("title", "theme", "layout", "kpis", "filters", "tabs", "interactions", "style")
+SPEC_KEYS: tuple[str, ...] = (
+    "title",
+    "theme",
+    "layout",
+    "kpis",
+    "filters",
+    "tabs",
+    "interactions",
+    "style",
+    "quality",
+    "metrics",
+    "parameters",
+    "story",
+    "datasets",
+    "blend",
+)
 
 # What a panel may carry. Anything else -- "width", "title", a typo of "cols" --
 # used to be accepted and dropped, which is the failure this module exists to
 # refuse.
-PANEL_KEYS: tuple[str, ...] = ("slot", "chart", "cols", "agg", "title", "style", "place", "text")
+PANEL_KEYS: tuple[str, ...] = ("slot", "chart", "cols", "agg", "title", "style", "place", "text", "src")
 MAX_TEXT = 2000
 
 # How a panel looks, field by field, and which charts read each field. A field
@@ -114,6 +172,10 @@ STYLE_ENUMS: dict[str, tuple[str, ...]] = {
     "legend": ("top", "bottom", "right", "none"),
     "y_scale": ("linear", "log"),
     "format": ("compact", "integer", "decimal", "percent"),
+    "orientation": ("v", "h"),
+    "grain": ("day", "week", "month", "quarter", "year"),
+    "period": ("total", "last"),
+    "tone": ("info", "good", "warn", "bad"),
     # Plotly.js's own names; "RdBu_r" and the like are Python-only and draw the default.
     "colorscale": (
         "Blues",
@@ -136,36 +198,121 @@ STYLE_ENUMS: dict[str, tuple[str, ...]] = {
         "RdBu",
     ),
 }
-STYLE_INTS: dict[str, tuple[int, int]] = {"top_n": (1, 500), "bins": (2, 500), "ma": (0, 60)}
-STYLE_TEXT: dict[str, int] = {"prefix": 8, "suffix": 8}
+STYLE_INTS: dict[str, tuple[int, int]] = {"top_n": (1, 500), "bins": (2, 500), "ma": (0, 60), "series": (1, 20)}
+STYLE_TEXT: dict[str, int] = {"prefix": 8, "suffix": 8, "x_title": 80, "y_title": 80, "comparison": 160}
+STYLE_BOOLS = ("value_labels", "other", "ci", "show_n", "significance", "normalize", "yoy", "heat", "totals")
+STYLE_NUMBERS = ("target", "min", "max")
+MAX_MARKS = 20
+_MARKS = ("ref_lines", "bands", "annotations", "x_title", "y_title", "y_range")
 CHART_STYLE: dict[str, tuple[str, ...]] = {
-    "bar": ("color", "colors", "top_n", "sort", "value_labels", "y_scale", "format", "prefix", "suffix"),
-    "line": ("color", "accent", "ma", "legend", "y_scale", "format", "prefix", "suffix"),
-    "time_series": ("color", "accent", "ma", "legend", "y_scale", "format", "prefix", "suffix"),
+    "bar": (
+        "color",
+        "colors",
+        "top_n",
+        "sort",
+        "value_labels",
+        "y_scale",
+        "format",
+        "prefix",
+        "suffix",
+        "other",
+        "orientation",
+        "ci",
+        "show_n",
+        "significance",
+        "drill",
+        *_MARKS,
+    ),
+    "line": (
+        "color",
+        "accent",
+        "ma",
+        "legend",
+        "y_scale",
+        "format",
+        "prefix",
+        "suffix",
+        "grain",
+        "yoy",
+        "events",
+        *_MARKS,
+    ),
+    "time_series": (
+        "color",
+        "accent",
+        "ma",
+        "legend",
+        "y_scale",
+        "format",
+        "prefix",
+        "suffix",
+        "grain",
+        "yoy",
+        "events",
+        *_MARKS,
+    ),
     "pie": ("palette", "colors", "top_n", "legend"),
-    "scatter": ("color", "accent", "legend", "y_scale"),
+    "scatter": ("color", "accent", "legend", "y_scale", *_MARKS),
     "histogram": ("color", "accent", "bins"),
     "box": ("palette", "colors", "top_n", "y_scale", "format", "prefix", "suffix"),
     "geo_scatter": ("color",),
     "choropleth": ("colorscale", "format", "prefix", "suffix"),
     "section": (),
     "text": (),
-    "kpi": ("color", "format", "prefix", "suffix"),
-    "table": ("top_n", "sort", "format", "prefix", "suffix"),
+    "kpi": ("color", "format", "prefix", "suffix", "target", "period"),
+    "table": ("top_n", "sort", "format", "prefix", "suffix", "heat", "totals", "other"),
+    "stacked_bar": (
+        "palette",
+        "colors",
+        "series",
+        "top_n",
+        "normalize",
+        "legend",
+        "format",
+        "prefix",
+        "suffix",
+        *_MARKS,
+    ),
+    "pareto": ("color", "accent", "top_n", "format", "prefix", "suffix", "y_title"),
+    "variance": ("target", "top_n", "sort", "format", "prefix", "suffix", "y_title"),
+    "waterfall": ("color", "top_n", "format", "prefix", "suffix", "y_title"),
+    "small_multiples": ("palette", "colors", "top_n", "grain", "format", "prefix", "suffix"),
+    "gauge": ("color", "target", "min", "max", "format", "prefix", "suffix"),
+    "bullet": ("color", "target", "min", "max", "format", "prefix", "suffix"),
+    "markdown": (),
+    "insight": ("tone", "comparison"),
+    "callout": ("tone",),
+    "image": (),
+    "divider": (),
+    "quality": (),
 }
 # The page's own style: a palette, and colours by category value that every
 # panel uses -- so "North" is one colour wherever it is drawn.
-PAGE_STYLE_KEYS: tuple[str, ...] = ("palette", "colors")
-PLACE_LIMITS: dict[str, tuple[int, int]] = {"span": (1, 12), "height": (160, 1200)}
+PAGE_STYLE_KEYS: tuple[str, ...] = ("palette", "colors", "currency", "font", "logo", "toolbar", "slide", "sidebar")
+PAGE_FONTS: tuple[str, ...] = ("system", "humanist", "serif", "mono", "condensed")
+# rows: how many grid rows a panel is tall, so a tall panel sits beside a
+# column of shorter ones -- nested columns, on the one 12-column grid.
+PLACE_LIMITS: dict[str, tuple[int, int]] = {"span": (1, 12), "height": (160, 1200), "rows": (1, 4)}
 MAX_TITLE = 120
 MAX_PALETTE = 30
 MAX_COLOR_MAP = 200
 
 # Roles a chart can take beyond the ones it needs.
-CHART_OPTIONAL: dict[str, tuple[str, ...]] = {"box": ("category",)}
+# A scatter's `group` colours its points by a category and draws a line per group.
+CHART_OPTIONAL: dict[str, tuple[str, ...]] = {
+    "box": ("category",),
+    "scatter": ("group",),
+    "kpi": ("date",),
+    "table": ("date",),
+    "variance": ("target",),
+    "waterfall": ("date",),
+    "small_multiples": ("date", "category"),
+    "gauge": (),
+    "insight": ("value",),
+}
 
 # Roles whose column has to hold numbers, and the one that has to hold dates.
-NUMERIC_ROLES = frozenset({"value", "x", "y", "lat", "lon"})
+NUMERIC_ROLES = frozenset({"value", "x", "y", "lat", "lon", "target"})
 DATE_ROLES = frozenset({"date"})
 
 # A panel's `agg` means something only where values are grouped; a pie shows
@@ -312,7 +459,7 @@ def _check_scope(at: str, scope: Any, layout: Any, detected: bool) -> list[int]:
         raise SpecError(f"{at}.scope refers to slot(s) {out_of_range} but layout has {len(layout)} panel(s)")
     for s in scope:
         chart = layout[s].get("chart")
-        if chart in ("section", "text"):
+        if chart in WRITTEN:
             raise SpecError(f"{at}.scope names slot {s}, a {chart} panel, which draws no rows to filter")
     return sorted(set(scope))
 
@@ -421,6 +568,17 @@ def validate_page_style(style: Any) -> None:
         _palette("style.palette", style["palette"])
     if "colors" in style:
         _colour_map("style.colors", style["colors"])
+    if "currency" in style and not (isinstance(style["currency"], str) and len(style["currency"]) <= 4):
+        raise SpecError("style.currency is the symbol money is written with, at most 4 characters, e.g. '$' or 'Rp '")
+    if "font" in style and style["font"] not in PAGE_FONTS:
+        raise SpecError(
+            f"style.font {style['font']!r}: one of {', '.join(PAGE_FONTS)} (system fonts; a web font would be a fetch)"
+        )
+    for flag in ("toolbar", "slide", "sidebar"):
+        if flag in style and not isinstance(style[flag], bool):
+            raise SpecError(f"style.{flag} is true or false")
+    if "logo" in style and not isinstance(style["logo"], str):
+        raise SpecError("style.logo is a PNG/JPEG/GIF/WebP file or a data: URI; the page carries it")
 
 
 def validate_panel_style(where: str, chart: str, style: Any) -> None:
@@ -438,9 +596,30 @@ def validate_panel_style(where: str, chart: str, style: Any) -> None:
             _palette(at, value)
         elif key == "colors":
             _colour_map(at, value)
-        elif key == "value_labels":
+        elif key in STYLE_BOOLS:
             if not isinstance(value, bool):
                 raise SpecError(f"{at} must be true or false")
+        elif key in STYLE_NUMBERS:
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or value != value
+                or abs(value) == float("inf")
+            ):
+                raise SpecError(f"{at} must be a number")
+        elif key in ("ref_lines", "bands", "annotations", "events"):
+            _marks(at, key, value)
+        elif key == "y_range":
+            if not (
+                isinstance(value, list)
+                and len(value) == 2
+                and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in value)
+                and value[0] < value[1]
+            ):
+                raise SpecError(f"{at} is [low, high], two numbers, low first")
+        elif key == "drill":
+            if not isinstance(value, str) or not value:
+                raise SpecError(f"{at} names the column a bar drills into when a bar is clicked, e.g. 'subchannel'")
         elif key in STYLE_ENUMS:
             if value not in STYLE_ENUMS[key]:
                 raise SpecError(f"{at}={value!r}; valid: {', '.join(STYLE_ENUMS[key])}")
@@ -453,6 +632,40 @@ def validate_panel_style(where: str, chart: str, style: Any) -> None:
                 raise SpecError(f"{at} must be text of at most {STYLE_TEXT[key]} characters, e.g. '$' or ' kg'")
 
 
+def _marks(at: str, key: str, value: Any) -> None:
+    """Reference lines, bands, annotations and events: small lists of plain values."""
+    shapes = {
+        "ref_lines": ("value", {"value": "number", "label": "text", "color": "colour"}),
+        "bands": ("from, to", {"from": "number", "to": "number", "label": "text", "color": "colour"}),
+        "annotations": ("x, text", {"x": "any", "y": "number", "text": "text"}),
+        "events": ("date, label", {"date": "day", "label": "text"}),
+    }
+    need, fields = shapes[key]
+    if not isinstance(value, list) or len(value) > MAX_MARKS:
+        raise SpecError(f"{at} is a list of at most {MAX_MARKS} entries, each with {need}")
+    for j, entry in enumerate(value):
+        where = f"{at}[{j}]"
+        if not isinstance(entry, dict) or sorted(set(entry) - set(fields)):
+            raise SpecError(f"{where} takes {', '.join(fields)}")
+        for f in [n.strip() for n in need.split(",")]:
+            if f not in entry:
+                raise SpecError(f"{where} needs {f}")
+        for f, v in entry.items():
+            kind = fields[f]
+            if kind == "number" and (isinstance(v, bool) or not isinstance(v, (int, float))):
+                raise SpecError(f"{where}.{f} must be a number")
+            if kind == "text" and (not isinstance(v, str) or len(v) > 80):
+                raise SpecError(f"{where}.{f} is text of at most 80 characters")
+            if kind == "colour":
+                _colour(f"{where}.{f}", v)
+            if kind == "day" and not (isinstance(v, str) and _DAY.match(v)):
+                raise SpecError(f"{where}.{f} is a date written YYYY-MM-DD")
+            if kind == "any" and not isinstance(v, (str, int, float)):
+                raise SpecError(f"{where}.{f} is a category, a date or a number on the x axis")
+        if key == "bands" and entry["from"] >= entry["to"]:
+            raise SpecError(f"{where}: from must be below to")
+
+
 def validate_place(where: str, place: Any) -> None:
     """Where a panel sits on a 12-column grid, and how tall it is."""
     if not isinstance(place, dict):
@@ -462,7 +675,7 @@ def validate_place(where: str, place: Any) -> None:
             raise SpecError(f"{where}.place has unknown key {key!r}. It takes: {', '.join(PLACE_LIMITS)}")
         lo, hi = PLACE_LIMITS[key]
         if isinstance(value, bool) or not isinstance(value, int) or not lo <= value <= hi:
-            unit = " columns of 12" if key == "span" else " pixels"
+            unit = {"span": " columns of 12", "rows": " grid rows"}.get(key, " pixels")
             raise SpecError(f"{where}.place.{key} must be a whole number from {lo} to {hi}{unit}")
 
 
@@ -470,7 +683,12 @@ def _valid_columns(df) -> list[str]:
     return [str(c) for c in df.columns]
 
 
-def validate(spec: dict[str, Any] | None, df) -> dict[str, Any]:
+def validate(
+    spec: dict[str, Any] | None,
+    df,
+    metric_names: frozenset[str] | set[str] = frozenset(),
+    ratio_metrics: frozenset[str] | set[str] = frozenset(),
+) -> dict[str, Any]:
     """Check a caller's spec against the frame. Returns it unchanged, or raises.
 
     Refuses rather than falls back. A spec naming a column that is not there is
@@ -494,6 +712,10 @@ def validate(spec: dict[str, Any] | None, df) -> dict[str, Any]:
 
     cols = set(_valid_columns(df))
     available = ", ".join(sorted(cols))
+    # A resolved spec defines every metric its panels name, so it is valid
+    # input here without the page that computed them.
+    if isinstance(spec.get("metrics"), dict):
+        metric_names = frozenset(metric_names) | {str(k) for k in spec["metrics"]}
 
     theme = spec.get("theme")
     if theme is not None and theme not in THEMES:
@@ -507,7 +729,9 @@ def validate(spec: dict[str, Any] | None, df) -> dict[str, Any]:
             raise SpecError("kpis must be a list of column names")
         missing = [n for n in kpis if n not in cols]
         if missing:
-            raise SpecError(f"kpis names column(s) not in the file: {', '.join(map(str, missing))}. Available: {available}")
+            raise SpecError(
+                f"kpis names column(s) not in the file: {', '.join(map(str, missing))}. Available: {available}"
+            )
 
     numeric = [c for c in df.columns if is_numeric_col(df[c])]
     if kpis:
@@ -537,22 +761,41 @@ def validate(spec: dict[str, Any] | None, df) -> dict[str, Any]:
                 isinstance(panel["title"], str) and 0 < len(panel["title"].strip()) <= MAX_TITLE
             ):
                 raise SpecError(f"layout[{i}].title must be text of 1 to {MAX_TITLE} characters")
-            if "text" in panel and chart != "text":
-                raise SpecError(f"layout[{i}] is a {chart} panel; only a text panel takes text")
-            if chart == "text" and not (
+            worded = ("text", "markdown", "insight", "callout")
+            if "text" in panel and chart not in worded:
+                raise SpecError(f"layout[{i}] is a {chart} panel; only {', '.join(worded)} panels take text")
+            if chart in ("text", "markdown", "callout") and not (
                 isinstance(panel.get("text"), str) and 0 < len(panel["text"].strip()) <= MAX_TEXT
             ):
-                raise SpecError(f"layout[{i}] is a text panel and needs text: 1 to {MAX_TEXT} characters")
+                raise SpecError(f"layout[{i}] is a {chart} panel and needs text: 1 to {MAX_TEXT} characters")
+            if (
+                chart == "insight"
+                and "text" in panel
+                and not (isinstance(panel["text"], str) and len(panel["text"]) <= MAX_TEXT)
+            ):
+                raise SpecError(f"layout[{i}].text must be text of at most {MAX_TEXT} characters")
+            if "src" in panel and chart != "image":
+                raise SpecError(f"layout[{i}] is a {chart} panel; only an image panel takes src")
+            if chart == "image" and not (isinstance(panel.get("src"), str) and panel["src"]):
+                raise SpecError(f"layout[{i}] is an image panel and needs src: a PNG/JPEG/GIF/WebP file or a data: URI")
             if chart == "section" and not panel.get("title"):
                 raise SpecError(f"layout[{i}] is a section, a heading across the grid, and needs a title")
             if panel.get("style") is not None:
                 validate_panel_style(f"layout[{i}]", chart, panel["style"])
+                drill = panel["style"].get("drill")
+                if drill is not None and str(drill) not in cols:
+                    raise SpecError(f"layout[{i}].style.drill names {drill!r}, not a column. Available: {available}")
             if panel.get("place") is not None:
                 validate_place(f"layout[{i}]", panel["place"])
             panel_cols = panel.get("cols") or {}
             if not isinstance(panel_cols, dict):
                 raise SpecError(f"layout[{i}] cols must be a dict of role -> column name")
-            bad = [str(v) for v in panel_cols.values() if v and str(v) not in cols]
+            metric_ok = chart in METRIC_CHARTS
+            bad = [
+                str(v)
+                for r, v in panel_cols.items()
+                if v and str(v) not in cols and not (metric_ok and r == "value" and str(v) in metric_names)
+            ]
             if bad:
                 raise SpecError(
                     f"layout[{i}] names column(s) not in the file: {', '.join(bad)}. Available: {available}"
@@ -586,6 +829,14 @@ def validate(spec: dict[str, Any] | None, df) -> dict[str, Any]:
                     )
                 for role, col in panel_cols.items():
                     if not col:
+                        continue
+                    if role == "value" and metric_ok and col in metric_names:
+                        if chart in PARTS_CHARTS and col in ratio_metrics:
+                            raise SpecError(
+                                f"layout[{i}] is a {chart} chart, whose bars add up to a whole; {col} is a ratio, "
+                                "and a ratio's parts do not add up to it. Give it a column or a sum metric, or "
+                                f"draw {col} as a bar."
+                            )
                         continue
                     if role in NUMERIC_ROLES and col not in numeric:
                         raise SpecError(
@@ -638,6 +889,9 @@ def validate(spec: dict[str, Any] | None, df) -> dict[str, Any]:
                     "so nothing would show them. Add each to a tab's slots."
                 )
 
+    if "quality" in spec and not isinstance(spec["quality"], bool):
+        raise SpecError("quality is true or false: whether the page carries the data-quality score and alerts")
+
     interactions = spec.get("interactions")
     if interactions is not None:
         if not isinstance(interactions, dict):
@@ -676,7 +930,19 @@ def resolve(
         "filters": spec.get("filters") if spec.get("filters") is not None else list(filter_columns),
         "tabs": spec.get("tabs") or [],
         "interactions": interactions,
+        "metrics": dict(spec.get("metrics") or {}),
+        "parameters": dict(spec.get("parameters") or {}),
         "style": dict(spec.get("style") or {}),
+        # The data-quality score and alert wall belong to the detected page. A
+        # caller who lays out a page of their own gets what they laid out: the
+        # sweep's spec of six panels arrived under a 16-row alert wall it never
+        # asked for. `quality: true` puts it back.
+        "quality": spec["quality"] if "quality" in spec else spec.get("layout") is None,
+        # Whether a page with no layout is planned as a storyline.
+        "story": spec.get("story") is not False,
+        # The files blended into the page's rows, and how.
+        "datasets": spec.get("datasets"),
+        "blend": spec.get("blend"),
     }
 
 
@@ -737,7 +1003,9 @@ def apply_panel_ops(spec: dict[str, Any], ops: Any) -> tuple[dict[str, Any], lis
         name = op["op"]
         extra = sorted(str(k) for k in op if k != "op" and k not in PANEL_OPS[name])
         if extra:
-            raise SpecError(f"ops[{i}] {name} has unknown key(s): {', '.join(extra)}. It takes: {', '.join(PANEL_OPS[name])}")
+            raise SpecError(
+                f"ops[{i}] {name} has unknown key(s): {', '.join(extra)}. It takes: {', '.join(PANEL_OPS[name])}"
+            )
         if name == "set_panel":
             s = slot_at(i, op, "slot", len(panels))
             fields = [k for k in op if k not in ("op", "slot")]
@@ -767,7 +1035,9 @@ def apply_panel_ops(spec: dict[str, Any], ops: Any) -> tuple[dict[str, Any], lis
         elif name == "add_panel":
             panel = op.get("panel")
             if not isinstance(panel, dict) or not panel.get("chart"):
-                raise SpecError(f"ops[{i}] add_panel needs a panel with a chart, e.g. {{'chart': 'bar', 'cols': {{...}}}}")
+                raise SpecError(
+                    f"ops[{i}] add_panel needs a panel with a chart, e.g. {{'chart': 'bar', 'cols': {{...}}}}"
+                )
             at = len(panels) if op.get("at") is None else slot_at(i, op, "at", len(panels) + 1)
             tab = op.get("tab")
             if tab_names and tab is None:
@@ -829,6 +1099,8 @@ def apply_panel_ops(spec: dict[str, Any], ops: Any) -> tuple[dict[str, Any], lis
     for n, panel in enumerate(panels):
         if isinstance(panel, dict) and "slot" in panel:
             panel["slot"] = n
+    # Edited panel by panel, a planned storyline is the caller's layout now.
+    out.pop(LAYOUT_SOURCE_KEY, None)
     return out, applied
 
 
@@ -857,4 +1129,14 @@ def merge(base: dict[str, Any], changes: dict[str, Any]) -> dict[str, Any]:
             # The caller has written the layout now, so it is no longer the
             # detector's and every panel in it is drawn as given.
             out.pop(LAYOUT_SOURCE_KEY, None)
+    if "layout" in (changes or {}):
+        # Tabs and filter scopes name slots of the layout that was replaced;
+        # kept, they would put the new panels under the old one's tabs.
+        if "tabs" not in changes:
+            out.pop("tabs", None)
+        if "filters" not in changes and isinstance(out.get("filters"), list):
+            out["filters"] = [
+                {k: v for k, v in f.items() if k != "scope"} if isinstance(f, dict) and isinstance(f.get("scope"), list) else f
+                for f in out["filters"]
+            ]
     return out

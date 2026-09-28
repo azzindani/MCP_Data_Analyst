@@ -1288,6 +1288,24 @@ def run_chain(
         )
 
 
+def chain_table(path: str, args: dict[str, Any] | None = None) -> pd.DataFrame:
+    """The last table of a saved chain, with its writes not run: a dataset a dashboard names.
+
+    It runs as a `call` step does, so what the chain writes is left unwritten
+    unless a caller asks, and a problem raises ValueError naming it.
+    """
+    steps = [{"id": "dataset", "call": path, "args": dict(args or {})}]
+    planned, problems, _missing = plan(copy.deepcopy(steps), "")
+    if problems:
+        raise ValueError("; ".join(problems[:3]))
+    run = _Run(planned, [])
+    try:
+        run.step(planned[0], {})
+    except StepError as exc:
+        raise ValueError(exc.message) from None
+    return run.tables["dataset"]
+
+
 def _export(result: dict[str, Any], planned: list[dict[str, Any]], until: str) -> None:
     """Add the chain as a pandas script, or say which step has no pandas translation."""
     from _chain_export import ExportError, export_script  # type: ignore[import-not-found]

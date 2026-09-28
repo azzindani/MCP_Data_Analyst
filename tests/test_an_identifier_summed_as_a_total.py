@@ -70,14 +70,30 @@ def build(path, **kw) -> tuple[dict, str]:
     return r, Path(r["output_path"]).read_text(encoding="utf-8")
 
 
+IDENTIFIERS = ("customer_id", "zip", "Unnamed: 0")
+
+
+def values_drawn(spec: dict) -> set[str]:
+    """Every column a storyline's panels measure."""
+    return {str(p["cols"][k]) for p in spec["layout"] for k in ("value", "x", "y") if (p.get("cols") or {}).get(k)}
+
+
 class TestIdentifiers:
     def test_no_identifier_becomes_a_kpi_or_a_value(self, orders):
-        r, html = build(orders)
+        r, html = build(orders, spec={"story": False})
         labels = " ".join(kpi_labels(html))
-        for ident in ("customer_id", "zip", "Unnamed: 0"):
+        for ident in IDENTIFIERS:
             assert ident not in labels, f"{ident} became a KPI"
             assert ident not in r["kpi_columns"]
         assert "Total revenue" in labels and "units" in labels
+
+    def test_no_identifier_is_measured_on_a_storyline(self, orders):
+        r, _ = build(orders)
+        drawn_values = values_drawn(r["spec"])
+        assert {"revenue", "units"} <= drawn_values
+        for ident in IDENTIFIERS:
+            assert ident not in drawn_values, f"{ident} was measured"
+            assert ident not in r["plan"]["measures"]
 
     def test_roles_come_back(self, orders):
         r, _ = build(orders)
@@ -88,12 +104,16 @@ class TestIdentifiers:
         assert roles["region"] == "dimension"
 
     def test_an_override_says_a_column_is_a_quantity_after_all(self, orders):
-        r, html = build(orders, agg_overrides=["zip:sum"])
+        r, html = build(orders, agg_overrides=["zip:sum"], spec={"story": False})
         assert r["column_roles"]["zip"] == "measure"
         assert "Total zip" in kpi_labels(html)
 
+    def test_an_override_is_heard_by_a_storyline(self, orders):
+        r, _ = build(orders, agg_overrides=["zip:sum"])
+        assert "zip" in r["plan"]["measures"] and "customer_id" not in r["plan"]["measures"]
+
     def test_a_spec_may_still_name_an_identifier(self, orders):
-        _, html = build(orders, spec={"kpis": ["customer_id"]})
+        _, html = build(orders, spec={"story": False, "kpis": ["customer_id"]})
         assert kpi_labels(html) == ["Quality Score", "Total customer_id"]
 
     @pytest.mark.parametrize("name", ["customer_id", "zip_code", "orderKey", "sku", "Account ID"])
@@ -113,9 +133,14 @@ class TestIdentifiers:
 
 class TestDates:
     def test_a_csv_date_gets_a_time_series(self, orders):
-        _, html = build(orders)
+        _, html = build(orders, spec={"story": False})
         assert any(c.startswith("ts_order_date_") for c in cards(html))
         assert "pie_order_date" not in cards(html), "a date is not a category"
+
+    def test_a_storyline_reads_it_as_its_grain(self, orders):
+        r, _ = build(orders)
+        assert r["plan"]["grain"]["date"] == "order_date"
+        assert any(p["chart"] == "time_series" and p["cols"]["date"] == "order_date" for p in r["spec"]["layout"])
 
     @pytest.mark.parametrize(
         "values",

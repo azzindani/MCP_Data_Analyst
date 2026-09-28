@@ -205,13 +205,17 @@ class TestAnEditThatCannotWorkIsRefused:
 
 class TestADetectedPage:
     def test_says_how_to_make_its_layout_editable(self, sales):
-        r = generate_dashboard(str(sales), output_path=str(sales.parent / "auto.html"), open_after=False)
+        r = generate_dashboard(
+            str(sales), output_path=str(sales.parent / "auto.html"), open_after=False, spec={"story": False}
+        )
         edited = _edit(Path(r["output_path"]), [{"op": "remove_panel", "slot": 0}])
         assert edited["success"] is False and "this page's layout is the detector's" in edited["error"]
         assert "changes={'layout': [...]}" in edited["error"]
 
     def test_the_layout_made_yours_in_the_same_call_takes_the_ops(self, sales):
-        r = generate_dashboard(str(sales), output_path=str(sales.parent / "auto.html"), open_after=False)
+        r = generate_dashboard(
+            str(sales), output_path=str(sales.parent / "auto.html"), open_after=False, spec={"story": False}
+        )
         layout = r["spec"]["layout"]
         again = customize_dashboard(
             r["output_path"], {"layout": layout}, ops=[{"op": "remove_panel", "slot": 0}], open_after=False
@@ -238,3 +242,13 @@ class TestAPanelNoTabShows:
         spec = {"layout": [KPI, BAR], "tabs": [{"name": "A", "slots": [0]}]}
         r = generate_dashboard(str(sales), output_path=str(sales.parent / "t.html"), open_after=False, spec=spec)
         assert r["success"] is False and "layout slot(s) [1] are in no tab" in r["error"]
+
+
+class TestAStoryline:
+    def test_is_edited_panel_by_panel_and_is_then_the_callers(self, sales):
+        r = generate_dashboard(str(sales), output_path=str(sales.parent / "story.html"), open_after=False)
+        assert r["spec"]["_layout_source"] == "story"
+        edited = _edit(Path(r["output_path"]), [{"op": "remove_panel", "slot": 0}])
+        assert edited["success"] is True, edited
+        assert edited["spec"]["layout"] == r["spec"]["layout"][1:]
+        assert "_layout_source" not in edited["spec"]

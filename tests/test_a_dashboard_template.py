@@ -142,11 +142,22 @@ class TestApplying:
         assert r["success"] is True and r["dry_run"] is True and r["would_generate"]["charts"] == ["bar", "kpi"]
 
     def test_a_detected_page_is_detected_again(self, quarters):
-        r = _build(quarters, "q3", save_template="auto.json")
+        r = _build(quarters, "q3", spec={"story": False}, save_template="auto.json")
         assert r["success"] is True, r
         again = _build(quarters, "q4", template="auto.json")
         assert again["success"] is True, again
         assert again["spec"]["_layout_source"] == "detected"
+
+    def test_a_storyline_is_planned_again_on_the_new_file(self, quarters):
+        # Its headline and insights are q3's numbers; on q4 they are q4's.
+        r = _build(quarters, "q3", save_template="story.json")
+        assert r["success"] is True and r["spec"]["_layout_source"] == "story", r
+        again = _build(quarters, "q4", template="story.json")
+        assert again["success"] is True, again
+        fresh = generate_dashboard(str(quarters / "q4.csv"), output_path=str(quarters / "fresh.html"), open_after=False)
+        assert again["spec"]["_layout_source"] == "story"
+        assert again["headline"] == fresh["headline"] != r["headline"]
+        assert again["spec"]["layout"] == fresh["spec"]["layout"]
 
 
 class TestWhatCannotBeAppliedIsRefused:

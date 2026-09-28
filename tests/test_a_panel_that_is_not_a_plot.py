@@ -112,7 +112,7 @@ class TestWhatTheyTakeIsChecked:
         ("panel", "says"),
         [
             ({"chart": "text"}, "is a text panel and needs text"),
-            ({"chart": "bar", "text": "hi"}, "only a text panel takes text"),
+            ({"chart": "bar", "text": "hi"}, "only text, markdown, insight, callout panels take text"),
             ({"chart": "section"}, "is a section, a heading across the grid, and needs a title"),
             (
                 {"chart": "section", "title": "S", "cols": {"value": "units"}},

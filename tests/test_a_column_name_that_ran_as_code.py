@@ -34,6 +34,7 @@ for _p in (str(ROOT), str(ROOT / "servers" / "data_advanced")):
 
 from _adv_dashboard import generate_dashboard  # noqa: E402
 
+from shared.dashboard_spec import WRITTEN  # noqa: E402
 from tests.dashboard_page import drawn  # noqa: E402
 
 HOSTILE = {
@@ -113,17 +114,25 @@ def _spec(names: dict[str, str]) -> dict:
     }
 
 
+# The storyline a bare call draws, the detected page, and a caller's layout.
+PAGES = ["story", "detected", "caller-layout"]
+
+
+def _page_spec(page: str, names: dict[str, str]) -> dict | None:
+    return {"story": None, "detected": {"story": False}, "caller-layout": _spec(names)}[page]
+
+
 @pytest.fixture(autouse=True)
 def _output_dir(tmp_path, monkeypatch):
     monkeypatch.delenv("MCP_CONSTRAINED_MODE", raising=False)
     monkeypatch.setenv("MCP_OUTPUT_DIR", str(tmp_path))
 
 
-@pytest.mark.parametrize("with_spec", [False, True], ids=["detected", "caller-layout"])
-def test_hostile_names_add_no_markup(tmp_path, with_spec):
+@pytest.mark.parametrize("page", PAGES)
+def test_hostile_names_add_no_markup(tmp_path, page):
     plain = {k: k for k in HOSTILE}
-    benign = _shape(_build(tmp_path, plain, "benign", _spec(plain) if with_spec else None))
-    hostile_html = _build(tmp_path, HOSTILE, "hostile", _spec(HOSTILE) if with_spec else None)
+    benign = _shape(_build(tmp_path, plain, "benign", _page_spec(page, plain)))
+    hostile_html = _build(tmp_path, HOSTILE, "hostile", _page_spec(page, HOSTILE))
     hostile = _shape(hostile_html)
     assert hostile.tags == benign.tags, f"new tags: {hostile.tags - benign.tags}"
     assert hostile.attrs == benign.attrs, f"new attributes: {hostile.attrs - benign.attrs}"
@@ -135,9 +144,9 @@ def test_hostile_names_add_no_markup(tmp_path, with_spec):
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
-@pytest.mark.parametrize("with_spec", [False, True], ids=["detected", "caller-layout"])
-def test_every_inline_script_still_parses(tmp_path, with_spec):
-    html = _build(tmp_path, HOSTILE, "hostile", _spec(HOSTILE) if with_spec else None)
+@pytest.mark.parametrize("page", PAGES)
+def test_every_inline_script_still_parses(tmp_path, page):
+    html = _build(tmp_path, HOSTILE, "hostile", _page_spec(page, HOSTILE))
     scripts = [s for s in _shape(html).scripts if "_PANELS" in s or "numCh" in s or "ddChange" in s]
     assert scripts, "the page's own script was not found"
     for i, body in enumerate(scripts):
@@ -154,12 +163,14 @@ def test_the_names_still_read_as_themselves(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
-@pytest.mark.parametrize("with_spec", [False, True], ids=["detected", "caller-layout"])
-def test_every_card_is_drawn_from_its_hostile_columns(tmp_path, with_spec):
+@pytest.mark.parametrize("page", PAGES)
+def test_every_card_is_drawn_from_its_hostile_columns(tmp_path, page):
     # Parsing is not drawing. A name is data in the page's _PANELS document,
-    # so every card still reads its column by that exact name.
-    out = drawn(_build(tmp_path, HOSTILE, "hostile", _spec(HOSTILE) if with_spec else None))
+    # so every card still reads its column by that exact name: a chart as a
+    # figure, a KPI or table as the HTML the renderer wrote.
+    out = drawn(_build(tmp_path, HOSTILE, "hostile", _page_spec(page, HOSTILE)))
     assert out["warnings"] == []
-    assert set(out["figures"]) == {p["id"] for p in out["panels"]}
-    for p in out["panels"]:
-        assert all(t for t in out["figures"][p["id"]]["data"]), p["id"]
+    drawn_ids = [p["id"] for p in out["panels"] if p["type"] not in WRITTEN]
+    assert set(out["figures"]) | set(out["html"]) == set(drawn_ids)
+    for cid in out["figures"]:
+        assert all(t for t in out["figures"][cid]["data"]), cid

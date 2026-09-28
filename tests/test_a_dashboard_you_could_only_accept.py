@@ -15,10 +15,11 @@ in, so a caller who wanted the same dashboard with one chart swapped had two
 options: accept what they got, or write the page themselves. An agent asked to
 "make that bar chart a line chart" could not express the request at all.
 
-The spec makes the detection an opening offer. Nothing is required, so the
-zero-argument call is unchanged -- which is the first thing tested here, because
-a spec parameter that quietly moves the default is a behaviour change wearing a
-parameter's clothes.
+The spec makes the detection an opening offer. Nothing is required. The
+zero-argument call is now a storyline (test_a_dashboard_that_answers_first.py),
+a deliberate change; `story: false` is the detected page, and that page is
+unchanged -- the first thing tested here, because a spec parameter that quietly
+moves a page is a behaviour change wearing a parameter's clothes.
 
 S2 asked for real components. The dashboard already had KPI cards, a filter bar,
 alerts and cross-filter. It had no table and no tabs, so those are here: the
@@ -78,8 +79,8 @@ def sales(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_no_spec_is_the_old_behaviour(sales):
-    r = generate_dashboard(str(sales), open_after=False)
+def test_story_false_is_the_old_behaviour(sales):
+    r = generate_dashboard(str(sales), open_after=False, spec={"story": False})
     assert r["success"] is True
     assert r["spec"]["title"] == sales.stem
     assert r["spec"]["interactions"] == DEFAULT_INTERACTIONS
@@ -233,7 +234,7 @@ def test_tabs_render_and_hide_rather_than_replot(sales):
 
 
 def test_no_tabs_means_no_tab_bar(sales):
-    r = generate_dashboard(str(sales), open_after=False)
+    r = generate_dashboard(str(sales), open_after=False, spec={"story": False})
     assert 'class="tab-btn"' not in Path(r["output_path"]).read_text(encoding="utf-8")
 
 

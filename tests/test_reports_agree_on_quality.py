@@ -86,18 +86,21 @@ class TestTheScorerSeesWhatThePanelReports:
 class TestBothReportsGiveTheSameVerdict:
     """The bug was not the formula, it was having two of them."""
 
-    def test_the_eda_report_and_the_dashboard_agree(self, flawed_csv: Path, tmp_path: Path):
+    @pytest.mark.parametrize("spec", [None, {"story": False}], ids=["story", "detected"])
+    def test_the_eda_report_and_the_dashboard_agree(self, flawed_csv: Path, tmp_path: Path, spec):
         from servers.data_advanced.engine import generate_dashboard, run_eda
 
         eda = run_eda(str(flawed_csv), output_path=str(tmp_path / "e.html"), open_after=False)
         assert eda["success"] is True, eda.get("error")
 
         dash_out = tmp_path / "d.html"
-        dash = generate_dashboard(str(flawed_csv), output_path=str(dash_out), open_after=False)
+        dash = generate_dashboard(str(flawed_csv), output_path=str(dash_out), open_after=False, spec=spec)
         assert dash["success"] is True, dash.get("error")
 
         page = dash_out.read_text(encoding="utf-8")
-        m = re.search(r'kpi-val[^>]*>(\d+)</div><div class="kpi-lbl">Quality Score', page)
+        m = re.search(r'kpi-val[^>]*>(\d+)</div><div class="kpi-lbl">Quality Score', page) or re.search(
+            r'<div class="kpi-big">(\d+)<span class="kpi-sub"> / 100 quality score', page
+        )
         assert m, "dashboard did not render a quality score"
         assert int(m.group(1)) == eda["quality_score"]
 

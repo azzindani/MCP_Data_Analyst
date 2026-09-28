@@ -16,6 +16,7 @@ for _p in (str(_ROOT), _HERE):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import numpy as np
 import pandas as pd
 from _adv_helpers import (
     _BACK_TO_TOP_HTML,
@@ -42,7 +43,22 @@ from _adv_helpers import (
     theme_plot_colors,
     warn,
 )
+from _dash_ext import (
+    DIVIDER_HTML,
+    EXT_CSS,
+    EXT_JS,
+    FONTS,
+    callout_html,
+    ext_state,
+    image_html,
+    image_src,
+    insight_html,
+    markdown_html,
+    params_html,
+)
 
+from shared.analysis_plan import parsed_dates
+from shared.analysis_plan import plan as plan_analysis
 from shared.column_utils import is_identifier, parse_date_column
 from shared.dashboard_spec import (
     CHART_KINDS,
@@ -62,6 +78,14 @@ from shared.dashboard_spec import merge as merge_spec
 from shared.dashboard_spec import resolve as resolve_spec
 from shared.dashboard_spec import validate as validate_spec
 from shared.data_alerts import alerts_for_frame, alerts_html, quality_score
+from shared.datasets import GRAINS as BLEND_GRAINS
+from shared.datasets import MAX_DATASETS, Dataset, DatasetError
+from shared.datasets import blend as blend_datasets
+from shared.datasets import load as load_dataset
+from shared.datasets import names_ok as dataset_name_ok
+from shared.datasets import reconcile as reconcile_datasets
+from shared.datasets import relate as relate_datasets
+from shared.datasets import triage as triage_dataset
 from shared.file_utils import (
     atomic_write_text,
     embed_content,
@@ -70,9 +94,15 @@ from shared.file_utils import (
     no_rows_error,
     resolve_path,
 )
+from shared.geo_assets import assets_script
 from shared.geo_names import unrecognised_locations
+from shared.metrics import MetricError, auto_ratios, better_of, column_metrics, parameters_of, spec_metrics, unit_of
+from shared.metrics import value as metric_value
 from shared.provenance import frame_hash, provenance, provenance_script, read_provenance, read_spec, spec_script
 from shared.quality import is_advice
+from shared.story import SAFE_PALETTE, fmt, grain_for
+from shared.story import add_sources as add_story_sources
+from shared.story import build as build_story
 from shared.table_payload import json_for_script, records_js
 
 logger = logging.getLogger(__name__)
@@ -193,7 +223,7 @@ _PLACE_CSS = (
     ".ptable .num{text-align:right;font-variant-numeric:tabular-nums}"
     ".cgrid.g12{grid-template-columns:repeat(12,minmax(0,1fr))}"
     "@media(max-width:68.75rem){.cgrid.g12{grid-template-columns:minmax(0,1fr)}"
-    ".cgrid.g12>.cc{grid-column:1/-1!important}}"
+    ".cgrid.g12>.cc{grid-column:1/-1!important;grid-row:auto!important}}"
     # The filter bar's date range, and the line saying what is filtered.
     ".nrng .dinp{flex:1 1 8.5rem;min-width:8.5rem}"
     ".fsum{flex-basis:100%;font-size:.75rem;color:var(--text-muted);line-height:1.4}"
@@ -315,10 +345,36 @@ def generate_dashboard(
         # A template is a spec saved from another file's dashboard: checked
         # against this file's columns first, then the caller's spec over it.
         used: dict | None = None
+        joined: dict | None = None
         try:
             target = _template_target(save_template) if save_template else None
             if template:
                 used = _read_template(template)
+                saved = used["spec"]
+                if saved.get(LAYOUT_SOURCE_KEY) == "story":
+                    # A storyline's headline and insights are the numbers of
+                    # the file it was planned on: planned again on this one.
+                    saved = {
+                        k: v for k, v in saved.items() if k not in ("layout", "tabs", "filters", LAYOUT_SOURCE_KEY)
+                    }
+                spec = merge_spec(saved, spec or {})
+            # Named datasets are blended into the one row set the page draws.
+            if isinstance(spec, dict) and spec.get("datasets") is not None:
+                try:
+                    df, joined = _blend_datasets(path, df, spec["datasets"], spec.get("blend"))
+                except DatasetError as exc:
+                    return {
+                        "success": False,
+                        "op": "generate_dashboard",
+                        "error": str(exc),
+                        "hint": (
+                            "datasets maps a name to a file, {paths: [...]} for same-schema files, or "
+                            "{chain, args}; blend takes {on: [columns], grain}. Nothing was written."
+                        ),
+                        "progress": [fail("Datasets", str(exc))],
+                        "token_estimate": 60,
+                    }
+            if used:
                 have = {str(c) for c in df.columns}
                 lacking = [c for c in used["columns"] if c not in have]
                 if lacking:
@@ -327,7 +383,6 @@ def generate_dashboard(
                         f"{', '.join(lacking)}. It was saved from {used['from']}. "
                         f"Columns here: {', '.join(sorted(have))}"
                     )
-                spec = merge_spec(used["spec"], spec or {})
         except SpecError as exc:
             return {
                 "success": False,
@@ -427,8 +482,123 @@ def generate_dashboard(
         # in the response and in the page, which is what lets
         # customize_dashboard change one panel without re-deriving a caller's
         # intent from HTML.
+        # --- what the page is planned from ---------------------------------
+        # What each column is (shared/analysis_plan.py), the metrics the page
+        # computes (shared/metrics.py), and what-if parameters. Planned before
+        # the spec is checked, because a panel may name a metric as its value.
+        planned = plan_analysis(df)
+        # An override says what a column is: "zip:sum" makes an identifier a quantity.
+        for col, agg in overrides.items():
+            role = planned["columns"].get(col)
+            if role is not None and role["role"] == "id":
+                role.update(
+                    {"role": "measure", "unit": unit_of(col), "additive": agg == "sum", "better": better_of(col)}
+                )
+                planned["measures"].append(col)
+        page_style_in = ((spec or {}).get("style") or {}) if isinstance(spec, dict) else {}
         try:
-            validate_spec(spec, df)
+            parameters = parameters_of((spec or {}).get("parameters") if isinstance(spec, dict) else None)
+            measure_cols = [c for c in planned["measures"] if c in {str(n) for n in numeric_cols}]
+            base_metrics = column_metrics(
+                df,
+                measure_cols,
+                {c: planned["columns"][c].get("additive", True) for c in measure_cols},
+                overrides,
+                {c: planned["columns"][c].get("unit", "") for c in measure_cols},
+            )
+            origin = {c: v["dataset"] for c, v in joined["blend"]["columns"].items()} if joined else None
+            page_metrics = {m.name: m for m in auto_ratios(df, measure_cols, origin)}
+            page_metrics.update(
+                {
+                    m.name: m
+                    for m in spec_metrics(
+                        df,
+                        (spec or {}).get("metrics") if isinstance(spec, dict) else None,
+                        parameters,
+                        set(page_metrics),
+                    )
+                }
+            )
+            if joined:
+                origin = joined["blend"]["columns"]
+                for m in [*base_metrics, *page_metrics.values()]:
+                    came = sorted({origin[c]["dataset"] for c in m.columns if c in origin})
+                    if came:
+                        m.description += f" -- from {', '.join(came)}"
+            logo_src = image_src(str(page_style_in["logo"]), resolve_path) if page_style_in.get("logo") else ""
+        except (MetricError, ValueError) as exc:
+            return {
+                "success": False,
+                "op": "generate_dashboard",
+                "error": str(exc),
+                "hint": "A metric is an aggregate formula, e.g. {'CTR': 'sum(clicks) / sum(impressions)'}; "
+                "a parameter is {'growth': {'default': 0.1, 'min': 0, 'max': 0.5}}, used as $growth.",
+                "progress": [fail("Invalid spec", str(exc))],
+                "token_estimate": 60,
+            }
+        # The page answers first when nobody laid it out: a headline, insights
+        # and a storyline (shared/story.py). Naming chart_types, or story:
+        # false, draws the detected chart-per-column page instead.
+        story = None
+        wants_story = not chart_types and not (
+            isinstance(spec, dict) and (spec.get("layout") is not None or spec.get("story") is False)
+        )
+        if isinstance(spec, dict) and "story" in spec and not isinstance(spec["story"], bool):
+            return {
+                "success": False,
+                "op": "generate_dashboard",
+                "error": "story is true or false: whether a page with no layout is planned as a storyline",
+                "hint": "Leave it out for the storyline, or pass story: false for the page of detected charts.",
+                "progress": [fail("Invalid spec", "story")],
+                "token_estimate": 40,
+            }
+        if wants_story:
+            story = build_story(
+                df,
+                planned,
+                {**{m.name: m for m in base_metrics}, **page_metrics},
+                title=dashboard_title,
+                currency=str(page_style_in.get("currency") or ""),
+            )
+            if joined:
+                add_story_sources(story, joined)
+            mine = dict(spec or {})
+            mine.pop("story", None)
+            spec = {
+                **mine,
+                "layout": story["layout"],
+                "tabs": story["tabs"],
+                "kpis": mine.get("kpis", story["kpis"]),
+                "filters": mine.get("filters", story["filters"]),
+                "quality": mine.get("quality", False),
+                "style": {"palette": SAFE_PALETTE, "toolbar": False, **page_style_in},
+                LAYOUT_SOURCE_KEY: "story",
+            }
+        period = grain_for(planned)
+
+        def value_text(name: str, agg: str) -> str:
+            if name in page_metrics:
+                m = page_metrics[name]
+                return fmt(metric_value(m, df, parameters), m.unit, str(page_style_in.get("currency") or ""))
+            how = agg or col_agg.get(name, "sum")
+            series = pd.to_numeric(df[name], errors="coerce")
+            number = float(
+                series.count()
+                if how == "count"
+                else series.nunique()
+                if how == "count_distinct"
+                else getattr(series, how)()
+            )
+            return fmt(
+                number, planned["columns"].get(name, {}).get("unit", "number"), str(page_style_in.get("currency") or "")
+            )
+
+        panel_extras = {"metrics": set(page_metrics), **period, "value_text": value_text, "columns": planned["columns"]}
+
+        try:
+            validate_spec(
+                spec, df, frozenset(page_metrics), frozenset(n for n, m in page_metrics.items() if not m.additive)
+            )
         except SpecError as exc:
             return {
                 "success": False,
@@ -481,6 +651,7 @@ def generate_dashboard(
                     datetime_cols,
                     (_d_geo_lat, _d_geo_lon, _d_geo_loc, _d_geo_loc_mode),
                     col_agg,
+                    panel_extras,
                 )
             except SpecError as exc:
                 return {
@@ -494,6 +665,15 @@ def generate_dashboard(
             charts = [p["chart"] for p in resolved["layout"]]
         else:
             resolved[LAYOUT_SOURCE_KEY] = "detected"
+        # Planned now, or handed back from a storyline whose layout no one replaced.
+        if story is not None or (isinstance(spec, dict) and spec.get(LAYOUT_SOURCE_KEY) == "story"):
+            resolved[LAYOUT_SOURCE_KEY] = "story"
+        metric_list = list(page_metrics.values())
+        named = {str(v) for p in resolved["layout"] for v in (p.get("cols") or {}).values() if v}
+        resolved["metrics"] = {
+            **{m.name: m.entry() for m in metric_list if m.name in named and m.name not in df.columns},
+            **resolved.get("metrics", {}),
+        }
         kpi_cols = [str(c) for c in resolved["kpis"]]
         filters = _plan_filters(df, resolved["filters"], numeric_cols)
         filter_columns = [f["col"] for f in filters]
@@ -544,6 +724,11 @@ def generate_dashboard(
         cap = min(EMBED_LIMIT, requested) if requested > 0 else EMBED_LIMIT
         was_sampled = len(df) > cap
         embed_df = df.sample(cap, random_state=42) if was_sampled else df.copy()
+        # A metric over a row formula aggregates a column computed here; the
+        # page gets that column, never the formula (shared/metrics.py).
+        for metric in metric_list:
+            for hidden_col, hidden_values in metric.hidden.items():
+                embed_df[hidden_col] = hidden_values.reindex(embed_df.index)
         embed_clean = embed_df.copy()
         for c in datetime_cols:
             if c in embed_clean.columns:
@@ -582,7 +767,7 @@ def generate_dashboard(
         )
         h.append(_dash_head(_css, dashboard_title, out.parent, page_header, resolved))
         full_call = f'generate_dashboard(file_path="{path.name}", spec={{"interactions": {{"embed_rows": 0}}}})'
-        h.append(_dash_header(dashboard_title, embed_df, was_sampled, len(df), full_call))
+        h.append(_dash_header(dashboard_title, embed_df, was_sampled, len(df), full_call, logo_src))
         # Extra datasets are read before anything is written, so a missing or
         # unreadable one is a refusal rather than a half-built page with a tab
         # that opens onto nothing.
@@ -607,25 +792,38 @@ def generate_dashboard(
             h.append(_dash_source_tabs([path.name] + [n for n, _, _ in source_frames]))
             h.append('<section class="src-sec" data-src="0">')
         h.append(_dash_filterbar(filters, theme))
-        h.append(_dash_kpi_row(df, kpi_cols, sparklines, quality, qual_clr, col_agg))
+        h.append('<div id="clk-chips"></div>')
+        h.append(params_html(resolved.get("parameters") or {}))
+        if kpi_cols or resolved["quality"]:
+            h.append(
+                _dash_kpi_row(df, kpi_cols, sparklines, quality if resolved["quality"] else None, qual_clr, col_agg)
+            )
         # The dashboard is the artifact people actually send to a colleague, and
         # it used to show 26 charts of a dataset without mentioning that two of
         # its columns were constant. Same alert engine the EDA report leads with.
-        h.append(_dash_alerts(alerts))
+        if resolved["quality"]:
+            h.append(_dash_alerts(alerts))
 
         chart_specs: list[dict] = []
         # Placement is all or nothing per page: one placed panel puts the page
         # on the 12-column grid, where every card states its span.
         placed = panel_plan is not None and any(entry[5] for entry in panel_plan)
-        h.append('<div class="sec-hdr">Charts</div>')
+        # A tabbed page is headed by its tabs.
+        if not resolved.get("tabs"):
+            h.append('<div class="sec-hdr">Charts</div>')
         # The tab bar goes here, above the cards it shows and hides, once the
         # cards exist; it used to be written after the grid, under them.
         tabs_at = len(h)
         h.append(f'<div class="cgrid{" g12" if placed else ""}">')
         if panel_plan is not None:
             for chart_spec, title, full, height, style, place in panel_plan:
+                body = chart_spec.pop("html", "")
+                if chart_spec["type"] == "quality":
+                    body = _quality_body(quality, alerts)
                 if chart_spec["type"] == "section":
                     h.append(f'<div class="cc-sec" id="{chart_spec["id"]}">{_html_esc.escape(title)}</div>')
+                elif chart_spec["type"] == "divider":
+                    h.append(DIVIDER_HTML.replace('role="separator"', f'role="separator" id="{chart_spec["id"]}"'))
                 else:
                     _card(
                         h,
@@ -635,6 +833,7 @@ def generate_dashboard(
                         height,
                         (place or {}) if placed else None,
                         chart_spec.get("text"),
+                        body,
                     )
                 chart_specs.append(_panel(chart_spec, title, style))
         else:
@@ -650,6 +849,7 @@ def generate_dashboard(
                 _d_geo_loc,
                 _d_geo_loc_mode,
                 col_agg,
+                embed_df,
             )
         h.append("</div>")
         # Off by default: a spec parameter must not change what a
@@ -670,6 +870,10 @@ def generate_dashboard(
         # chart is written into code, column names included.
         kpis = [{"col": str(nc), "agg": col_agg.get(nc, "sum"), "el": f"kv-{_safe(nc)}"} for nc in kpi_cols]
         filter_doc = _filters_doc(filters, chart_specs)
+        # Map panels draw at the world scope; their outlines travel in the page
+        # (shared/geo_assets.py), set before the renderer below draws anything.
+        if any(str(c.get("type", "")).startswith("geo_") for c in chart_specs):
+            h.append(assets_script(["world_110m"]))
         h.append(
             _dash_js(
                 raw_json,
@@ -679,6 +883,11 @@ def generate_dashboard(
                 resolved.get("style") or {},
                 filter_doc,
                 _page_key(data_hash, filter_doc),
+                ext_state(
+                    [m.doc() for m in metric_list],
+                    resolved.get("parameters") or {},
+                    bool(resolved["interactions"].get("cross_filter", True)),
+                ),
             )
         )
         if source_frames:
@@ -714,6 +923,32 @@ def generate_dashboard(
             "output_name": out.name,
             "dashboard_title": dashboard_title,
             "charts_included": charts,
+            # A storyline answers first; the answer travels in the response too.
+            **(
+                {
+                    "headline": story["headline"],
+                    "insights": [
+                        {k: f[k] for k in ("headline", "value", "comparison", "text", "page")}
+                        for f in story["insights"]
+                    ],
+                    "pages": [t["name"] for t in story["tabs"]],
+                }
+                if story is not None
+                else {}
+            ),
+            # Several files: each triaged, how they relate, how they were blended, where they disagree.
+            **({k: joined[k] for k in ("datasets", "relationships", "blend", "reconciliation")} if joined else {}),
+            "metrics": {
+                m.name: {"formula": m.formula, "unit": m.unit, "better": m.better, "description": m.description}
+                for m in metric_list
+            },
+            "plan": {
+                "measures": planned["measures"],
+                "dimensions": planned["dimensions"],
+                "aliases": planned["aliases"],
+                "hierarchies": planned["hierarchies"],
+                "grain": planned["grain"],
+            },
             "kpi_columns": kpi_cols,
             "column_roles": column_roles,
             "filter_columns": filter_columns,
@@ -738,7 +973,9 @@ def generate_dashboard(
         if used:
             result["template"] = {"name": used["name"], "from": used["from"]}
         if target:
-            result["template_saved"] = _save_template(target, resolved, path.name, titled)
+            result["template_saved"] = _save_template(
+                target, resolved, path.name, titled, {m.name: m.columns for m in metric_list}
+            )
             progress.append(ok("Template saved", target.name))
         embed_content(result, out, return_content)
         result["token_estimate"] = _token_estimate(result)
@@ -899,7 +1136,11 @@ def _trend(df, col: str) -> tuple[str, str]:
 def _dash_head(_css, dashboard_title, output_dir, header=None, spec=None):
     import html as _html
 
-    full_css = css_dashboard(_css) + _PLACE_CSS
+    page_style = (spec or {}).get("style") or {}
+    font = FONTS.get(str(page_style.get("font") or ""), "")
+    classes = [c for c in ("slide", "sidebar") if page_style.get(c)]
+    body_class = f' class="{" ".join(classes)}"' if classes else ""
+    full_css = css_dashboard(_css) + _PLACE_CSS + EXT_CSS + (f"body{{font-family:{font}}}" if font else "")
     plotly_script = plotly_script_tag(output_dir)
     # The page carries what it is a picture of, and the document it was built
     # from. The second is what makes customize_dashboard possible: without it,
@@ -915,12 +1156,12 @@ def _dash_head(_css, dashboard_title, output_dir, header=None, spec=None):
         f"{blocks}"
         f"{plotly_script}"
         f"<style>{full_css}</style>"
-        f"</head><body>"
+        f"</head><body{body_class}>"
         f"{_BACK_TO_TOP_HTML}"
     )
 
 
-def _dash_header(dashboard_title, embed_df, was_sampled, rows_total: int = 0, full_call: str = ""):
+def _dash_header(dashboard_title, embed_df, was_sampled, rows_total: int = 0, full_call: str = "", logo: str = ""):
     sampled_note = " (sampled)" if was_sampled else ""
     banner = ""
     if was_sampled and rows_total:
@@ -939,8 +1180,11 @@ def _dash_header(dashboard_title, embed_df, was_sampled, rows_total: int = 0, fu
             + (f" Load full: <code>{_html_esc.escape(full_call)}</code>" if full_call else "")
             + "</div>"
         )
+    # The <title> was escaped and the heading was not: a file named with markup
+    # in it (the title defaults to the file's stem) ran as markup here.
+    logo_html = f'<img class="dash-logo" src="{_html_esc.escape(logo, quote=True)}" alt="">' if logo else ""
     return f"""<header>
-  <h1>{dashboard_title}</h1>
+  <h1>{logo_html}{_html_esc.escape(dashboard_title)}</h1>
   <span class="row-ctr" id="row-ctr">{len(embed_df):,} of {len(embed_df):,} rows{sampled_note}</span>
   <button class="btn" onclick="clearAll()">Clear Filters</button>
   <button class="btn btn-p" onclick="exportCSV()">&#x2193; Export CSV</button>
@@ -1041,17 +1285,32 @@ def _compact_num(v: float) -> str:
 _quality_score = quality_score
 
 
-def _dash_alerts(alerts: list[dict]) -> str:
-    """Render the data-quality panel, collapsed when there is nothing to say."""
-    if not alerts:
-        return ""
+def _alerts_label(alerts: list[dict]) -> str:
+    """How many alerts, how many serious, and how many the score leaves out as advice."""
+    label = f"{len(alerts)} alert{'s' if len(alerts) != 1 else ''}"
     errors = sum(1 for a in alerts if a["sev"] == "error")
-    label = f"Data quality — {len(alerts)} alert{'s' if len(alerts) != 1 else ''}"
     if errors:
         label += f", {errors} serious"
     advice = sum(1 for a in alerts if is_advice({"type": a["type"]}))
     if advice:
         label += f", {advice} advice not scored"
+    return label
+
+
+def _quality_body(quality, alerts: list[dict]) -> str:
+    """The data-quality score and alerts as a panel's body -- a story's appendix, not the page's first screen."""
+    return (
+        f'<div class="kpi-big">{_html_esc.escape(str(quality))}<span class="kpi-sub"> / 100 quality score</span></div>'
+        + (f'<div class="kpi-sub">{_alerts_label(alerts)}</div>' if alerts else "")
+        + alerts_html(alerts)
+    )
+
+
+def _dash_alerts(alerts: list[dict]) -> str:
+    """Render the data-quality panel, collapsed when there is nothing to say."""
+    if not alerts:
+        return ""
+    label = f"Data quality — {_alerts_label(alerts)}"
     return (
         f'<div class="sec-hdr">{label}</div>'
         f'<div style="padding:0 clamp(.875rem,3vw,1.75rem) .5rem">{alerts_html(alerts)}</div>'
@@ -1060,9 +1319,10 @@ def _dash_alerts(alerts: list[dict]) -> str:
 
 def _dash_kpi_row(df, numeric_cols, sparklines, quality, qual_clr, col_agg):
     h = ['<div class="kpi-row">']
-    h.append(
-        f'<div class="kpi-card"><div class="kpi-val" style="color:{qual_clr}">{quality}</div><div class="kpi-lbl">Quality Score</div></div>'
-    )
+    if quality is not None:
+        h.append(
+            f'<div class="kpi-card"><div class="kpi-val" style="color:{qual_clr}">{quality}</div><div class="kpi-lbl">Quality Score</div></div>'
+        )
     # Every column passed is drawn: the detected default is already cut to
     # seven, and a caller's `kpis` list is theirs.
     for nc in numeric_cols:
@@ -1116,7 +1376,9 @@ def _dash_kpi_row(df, numeric_cols, sparklines, quality, qual_clr, col_agg):
     return "\n".join(h)
 
 
-def _card(h, cid: str, ttl: str, full: bool, height: int, place: dict | None = None, text: str | None = None) -> None:
+def _card(
+    h, cid: str, ttl: str, full: bool, height: int, place: dict | None = None, text: str | None = None, body: str = ""
+) -> None:
     """A card: a Plotly figure's box, or -- with `height` 0 -- an HTML body (a KPI, a table, a note).
 
     `text` is a note's own words, escaped and written once; the renderer
@@ -1132,15 +1394,22 @@ def _card(h, cid: str, ttl: str, full: bool, height: int, place: dict | None = N
     body_style = ""
     if place is not None:
         span = int(place.get("span") or (12 if full else 6))
-        card_style = f' style="grid-column:span {span}"'
-        if place.get("height"):
+        rows = int(place.get("rows") or 1)
+        card_style = f' style="grid-column:span {span}' + (f';grid-row:span {rows}"' if rows > 1 else '"')
+        one = int(place.get("height") or height)
+        if rows > 1 and one:
+            # Tall enough to fill the rows it spans: their bodies, headers and gaps.
+            body_style = f' style="height:calc({rows * one}px + {rows - 1} * (2.75rem + clamp(.5rem,1.5vw,.875rem)))"'
+        elif place.get("height"):
             body_style = f' style="height:{int(place["height"])}px"'
     if height == 0:
         # No figure to expand; the body sizes to what it holds.
-        inner = f'<p class="ptext">{_html_esc.escape(text)}</p>' if text is not None else ""
+        # `body` is a written panel's HTML, escaped where it was built (_dash_ext).
+        inner = body or (f'<p class="ptext">{_html_esc.escape(text)}</p>' if text is not None else "")
+        # A note with no title is its words alone, not words under an empty bar.
+        head = f'<div class="cc-hdr"><h3>{te}</h3></div>' if te else ""
         h.append(
-            f'<div class="{cls}"{card_style}><div class="cc-hdr"><h3>{te}</h3></div>'
-            f'<div class="{body_cls}" id="{cid}"{body_style}>{inner}</div></div>'
+            f'<div class="{cls}"{card_style}>{head}<div class="{body_cls}" id="{cid}"{body_style}>{inner}</div></div>'
         )
         return
     h.append(
@@ -1184,7 +1453,7 @@ def _parse_dates(df, spec) -> None:
             df[col] = parsed
 
 
-def _plan_panels(layout, df, cat_cols, numeric_cols, datetime_cols, geo, col_agg):
+def _plan_panels(layout, df, cat_cols, numeric_cols, datetime_cols, geo, col_agg, extras: dict | None = None):
     """One card per panel of a caller's layout, drawn from that panel's columns.
 
     Returns (chart_spec, title, full_width, height, style, place) per panel, in layout order,
@@ -1193,6 +1462,8 @@ def _plan_panels(layout, df, cat_cols, numeric_cols, datetime_cols, geo, col_agg
     rather than swapped for a different chart.
     """
     lat_d, lon_d, loc_d, loc_mode = geo
+    extras = extras or {}
+    metric_names = set(extras.get("metrics") or ())
     plan: list = []
     for i, panel in enumerate(layout):
         kind = panel["chart"]
@@ -1210,18 +1481,30 @@ def _plan_panels(layout, df, cat_cols, numeric_cols, datetime_cols, geo, col_agg
                 f"layout[{i}] is a {kind} chart and this file has no {what} for its {role}; name one in cols.{role}"
             )
 
+        def measure(role: str = "value") -> tuple[dict, str]:
+            """A panel's number: a metric the page defines, or a column and its aggregate."""
+            named = cols.get(role)
+            if named and str(named) in metric_names:
+                return {"metric": str(named), "value": str(named)}, str(named)
+            nc = pick(role, numeric_cols, "numeric column")
+            agg = named_agg or col_agg.get(nc, "sum")
+            known = (extras.get("columns") or {}).get(nc, {})
+            meaning = {"unit": known["unit"], "better": known.get("better", "")} if known.get("unit") else {}
+            return {"value": nc, "agg": agg, **meaning}, f"{agg_label(agg)} {nc}"
+
+        def dated(spec: dict) -> dict:
+            """A panel that can compare periods learns the page's date, grain and last complete period."""
+            dc = str(cols.get("date") or extras.get("date") or "")
+            if dc:
+                spec.update(
+                    {"date": dc, "grain": extras.get("grain") or "month", "complete": extras.get("complete", "")}
+                )
+            return spec
+
         if kind == "bar":
             cc = pick("category", cat_cols, "text column with 2-100 values")
-            nc = pick("value", numeric_cols, "numeric column")
-            agg = named_agg or col_agg.get(nc, "sum")
-            plan.append(
-                (
-                    {"id": cid, "type": "bar", "category": cc, "value": nc, "agg": agg},
-                    f"{agg_label(agg)} {nc} by {cc}",
-                    False,
-                    340,
-                )
-            )
+            value, label = measure()
+            plan.append(({"id": cid, "type": "bar", "category": cc, **value}, f"{label} by {cc}", False, 340))
         elif kind == "pie":
             cc = pick("category", cat_cols, "text column with 2-100 values")
             nc = str(cols.get("value") or "")
@@ -1229,20 +1512,21 @@ def _plan_panels(layout, df, cat_cols, numeric_cols, datetime_cols, geo, col_agg
             plan.append(({"id": cid, "type": "pie", "category": cc, "value": nc}, title, False, 340))
         elif kind in ("line", "time_series"):
             dc = pick("date", datetime_cols, "date column")
-            nc = pick("value", numeric_cols, "numeric column")
-            agg = named_agg or col_agg.get(nc, "sum")
-            plan.append(
-                (
-                    {"id": cid, "type": "ts", "date": dc, "value": nc, "agg": agg},
-                    f"{agg_label(agg)} {nc} Over Time",
-                    True,
-                    380,
-                )
-            )
+            value, label = measure()
+            spec = {"id": cid, "type": "ts", "date": dc, **value}
+            if dc == extras.get("date"):
+                spec.update({"grain": extras.get("grain") or "month", "complete": extras.get("complete", "")})
+            plan.append((spec, f"{label} Over Time", True, 380))
         elif kind == "scatter":
             x = pick("x", numeric_cols, "numeric column")
             y = pick("y", [c for c in numeric_cols if c != x], "second numeric column")
-            plan.append(({"id": cid, "type": "scatter", "x": x, "y": y}, f"{x} vs {y}", False, 340))
+            spec = {"id": cid, "type": "scatter", "x": x, "y": y}
+            # Named, it is drawn; left out of a panel that names nothing, the
+            # detected page's choice fills it, as every other role is filled.
+            group = str(cols["group"] or "") if "group" in cols else _scatter_group(df, x, y, cat_cols)
+            if group:
+                spec["group"] = group
+            plan.append((spec, f"{x} vs {y}" + (f" by {group}" if group else ""), False, 340))
         elif kind == "histogram":
             nc = pick("value", numeric_cols, "numeric column")
             plan.append(({"id": cid, "type": "dist", "value": nc}, f"{nc} Distribution", False, 320))
@@ -1265,22 +1549,15 @@ def _plan_panels(layout, df, cat_cols, numeric_cols, datetime_cols, geo, col_agg
                 )
             )
         elif kind == "kpi":
-            nc = pick("value", numeric_cols, "numeric column")
-            agg = named_agg or col_agg.get(nc, "sum")
-            plan.append(({"id": cid, "type": "kpi", "value": nc, "agg": agg}, f"{agg_label(agg)} {nc}", False, 0))
+            value, label = measure()
+            plan.append((dated({"id": cid, "type": "kpi", **value}), label, False, 0))
         elif kind == "table":
             cc = pick("category", cat_cols, "text column with 2-100 values")
-            nc = pick("value", numeric_cols, "numeric column")
-            agg = named_agg or col_agg.get(nc, "sum")
-            spec = {
-                "id": cid,
-                "type": "table",
-                "category": cc,
-                "value": nc,
-                "agg": agg,
-                "header": f"{agg_label(agg)} {nc}",
-            }
-            plan.append((spec, f"{agg_label(agg)} {nc} by {cc}", False, 0))
+            value, label = measure()
+            spec = {"id": cid, "type": "table", "category": cc, **value, "header": label}
+            if cols.get("date"):
+                spec.update({"date": str(cols["date"]), "grain": extras.get("grain") or "month"})
+            plan.append((spec, f"{label} by {cc}", False, 0))
         elif kind == "geo_scatter":
             lat = pick("lat", [lat_d] if lat_d else [], "latitude column")
             lon = pick("lon", [lon_d] if lon_d else [], "longitude column")
@@ -1308,6 +1585,109 @@ def _plan_panels(layout, df, cat_cols, numeric_cols, datetime_cols, geo, col_agg
                 "agg": agg,
             }
             plan.append((spec, f"{agg_label(agg)} {nc} by {loc} (Choropleth)", True, 500))
+        elif kind == "stacked_bar":
+            cc = pick("category", cat_cols, "text column with 2-100 values")
+            gc = pick("group", [c for c in cat_cols if c != cc], "second text column")
+            value, label = measure()
+            plan.append(
+                (
+                    {"id": cid, "type": "stacked", "category": cc, "group": gc, **value},
+                    f"{label} by {cc} and {gc}",
+                    True,
+                    380,
+                )
+            )
+        elif kind == "pareto":
+            cc = pick("category", cat_cols, "text column with 2-100 values")
+            value, label = measure()
+            plan.append(
+                (
+                    {"id": cid, "type": "pareto", "category": cc, **value},
+                    f"{label} by {cc}: the few that make most",
+                    True,
+                    380,
+                )
+            )
+        elif kind == "variance":
+            cc = pick("category", cat_cols, "text column with 2-100 values")
+            value, label = measure()
+            spec = {"id": cid, "type": "variance", "category": cc, **value}
+            if cols.get("target"):
+                spec["target"] = str(cols["target"])
+            elif (panel.get("style") or {}).get("target") is None:
+                raise SpecError(
+                    f"layout[{i}] is a variance chart and needs a target: cols.target (a column) or style.target (a number)"
+                )
+            plan.append((spec, f"{label} by {cc} against target", False, 340))
+        elif kind == "waterfall":
+            cc = pick("category", cat_cols, "text column with 2-100 values")
+            value, label = measure()
+            spec = {"id": cid, "type": "waterfall", "category": cc, **value}
+            if cols.get("date") or extras.get("date"):
+                dated(spec)
+                title_ = f"{label} by {cc}: what changed from the period before to the last"
+            else:
+                title_ = f"{label} by {cc}, adding up to the total"
+            plan.append((spec, title_, True, 380))
+        elif kind == "small_multiples":
+            fc = pick("facet", cat_cols, "text column to split by")
+            value, label = measure()
+            spec = {"id": cid, "type": "multiples", "facet": fc, **value}
+            if cols.get("category"):
+                spec["category"] = str(cols["category"])
+            elif cols.get("date") or extras.get("date"):
+                dated(spec)
+            else:
+                spec["category"] = pick("category", [c for c in cat_cols if c != fc], "second text column")
+            plan.append((spec, f"{label}, one chart per {fc}", True, 480))
+        elif kind in ("gauge", "bullet"):
+            value, label = measure()
+            plan.append(({"id": cid, "type": kind, **value}, label, False, 220 if kind == "gauge" else 160))
+        elif kind == "markdown":
+            plan.append(
+                (
+                    {"id": cid, "type": "markdown", "html": markdown_html(str(panel.get("text") or ""))},
+                    str(panel.get("title") or ""),
+                    False,
+                    0,
+                )
+            )
+        elif kind == "callout":
+            tone = str((panel.get("style") or {}).get("tone") or "info")
+            plan.append(
+                (
+                    {"id": cid, "type": "callout", "html": callout_html(str(panel.get("text") or ""), tone)},
+                    str(panel.get("title") or ""),
+                    False,
+                    0,
+                )
+            )
+        elif kind == "insight":
+            number = ""
+            if cols.get("value"):
+                number = extras["value_text"](str(cols["value"]), named_agg)
+            tone = str((panel.get("style") or {}).get("tone") or "info")
+            body = insight_html(
+                number, str((panel.get("style") or {}).get("comparison") or ""), str(panel.get("text") or ""), tone
+            )
+            plan.append(({"id": cid, "type": "insight", "html": body}, str(panel.get("title") or "Insight"), False, 0))
+        elif kind == "image":
+            try:
+                src = image_src(str(panel.get("src") or ""), resolve_path)
+            except ValueError as exc:
+                raise SpecError(f"layout[{i}] image: {exc}") from None
+            plan.append(
+                (
+                    {"id": cid, "type": "image", "html": image_html(src, str(panel.get("title") or ""))},
+                    str(panel.get("title") or ""),
+                    False,
+                    0,
+                )
+            )
+        elif kind == "divider":
+            plan.append(({"id": f"p{i}_divider", "type": "divider"}, "", True, 0))
+        elif kind == "quality":
+            plan.append(({"id": cid, "type": "quality"}, str(panel.get("title") or "Data quality"), True, 0))
         else:  # pragma: no cover - the validator refuses every other kind first
             raise SpecError(f"layout[{i}] chart={kind!r} is not drawable. Valid: {', '.join(CHART_KINDS)}")
         if len(plan) > before:
@@ -1324,6 +1704,57 @@ def _plan_panels(layout, df, cat_cols, numeric_cols, datetime_cols, geo, col_agg
     return plan
 
 
+# A scatter is split by a category when separate lines through each of its
+# groups leave markedly less unexplained than one line through all of them.
+_GROUP_MAX_LEVELS = 6
+_GROUP_MIN_ROWS = 10
+_GROUP_MIN_REDUCTION = 0.10
+_GROUP_ALPHA = 0.001
+
+
+def _line_ssr(x, y) -> float:
+    slope, intercept = np.polyfit(x, y, 1)
+    return float(((y - (slope * x + intercept)) ** 2).sum())
+
+
+def _scatter_group(df, x: str, y: str, cat_cols) -> str:
+    """The category whose groups each follow their own line through x and y, or "".
+
+    The sweep's spends-vs-impressions scatter drew one trend line (r=0.74)
+    through two visibly separate populations -- the two ad platforms, each on a
+    line of its own. For each few-valued category, one line per group is
+    compared with one line through all the rows (a Chow test); the category
+    with the strongest evidence is chosen, if any is clear.
+    """
+    if df is None or x not in df.columns or y not in df.columns:
+        return ""
+    from scipy import stats as _st
+
+    xy = df[[x, y]].apply(pd.to_numeric, errors="coerce")
+    usable = xy.notna().all(axis=1).to_numpy()
+    xs, ys = xy[x].to_numpy(dtype=float)[usable], xy[y].to_numpy(dtype=float)[usable]
+    if len(xs) < 2 * _GROUP_MIN_ROWS or np.ptp(xs) == 0:
+        return ""
+    pooled = _line_ssr(xs, ys)
+    best, best_f = "", 0.0
+    for col in list(cat_cols)[:8]:
+        groups = df[col].astype(str).to_numpy()[usable]
+        levels, counts = np.unique(groups, return_counts=True)
+        if not 2 <= len(levels) <= _GROUP_MAX_LEVELS or counts.min() < _GROUP_MIN_ROWS:
+            continue
+        if any(np.ptp(xs[groups == g]) == 0 for g in levels):
+            continue
+        split = sum(_line_ssr(xs[groups == g], ys[groups == g]) for g in levels)
+        extra, denominator = 2 * (len(levels) - 1), len(xs) - 2 * len(levels)
+        if pooled <= 0 or split <= 0 or denominator <= 0:
+            continue
+        f_stat = ((pooled - split) / extra) / (split / denominator)
+        if 1 - split / pooled >= _GROUP_MIN_REDUCTION and _st.f.sf(f_stat, extra, denominator) < _GROUP_ALPHA:
+            if f_stat > best_f:
+                best, best_f = str(col), float(f_stat)
+    return best
+
+
 def _build_chart_cards(
     h,
     chart_specs,
@@ -1336,6 +1767,7 @@ def _build_chart_cards(
     _d_geo_loc,
     _d_geo_loc_mode,
     col_agg,
+    frame=None,
 ):
     """The detected page: a card and a panel for every chart this file supports."""
 
@@ -1362,7 +1794,10 @@ def _build_chart_cards(
         ]
         for nc1, nc2 in pairs:
             spec = {"id": f"scat_{_safe(nc1)}_{_safe(nc2)}", "type": "scatter", "x": nc1, "y": nc2}
-            add(spec, f"{nc1} vs {nc2}", False, 340)
+            group = _scatter_group(frame, nc1, nc2, cat_cols)
+            if group:
+                spec["group"] = group
+            add(spec, f"{nc1} vs {nc2}" + (f" by {group}" if group else ""), False, 340)
     if len(cat_cols) >= 2 and numeric_cols:
         cc1, cc2, nc = cat_cols[0], cat_cols[1], numeric_cols[0]
         agg = col_agg.get(nc, "sum")
@@ -1578,17 +2013,27 @@ const FIG={
            layout:_merge({margin:{l:20,r:20,t:10,b:20}},_legend(p.style,{showlegend:true,legend:{orientation:'h',y:-0.14}}))};
   },
   scatter:function(p,d){
-    var s=p.style,xs=[],ys=[];
-    d.forEach(function(r){var x=_num(r[p.x]),y=_num(r[p.y]);if(!isNaN(x)&&!isNaN(y)){xs.push(x);ys.push(y);}});
-    var t=[{x:xs,y:ys,type:'scatter',mode:'markers',marker:{color:s.color,opacity:0.5,size:5},name:'data'}];
-    if(xs.length>1){
+    var s=p.style,g=new Map();
+    d.forEach(function(r){var x=_num(r[p.x]),y=_num(r[p.y]);if(isNaN(x)||isNaN(y))return;var k=p.group?_key(r,p.group):'data';if(!g.has(k))g.set(k,{x:[],y:[]});g.get(k).x.push(x);g.get(k).y.push(y);});
+    // One line through groups that each follow their own line is the pooled
+    // mistake the grouping exists to avoid: with a group, a line per group.
+    function fit(xs,ys){
       var n=xs.length,sx=0,sy=0,sxy=0,sxx=0,syy=0;
       for(var i=0;i<n;i++){sx+=xs[i];sy+=ys[i];sxy+=xs[i]*ys[i];sxx+=xs[i]*xs[i];syy+=ys[i]*ys[i];}
       var sl=(n*sxy-sx*sy)/(n*sxx-sx*sx||1),ic=(sy-sl*sx)/n;
       var r=(n*sxy-sx*sy)/Math.sqrt(((n*sxx-sx*sx)*(n*syy-sy*sy))||1);
       var lo=_min(xs),hi=_max(xs);
-      t.push({x:[lo,hi],y:[sl*lo+ic,sl*hi+ic],type:'scatter',mode:'lines',line:{color:s.accent,width:2,dash:'dash'},name:'r='+r.toFixed(2)});
+      return{x:[lo,hi],y:[sl*lo+ic,sl*hi+ic],r:r};
     }
+    var t=[];
+    Array.from(g.keys()).slice(0,p.group?s.series||8:1).forEach(function(k,i){
+      var v=g.get(k),c=p.group?_seriesColor(p,k,i):s.color;
+      t.push({x:v.x,y:v.y,type:'scatter',mode:'markers',marker:{color:c,opacity:0.5,size:5},name:p.group?k:'data',legendgroup:k});
+      if(v.x.length>1){
+        var f=fit(v.x,v.y);
+        t.push({x:f.x,y:f.y,type:'scatter',mode:'lines',line:{color:p.group?c:s.accent,width:2,dash:'dash'},name:(p.group?k+' ':'')+'r='+f.r.toFixed(2),legendgroup:k});
+      }
+    });
     return{data:t,layout:_axes(_merge({xaxis:{title:p.x},yaxis:_merge({title:p.y},_vaxis(s))},_legend(s,{showlegend:true,legend:{x:0,y:1.1,orientation:'h'}})))};
   },
   grouped_bar:function(p,d){
@@ -1716,10 +2161,11 @@ def _dash_js(
     page_style: dict | None = None,
     filters: list[dict] | None = None,
     page_key: str = "dash-filters",
+    ext: str = "",
 ):
     # json_for_script escapes <, > and &, so no name or value in the panels can
     # end the <script> block -- and none is ever read as code.
-    state = (
+    state = ext + (
         f"const _PANELS={json_for_script(panels)};\n"
         f"const _KPIS={json_for_script(kpis)};\n"
         f"const _THEME={json_for_script(theme)};\n"
@@ -1955,6 +2401,7 @@ document.addEventListener('keydown',function(e){{if(e.key==='Escape')closeM();}}
 document.addEventListener('click',function(e){{if(!e.target.closest('.ddw'))document.querySelectorAll('.ddmenu').forEach(m=>m.classList.add('hid'));}});
 
 {_RENDERER_JS}
+{EXT_JS}
 
 // --- rows table: sortable and paged, over the same filtered rows ---------
 // Rendered from getFilt() so the table and the charts can never disagree about
@@ -2041,12 +2488,22 @@ applyF();
 TEMPLATE_FORMAT = "mcp-dashboard-template/1"
 
 
-def _template_columns(spec: dict) -> list[str]:
-    """Every column a spec names: its panels' columns, its KPIs and its filters."""
+def _template_columns(spec: dict, metric_columns: dict[str, list[str]] | None = None) -> list[str]:
+    """Every column a spec names: its panels' columns, its KPIs and its filters.
+
+    A metric is no column: the columns it reads stand in for it.
+    """
+    metrics = set(spec.get("metrics") or {}) if isinstance(spec.get("metrics"), dict) else set()
     names: list[str] = []
     for panel in spec.get("layout") or []:
         if isinstance(panel, dict) and isinstance(panel.get("cols"), dict):
-            names += [str(v) for v in panel["cols"].values() if v]
+            for v in panel["cols"].values():
+                if not v:
+                    continue
+                if str(v) in metrics:
+                    names += (metric_columns or {}).get(str(v), [])
+                else:
+                    names.append(str(v))
     names += [str(k) for k in spec.get("kpis") or []]
     names += [str(filter_entry(f).get("column")) for f in spec.get("filters") or []]
     return list(dict.fromkeys(names))
@@ -2080,7 +2537,9 @@ def _read_template(raw: str) -> dict:
     }
 
 
-def _save_template(target: Path, resolved: dict, source: str, own_title: bool) -> str:
+def _save_template(
+    target: Path, resolved: dict, source: str, own_title: bool, metric_columns: dict[str, list[str]] | None = None
+) -> str:
     """The resolved spec as a template: nothing in it points at the file it came from.
 
     The source path stays behind, and so does a title that was only the
@@ -2092,7 +2551,7 @@ def _save_template(target: Path, resolved: dict, source: str, own_title: bool) -
         "format": TEMPLATE_FORMAT,
         "saved": datetime.now(UTC).strftime("%Y-%m-%d"),
         "from": source,
-        "columns": _template_columns(spec),
+        "columns": _template_columns(spec, metric_columns),
         "spec": spec,
     }
     atomic_write_text(str(target), _json.dumps(document, indent=2, default=str))
@@ -2307,6 +2766,49 @@ _SOURCE_CSS = """<style>
 .src-kpi b{display:block;font-size:19px;line-height:1.3}
 .src-kpi span{font-size:11px;opacity:.7}
 </style>"""
+
+
+def _blend_datasets(path: Path, df, entries, blend_spec) -> tuple[pd.DataFrame, dict]:
+    """The file and the datasets a spec names, triaged, related and blended into one row set."""
+    from servers.data_transform._chain import chain_table
+
+    if not isinstance(entries, dict) or not entries:
+        raise DatasetError("datasets maps a name to a file, e.g. {'sales': 'sales.csv'}")
+    if len(entries) >= MAX_DATASETS:
+        raise DatasetError(f"datasets names {len(entries)}; with the file itself a page blends at most {MAX_DATASETS}")
+    primary_name = _re.sub(r"\W+", "_", path.stem).strip("_") or "data"
+    if not primary_name[0].isalpha():
+        primary_name = f"data_{primary_name}"
+    for name in entries:
+        if not dataset_name_ok(str(name)):
+            raise DatasetError(f"datasets name {name!r}: a letter, then letters, digits or _, at most 40")
+        if str(name) == primary_name:
+            raise DatasetError(f"datasets name {name!r} is the file's own name; call it something else")
+    on, grain = None, ""
+    if blend_spec is not None:
+        if not isinstance(blend_spec, dict) or set(blend_spec) - {"on", "grain"}:
+            raise DatasetError("blend takes on (a list of the columns the datasets share) and grain")
+        if "on" in blend_spec:
+            if not isinstance(blend_spec["on"], list) or not all(isinstance(c, str) for c in blend_spec["on"]):
+                raise DatasetError("blend.on is a list of column names")
+            on = list(blend_spec["on"])
+        grain = str(blend_spec.get("grain") or "")
+        if grain and grain not in BLEND_GRAINS:
+            raise DatasetError(f"blend.grain {grain!r}: one of {', '.join(BLEND_GRAINS)}")
+    frame = df.copy()
+    frame.columns = [str(c) for c in frame.columns]
+    planned = plan_analysis(frame)
+    primary = Dataset(primary_name, parsed_dates(frame, planned), path.name, planned)
+    others = [load_dataset(str(n), e, resolve_path, _read_csv, chain_table) for n, e in entries.items()]
+    every = [primary, *others]
+    relationships = relate_datasets(every)
+    blended, info = blend_datasets(every, relationships, on, grain)
+    return blended, {
+        "datasets": {ds.name: triage_dataset(ds) for ds in every},
+        "relationships": relationships,
+        "blend": info,
+        "reconciliation": reconcile_datasets(blended, info),
+    }
 
 
 def _source_summary(df, primary_columns: list[str], primary_rows: int) -> dict:
