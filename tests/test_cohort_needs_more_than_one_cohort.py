@@ -20,6 +20,8 @@ charts, for the same reason spelled out in its own comment.
 from __future__ import annotations
 
 import csv as csvmod
+import json
+import re
 from pathlib import Path
 
 import pytest
@@ -185,3 +187,12 @@ class TestTheRealDataset:
         assert r["success"] is True, r.get("error")
         assert r.get("cohort_column") == "campaign_platform", r.get("cohort_column")
         assert len(matrix(r)) > 1, matrix(r)
+
+    def test_a_cell_is_labelled_to_the_cent(self, ad_data_full_csv: Path, tmp_path: Path):
+        """A float sum of spends showed as 240853.109999 on the heatmap."""
+        r = cohort_analysis(str(ad_data_full_csv), output_path=str(tmp_path / "c.html"), open_after=False)
+        html = Path(r["output_path"]).read_text(encoding="utf-8")
+        labels = json.loads(re.search(r'"text":(\[\[.*?\]\])', html).group(1))
+        cells = [c for row in labels for c in row]
+        assert "240,853.11" in cells
+        assert all(re.fullmatch(r"-?[\d,]+(\.\d{1,2})?", c) for c in cells if c), cells

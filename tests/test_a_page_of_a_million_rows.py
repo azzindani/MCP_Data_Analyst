@@ -75,6 +75,15 @@ def test_the_page_embeds_cells_and_says_so(big):
     assert c["rows"] == N and c["keys"] == ["date", "platform"] and c["left_out"] == ["order_id"]
     assert c["cells"] == df.groupby(["date", "platform"]).ngroups == r["rows_embedded"]
     assert "<b>Aggregated on the server.</b> 6,000 rows in" in html
+    assert "box panels draw a sample of 400 rows." in html
+
+
+def test_a_sample_of_every_row_is_not_called_a_sample(big, monkeypatch):
+    folder, _ = big
+    monkeypatch.setattr(cube, "SAMPLE_ROWS", N)
+    r, html = _make(folder)
+    assert r["cube"]["sample_rows"] == N
+    assert "box panels draw all 6,000 rows." in html and "a sample of" not in html
 
 
 @needs_node

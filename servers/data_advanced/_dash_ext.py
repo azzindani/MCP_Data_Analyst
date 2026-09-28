@@ -431,6 +431,7 @@ function _after(last,grain,h){
 }
 // A straight-line forecast from the complete periods, with its 80% band: the
 // trend a reader would draw by eye, and how far off the line the past has run.
+// A series that has never gone below zero (spend, orders) is not forecast below it.
 function _forecast(keys,vals,grain,h,complete){
   var k=[],v=[];
   keys.forEach(function(x,i){if((!complete||x<=complete)&&isFinite(vals[i])){k.push(x);v.push(vals[i]);}});
@@ -441,7 +442,8 @@ function _forecast(keys,vals,grain,h,complete){
   var b=sxy/sxx,a=mv-b*mt,se=0;
   v.forEach(function(y,i){var e=y-(a+b*i);se+=e*e;});
   var s=Math.sqrt(se/Math.max(n-2,1)),xs=_after(k[n-1],grain,h),mid=[],lo=[],hi=[];
-  for(var j=1;j<=h;j++){var t=n-1+j,f=a+b*t,w=1.2816*s*Math.sqrt(1+1/n+(t-mt)*(t-mt)/sxx);mid.push(f);lo.push(f-w);hi.push(f+w);}
+  var floor=v.every(function(y){return y>=0;})?0:-Infinity;
+  for(var j=1;j<=h;j++){var t=n-1+j,f=a+b*t,w=1.2816*s*Math.sqrt(1+1/n+(t-mt)*(t-mt)/sxx);mid.push(Math.max(floor,f));lo.push(Math.max(floor,f-w));hi.push(Math.max(floor,f+w));}
   var from=[k[n-1]].concat(xs),at=[v[n-1]];
   return[
     {x:from,y:at.concat(lo),type:'scatter',mode:'lines',line:{width:0},showlegend:false,hoverinfo:'skip'},

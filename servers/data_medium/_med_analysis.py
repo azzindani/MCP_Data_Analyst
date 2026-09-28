@@ -1451,7 +1451,8 @@ def cohort_analysis(
                     x=col_keys,
                     y=row_keys,
                     colorscale="Blues",
-                    text=[[str(v) for v in row] for row in z],
+                    # A sum of cents carries float noise (240853.109999): label to the cent.
+                    text=[["" if pd.isna(v) else f"{v:,.2f}".rstrip("0").rstrip(".") for v in row] for row in z],
                     texttemplate="%{text}",
                 )
             )

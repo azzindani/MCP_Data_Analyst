@@ -1273,12 +1273,16 @@ def _dash_header(
     shown = rows_total if cube_info else len(embed_df)
     if cube_info:
         # Exact, and said to be: the reader should know which panels are a sample.
+        drawn = (
+            f"a sample of {cube_info['sample_rows']:,} rows"
+            if cube_info["sample_rows"] < rows_total
+            else f"all {rows_total:,} rows"
+        )
         banner = (
             '<div class="sample-banner" style="grid-column:1/-1;font-size:12px;padding:7px 11px;'
             'border-radius:8px;background:rgba(0,114,178,.10);border:1px solid rgba(0,114,178,.35)">'
             f"<b>Aggregated on the server.</b> {rows_total:,} rows in {cube_info['cells']:,} cells: every total, "
-            f"count, average, minimum and maximum is exact. Scatter, histogram and box panels draw a sample of "
-            f"{cube_info['sample_rows']:,} rows.</div>"
+            f"count, average, minimum and maximum is exact. Scatter, histogram and box panels draw {drawn}.</div>"
         )
     if was_sampled and rows_total:
         # Every figure on this page -- KPI cards, bar heights, pie shares -- is

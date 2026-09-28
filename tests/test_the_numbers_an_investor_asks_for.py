@@ -90,6 +90,20 @@ def test_the_forecast_extends_the_complete_months_with_its_range(home):
 
 
 @needs_node
+@pytest.mark.parametrize(("dip", "floored"), [(0, True), (-50, False)], ids=["spend", "profit"])
+def test_a_series_never_below_zero_is_not_forecast_below_it(home, dip, floored):
+    _, html = _page(home, _monthly(8))
+    past = [100, 600, 650, 620, 400, 10, 8, dip]
+    months = [f"2024-{m:02d}" for m in range(1, 9)]
+    fc = run_js(html, f"_forecast({months},{past},'month',3,null).map(function(t){{return t.y.slice(1);}})")
+    slope, intercept = np.polyfit(np.arange(8), past, 1)
+    line = [intercept + slope * (7 + h) for h in (1, 2, 3)]
+    assert max(line) < 0
+    assert fc[2] == pytest.approx([max(0, f) for f in line] if floored else line)
+    assert min(fc[0]) >= 0 if floored else min(fc[0]) < 0
+
+
+@needs_node
 @pytest.mark.parametrize(
     ("last", "grain", "want"),
     [
