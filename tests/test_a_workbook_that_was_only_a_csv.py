@@ -57,10 +57,10 @@ def workbook(loans: pd.DataFrame, tmp_path: Path):
 class TestTheFileSaysWhatItIs:
     def test_the_readme_is_the_sheet_that_opens(self, workbook):
         book, _report, _out = workbook
-        assert book.sheetnames[0] == README_SHEET, (
-            "a workbook that travels arrives with no conversation attached; the first tab is the one that answers"
+        assert book.active.title == README_SHEET, (
+            "a workbook that travels arrives with no conversation attached; the tab it opens on is the one that answers"
         )
-        assert DATA_SHEET in book.sheetnames
+        assert book.sheetnames[0] == DATA_SHEET, "a program reading 'the first sheet' must get the data"
 
     def test_it_names_the_source_and_both_row_counts(self, workbook):
         book, _report, _out = workbook
@@ -176,13 +176,14 @@ class TestExportDataShipsIt:
 
     def test_the_response_reports_what_was_done(self, exported):
         result, _out = exported
-        assert result["workbook"]["sheets"] == [README_SHEET, DATA_SHEET]
+        assert result["workbook"]["sheets"] == [DATA_SHEET, README_SHEET]
+        assert result["workbook"]["opens_on"] == README_SHEET
         assert result["workbook"]["frozen_header"] is True
         assert "loan_status" in result["workbook"]["validated_columns"]
 
     def test_the_file_on_disk_has_both_sheets(self, exported):
         _result, out = exported
-        assert openpyxl.load_workbook(out).sheetnames == [README_SHEET, DATA_SHEET]
+        assert openpyxl.load_workbook(out).sheetnames == [DATA_SHEET, README_SHEET]
 
     def test_csv_export_is_untouched(self, loans, tmp_path):
         csv = tmp_path / "in.csv"

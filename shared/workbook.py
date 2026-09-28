@@ -14,10 +14,14 @@ scroll past row 40 and the header is gone, there is no way to filter to one
 grade, every amount reads `2500` instead of `2,500.00`, and nothing in the file
 says which of 38,576 rows these 5,333 are.
 
-**The README sheet comes first, so it is the tab that opens.** A workbook that
-travels -- and this one is a deliverable, so it travels -- arrives with no
-conversation attached. The sheet answers what a recipient asks first: what is
-this, where did it come from, how many rows were there before.
+**The README sheet is the tab that opens; the data is the first sheet.** A
+workbook that travels -- and this one is a deliverable, so it travels -- arrives
+with no conversation attached, and the README answers what a recipient asks
+first: what is this, where did it come from, how many rows were there before.
+It opens because it is the ACTIVE sheet, not because it comes first. It used to
+come first, and every program that reads "the first sheet" read the README:
+pd.read_excel(file) got 6 rows of metadata, and this server's own convert_file
+turned an export back into a 6-row CSV and ignored the data.
 
 **Every row is written unless the caller asks otherwise.** The review's
 `top_1k + full_csv_link` is offered as `preview_rows`, not imposed: an export
@@ -164,7 +168,8 @@ def write_workbook(
     rows_written = len(body)
 
     report: dict[str, Any] = {
-        "sheets": [README_SHEET, DATA_SHEET],
+        "sheets": [DATA_SHEET, README_SHEET],
+        "opens_on": README_SHEET,
         "rows_total": rows_total,
         "rows_written": rows_written,
         "is_preview": rows_written < rows_total,
@@ -197,10 +202,13 @@ def write_workbook(
     )
 
     with pd.ExcelWriter(out, engine="openpyxl") as writer:
-        pd.DataFrame(readme, columns=["Field", "Value"]).to_excel(writer, sheet_name=README_SHEET, index=False)
         body.to_excel(writer, sheet_name=DATA_SHEET, index=False)
+        pd.DataFrame(readme, columns=["Field", "Value"]).to_excel(writer, sheet_name=README_SHEET, index=False)
 
         book = writer.book
+        book.active = book.sheetnames.index(README_SHEET)
+        for ws in book.worksheets:
+            ws.sheet_view.tabSelected = ws.title == README_SHEET
         _style_readme(book[README_SHEET])
         report.update(_style_data(book[DATA_SHEET], body))
 
