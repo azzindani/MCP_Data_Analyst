@@ -788,13 +788,16 @@ def normalize_headers(
         new_cols: list[str] = []
         assigned: set[str] = set()
 
-        for col in old_cols:
-            new = col.strip()
+        for position, col in enumerate(old_cols, start=1):
+            # A blank header reaches here as pandas' placeholder `Unnamed: 0`,
+            # which lowercased to `unnamed:_0` -- a name with a colon in it, that
+            # no file ever said. Blank is blank: it gets its position.
+            new = "" if re.fullmatch(r"Unnamed: \d+(_level_\d+)?", str(col)) else str(col).strip()
             if lowercase:
                 new = new.lower()
             if replace_spaces:
                 new = new.replace(" ", "_")
-            new = re.sub(r"_+", "_", new).strip("_") or "col"
+            new = re.sub(r"_+", "_", new).strip("_") or f"column_{position}"
             candidate = new
             counter = 2
             while candidate in assigned:
