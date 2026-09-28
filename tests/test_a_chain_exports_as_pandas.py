@@ -219,7 +219,7 @@ class TestTheScriptWritesTheSameFiles:
                 {"from": "again", "write": "again_out.csv"},
             ],
         )
-        assert "def clean_chain(min_amount=0, file='orders.csv', orders=None):" in r["pandas"]
+        assert "def clean_chain(min_amount=0, file='orders.csv', orders=None, writes=False):" in r["pandas"]
         assert r["pandas"].count("def clean_chain") == 1
 
     def test_skip_and_fallback(self, data):

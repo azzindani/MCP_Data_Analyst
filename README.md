@@ -403,7 +403,7 @@ table above it, or any earlier step named in `from`.
 | `resample` | `{"resample": "order_date", "every": "month", "by": ["region"], "agg": {"revenue": "sum(net)"}}` | a row per period (day, week from Monday, month, quarter, year) and group, every period from a group's first to its last |
 | `write` | `{"write": "region_summary.csv"}` | the table, saved as CSV (a file it replaces is snapshotted first) |
 | `param` | `{"id": "min_amount", "param": 50}` | a value with a default, read as `$min_amount` -- also inside a `load`/`write` path |
-| `call` | `{"call": "clean.chain.json", "args": {"min_amount": 100}, "tables": {"orders": "raw"}}` | the last table of a saved chain, run with its params set by `args` and any of its `load` steps handed a table from this chain by `tables` |
+| `call` | `{"call": "clean.chain.json", "args": {"min_amount": 100}, "tables": {"orders": "raw"}}` | the last table of a saved chain, run with its params set by `args` and any of its `load` steps handed a table from this chain by `tables`; its own `write` steps run only with `"writes": true` |
 
 A pivot cell or a period that no row falls in holds the formula over no rows:
 a sum or count of nothing is 0, a mean of nothing is empty. `resample` reads

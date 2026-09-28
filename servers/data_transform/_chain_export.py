@@ -419,6 +419,7 @@ EXPORTED_OPS = (
 class _Writer:
     def __init__(self) -> None:
         self.functions: dict[Path, tuple[str, list[str]]] = {}
+        self.inside = 0  # how deep in a called chain's function the step being written is
 
     def ops(self, ops: list[tuple[str, dict]], columns: list[list[str]] | None, where: str) -> list[str]:
         """The ops as they ran -- a for_each already written out once per column."""
@@ -500,7 +501,9 @@ class _Writer:
             ]
         src = f"t[{step['reads'][0]!r}]"
         if kind == "write":
-            return [*head, f"{t} = {src}", f"_writes.append(({t}, {_path(raw['write'])}))"]
+            append = f"_writes.append(({t}, {_path(raw['write'])}))"
+            # A called chain writes only when its call asked for writes.
+            return [*head, f"{t} = {src}", *(["if writes:", f"    {append}"] if self.inside else [append])]
         if kind == "ops":
             recorded = step.get("_cols", {})
             main = self.ops(step["run_ops"]["ops"], recorded.get("ops"), where)
@@ -574,12 +577,16 @@ class _Writer:
             args += [(s["id"], "None") for s in sub if s["kind"] == "load"]
             params = {sid: sid for sid, _ in args}
             self.functions[path] = (name, [])  # placed first, so a chain that calls itself cannot loop here
-            body, latest = self.steps(sub, "", params)
-            signature = ", ".join(f"{py_name(a)}={default}" for a, default in args)
+            self.inside += 1
+            try:
+                body, latest = self.steps(sub, "", params)
+            finally:
+                self.inside -= 1
+            signature = ", ".join([*(f"{py_name(a)}={default}" for a, default in args), "writes=False"])
             code = [
                 f"def {name}({signature}):",
                 f'    """{path.name}, as a function: its params are keyword arguments; '
-                'a load can be handed a table."""',
+                'a load can be handed a table; writes=True runs its write steps."""',
                 "    t = {}",
                 *("    " + line for line in body),
                 f"    return t[{latest!r}]",
@@ -588,6 +595,8 @@ class _Writer:
         name = self.functions[path][0]
         given = [f"{py_name(k)}={_value(v)}" for k, v in (step["raw"].get("args") or {}).items()]
         given += [f"{py_name(k)}=t[{v!r}]" for k, v in step["feeds"].items()]
+        if step.get("writes"):
+            given.append("writes=writes" if self.inside else "writes=True")
         return f"{name}({', '.join(given)})"
 
 

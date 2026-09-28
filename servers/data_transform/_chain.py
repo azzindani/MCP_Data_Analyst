@@ -9,6 +9,8 @@ reads an earlier step by that id (`from`, or the step above it), and a
 A chain saved with `save_as` is a function: its `param` steps are its
 arguments, each with a default, and another chain `call`s it with new values
 -- and, for any of its `load` steps, a table of its own instead of the file.
+A called chain's own `write` steps run only when the call says `writes: true`:
+a function does not write to paths its caller never named.
 
 The whole chain is checked before any file is read -- every id, every
 reference, every op's fields, every chain it calls -- so a typo in step 7
@@ -86,7 +88,7 @@ _FIELDS = {
     "resample": {"id", "from", "resample", "every", "by", "agg", "on_error"},
     "write": {"id", "from", "write", "on_error"},
     "param": {"id", "param"},
-    "call": {"id", "call", "args", "tables", "on_error"},
+    "call": {"id", "call", "args", "tables", "writes", "on_error"},
 }
 # Steps that hold a value, not a table.
 _VALUE_KINDS = ("scalar", "param")
@@ -400,6 +402,13 @@ class _Planner:
     def call(self, where: str, step: dict[str, Any], raw: dict[str, Any]) -> None:
         path = self.path(where, raw["call"], "call")
         step["reads"], step["feeds"], step["sub"], step["chain"] = [], {}, [], path
+        # Calling a saved chain ran its writes too: the sweep's second call
+        # overwrote the three files the first had written, at paths the caller
+        # never named. A call is a function; its writes are asked for.
+        writes = raw.get("writes", False)
+        if not isinstance(writes, bool):
+            self.errors.append(f"{where}: writes is true or false -- whether {raw['call']!r} writes its own files")
+        step["writes"] = writes is True
         if path is None:
             return
         if not path.is_file():
@@ -632,12 +641,13 @@ def _count(planned: list[dict[str, Any]]) -> int:
 
 
 def _writes(planned: list[dict[str, Any]]) -> list[tuple[Path, str]]:
-    """Every file the chain and the chains it calls would write, with the step that writes it."""
+    """Every file the chain and the chains it calls with `writes: true` would write, with the step that writes it."""
     out: list[tuple[Path, str]] = []
     for s in planned:
         if s["kind"] == "write" and s.get("path") is not None:
             out.append((s["path"], s["id"]))
-        out.extend(_writes(s.get("sub", [])))
+        if s.get("writes"):
+            out.extend(_writes(s.get("sub", [])))
     return out
 
 
@@ -818,6 +828,9 @@ class _Run:
         self.streamed: dict[str, dict[str, Any]] = {}
         self.samples: dict[str, pd.DataFrame] = {}
         self.was_streamed = False
+        # False inside a call that did not ask for its chain's writes, and in
+        # every call below that one.
+        self.writes = True
 
     def step(self, step: dict[str, Any], outer: dict[str, Any]) -> dict[str, Any]:
         gone = [ref for ref in step["reads"] if ref in self.skipped]
@@ -1108,12 +1121,21 @@ def _run_call(step: dict[str, Any], caller: _Run) -> dict[str, Any]:
     """Run a saved chain inside this one; its last table is this step's table."""
     name = step["chain"].name
     run = _Run(step["sub"], caller.pending)
+    run.writes = caller.writes and step["writes"]
     for load_id, ref in step["feeds"].items():
         run.tables[load_id] = caller.tables[ref]
     latest, ran = "", 0
+    held: list[str] = []
     for sub in step["sub"]:
         if sub["kind"] == "load" and sub["id"] in step["feeds"]:
             latest = sub["id"]
+            continue
+        if sub["kind"] == "write" and not run.writes:
+            if sub["reads"] and sub["reads"][0] in run.tables:
+                run.tables[sub["id"]] = run.tables[sub["reads"][0]]
+                latest = sub["id"]
+            if sub.get("path") is not None:
+                held.append(sub["path"].name)
             continue
         try:
             run.step(sub, caller.values)
@@ -1138,6 +1160,9 @@ def _run_call(step: dict[str, Any], caller: _Run) -> dict[str, Any]:
         out["params"] = params
     if run.skipped:
         out["skipped"] = sorted(run.skipped)
+    if held:
+        out["writes_not_run"] = held
+        out["note"] = f"{name} writes {', '.join(held)}; a call runs its writes only with writes: true"
     return out
 
 
