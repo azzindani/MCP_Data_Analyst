@@ -24,6 +24,34 @@ from shared.quality import quality_score as _shared_quality_score
 
 _SEVERITIES = ("error", "warning", "info")
 
+# Values that stand for "no value". Read as text they are a category like any
+# other: the sweep's ad data holds "'-" in 15,101 of 16,834 audience_type rows,
+# and the report showed "Top: '-:15101" with no alert and offered "'-" as a
+# dashboard filter. A leading apostrophe (a spreadsheet's text marker) is
+# ignored, and so is case.
+PLACEHOLDERS = frozenset(
+    {
+        "-", "--", "---", "\u2013", "\u2014", "?", "n/a", "na", "n.a.", "#n/a", "none", "null", "nil", "nan",
+        "unknown", "undetermined", "undefined", "not available", "not applicable", "not set", "(not set)",
+        "(none)", "(blank)", "blank", "tbd",
+    }
+)  # fmt: skip
+
+
+def placeholder_counts(series: pd.Series, column: object) -> dict[str, int]:
+    """The values of `series` that stand for "no value", with how many rows hold each.
+
+    A column's own name counts too: `device` holding "device" in 1,733 rows is
+    a header row repeated inside the data, from files stacked end to end.
+    """
+    name = str(column).strip().lower()
+    found: dict[str, int] = {}
+    for value, n in series.dropna().astype(str).value_counts().items():
+        key = str(value).strip().lstrip("'").strip().lower()
+        if key in PLACEHOLDERS or key == name:
+            found[str(value)] = int(n)
+    return found
+
 
 def compute_alerts(
     df: pd.DataFrame,
@@ -92,6 +120,24 @@ def compute_alerts(
                     "msg": f"'{c}': {null_pct}% missing — imputation needed.",
                 }
             )
+
+    for c in cat_cols:
+        found = placeholder_counts(df[c], c)
+        if not found or not rows:
+            continue
+        held = sum(found.values())
+        pct = round(held / rows * 100, 1)
+        shown = ", ".join(f"{v!r} {n:,}" for v, n in sorted(found.items(), key=lambda kv: -kv[1])[:4])
+        header = str(c).strip().lower() in {k.strip().lstrip("'").strip().lower() for k in found}
+        alerts.append(
+            {
+                "col": c,
+                "type": "PLACEHOLDER",
+                "sev": "error" if pct > 50 else "warning" if pct > 20 or header else "info",
+                "msg": f"'{c}': {held:,} of {rows:,} values ({pct}%) are placeholders ({shown}) — missing in "
+                "disguise, counted as a category. Read them as missing before counting or filtering.",
+            }
+        )
 
     for c in numeric_cols:
         zero_pct = round((df[c] == 0).mean() * 100, 1)

@@ -62,6 +62,7 @@ from shared.column_utils import (
     type_sample,
 )
 from shared.counts import counted
+from shared.data_alerts import placeholder_counts
 from shared.file_utils import count_data_rows as _count_data_rows
 from shared.file_utils import error_text, hint_for_error, resolve_path
 from shared.insights import from_outliers, write_insights
@@ -603,6 +604,26 @@ def validate_dataset(
                         }
                     )
 
+        # A placeholder is a null the reader cannot see: "'-", "N/A", "Unknown",
+        # the column's own name. Held to the same limit as the nulls above.
+        placeholder_summary = {}
+        for col in df.columns:
+            if pd.api.types.is_numeric_dtype(df[col]):
+                continue
+            found = placeholder_counts(df[col], col)
+            if found:
+                held = sum(found.values())
+                pct = round(held / total_rows * 100, 2) if total_rows > 0 else 0
+                placeholder_summary[col] = found
+                shown = ", ".join(f"{v!r} {n}" for v, n in found.items())
+                issues.append(
+                    {
+                        "severity": "error" if pct > max_null_pct else "warning",
+                        "column": col,
+                        "issue": f"{held} placeholders ({pct}%): {shown} -- missing values in disguise",
+                    }
+                )
+
         for col in df.columns:
             if pd.api.types.is_numeric_dtype(df[col]):
                 zc = int((df[col] == 0).sum())
@@ -672,6 +693,7 @@ def validate_dataset(
             "dtype_mismatches": dtype_mismatches,
             "duplicate_count": dup_count,
             "null_summary": null_summary,
+            "placeholder_summary": placeholder_summary,
             # failing_rows are row indices, as check_outliers' flagged_rows are.
             "semantic_checks": semantic_checks,
             "hint": "Call apply_patch() or run_cleaning_pipeline() to act on findings.",
