@@ -1265,6 +1265,20 @@ def feature_engineering(
             backup=backup,
         )
         progress.append(ok(f"Features added to {path.name}", f"{len(new_columns)} new columns"))
+        # A derived division by zero writes inf, a value rather than a gap: every
+        # mean and chart over the column inherits it. The sweep's `cpc = spends /
+        # clicks` on Ad_Data wrote 426 of them here with nothing said, while
+        # apply_patch's column_math reports the same rows (note_non_finite).
+        non_finite = {}
+        for col in new_columns:
+            if col in df.columns and pd.api.types.is_numeric_dtype(df[col]):
+                values = pd.to_numeric(df[col], errors="coerce")
+                count = int((values == float("inf")).sum() + (values == float("-inf")).sum())
+                if count:
+                    non_finite[col] = count
+        if non_finite:
+            listed = ", ".join(f"'{c}' {n}" for c, n in non_finite.items())
+            progress.append(warn("Infinite values written", listed))
 
         result = {
             "success": True,
@@ -1283,6 +1297,12 @@ def feature_engineering(
             "hint": "Call inspect_dataset() or read_column_stats() to verify the changes.",
             "progress": progress,
         }
+        if non_finite:
+            result["non_finite"] = non_finite
+            result["warning"] = (
+                f"+/-inf written in {listed} row(s) -- a division by zero? inf is a value, not a missing one. "
+                "A derive op cannot guard its division; run_chain's derive can: if_else(clicks > 0, spends / clicks, 0)."
+            )
         result["token_estimate"] = _token_estimate(result)
         return result
 
