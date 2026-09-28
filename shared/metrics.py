@@ -231,6 +231,7 @@ ROLE_WORDS: dict[str, tuple[str, ...]] = {
     "profit": ("profit", "profits", "gross_profit", "margin_amount"),
     "orders": ("orders", "order_count", "transactions"),
     "quantity": ("quantity", "qty", "units", "units_sold"),
+    "acquisitions": ("new_customers", "acquisitions", "new_users", "customers_acquired", "new_accounts", "new_signups"),
 }
 
 # (name, numerator role, denominator role, scale, unit, better, what it means)
@@ -240,6 +241,7 @@ AUTO_RATIOS: tuple[tuple[str, str, str, float, str, str, str], ...] = (
     ("CPM", "spend", "impressions", 1000.0, "currency", "down", "cost per thousand impressions"),
     ("CVR", "conversions", "clicks", 1.0, "percent", "up", "conversion rate: conversions per click"),
     ("CPA", "spend", "conversions", 1.0, "currency", "down", "cost per conversion"),
+    ("CAC", "spend", "acquisitions", 1.0, "currency", "down", "customer acquisition cost: spend per new customer"),
     ("ROAS", "revenue", "spend", 1.0, "ratio", "up", "return on ad spend: revenue per unit of spend"),
     ("Margin", "profit", "revenue", 1.0, "percent", "up", "profit as a share of revenue"),
     ("AOV", "revenue", "orders", 1.0, "currency", "up", "average order value: revenue per order"),
@@ -258,7 +260,7 @@ _UNIT_WORDS: dict[str, tuple[str, ...]] = {
 # Down is good news for these, whatever else they are. Spend and cost are not
 # among them: less spend is less activity as often as it is a saving, so a
 # change in either is shown without a verdict.
-_BETTER_DOWN = ("cpc", "cpm", "cpa", "churn", "returns", "refunds", "defects", "errors", "complaints", "latency",
+_BETTER_DOWN = ("cpc", "cpm", "cpa", "cac", "churn", "returns", "refunds", "defects", "errors", "complaints", "latency",
                 "bounce", "cancellations", "chargebacks")  # fmt: skip
 _NEUTRAL = ("cost", "costs", "spend", "spends", "spent", "budget", "expenses")
 

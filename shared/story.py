@@ -26,6 +26,7 @@ panel.
 from __future__ import annotations
 
 import math
+import re
 from typing import Any
 
 import numpy as np
@@ -146,6 +147,53 @@ def _summed(planned: dict[str, Any], metrics: dict[str, Metric]) -> list[str]:
         for m in planned.get("measures", [])
         if planned["columns"][m].get("additive") and (m not in metrics or metrics[m].additive)
     ]
+
+
+def noun(column: str) -> str:
+    """What an identifier column counts: customer_id counts customers."""
+    return re.sub(r"[\s_-]*(id|key|no|number|code|ref)$", "", str(column), flags=re.IGNORECASE) or str(column)
+
+
+def cohorts(df: pd.DataFrame, entity: str, date: str, periods: int = 12) -> dict[str, Any]:
+    """Each entity's first month, and the share of each month's newcomers active in each month after it."""
+    frame = pd.DataFrame({"id": df[entity].astype(str), "month": pd.to_datetime(df[date], errors="coerce").dt.to_period("M")})
+    frame = frame.dropna().drop_duplicates()
+    first = frame.groupby("id")["month"].min().rename("first")
+    frame = frame.join(first, on="id")
+    months = frame["month"].dt.year * 12 + frame["month"].dt.month
+    frame["age"] = months - (frame["first"].dt.year * 12 + frame["first"].dt.month)
+    active = frame.groupby(["first", "age"])["id"].nunique().unstack(fill_value=0).sort_index()
+    last = frame["month"].max()
+    out: dict[str, Any] = {"entity": entity, "noun": noun(entity), "grain": "month", "cohorts": [], "sizes": [], "matrix": []}
+    for first_month, row in active.tail(periods).iterrows():
+        size = int(row.get(0, 0))
+        if not size:
+            continue
+        span = (last - first_month).n
+        shares = [round(float(row.get(k, 0)) / size, 4) if k <= span else None for k in range(periods)]
+        out["cohorts"].append(str(first_month))
+        out["sizes"].append(size)
+        out["matrix"].append(shares)
+    month_one = [m[1] for m in out["matrix"] if len(m) > 1 and m[1] is not None]
+    out["note"] = (
+        f"Of each month's new {out['noun']}s, the share active again k months later"
+        + (f"; after one month, {float(np.mean(month_one)):.0%} on average." if month_one else ".")
+    )
+    return out
+
+
+def _entity(df: pd.DataFrame, planned: dict[str, Any]) -> str:
+    """A customer or user identifier that recurs across periods: what cohorts are made of."""
+    words = ("customer", "user", "client", "account", "member", "subscriber", "buyer", "player")
+    g = planned.get("grain") or {}
+    if not g.get("date"):
+        return ""
+    for col, info in planned["columns"].items():
+        if info["role"] in ("id", "dimension") and any(w in col.lower() for w in words):
+            per = df.groupby(df[col].astype(str))[g["date"]].nunique()
+            if len(per) >= 20 and float(per.median()) >= 2:
+                return col
+    return ""
 
 
 def _thin(frame: pd.DataFrame, dim: str) -> set:
@@ -282,6 +330,34 @@ def insights(df: pd.DataFrame, planned: dict[str, Any], metrics: dict[str, Metri
                     "Summary",
                 )
             )
+        if g["grain"] == "month":
+            months = sorted(p for p in periods.dropna().unique() if p <= g["complete"])
+            cur = months[-1] if months else ""
+            prior = f"{int(cur[:4]) - 1}{cur[4:]}" if cur else ""
+            if prior in months:
+                for name in [*measures[:1], *[m.name for m in ratios[:1]]]:
+                    metric = metrics.get(name)
+                    if metric is None:
+                        continue
+                    a, b = value(metric, work[periods == cur]), value(metric, work[periods == prior])
+                    if not (math.isfinite(a) and math.isfinite(b)) or b == 0:
+                        continue
+                    growth = (a - b) / abs(b)
+                    good = (growth > 0) == (metric.better != "down")
+                    found.append(
+                        _insight(
+                            "yoy",
+                            f"{metric.name} {'up' if growth > 0 else 'down'} {abs(growth):.0%} year on year in {cur}",
+                            f"{growth:+.0%}",
+                            f"{fmt(a, metric.unit, currency)} in {cur}, {fmt(b, metric.unit, currency)} a year before",
+                            f"Year on year, {metric.name} {'grew' if growth > 0 else 'shrank'} from "
+                            f"{fmt(b, metric.unit, currency)} to {fmt(a, metric.unit, currency)}: the season is the same, "
+                            "so the change is the business's.",
+                            "good" if good else "warn",
+                            0.5 + min(abs(growth), 1.0) * 0.4,
+                            "Summary",
+                        )
+                    )
         # Spikes: a period far from the typical one.
         if measures:
             series = work.groupby(periods)[measures[0]].sum().sort_index()
@@ -452,7 +528,8 @@ def build(
                 "chart": "time_series",
                 "cols": {"date": g["date"], "value": headline_metric},
                 "title": f"{named(headline_metric)} by {g['grain']}",
-                "style": {"ma": 0},
+                # A forecast once there is a trend to extend: six complete periods.
+                "style": {"ma": 0, **({"forecast": 3} if bucket(df[g["date"]], g["grain"]).nunique() >= 7 else {})},
                 "place": {"span": 12},
             },
         )
@@ -528,6 +605,17 @@ def build(
             },
         )
 
+    who = _entity(df, planned)
+    if who:
+        add(
+            "Segments",
+            {
+                "chart": "cohort",
+                "cols": {"id": who, "date": g.get("date") or planned["grain"]["date"]},
+                "title": f"Retention of {noun(who)}s by first month",
+                "place": {"span": 12},
+            },
+        )
     risks = [f for f in found if f["page"] == "Risks"]
     for f in risks[:4]:
         add(

@@ -123,6 +123,27 @@ def insight_html(value: str, comparison: str, text: str, tone: str = "info") -> 
     return "".join(parts)
 
 
+def cohort_html(result: dict) -> str:
+    """Retention by first period: a row per cohort, the share still active each period after."""
+    if not result["cohorts"]:
+        return '<p class="ptext">No cohort has a later period to be measured in.</p>'
+    head = "".join(f"<th>+{k}</th>" for k in range(len(result["matrix"][0])))
+    rows = []
+    for cohort, size, shares in zip(result["cohorts"], result["sizes"], result["matrix"], strict=True):
+        cells = "".join(
+            f'<td class="num" style="background:rgba(0,114,178,{0.08 + 0.5 * v:.2f})">{v:.0%}</td>'
+            if v is not None
+            else "<td></td>"
+            for v in shares
+        )
+        rows.append(f'<tr><td>{html.escape(cohort)}</td><td class="num">{size:,}</td>{cells}</tr>')
+    return (
+        f'<div class="cohort-wrap"><p class="ptext">{html.escape(result["note"])}</p>'
+        f'<table class="ptable"><thead><tr><th>First {html.escape(result["grain"])}</th><th class="num">'
+        f"{html.escape(result['noun'])}s</th>{head}</tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
+    )
+
+
 def callout_html(text: str, tone: str = "info") -> str:
     tone = tone if tone in TONES else "info"
     return f'<div class="callout callout-{tone}">{markdown_html(text)}</div>'
@@ -192,6 +213,13 @@ EXT_CSS = """
 .provn{font-size:.6875rem;color:var(--text-muted);padding:.25rem .75rem .5rem}
 body.slide .cgrid{aspect-ratio:16/9;overflow:hidden}
 .cgrid.g12{grid-auto-flow:row dense}
+.cc-hdr .png{margin-left:auto;margin-right:.375rem;font:600 .625rem/1 system-ui,sans-serif;letter-spacing:.04em;
+  padding:.25rem .4rem;border:1px solid var(--border,#d0d7de);border-radius:.3rem;background:transparent;
+  color:var(--text-muted,#636c76);cursor:pointer}
+.cc-hdr .png:hover{color:var(--accent,#0969da);border-color:var(--accent,#0969da)}
+.cc-hdr .png+.exp{margin-left:0}
+/* A retention matrix is read whole, not scrolled. */
+.cc-body--auto:has(> .cohort-wrap){max-height:none}
 /* The filters as a column down the left, on a screen wide enough for one. */
 @media(min-width:68.75rem){
   body.sidebar .filter-bar{position:fixed;top:0;left:0;bottom:0;width:16rem;overflow:auto;display:flex;flex-direction:column;
@@ -213,6 +241,28 @@ body.slide .cgrid{aspect-ratio:16/9;overflow:hidden}
 EXT_JS = r"""
 // A page for reading, not exploring, carries no chart toolbars.
 if(_STYLE.toolbar===false)PCFG.displayModeBar=false;
+// --- a large page's rows are cells ------------------------------------------
+// Above 100,000 rows each embedded row is a cell of the server's cube
+// (shared/cube.py): a measure's sum, with its count, min and max beside it,
+// and the rows behind the cell in __n. A cell is read as {s,n,lo,hi}.
+function _isna(v){return v===null||v===undefined||(typeof v==='number'&&isNaN(v));}
+function _cell(r,c){
+  var s=_num(r[c]);if(!_CUBE||isNaN(s))return s;
+  return{s:s,n:+r[c+'#n']||0,lo:_num(r[c+'#lo']),hi:_num(r[c+'#hi'])};
+}
+function _rows(d){if(!_CUBE)return d.length;var n=0;for(var i=0;i<d.length;i++)n+=+d[i].__n||0;return n;}
+function _w(r){return _CUBE?(+r.__n||0):1;}
+var _agg0=_agg;
+_agg=function(v,how){
+  if(!_CUBE||!v.length||typeof v[0]!=='object'||v[0]===null)return _agg0(v,how);
+  var x=v.filter(function(c){return c&&!isNaN(c.s);});
+  if(how==='count')return x.reduce(function(a,c){return a+c.n;},0);
+  if(!x.length)return 0;
+  if(how==='mean'){var s=0,n=0;x.forEach(function(c){s+=c.s;n+=c.n;});return n?s/n:0;}
+  if(how==='min')return x.reduce(function(a,c){return c.lo<a?c.lo:a;},Infinity);
+  if(how==='max')return x.reduce(function(a,c){return c.hi>a?c.hi:a;},-Infinity);
+  return x.reduce(function(a,c){return a+c.s;},0);
+};
 // --- metrics, units and periods -----------------------------------------
 // A metric is a tree compiled by shared/metrics.py: aggregates of columns,
 // + - * /, numbers and what-if parameters. evaluate_tree there walks the same
@@ -226,12 +276,12 @@ function _mval(n,d){
     if(n.op==='+')return a+b;if(n.op==='-')return a-b;if(n.op==='*')return a*b;
     return b?a/b:NaN;
   }
-  if(n.agg==='count'&&!n.col)return d.length;
-  return _agg(d.map(function(r){return _num(r[n.col]);}),n.agg);
+  if(n.agg==='count'&&!n.col)return _rows(d);
+  return _agg(d.map(function(r){return _cell(r,n.col);}),n.agg);
 }
 function _measure(p,d){
   if(p.metric&&_METRICS[p.metric])return _mval(_METRICS[p.metric].tree,d);
-  return _agg(d.map(function(r){return _num(r[p.value]);}),p.agg||'sum');
+  return _agg(d.map(function(r){return _cell(r,p.value);}),p.agg||'sum');
 }
 function _rgroups(d,keyOf){
   var m=new Map();
@@ -279,16 +329,18 @@ function _lastTwo(p,d){
 // A change, said in the unit's terms and coloured by whether it is good news.
 function _delta(p,a,b,label){
   if(!isFinite(a)||!isFinite(b))return'';
-  var u=_unit(p),txt;
-  if(u==='percent')txt=((a-b)*100>=0?'+':'')+((a-b)*100).toFixed(1)+' pp';
+  var u=_unit(p),txt,d1;
+  if(u==='percent'){d1=+((a-b)*100).toFixed(1);txt=(d1>=0?'+':'')+d1.toFixed(1)+' pp';}
   else if(b===0)return'';
-  else{var pc=(a-b)/Math.abs(b)*100;txt=(pc>=0?'+':'')+pc.toFixed(1)+'%';}
-  var bt=_better(p),cls=a===b||!bt?'flat':((bt==='up')===(a>b)?'good':'bad');
-  return'<div class="kpi-delta '+cls+'">'+(a>b?'▲':a<b?'▼':'■')+' '+_esc(txt)+' <span>'+_esc(label)+'</span></div>';
+  else{d1=+((a-b)/Math.abs(b)*100).toFixed(1);txt=(d1>=0?'+':'')+d1.toFixed(1)+'%';}
+  // A change that rounds to nothing is shown as none, not as a red "-0.0".
+  if(d1===0){txt=u==='percent'?'0.0 pp':'0.0%';}
+  var bt=_better(p),cls=d1===0||!bt?'flat':((bt==='up')===(a>b)?'good':'bad');
+  return'<div class="kpi-delta '+cls+'">'+(d1===0?'■':a>b?'▲':'▼')+' '+_esc(txt)+' <span>'+_esc(label)+'</span></div>';
 }
 
 HTMLP.kpi=function(p,d){
-  var s=p.style,v,sub='over '+d.length.toLocaleString('en-US')+' rows',out=[];
+  var s=p.style,v,sub='over '+_rows(d).toLocaleString('en-US')+' rows',out=[];
   var two=(p.date)?_lastTwo(p,d):null;
   if(s.period==='last'&&two){v=two.a;sub='in '+two.cur;}else{v=_measure(p,d);}
   if(two)out.push(_delta(p,two.a,two.b,two.cur+' vs '+two.prev));
@@ -366,6 +418,37 @@ FIG.bar=function(p,d){
 };
 
 // --- time: a grain, a year-over-year overlay, events ----------------------
+// The periods after `last`, as the page labels them.
+function _after(last,grain,h){
+  var out=[],y=+last.substring(0,4);
+  for(var i=1;i<=h;i++){
+    if(grain==='year')out.push(String(y+i));
+    else if(grain==='quarter'){var q=+last.substring(6)+i-1;out.push((y+Math.floor(q/4))+'-Q'+(q%4+1));}
+    else if(grain==='month'){var m=+last.substring(5,7)-1+i;out.push((y+Math.floor(m/12))+'-'+String(m%12+1).padStart(2,'0'));}
+    else{var d=new Date(last+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+(grain==='week'?7:1)*i);out.push(d.toISOString().substring(0,10));}
+  }
+  return out;
+}
+// A straight-line forecast from the complete periods, with its 80% band: the
+// trend a reader would draw by eye, and how far off the line the past has run.
+function _forecast(keys,vals,grain,h,complete){
+  var k=[],v=[];
+  keys.forEach(function(x,i){if((!complete||x<=complete)&&isFinite(vals[i])){k.push(x);v.push(vals[i]);}});
+  k=k.slice(-24);v=v.slice(-24);
+  var n=v.length;if(n<6)return null;
+  var mt=(n-1)/2,mv=v.reduce(function(a,b){return a+b;},0)/n,sxx=0,sxy=0;
+  v.forEach(function(y,i){sxx+=(i-mt)*(i-mt);sxy+=(i-mt)*(y-mv);});
+  var b=sxy/sxx,a=mv-b*mt,se=0;
+  v.forEach(function(y,i){var e=y-(a+b*i);se+=e*e;});
+  var s=Math.sqrt(se/Math.max(n-2,1)),xs=_after(k[n-1],grain,h),mid=[],lo=[],hi=[];
+  for(var j=1;j<=h;j++){var t=n-1+j,f=a+b*t,w=1.2816*s*Math.sqrt(1+1/n+(t-mt)*(t-mt)/sxx);mid.push(f);lo.push(f-w);hi.push(f+w);}
+  var from=[k[n-1]].concat(xs),at=[v[n-1]];
+  return[
+    {x:from,y:at.concat(lo),type:'scatter',mode:'lines',line:{width:0},showlegend:false,hoverinfo:'skip'},
+    {x:from,y:at.concat(hi),type:'scatter',mode:'lines',line:{width:0},fill:'tonexty',fillcolor:'rgba(127,127,127,0.18)',name:'80% range'},
+    {x:from,y:at.concat(mid),type:'scatter',mode:'lines',line:{dash:'dash',width:2,color:'#8b949e'},name:'forecast'}
+  ];
+}
 FIG.ts=function(p,d){
   var s=p.style,grain=s.grain||p.grain||'month',w=s.ma;
   if(s.yoy){
@@ -390,6 +473,7 @@ FIG.ts=function(p,d){
   if(p.complete&&keys.length&&keys[keys.length-1]>p.complete){
     var k=keys.length-1;t.push({x:[keys[k]],y:[vals[k]],type:'scatter',mode:'markers',name:'incomplete period',marker:{size:9,symbol:'circle-open',color:s.color}});
   }
+  if(s.forecast>0){var fc=_forecast(keys,vals,grain,s.forecast,p.complete);if(fc)t=t.concat(fc);}
   if(s.events&&s.events.length){
     lay.shapes=(lay.shapes||[]).concat(s.events.map(function(e){var x=_bucket(e.date,grain);return{type:'line',xref:'x',yref:'paper',x0:x,x1:x,y0:0,y1:1,line:{dash:'dot',width:1,color:'#8b949e'}};}));
     lay.annotations=(lay.annotations||[]).concat(s.events.map(function(e){return{x:_bucket(e.date,grain),y:1,xref:'x',yref:'paper',text:_esc(e.label),showarrow:false,yanchor:'bottom',font:{size:10}};}));
@@ -453,7 +537,7 @@ FIG.waterfall=function(p,d){
 };
 FIG.multiples=function(p,d){
   var s=p.style,f=_rgroups(d,function(r){return _key(r,p.facet);});
-  var names=Array.from(f,function(x){return[x[0],x[1].length];}).sort(function(a,b){return b[1]-a[1];}).slice(0,s.top_n||9).map(function(x){return x[0];});
+  var names=Array.from(f,function(x){return[x[0],_rows(x[1])];}).sort(function(a,b){return b[1]-a[1];}).slice(0,s.top_n||9).map(function(x){return x[0];});
   var cols=Math.min(3,names.length),rows=Math.ceil(names.length/cols),t=[],ann=[],lay={showlegend:false,margin:{l:40,r:10,t:30,b:30}};
   var gx=0.06,gy=0.16;
   names.forEach(function(nm,i){
@@ -547,6 +631,28 @@ function _backBtn(p){
   hdr.appendChild(b);
 }
 
+// --- a panel that plots rows reads the sample, filtered as the page is --------
+var _ROWLEVEL={scatter:1,cscat:1,box:1,corr:1,dist:1,geo_scatter:1};
+function _sampled(p){return _CUBE&&(_ROWLEVEL[p.type]||(p.type==='bar'&&(p.style.ci||p.style.show_n||p.style.significance)));}
+var _render1=renderPanel;
+renderPanel=function(p,d){
+  if(_sampled(p)){
+    var s=_narrow(_SAMPLE,_on().filter(function(f){return!f.scope;})),ks=Object.keys(_CLK);
+    if(ks.length)s=s.filter(function(r){return ks.every(function(c){return _key(r,c)===_CLK[c];});});
+    d=_rowsFor(p,s);
+  }
+  _render1(p,d);
+};
+
+// --- a chart saved as a picture, for a slide or a message ------------------------
+document.querySelectorAll('[data-png]').forEach(function(b){
+  b.addEventListener('click',function(){
+    var el=document.getElementById(b.getAttribute('data-png'));
+    if(el&&window.Plotly&&Plotly.downloadImage)Plotly.downloadImage(el,{format:'png',width:1400,height:800,scale:2,
+      filename:(b.getAttribute('data-png-name')||'chart').replace(/[^A-Za-z0-9 _-]+/g,'').trim().replace(/\s+/g,'_')||'chart'});
+  });
+});
+
 // --- a tab's charts are sized when the tab is shown ---------------------------
 // Drawn while their tab was hidden, they took Plotly's default 700x450 and
 // overflowed their cards when the tab opened.
@@ -592,7 +698,9 @@ HTMLP.table=function(p,d){
 """
 
 
-def ext_state(metrics: list[dict], parameters: dict[str, Any], cross_filter: bool) -> str:
+def ext_state(
+    metrics: list[dict], parameters: dict[str, Any], cross_filter: bool, cube: bool = False, sample_js: str = "[]"
+) -> str:
     """The globals the extensions read, as JSON a <script> can hold."""
     from shared.table_payload import json_for_script
 
@@ -600,6 +708,8 @@ def ext_state(metrics: list[dict], parameters: dict[str, Any], cross_filter: boo
         f"const _METRICS={json_for_script({m['name']: m for m in metrics})};\n"
         f"let _PARAMS={json_for_script({k: v['default'] for k, v in (parameters or {}).items()})};\n"
         f"const _CROSS={json_for_script(bool(cross_filter))};\n"
+        f"const _CUBE={json_for_script(bool(cube))};\n"
+        f"const _SAMPLE={sample_js};\n"
     )
 
 

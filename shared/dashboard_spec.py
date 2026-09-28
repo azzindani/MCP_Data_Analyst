@@ -67,6 +67,8 @@ CHART_KINDS: tuple[str, ...] = (
     # Written panels, drawn once: a note in markdown, an insight card, a
     # callout, an image, a divider, and the data-quality score and alerts.
     "markdown",
+    # Retention by first period, computed from every row.
+    "cohort",
     "insight",
     "callout",
     "image",
@@ -109,9 +111,20 @@ CHART_NEEDS: dict[str, tuple[str, ...]] = {
     "image": (),
     "divider": (),
     "quality": (),
+    "cohort": ("id", "date"),
 }
 # Panels that hold words or pictures, not rows: nothing filters them.
-WRITTEN: tuple[str, ...] = ("section", "text", "markdown", "insight", "callout", "image", "divider", "quality")
+WRITTEN: tuple[str, ...] = (
+    "section",
+    "text",
+    "markdown",
+    "insight",
+    "callout",
+    "image",
+    "divider",
+    "quality",
+    "cohort",
+)
 # Charts whose value may be a metric the page defines (shared/metrics.py): a
 # pie shares out a sum, so it takes a column.
 METRIC_CHARTS: tuple[str, ...] = (
@@ -140,6 +153,10 @@ DEFAULT_INTERACTIONS: dict[str, Any] = {
     # computed in the browser from exactly these rows. See the comment above
     # EMBED_LIMIT in _adv_dashboard.py for why the default cannot be 5000.
     "embed_rows": 0,
+    # Above 100,000 rows the page embeds a cube, exact for sums, counts,
+    # means, minimums and maximums (shared/cube.py). True forces it, false
+    # embeds every row.
+    "cube": "auto",
 }
 
 SPEC_KEYS: tuple[str, ...] = (
@@ -198,7 +215,14 @@ STYLE_ENUMS: dict[str, tuple[str, ...]] = {
         "RdBu",
     ),
 }
-STYLE_INTS: dict[str, tuple[int, int]] = {"top_n": (1, 500), "bins": (2, 500), "ma": (0, 60), "series": (1, 20)}
+STYLE_INTS: dict[str, tuple[int, int]] = {
+    "top_n": (1, 500),
+    "bins": (2, 500),
+    "ma": (0, 60),
+    "series": (1, 20),
+    "forecast": (0, 12),
+    "periods": (2, 24),
+}
 STYLE_TEXT: dict[str, int] = {"prefix": 8, "suffix": 8, "x_title": 80, "y_title": 80, "comparison": 160}
 STYLE_BOOLS = ("value_labels", "other", "ci", "show_n", "significance", "normalize", "yoy", "heat", "totals")
 STYLE_NUMBERS = ("target", "min", "max")
@@ -235,6 +259,7 @@ CHART_STYLE: dict[str, tuple[str, ...]] = {
         "grain",
         "yoy",
         "events",
+        "forecast",
         *_MARKS,
     ),
     "time_series": (
@@ -249,6 +274,7 @@ CHART_STYLE: dict[str, tuple[str, ...]] = {
         "grain",
         "yoy",
         "events",
+        "forecast",
         *_MARKS,
     ),
     "pie": ("palette", "colors", "top_n", "legend"),
@@ -285,6 +311,7 @@ CHART_STYLE: dict[str, tuple[str, ...]] = {
     "image": (),
     "divider": (),
     "quality": (),
+    "cohort": ("periods",),
 }
 # The page's own style: a palette, and colours by category value that every
 # panel uses -- so "North" is one colour wherever it is drawn.
@@ -901,6 +928,8 @@ def validate(
             raise SpecError(
                 f"interactions has unknown key(s): {', '.join(unknown_i)}. Valid: {', '.join(DEFAULT_INTERACTIONS)}"
             )
+        if "cube" in interactions and interactions["cube"] not in (True, False, "auto"):
+            raise SpecError("interactions.cube is 'auto', true or false: whether a large page embeds a cube of its rows")
     return spec
 
 

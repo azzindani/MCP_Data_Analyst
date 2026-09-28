@@ -49,6 +49,7 @@ from _dash_ext import (
     EXT_JS,
     FONTS,
     callout_html,
+    cohort_html,
     ext_state,
     image_html,
     image_src,
@@ -57,6 +58,7 @@ from _dash_ext import (
     params_html,
 )
 
+from shared import cube
 from shared.analysis_plan import parsed_dates
 from shared.analysis_plan import plan as plan_analysis
 from shared.column_utils import is_identifier, parse_date_column
@@ -103,6 +105,8 @@ from shared.quality import is_advice
 from shared.story import SAFE_PALETTE, fmt, grain_for
 from shared.story import add_sources as add_story_sources
 from shared.story import build as build_story
+from shared.story import cohorts as story_cohorts
+from shared.story import noun as story_noun
 from shared.table_payload import json_for_script, records_js
 
 logger = logging.getLogger(__name__)
@@ -722,20 +726,111 @@ def generate_dashboard(
         EMBED_LIMIT = 500_000
         requested = int(resolved["interactions"].get("embed_rows") or 0)
         cap = min(EMBED_LIMIT, requested) if requested > 0 else EMBED_LIMIT
-        was_sampled = len(df) > cap
-        embed_df = df.sample(cap, random_state=42) if was_sampled else df.copy()
-        # A metric over a row formula aggregates a column computed here; the
-        # page gets that column, never the formula (shared/metrics.py).
-        for metric in metric_list:
-            for hidden_col, hidden_values in metric.hidden.items():
-                embed_df[hidden_col] = hidden_values.reindex(embed_df.index)
-        embed_clean = embed_df.copy()
-        for c in datetime_cols:
-            if c in embed_clean.columns:
-                embed_clean[c] = pd.to_datetime(embed_clean[c], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
-        # Columnar + dictionary-encoded; the page rebuilds the same array of
-        # row objects, so everything downstream of _RAW is unchanged.
-        raw_json = records_js(embed_clean)
+        # Above CUBE_ROWS the page embeds the rows grouped by what it groups
+        # and filters by, exact for every sum, count, mean, min and max
+        # (shared/cube.py); a caller's embed_rows keeps the rows.
+        setting = resolved["interactions"].get("cube", "auto")
+        cube_info: dict | None = None
+        sample_js = "[]"
+        if requested == 0 and setting is not False and (setting is True or len(df) > cube.CUBE_ROWS):
+            aggs_used = (
+                [col_agg.get(c, "sum") for c in kpi_cols]
+                + list(overrides.values())
+                + [str(p.get("agg") or "") for p in resolved["layout"] if isinstance(p, dict)]
+                + [a for m in metric_list for a in cube.tree_aggs(m.tree)]
+            )
+            inexact = cube.inexact(aggs_used)
+            if inexact and setting is True:
+                return {
+                    "success": False,
+                    "op": "generate_dashboard",
+                    "error": (
+                        f"interactions.cube is true, and this page takes {', '.join(inexact)}, which a cube of sums, "
+                        "counts, minimums and maximums cannot give exactly"
+                    ),
+                    "hint": "Use sum, count, mean, min or max, or leave cube as 'auto' to keep every row. Nothing was written.",
+                    "progress": [fail("Cube", ", ".join(inexact))],
+                    "token_estimate": 60,
+                }
+            if inexact:
+                progress.append(info("Every row embedded", f"{', '.join(inexact)} needs every row, not a cube"))
+            else:
+                flat = df.copy()
+                for metric in metric_list:
+                    for hidden_col, hidden_values in metric.hidden.items():
+                        flat[hidden_col] = hidden_values
+                for c in datetime_cols:
+                    if c in flat.columns:
+                        flat[c] = pd.to_datetime(flat[c], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
+                # An identifier is no measure: summed, it is noise, and as a key it is every row.
+                ids = {str(c) for c in identifiers}
+                measures = [str(c) for c in flat.columns if is_numeric_col(flat[c]) and str(c) not in ids]
+                # A range filter on a measure narrows rows by their own value, which a
+                # cell of sums no longer has. The detected page gives those filters up;
+                # a caller who asked for one keeps every row.
+                ranged = [f for f in filters if str(f["col"]) in measures]
+                if ranged and (isinstance(spec, dict) and spec.get("filters") is not None):
+                    if setting is True:
+                        return {
+                            "success": False,
+                            "op": "generate_dashboard",
+                            "error": (
+                                "interactions.cube is true, and filters "
+                                f"{', '.join(str(f['col']) for f in ranged)} narrow rows by a measure's own value, "
+                                "which a cube of sums does not keep"
+                            ),
+                            "hint": "Filter by a category or a date, or leave cube as 'auto'. Nothing was written.",
+                            "progress": [fail("Cube", "range filter on a measure")],
+                            "token_estimate": 60,
+                        }
+                    measures = []
+                named = {
+                    str(v)
+                    for p in resolved["layout"]
+                    if isinstance(p, dict)
+                    for k, v in (p.get("cols") or {}).items()
+                    if v and k not in ("value", "x", "y", "target", "lat", "lon")
+                } | {str(f["col"]) for f in filters if f not in ranged}
+                keys, dropped = cube.keys_for(flat, measures, named) if measures else ([], [])
+                cells = cube.build(flat, keys, [m for m in measures if m not in keys]) if measures else flat
+                if measures and (setting is True or len(cells) <= cube.WORTHWHILE * len(df)):
+                    if ranged:
+                        filters = [f for f in filters if f not in ranged]
+                        filter_columns = [f["col"] for f in filters]
+                        progress.append(info("Range filters left out", ", ".join(str(f["col"]) for f in ranged)))
+                    sample = flat.sample(min(cube.SAMPLE_ROWS, len(flat)), random_state=42)
+                    cube_info = {
+                        "cells": len(cells),
+                        "rows": len(df),
+                        "keys": keys,
+                        "left_out": dropped,
+                        "sample_rows": len(sample),
+                    }
+                    embed_df, was_sampled = cells, False
+                    raw_json = records_js(cells)
+                    sample_js = records_js(sample)
+                    progress.append(ok("Rows aggregated on the server", f"{len(df):,} rows in {len(cells):,} cells"))
+                elif not measures:
+                    progress.append(info("Every row embedded", "a filter narrows rows by a measure's own value"))
+                else:
+                    progress.append(
+                        info("Every row embedded", "a cube would hold more than half as many cells as rows")
+                    )
+        if cube_info is None:
+            was_sampled = len(df) > cap
+            embed_df = df.sample(cap, random_state=42) if was_sampled else df.copy()
+            # A metric over a row formula aggregates a column computed here; the
+            # page gets that column, never the formula (shared/metrics.py).
+            for metric in metric_list:
+                for hidden_col, hidden_values in metric.hidden.items():
+                    embed_df[hidden_col] = hidden_values.reindex(embed_df.index)
+            embed_clean = embed_df.copy()
+            for c in datetime_cols:
+                if c in embed_clean.columns:
+                    embed_clean[c] = pd.to_datetime(embed_clean[c], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
+            # Columnar + dictionary-encoded; the page rebuilds the same array of
+            # row objects, so everything downstream of _RAW is unchanged.
+            raw_json = records_js(embed_clean)
 
         sparklines = _build_sparklines(df, kpi_cols)
 
@@ -759,7 +854,7 @@ def generate_dashboard(
         h: list[str] = []
         data_hash = frame_hash(embed_df)
         page_header = provenance(
-            rows_plotted=len(embed_df),
+            rows_plotted=len(df) if cube_info else len(embed_df),
             rows_total=len(df),
             source=path.name,
             data_hash=data_hash,
@@ -767,7 +862,7 @@ def generate_dashboard(
         )
         h.append(_dash_head(_css, dashboard_title, out.parent, page_header, resolved))
         full_call = f'generate_dashboard(file_path="{path.name}", spec={{"interactions": {{"embed_rows": 0}}}})'
-        h.append(_dash_header(dashboard_title, embed_df, was_sampled, len(df), full_call, logo_src))
+        h.append(_dash_header(dashboard_title, embed_df, was_sampled, len(df), full_call, logo_src, cube_info))
         # Extra datasets are read before anything is written, so a missing or
         # unreadable one is a refusal rather than a half-built page with a tab
         # that opens onto nothing.
@@ -887,6 +982,8 @@ def generate_dashboard(
                     [m.doc() for m in metric_list],
                     resolved.get("parameters") or {},
                     bool(resolved["interactions"].get("cross_filter", True)),
+                    cube=cube_info is not None,
+                    sample_js=sample_js,
                 ),
             )
         )
@@ -953,6 +1050,7 @@ def generate_dashboard(
             "column_roles": column_roles,
             "filter_columns": filter_columns,
             "rows_embedded": len(embed_df),
+            **({"cube": cube_info} if cube_info else {}),
             "rows_total": len(df),
             "was_sampled": was_sampled,
             "report_size_kb": size_kb,
@@ -1161,9 +1259,27 @@ def _dash_head(_css, dashboard_title, output_dir, header=None, spec=None):
     )
 
 
-def _dash_header(dashboard_title, embed_df, was_sampled, rows_total: int = 0, full_call: str = "", logo: str = ""):
+def _dash_header(
+    dashboard_title,
+    embed_df,
+    was_sampled,
+    rows_total: int = 0,
+    full_call: str = "",
+    logo: str = "",
+    cube_info: dict | None = None,
+):
     sampled_note = " (sampled)" if was_sampled else ""
     banner = ""
+    shown = rows_total if cube_info else len(embed_df)
+    if cube_info:
+        # Exact, and said to be: the reader should know which panels are a sample.
+        banner = (
+            '<div class="sample-banner" style="grid-column:1/-1;font-size:12px;padding:7px 11px;'
+            'border-radius:8px;background:rgba(0,114,178,.10);border:1px solid rgba(0,114,178,.35)">'
+            f"<b>Aggregated on the server.</b> {rows_total:,} rows in {cube_info['cells']:,} cells: every total, "
+            f"count, average, minimum and maximum is exact. Scatter, histogram and box panels draw a sample of "
+            f"{cube_info['sample_rows']:,} rows.</div>"
+        )
     if was_sampled and rows_total:
         # Every figure on this page -- KPI cards, bar heights, pie shares -- is
         # computed in the browser from the rows embedded here. Sampling makes
@@ -1185,7 +1301,7 @@ def _dash_header(dashboard_title, embed_df, was_sampled, rows_total: int = 0, fu
     logo_html = f'<img class="dash-logo" src="{_html_esc.escape(logo, quote=True)}" alt="">' if logo else ""
     return f"""<header>
   <h1>{logo_html}{_html_esc.escape(dashboard_title)}</h1>
-  <span class="row-ctr" id="row-ctr">{len(embed_df):,} of {len(embed_df):,} rows{sampled_note}</span>
+  <span class="row-ctr" id="row-ctr">{shown:,} of {shown:,} rows{sampled_note}</span>
   <button class="btn" onclick="clearAll()">Clear Filters</button>
   <button class="btn btn-p" onclick="exportCSV()">&#x2193; Export CSV</button>
   <button class="btn btn-print" onclick="window.print()">&#x2399; Print</button>
@@ -1415,6 +1531,8 @@ def _card(
     h.append(
         f'<div class="{cls}"{card_style}>'
         f'<div class="cc-hdr"><h3>{te}</h3>'
+        f'<button class="png" data-png="{cid}" data-png-name="{te}" title="Download as PNG" '
+        f'aria-label="Download {te} as PNG">PNG</button>'
         f'<button class="exp" data-expand="{cid}" data-expand-title="{te}">&#x2922;</button>'
         f'</div><div class="{body_cls}"{body_style}>'
         f'<div id="{cid}" style="width:100%;height:100%"></div>'
@@ -1643,6 +1761,20 @@ def _plan_panels(layout, df, cat_cols, numeric_cols, datetime_cols, geo, col_agg
         elif kind in ("gauge", "bullet"):
             value, label = measure()
             plan.append(({"id": cid, "type": kind, **value}, label, False, 220 if kind == "gauge" else 160))
+        elif kind == "cohort":
+            who, dc = str(cols.get("id") or ""), str(cols.get("date") or "")
+            if not who or not dc:
+                raise SpecError(f"layout[{i}] is a cohort table and needs cols.id (who) and cols.date (when)")
+            periods = int((panel.get("style") or {}).get("periods") or 12)
+            result = story_cohorts(df, who, dc, periods)
+            plan.append(
+                (
+                    {"id": cid, "type": "cohort", "html": cohort_html(result)},
+                    str(panel.get("title") or f"Retention of {story_noun(who)}s"),
+                    True,
+                    0,
+                )
+            )
         elif kind == "markdown":
             plan.append(
                 (
@@ -1920,10 +2052,10 @@ function _max(v){return v.reduce(function(a,b){return a>b?a:b;});}
 // A missing value never makes a group -- only a present one does.
 function _groups(d,keyOf,col){
   var m=new Map();
-  d.forEach(function(r){var k=keyOf(r),v=_num(r[col]);if(k===null||isNaN(v))return;if(!m.has(k))m.set(k,[]);m.get(k).push(v);});
+  d.forEach(function(r){var k=keyOf(r),v=_cell(r,col);if(k===null||_isna(v))return;if(!m.has(k))m.set(k,[]);m.get(k).push(v);});
   return m;
 }
-function _kpi(d,col,how){return _agg(d.map(function(r){return _num(r[col]);}),how);}
+function _kpi(d,col,how){return _agg(d.map(function(r){return _cell(r,col);}),how);}
 function _axes(extra){return _merge({margin:{l:55,r:20,t:10,b:65},xaxis:{gridcolor:_T().grid,tickangle:'auto'},yaxis:{gridcolor:_T().grid}},extra);}
 function _geo(){return{showland:true,landcolor:_T().land,showocean:true,oceancolor:_T().ocean,showcoastlines:true,coastlinecolor:_T().coast,showcountries:true,countrycolor:_T().coast,showframe:false,bgcolor:_T().bg};}
 function _pal(p){return p.style.palette||_STYLE.palette||_T().palette;}
@@ -2004,7 +2136,7 @@ const FIG={
     // With a value column the slices are its sums per category; without one
     // they are row counts.
     var c=new Map();
-    d.forEach(function(r){var k=_key(r,p.category),w=p.value?(_num(r[p.value])||0):1;c.set(k,(c.get(k)||0)+w);});
+    d.forEach(function(r){var k=_key(r,p.category),w=p.value?(_num(r[p.value])||0):_w(r);c.set(k,(c.get(k)||0)+w);});
     var e=Array.from(c).sort(function(x,y){return y[1]-x[1];}).slice(0,p.style.top_n);
     // Past a handful of slices, labels drawn outside on leader lines overlap
     // and spill out of the card, repeating names the legend already lists.
@@ -2039,9 +2171,9 @@ const FIG={
   grouped_bar:function(p,d){
     var s=p.style,how=p.agg||'sum',a=new Map(),gs=[],seen=new Set();
     d.forEach(function(r){
-      var k1=_key(r,p.category),k2=_key(r,p.group),v=_num(r[p.value]);
+      var k1=_key(r,p.category),k2=_key(r,p.group),v=_cell(r,p.value);
       if(!seen.has(k1)){seen.add(k1);gs.push(k1);}
-      if(isNaN(v))return;
+      if(_isna(v))return;
       if(!a.has(k2))a.set(k2,new Map());
       var m=a.get(k2);if(!m.has(k1))m.set(k1,[]);m.get(k1).push(v);
     });
@@ -2079,7 +2211,7 @@ const FIG={
   agg_hm:function(p,d){
     var s=p.style,how=p.agg||'sum',a=new Map(),R=new Set(),C=new Set();
     d.forEach(function(r){
-      var k1=_key(r,p.category),k2=_key(r,p.group),v=_num(r[p.value]);if(isNaN(v))return;
+      var k1=_key(r,p.category),k2=_key(r,p.group),v=_cell(r,p.value);if(_isna(v))return;
       R.add(k1);C.add(k2);
       var key=k1+'\u0000'+k2;if(!a.has(key))a.set(key,[]);a.get(key).push(v);
     });
@@ -2175,7 +2307,7 @@ def _dash_js(
     )
     return f"""<script>
 let _RAW={raw_json};
-{state}const _TOTAL=_RAW.length;
+{state}const _TOTAL=_rows(_RAW);
 let _CF={{}};  // a list filter: column -> the Set of values it keeps
 let _NF={{}};  // a range: column -> {{min, max}}, numbers or YYYY-MM-DD days
 var _FK={{}};_FILTERS.forEach(function(f){{_FK[f.col]=f;}});
@@ -2314,7 +2446,7 @@ function _fsum(){{
 function applyF(){{
   const d=getFilt();
   try{{renderTable(d);}}catch(_e){{}}
-  document.getElementById('row-ctr').textContent=d.length.toLocaleString()+' of '+_TOTAL.toLocaleString()+' rows';
+  document.getElementById('row-ctr').textContent=_rows(d).toLocaleString()+' of '+_TOTAL.toLocaleString()+' rows';
   // Storage can be switched off; the page still filters without it.
   try{{sessionStorage.setItem(_FKEY,JSON.stringify(_state()));}}catch(_e){{}}
   _fsum();
