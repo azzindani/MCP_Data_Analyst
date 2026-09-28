@@ -53,8 +53,94 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-def _coefficient_chart(
+# A group column is a candidate for "pooled" when it splits the rows into a few
+# groups, each big enough to fit the same model on its own.
+_POOL_MAX_GROUPS = 8
+_POOL_MIN_REDUCTION = 0.10
+_POOL_ALPHA = 0.001
+_POOL_MAX_CANDIDATES = 12
+_PAGE_POINTS = 4000
+
+
+def _pooled_groups(
+    df: pd.DataFrame, rows: pd.Index, y: pd.Series, X: pd.DataFrame, ssr: float, skip: set
+) -> list[dict]:
+    """Columns whose groups the fit pools into one line, when each group follows a line of its own.
+
+    The sweep regressed clicks on spends and impressions over two platforms
+    whose rows lie on two separate lines; the one pooled line through both
+    reported R2 0.896 and nothing about it. For each few-valued column outside
+    the model, the same design is fitted per group and the residual sums are
+    compared with the pooled fit's: a Chow test, and the share of the pooled
+    fit's unexplained variation that separate lines remove.
+    """
+    if _sm is None or _scipy_stats is None or not ssr > 0:
+        return []
+    k = int(X.shape[1])
+    n = len(y)
+    found: list[dict] = []
+    # One split under several names -- campaign_platform, campaign_type and
+    # communication_medium are 1:1 in the ad data -- is one finding.
+    by_partition: dict[bytes, dict | None] = {}
+    checked = 0
+    for col in df.columns:
+        if col in skip or checked >= _POOL_MAX_CANDIDATES:
+            continue
+        groups = df.loc[rows, col].astype(str).fillna("(missing)")
+        counts = groups.value_counts()
+        if not 2 <= len(counts) <= _POOL_MAX_GROUPS or counts.min() < max(20, k + 2):
+            continue
+        partition = pd.factorize(groups)[0].tobytes()
+        if partition in by_partition:
+            same = by_partition[partition]
+            if same is not None:
+                same.setdefault("same_split_as", []).append(str(col))
+            continue
+        by_partition[partition] = None
+        checked += 1
+        try:
+            split = sum(float(_sm.OLS(y[groups == g], X[groups == g]).fit().ssr) for g in counts.index)
+        except Exception:  # a group whose design cannot be fitted says nothing about pooling
+            continue
+        extra = (len(counts) - 1) * k
+        denominator = n - len(counts) * k
+        if denominator <= 0 or split <= 0:
+            continue
+        f_stat = ((ssr - split) / extra) / (split / denominator)
+        p_value = float(_scipy_stats.f.sf(f_stat, extra, denominator))
+        reduction = 1.0 - split / ssr
+        if reduction >= _POOL_MIN_REDUCTION and p_value < _POOL_ALPHA:
+            by_partition[partition] = {
+                "column": str(col),
+                "groups": [str(g) for g in counts.index],
+                "unexplained_removed": round(reduction, 4),
+                "chow_f": round(float(f_stat), 2),
+                "chow_p": round_p(p_value),
+            }
+            found.append(by_partition[partition])
+    # By F, which charges each split for the parameters it adds: a finer column
+    # always removes more, and on the sweep's ad data subchannel (4 groups,
+    # 42%) would have outranked the two platforms (2 groups, 20%, F 1437 vs 1348)
+    # it is nested in.
+    found.sort(key=lambda f: -f["chow_f"])
+    return found[:3]
+
+
+def _pooled_note(pooled: list[dict]) -> str:
+    top = pooled[0]
+    return (
+        f"The rows of '{top['column']}' follow separate lines: fitting its {len(top['groups'])} groups apart "
+        f"leaves {top['unexplained_removed']:.0%} less unexplained variation (Chow p={format_p(top['chow_p'])}), "
+        f"and this model pools them into one. Fit each group on its own, or add '{top['column']}' to x_cols."
+    )
+
+
+def _regression_page(
+    model,
+    X: pd.DataFrame,
+    y: pd.Series,
     coef_table: dict,
+    result_data: dict,
     y_col: str,
     output_path: str,
     input_path: Path,
@@ -62,50 +148,126 @@ def _coefficient_chart(
     open_after: bool,
     progress: list,
 ) -> tuple[str, str]:
-    """Render the fitted coefficients with their confidence intervals.
+    """The fit as a page a reader can judge it from.
 
-    This is the standard way to read a regression: which predictors moved the
-    outcome, in which direction, and how sure the fit is about each. Every
-    number plotted is already computed above, so the chart cannot disagree with
-    the returned statistics.
+    It was one bar chart of raw coefficients: $ of spend beside counts of
+    impressions, so the longer bar was whichever column had the smaller unit,
+    with no R2, no residuals, and nothing about the two platforms pooled into
+    one line (sweep F18). Now: standardised effects with their intervals, the
+    fit statistics, the residual diagnostics, and the pooled-groups finding.
+    Every number is the one in the response.
     """
     try:
         import plotly.graph_objects as go  # type: ignore[import-untyped]
         from _med_helpers import _save_chart  # type: ignore[import]
+        from plotly.subplots import make_subplots  # type: ignore[import-untyped]
     except ImportError:
         return "", ""
 
-    # A collinear predictor can leave a coefficient or an interval edge with no
-    # value at all, and the error-bar arithmetic below would raise on None.
-    # Nothing to plot is not a reason to fail the whole regression.
-    names = [n for n in coef_table if all(coef_table[n][k] is not None for k in ("coef", "ci_lower", "ci_upper"))]
-    if not names:
-        return "", ""
-    coefs = [coef_table[n]["coef"] for n in names]
-    # Error bars are the distance from the point to each CI edge, not the edges.
-    plus = [coef_table[n]["ci_upper"] - coef_table[n]["coef"] for n in names]
-    minus = [coef_table[n]["coef"] - coef_table[n]["ci_lower"] for n in names]
-    # Significance is the one thing a reader should not have to compute by eye.
+    ols = result_data["model_type"] == "ols"
+    names = [n for n, v in coef_table.items() if v.get("std_beta") is not None and v["coef"] is not None]
+    # The interval scales with the coefficient, by sd(x) [/ sd(y)] -- always positive.
+    scale = {n: coef_table[n]["std_beta"] / coef_table[n]["coef"] if coef_table[n]["coef"] else 0.0 for n in names}
+    effect = [coef_table[n]["std_beta"] for n in names]
+    plus = [(coef_table[n]["ci_upper"] - coef_table[n]["coef"]) * scale[n] for n in names]
+    minus = [(coef_table[n]["coef"] - coef_table[n]["ci_lower"]) * scale[n] for n in names]
     colors = ["#3fb950" if coef_table[n]["significant"] else "#8b949e" for n in names]
+    effect_title = (
+        "Standardised effect: SDs of y per SD of x (95% CI)" if ols else "Change in log-odds per SD of x (95% CI)"
+    )
 
-    fig = go.Figure(
+    fitted = pd.Series(np.asarray(model.fittedvalues if ols else model.predict(X)), index=y.index)
+    shown = y.index if len(y) <= _PAGE_POINTS else y.sample(_PAGE_POINTS, random_state=42).index
+    sampled = "" if len(shown) == len(y) else f" ({len(shown):,} of {len(y):,} points, seed 42)"
+
+    if ols:
+        residuals = y - fitted
+        normality = result_data.get("diagnostics", {}).get("normality_of_residuals", {})
+        verdict = {True: "normal", False: "not normal", None: "untested"}[normality.get("normal")]
+        titles = (
+            effect_title,
+            f"Residuals vs fitted{sampled}",
+            f"Residuals: {verdict} (Shapiro p={format_p(normality.get('p_value'))})",
+            f"Actual vs fitted{sampled}",
+        )
+        fig = make_subplots(rows=2, cols=2, subplot_titles=titles, horizontal_spacing=0.12, vertical_spacing=0.14)
+        fig.add_trace(
+            go.Scattergl(
+                x=fitted[shown], y=residuals[shown], mode="markers", marker={"size": 4, "opacity": 0.5}, name="residual"
+            ),
+            row=1,
+            col=2,
+        )
+        fig.add_hline(y=0, line_dash="dash", line_color="#8b949e", row=1, col=2)
+        fig.add_trace(go.Histogram(x=residuals, nbinsx=60, name="residuals"), row=2, col=1)
+        fig.add_trace(
+            go.Scattergl(
+                x=fitted[shown], y=y[shown], mode="markers", marker={"size": 4, "opacity": 0.5}, name="actual"
+            ),
+            row=2,
+            col=2,
+        )
+        low, high = float(min(fitted.min(), y.min())), float(max(fitted.max(), y.max()))
+        fig.add_trace(
+            go.Scatter(
+                x=[low, high], y=[low, high], mode="lines", line={"dash": "dash", "color": "#8b949e"}, name="y = fitted"
+            ),
+            row=2,
+            col=2,
+        )
+        fig.update_xaxes(title_text="fitted", row=1, col=2)
+        fig.update_yaxes(title_text="residual", row=1, col=2)
+        fig.update_xaxes(title_text="residual", row=2, col=1)
+        fig.update_xaxes(title_text="fitted", row=2, col=2)
+        fig.update_yaxes(title_text=f"actual {y_col}", row=2, col=2)
+        stats = (
+            f"R² {result_data['r_squared']} (adj {result_data['adj_r_squared']}) · RMSE {result_data['rmse']} · "
+            f"n {result_data['observations']:,} · F-test p={format_p(result_data['f_pvalue'])}"
+        )
+        height = 860
+    else:
+        fig = make_subplots(rows=1, cols=2, subplot_titles=(effect_title, "Predicted probability by actual class"))
+        for value in sorted(pd.unique(y)):
+            fig.add_trace(
+                go.Histogram(x=fitted[y == value], nbinsx=40, opacity=0.6, name=f"{y_col} = {value}"), row=1, col=2
+            )
+        fig.update_layout(barmode="overlay")
+        fig.update_xaxes(title_text="predicted probability", row=1, col=2)
+        stats = f"pseudo R² {result_data['pseudo_r_squared']} · n {result_data['observations']:,} · AIC {result_data['aic']}"
+        height = 520
+
+    fig.add_trace(
         go.Bar(
-            x=coefs,
+            x=effect,
             y=names,
             orientation="h",
             marker_color=colors,
-            error_x=dict(type="data", symmetric=False, array=plus, arrayminus=minus),
-            hovertemplate="%{y}: %{x:.4f}<extra></extra>",
-        )
+            error_x={"type": "data", "symmetric": False, "array": plus, "arrayminus": minus},
+            customdata=[coef_table[n]["coef"] for n in names],
+            hovertemplate="%{y}: %{x:.3f} (raw β %{customdata:.4g})<extra></extra>",
+            name="effect",
+        ),
+        row=1,
+        col=1,
     )
-    fig.add_vline(x=0, line_width=1, line_dash="dash", line_color="#8b949e")
+    fig.add_vline(x=0, line_width=1, line_dash="dash", line_color="#8b949e", row=1, col=1)
     fig.update_layout(
-        title=f"Effect on {y_col} (95% CI; grey = not significant)",
-        xaxis_title="coefficient",
-        margin=dict(l=20, r=20, t=60, b=20),
-        autosize=True,
-        showlegend=False,
+        title=f"{y_col} regressed on {len(coef_table)} predictor(s) — {stats}",
+        height=height,
+        margin=dict(l=20, r=20, t=110 if result_data.get("pooled_groups") else 80, b=20),
+        showlegend=not ols,
     )
+    if result_data.get("pooled_groups"):
+        fig.add_annotation(
+            text="⚠ " + _pooled_note(result_data["pooled_groups"]),
+            xref="paper",
+            yref="paper",
+            x=0,
+            y=1.1,
+            showarrow=False,
+            align="left",
+            font={"color": "#d29922", "size": 12},
+        )
     stem = discriminated_suffix("regression", y_col)
     return _save_chart(fig, output_path, stem, input_path, open_after, theme, progress)
 
@@ -416,6 +578,12 @@ def regression_analysis(
         }
 
         if model_type == "ols":
+            # Before the diagnostics: a model fitted over groups that each
+            # follow their own line is the first thing to know about its R2.
+            pooled = _pooled_groups(df, data.index, y, X, float(model.ssr), {y_col, *x_cols})
+            if pooled:
+                result_data["pooled_groups"] = pooled
+                progress.append(warn("Separate groups pooled into one fit", _pooled_note(pooled)))
             residuals = model.resid
             result_data.update(
                 {
@@ -522,13 +690,13 @@ def regression_analysis(
         # caller asked for a report, got success:true, and no file. Nothing in
         # the response said so either, because output_path was not echoed back.
         if output_path:
-            chart_path, chart_name = _coefficient_chart(
-                coef_table, y_col, output_path, path, theme, open_after, progress
+            chart_path, chart_name = _regression_page(
+                model, X, y, coef_table, result_data, y_col, output_path, path, theme, open_after, progress
             )
             if chart_path:
                 result["output_path"] = chart_path
                 result["output_name"] = chart_name
-                progress.append(ok("Coefficient chart saved", chart_name))
+                progress.append(ok("Regression page saved", chart_name))
             else:
                 progress.append(warn("No chart written", "plotly is unavailable in this environment"))
 
