@@ -46,7 +46,12 @@ def folder(tmp_path, monkeypatch):
     # Weekly, with its region column called area, a region ads never ran in, and clicks of its own.
     pd.DataFrame(
         [
-            {"week": d.strftime("%Y-%m-%d"), "area": r, "revenue": round(rng.uniform(300, 900), 2), "clicks": 250 + i % 2}
+            {
+                "week": d.strftime("%Y-%m-%d"),
+                "area": r,
+                "revenue": round(rng.uniform(300, 900), 2),
+                "clicks": 250 + i % 2,
+            }
             for i, d in enumerate(DAYS[::7])
             for r in ("North", "South", "East", "West")
         ]
