@@ -20,6 +20,8 @@ check; a diff here is a visual regression in one of the two products.
 
 from __future__ import annotations
 
+import html as _html
+
 # ---------------------------------------------------------------------------
 # Plotly margins
 # ---------------------------------------------------------------------------
@@ -154,6 +156,10 @@ def chart_page_html(
     from shared.provenance import provenance_script
 
     block = provenance_script(header or {})
+    # The heading is the figure's title, and a title names columns: a column
+    # called `<img src=x onerror=...>` became markup in the <h1> and ran when
+    # the page was opened. Text, always.
+    title = _html.escape(title)
     return f"""<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8">
