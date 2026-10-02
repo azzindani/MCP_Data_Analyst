@@ -1,0 +1,329 @@
+<title>Harbor Hotel Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+/* Layout: admin console. Fixed navy sidebar, a top bar with the filters, then KPI cards,
+   one wide tabbed chart with its ranking, and a map beside a table. Sidebar slides in on a phone. */
+:root {
+  --ground: #f2f4f8; --card: #ffffff; --ink: #172133; --muted: #66748a; --line: #e5e9f0;
+  --side: #0d1f3e; --side-ink: #b6c4dc; --side-hi: #ffffff; --accent: #1f7cf0; --accent-mid: #6aa8f6; --accent-soft: #b9d7fb;
+  --accent-wash: #eaf3fe; --good: #1e9a61; --bad: #d8474c; --shadow: 0 1px 2px rgba(23, 33, 51, .06);
+  --font-body: "Source Sans 3", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0a111c; --card: #111a29; --ink: #e3e9f3; --muted: #8b99af; --line: #1f2b3e;
+    --side: #060c17; --side-ink: #8ea0bf; --side-hi: #ffffff; --accent: #3d94ff; --accent-mid: #2f6fbf; --accent-soft: #24456e;
+    --accent-wash: #132640; --good: #36bf80; --bad: #f06a6e; --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #0a111c; --card: #111a29; --ink: #e3e9f3; --muted: #8b99af; --line: #1f2b3e;
+  --side: #060c17; --side-ink: #8ea0bf; --side-hi: #ffffff; --accent: #3d94ff; --accent-mid: #2f6fbf; --accent-soft: #24456e;
+  --accent-wash: #132640; --good: #36bf80; --bad: #f06a6e; --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-body); font-size: 14.5px; line-height: 1.45; }
+.app { display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: 100%; }
+.side { background: var(--side); color: var(--side-ink); padding-block: 24px; display: flex; flex-direction: column; gap: 6px; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 0 22px 22px; color: var(--side-hi); font-weight: 700; font-size: 17px; letter-spacing: .01em; }
+.brand svg { width: 30px; height: 30px; flex: none; }
+.side a { display: flex; align-items: center; gap: 12px; padding: 11px 22px; color: var(--side-ink); text-decoration: none; font-weight: 600; border-left: 3px solid transparent; }
+.side a svg { width: 19px; height: 19px; flex: none; }
+.side a:hover { color: var(--side-hi); background: rgba(255, 255, 255, .05); }
+.side a[aria-current="page"] { background: var(--accent); color: #fff; border-left-color: #fff; }
+.side .sect { font-size: 11.5px; text-transform: uppercase; letter-spacing: .08em; padding: 18px 22px 6px; opacity: .6; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.main { min-width: 0; display: flex; flex-direction: column; }
+.topbar { background: var(--card); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 12px 28px; position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; }
+.menu { display: none; background: none; border: 0; color: var(--ink); cursor: pointer; padding: 6px; }
+.menu svg { width: 24px; height: 24px; }
+.crumb { font-size: 12.5px; color: var(--muted); }
+h1 { font-size: 21px; margin: 0; font-weight: 700; line-height: 1.2; }
+.tools { margin-left: auto; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.range { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.range svg { width: 16px; height: 16px; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { font: 600 13.5px var(--font-body); background: var(--card); color: var(--muted); border: 0; padding: 7px 13px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent-wash); color: var(--accent); }
+.content { padding-block: 22px 28px; padding-inline: clamp(16px, 2.2vw, 28px); display: grid; gap: 18px; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); min-width: 0; }
+.kpi { padding: 16px 20px 0; display: flex; flex-direction: column; }
+.kpi-top { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 14px; }
+.info { width: 17px; height: 17px; color: var(--muted); cursor: help; }
+.kpi-value { font-size: clamp(1.6rem, 2.2vw, 1.95rem); font-weight: 600; margin: 4px 0 6px; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.kpi-mid { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; min-height: 52px; }
+.ratio { font-size: 13.5px; color: var(--muted); display: grid; gap: 2px; }
+.ratio .ytd { white-space: nowrap; }
+.ratio b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.tri { display: inline-block; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; margin-left: 4px; vertical-align: middle; }
+.tri.up { border-bottom: 7px solid var(--c); } .tri.down { border-top: 7px solid var(--c); }
+.kpi-foot { border-top: 1px solid var(--line); margin-top: 12px; padding: 10px 0 12px; font-size: 14px; display: flex; justify-content: space-between; gap: 8px; }
+.kpi-foot b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.mini { flex: none; max-width: 48%; height: auto; }
+.prog { width: 50%; height: 10px; border-radius: 99px; background: var(--accent-wash); overflow: hidden; align-self: center; }
+.prog i { display: block; height: 100%; background: var(--bad); border-radius: 99px; }
+.wide { display: grid; grid-template-columns: minmax(0, 1fr) 300px; }
+.tabs { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--line); padding: 0 20px; flex-wrap: wrap; }
+.tabs [role="tab"] { font: 600 15px var(--font-body); background: none; border: 0; color: var(--muted); padding: 14px 12px 12px; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; }
+.tabs [role="tab"][aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.tabs .hint { margin-left: auto; font-size: 13px; color: var(--muted); }
+.wide-body { padding: 16px 20px 18px; min-width: 0; }
+.wide-body h2, .card h2 { font-size: 16px; font-weight: 600; margin: 0 0 6px; }
+.chart { width: 100%; height: 320px; }
+.rankbox { padding: 16px 22px 18px; border-left: 1px solid var(--line); }
+.rank { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 13px; counter-reset: r; }
+.rank li { counter-increment: r; display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 12px; align-items: center; font-size: 14px; }
+.rank li::before { content: counter(r); width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; background: var(--accent-wash); color: var(--muted); }
+.rank li:nth-child(-n+3)::before { background: var(--side); color: #fff; }
+.rank .v { font-variant-numeric: tabular-nums; font-weight: 600; }
+.rank .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rank small { color: var(--muted); font-size: 12px; margin-left: 6px; }
+.row2 { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 18px; }
+.panel { padding: 16px 20px 18px; display: flex; flex-direction: column; gap: 8px; }
+.panel-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.panel-head p { margin: 0; font-size: 13px; color: var(--muted); }
+.map { width: 100%; height: 340px; }
+.tbl-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+th { text-align: right; font-weight: 600; color: var(--muted); font-size: 12.5px; border-bottom: 1px solid var(--line); padding: 0; }
+th:first-child, td:first-child { text-align: left; }
+th button { font: inherit; color: inherit; background: none; border: 0; padding: 8px 6px; cursor: pointer; width: 100%; text-align: inherit; white-space: nowrap; }
+th button[aria-sort]::after { content: " ↕"; opacity: .45; }
+th button[aria-sort="descending"]::after { content: " ↓"; opacity: 1; }
+th button[aria-sort="ascending"]::after { content: " ↑"; opacity: 1; }
+td { padding: 9px 6px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+td .inbar { display: inline-block; height: 6px; border-radius: 99px; background: var(--accent-soft); margin-right: 8px; vertical-align: middle; }
+td.bad { color: var(--bad); font-weight: 600; }
+.foot { font-size: 12.5px; color: var(--muted); margin: 0; }
+@media (max-width: 1180px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wide { grid-template-columns: minmax(0, 1fr); }
+  .rankbox { border-left: 0; border-top: 1px solid var(--line); }
+  .row2 { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .side { position: fixed; inset: 0 auto 0 0; width: 250px; z-index: 20; transform: translateX(-100%); transition: transform .2s; padding-top: calc(24px + env(safe-area-inset-top, 0px)); }
+  .side.open { transform: none; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .35); }
+  .menu { display: inline-flex; }
+  .topbar { padding: 10px 16px; }
+  .kpis { grid-template-columns: minmax(0, 1fr); }
+  .chart { height: 280px; } .map { height: 280px; }
+  .tabs { flex-wrap: nowrap; overflow-x: auto; } .tabs [role="tab"] { white-space: nowrap; } .tabs .hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .side { transition: none; } }
+</style>
+
+<div class="app">
+  <nav class="side" id="side" aria-label="Main">
+    <div class="brand"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="3" width="26" height="26" rx="7" fill="#1f7cf0"/><path d="M10 22V10M22 22V10M10 16h12" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>Hotel Analytics</div>
+    <a href="#overview" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Overview</a>
+    <a href="#trend" data-tab="revenue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Revenue</a>
+    <a href="#trend" data-tab="cancel_rate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M8.5 8.5l7 7M15.5 8.5l-7 7"/></svg>Cancellations</a>
+    <div class="sect">Guests</div>
+    <a href="#map-card"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.6 5.7 3.6 9s-1.1 6.3-3.6 9c-2.5-2.7-3.6-5.7-3.6-9S9.5 5.7 12 3z"/></svg>Countries</a>
+    <a href="#segments"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h10M4 18h6"/></svg>Market segments</a>
+  </nav>
+
+  <div class="main">
+    <header class="topbar">
+      <button class="menu" id="menu" type="button" aria-label="Open navigation" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      <div><div class="crumb">Hotel Analytics / Bookings</div><h1>Overview</h1></div>
+      <div class="tools">
+        <span class="range"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>1 Jul 2015 – 31 Aug 2017</span>
+        <div class="seg" role="group" aria-label="Hotel" id="slices">
+          <button type="button" data-slice="all" aria-pressed="true">All hotels</button>
+          <button type="button" data-slice="City Hotel" aria-pressed="false">City</button>
+          <button type="button" data-slice="Resort Hotel" aria-pressed="false">Resort</button>
+        </div>
+      </div>
+    </header>
+
+    <div class="content" id="overview">
+      <section class="kpis" aria-label="Key figures">
+        <article class="card kpi" id="k-revenue"></article>
+        <article class="card kpi" id="k-bookings"></article>
+        <article class="card kpi" id="k-adr"></article>
+        <article class="card kpi" id="k-cancel"></article>
+      </section>
+
+      <section class="card wide" id="trend">
+        <div class="wide-main" style="min-width:0">
+          <div class="tabs" role="tablist" aria-label="Measure">
+            <button role="tab" type="button" data-measure="revenue" aria-selected="true">Room revenue</button>
+            <button role="tab" type="button" data-measure="bookings" aria-selected="false">Bookings</button>
+            <button role="tab" type="button" data-measure="cancel_rate" aria-selected="false">Cancellation rate</button>
+            <span class="hint">by arrival month, one bar per year</span>
+          </div>
+          <div class="wide-body">
+            <h2 id="trend-title"></h2>
+            <div class="chart" id="ch-trend"></div>
+          </div>
+        </div>
+        <aside class="rankbox">
+          <h2>Top countries by room revenue</h2>
+          <ol class="rank" id="rank"></ol>
+        </aside>
+      </section>
+
+      <section class="row2">
+        <article class="card panel" id="map-card">
+          <div class="panel-head"><h2>Where guests come from</h2>
+            <div class="seg" role="group" aria-label="Map extent" id="extent">
+              <button type="button" data-extent="europe" aria-pressed="true">Europe</button>
+              <button type="button" data-extent="world" aria-pressed="false">World</button>
+            </div>
+          </div>
+          <div class="map" id="ch-map"></div>
+          <p class="foot" id="map-note"></p>
+        </article>
+        <article class="card panel" id="segments">
+          <div class="panel-head"><h2>Market segments</h2><p>Select a column to sort</p></div>
+          <div class="tbl-wrap"><table id="seg-table"></table></div>
+          <p class="foot">ADR and revenue count checked-out stays only. Cancellation above 40% is marked.</p>
+        </article>
+      </section>
+      <p class="foot">Source: Hotel_Bookings_Demand.csv, 119,390 bookings. Room revenue = ADR × room nights of checked-out stays, in euros. Comparisons: Jan–Aug 2017 against Jan–Aug 2016.</p>
+    </div>
+  </div>
+</div>
+
+<!--PLOTLY-->
+<!--DATA-->
+<!--CORE-->
+<script>
+(function () {
+  const { tok, fmt, delta, sparkSVG, baseLayout, plot, onTheme, bindSlices } = MK;
+  const D = window.DATA;
+  const NAMES = { PRT: "Portugal", GBR: "United Kingdom", FRA: "France", ESP: "Spain", DEU: "Germany", ITA: "Italy", IRL: "Ireland",
+    BEL: "Belgium", CHN: "China", BRA: "Brazil", NLD: "Netherlands", USA: "United States", CHE: "Switzerland", AUT: "Austria",
+    SWE: "Sweden", POL: "Poland", RUS: "Russia", NOR: "Norway", ROU: "Romania", ISR: "Israel", AUS: "Australia" };
+  let slice = "all", measure = "revenue", extent = "europe", sortKey = "bookings", sortDir = -1;
+  const info = (t) => `<svg class="info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" role="img" aria-label="${t}"><title>${t}</title><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>`;
+  const tri = (d) => d.dir === 0 ? "" : `<span class="tri ${d.dir > 0 ? "up" : "down"}" style="--c:${d.good ? tok("good") : tok("bad")}"></span>`;
+
+  function miniBars(values, color) {
+    const v = values.slice(-6), max = Math.max(...v), w = 132, h = 52, bw = 16, gap = (w - v.length * bw) / (v.length - 1);
+    return `<svg class="mini" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="last six months">` +
+      v.map((x, i) => { const bh = Math.max(3, x / max * (h - 4)); return `<rect x="${(i * (bw + gap)).toFixed(1)}" y="${(h - bh).toFixed(1)}" width="${bw}" height="${bh.toFixed(1)}" rx="2" fill="${color}"/>`; }).join("") + "</svg>";
+  }
+  function kpi(id, title, help, value, d, cmpText, visual, footL, footR) {
+    document.getElementById(id).innerHTML = `
+      <div class="kpi-top"><span>${title}</span>${info(help)}</div>
+      <div class="kpi-value">${value}</div>
+      <div class="kpi-mid"><div class="ratio"><span><b>${d.text}</b>${tri(d)} <span class="ytd">YTD vs 2016</span></span><span>${cmpText}</span></div>${visual}</div>
+      <div class="kpi-foot"><span>${footL}</span><b>${footR}</b></div>`;
+  }
+
+  function renderKpis() {
+    const S = D.slices[slice], s = S.summary, y = S.ytd, m = S.monthly, n = m.ym.length - 1;
+    const accent = tok("accent"), mid = tok("accent-mid");
+    kpi("k-revenue", "Room revenue", "ADR × room nights of checked-out stays", fmt.eurShort(s.revenue),
+      delta(y.current.revenue, y.previous.revenue), `2017 YTD <b>${fmt.eurShort(y.current.revenue)}</b>`,
+      miniBars(m.revenue, accent), fmt.month(m.ym[n]), fmt.eurShort(m.revenue[n]));
+    kpi("k-bookings", "Bookings", "Every reservation, kept or canceled", fmt.int(s.bookings),
+      delta(y.current.bookings, y.previous.bookings), `2017 YTD <b>${fmt.int(y.current.bookings)}</b>`,
+      sparkSVG(m.bookings.slice(-12), { stroke: accent, w: 132, h: 52, label: "bookings, last 12 months" }), fmt.month(m.ym[n]), fmt.int(m.bookings[n]));
+    kpi("k-adr", "Realized ADR", "Room revenue divided by room nights sold", fmt.eur(s.adr),
+      delta(y.current.adr, y.previous.adr), `2017 YTD <b>${fmt.eur(y.current.adr)}</b>`,
+      sparkSVG(m.adr.slice(-12), { stroke: mid, w: 132, h: 52, label: "ADR, last 12 months" }), fmt.month(m.ym[n]), fmt.eur(m.adr[n]));
+    kpi("k-cancel", "Cancellation rate", "Canceled bookings and no-shows, share of all bookings", fmt.pct(s.cancel_rate),
+      delta(y.current.cancel_rate, y.previous.cancel_rate, { points: true, lowerIsBetter: true }), `2017 YTD <b>${fmt.pct(y.current.cancel_rate)}</b>`,
+      `<div class="prog" role="img" aria-label="${fmt.pct(s.cancel_rate)} canceled"><i style="width:${s.cancel_rate}%"></i></div>`, "No-shows", fmt.int(s.no_show));
+  }
+
+  function renderTrend() {
+    const S = D.slices[slice], B = S.by_year[measure];
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const colors = { 2015: tok("accent-soft"), 2016: tok("accent-mid"), 2017: tok("accent") };
+    const isRate = measure === "cancel_rate";
+    const label = { revenue: "Room revenue", bookings: "Bookings", cancel_rate: "Cancellation rate" }[measure];
+    document.getElementById("trend-title").textContent = `${label} by month, ${slice === "all" ? "all hotels" : slice}`;
+    const traces = Object.keys(B).map((yr) => isRate
+      ? { x: months, y: B[yr], name: yr, type: "scatter", mode: "lines+markers", line: { color: colors[yr], width: 3 }, marker: { size: 7 }, connectgaps: false,
+          hovertemplate: `${yr}: %{y:.1f}%<extra></extra>` }
+      : { x: months, y: B[yr], name: yr, type: "bar", marker: { color: colors[yr] },
+          hovertemplate: `${yr}: ${measure === "revenue" ? "€%{y:,.0f}" : "%{y:,}"}<extra></extra>` });
+    plot("ch-trend", traces, baseLayout({
+      barmode: "group", bargap: 0.28, bargroupgap: 0.08, barcornerradius: 3,
+      margin: { l: 52, r: 8, t: 30, b: 30 },
+      xaxis: { tickangle: 0, tickvals: document.getElementById("ch-trend").clientWidth < 520 ? ["Jan", "Mar", "May", "Jul", "Sep", "Nov"] : months },
+      yaxis: isRate ? { ticksuffix: "%", rangemode: "tozero" } : { tickformat: "~s", tickprefix: measure === "revenue" ? "€" : "" },
+      legend: { y: 1.12 },
+    }));
+    const C = S.countries_top, idx = C.iso3.map((_, i) => i).sort((a, b) => C.revenue[b] - C.revenue[a]).slice(0, 7);
+    document.getElementById("rank").innerHTML = idx.map((i) =>
+      `<li><span class="nm">${NAMES[C.iso3[i]] || C.iso3[i]}<small>${C.iso3[i]}</small></span><span class="v">${fmt.eurShort(C.revenue[i])}</span></li>`).join("");
+  }
+
+  function renderMap() {
+    const A = D.slices[slice].countries_all;
+    const z = A.bookings.map((v) => Math.log10(v));
+    const ticks = [1, 10, 100, 1000, 10000].filter((t) => t <= Math.max(...A.bookings) * 1.5);
+    const geo = extent === "europe"
+      ? { projection: { type: "mercator" }, lonaxis: { range: [-32, 52] }, lataxis: { range: [33, 66] } }
+      : { projection: { type: "natural earth" }, lonaxis: { range: [-180, 180] }, lataxis: { range: [-58, 85] } };
+    plot("ch-map", [{
+      type: "choropleth", locationmode: "ISO-3", locations: A.iso3, z, customdata: A.bookings,
+      text: A.iso3.map((c) => NAMES[c] || c),
+      colorscale: [[0, tok("accent-wash")], [0.5, tok("accent-mid")], [1, tok("accent")]],
+      marker: { line: { color: tok("card"), width: 0.6 } },
+      colorbar: { tickvals: ticks.map(Math.log10), ticktext: ticks.map((t) => fmt.short(t)), thickness: 10, len: 0.7, outlinewidth: 0,
+        tickfont: { color: tok("muted"), size: 11 }, title: { text: "bookings", font: { color: tok("muted"), size: 11 } } },
+      hovertemplate: "%{text}: %{customdata:,} bookings<extra></extra>",
+    }], baseLayout({
+      margin: { l: 0, r: 0, t: 0, b: 0 }, hovermode: "closest",
+      geo: { ...geo, showframe: false, showcoastlines: false, showland: true, landcolor: tok("line"), showcountries: true, countrycolor: tok("card"),
+        bgcolor: "rgba(0,0,0,0)", showocean: false, lakecolor: "rgba(0,0,0,0)" },
+    }));
+    document.getElementById("map-note").textContent =
+      `${A.iso3.length} countries; color is on a log scale because Portugal alone has ${fmt.int(A.bookings[0])} bookings.`;
+  }
+
+  function renderTable() {
+    const G = D.slices[slice].segments;
+    const rows = G.name.map((n, i) => ({ name: n, bookings: G.bookings[i], cancel_rate: G.cancel_rate[i], adr: G.adr[i], revenue: G.revenue[i] }));
+    rows.sort((a, b) => sortKey === "name" ? sortDir * a.name.localeCompare(b.name) : sortDir * ((a[sortKey] ?? -1) - (b[sortKey] ?? -1)));
+    const max = Math.max(...rows.map((r) => r.bookings));
+    const cols = [["name", "Segment"], ["bookings", "Bookings"], ["cancel_rate", "Canceled"], ["adr", "ADR"], ["revenue", "Revenue"]];
+    const head = "<thead><tr>" + cols.map(([k, l]) => `<th scope="col"><button type="button" data-sort="${k}" aria-sort="${k === sortKey ? (sortDir < 0 ? "descending" : "ascending") : "none"}">${l}</button></th>`).join("") + "</tr></thead>";
+    const body = "<tbody>" + rows.map((r) => `<tr><td>${r.name}</td><td><span class="inbar" style="width:${(r.bookings / max * 60).toFixed(0)}px"></span>${fmt.int(r.bookings)}</td>
+      <td class="${r.cancel_rate > 40 ? "bad" : ""}">${fmt.pct(r.cancel_rate)}</td><td>${r.adr == null ? "–" : fmt.eur(r.adr)}</td><td>${fmt.eurShort(r.revenue)}</td></tr>`).join("") + "</tbody>";
+    const t = document.getElementById("seg-table");
+    t.innerHTML = head + body;
+    t.querySelectorAll("[data-sort]").forEach((b) => b.addEventListener("click", () => {
+      const k = b.dataset.sort; sortDir = k === sortKey ? -sortDir : (k === "name" ? 1 : -1); sortKey = k; renderTable();
+    }));
+  }
+
+  function setMeasure(m) {
+    measure = m;
+    document.querySelectorAll('[role="tab"]').forEach((t) => t.setAttribute("aria-selected", String(t.dataset.measure === m)));
+    renderTrend();
+  }
+  document.querySelectorAll('[role="tab"]').forEach((t) => t.addEventListener("click", () => setMeasure(t.dataset.measure)));
+  document.querySelectorAll(".side a").forEach((a) => a.addEventListener("click", () => {
+    document.querySelectorAll(".side a").forEach((x) => x.removeAttribute("aria-current"));
+    a.setAttribute("aria-current", "page");
+    if (a.dataset.tab) setMeasure(a.dataset.tab);
+    side.classList.remove("open"); menu.setAttribute("aria-expanded", "false");
+  }));
+  const side = document.getElementById("side"), menu = document.getElementById("menu");
+  menu.addEventListener("click", () => { const o = side.classList.toggle("open"); menu.setAttribute("aria-expanded", String(o)); });
+  document.getElementById("extent").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+    extent = b.dataset.extent;
+    document.getElementById("extent").querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    renderMap();
+  }));
+  const all = () => { renderKpis(); renderTrend(); renderMap(); renderTable(); };
+  bindSlices(document.getElementById("slices"), (v) => { slice = v; all(); });
+  onTheme(all);
+  all();
+})();
+</script>

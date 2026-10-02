@@ -55,3 +55,6 @@ oauth-state/
 
 # Default host directory for the shared output mount (docker-compose MCP_SHARED_DIR)
 shared-files/
+
+# Built dashboard mockups (about 5 MB each, rebuilt by design/mockups/build.py)
+design/mockups/build/

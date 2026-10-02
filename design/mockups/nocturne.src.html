@@ -1,0 +1,236 @@
+<title>Nocturne Hotel Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Layout: a deliberately dark console. Gradient banner, a five-stage booking pipeline,
+   gradient KPI tiles, then charts on a 12-column grid; stages wrap and lose their arrows on a phone.
+   Single theme by design: every color is set here and the page reads the same on any host. */
+:root {
+  --ground: #0f111c; --panel: #181b2b; --panel-2: #1f2337; --ink: #eceefb; --muted: #969cba; --line: #2a2f47;
+  --violet: #a855f7; --magenta: #e046c4; --cyan: #22d3ee; --blue: #3b82f6; --mint: #34d399; --amber: #fbbf24; --rose: #fb7185;
+  --card: #1f2337;
+  --font-display: "Sora", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Manrope", "Segoe UI", system-ui, -apple-system, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.45; }
+.glow { position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background: radial-gradient(42rem 30rem at 8% -6%, rgba(168, 85, 247, .22), transparent 70%),
+              radial-gradient(40rem 32rem at 104% 108%, rgba(34, 211, 238, .14), transparent 70%); }
+.page { position: relative; z-index: 1; max-width: 1480px; margin: 0 auto; padding-block: 20px 28px; padding-inline: max(16px, 2vw); display: grid; gap: 18px; }
+.banner { border-radius: 16px; padding: 18px 22px; display: flex; align-items: center; gap: 14px 22px; flex-wrap: wrap;
+  background: linear-gradient(100deg, #5b2a86 0%, #3b3f8f 45%, #1f6f86 100%); }
+h1 { font: 700 clamp(1.3rem, 2.4vw, 1.75rem)/1.15 var(--font-display); margin: 0; letter-spacing: -.01em; }
+.banner p { margin: 2px 0 0; color: rgba(236, 238, 251, .78); font-size: 13px; }
+.banner .tools { margin-left: auto; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.seg { display: inline-flex; background: rgba(15, 17, 28, .45); border-radius: 10px; padding: 3px; }
+.seg button, .reset { font: 600 13px var(--font-body); color: var(--ink); background: none; border: 0; border-radius: 8px; padding: 7px 13px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: rgba(255, 255, 255, .16); }
+.reset { background: rgba(15, 17, 28, .55); display: inline-flex; gap: 8px; align-items: center; }
+.reset svg { width: 15px; height: 15px; }
+button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.stages { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 26px; }
+.stage { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; position: relative; display: flex; flex-direction: column; min-width: 0; }
+.stage:not(:last-child)::after { content: ""; position: absolute; right: -19px; top: 13px; border: 7px solid transparent; border-left: 10px solid var(--muted); opacity: .7; }
+.stage { overflow: visible; }
+.stage h3 { margin: 0; padding: 9px 14px; font: 600 14px var(--font-display); text-align: center; border-radius: 13px 13px 0 0; color: #fff; }
+.stage .body { padding: 12px 16px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 104px; }
+.stage .num { font: 700 22px var(--font-display); font-variant-numeric: tabular-nums; }
+.stage .lab { color: var(--muted); font-size: 12.5px; }
+.gauge-text { font: 700 20px var(--font-display); }
+.gauge-ends { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: -2px; }
+.tiles { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; }
+.tile { border-radius: 16px; padding: 18px 22px; color: #fff; position: relative; overflow: hidden; min-width: 0; }
+.tile::after { content: ""; position: absolute; width: 180px; height: 180px; border-radius: 50%; right: -50px; bottom: -80px; background: rgba(255, 255, 255, .1); }
+.tile.v { background: linear-gradient(120deg, #c35cf0, #8b5cf6); }
+.tile.c { background: linear-gradient(120deg, #22c5e8, #4f7cf2); }
+.tile .t { font-size: 14.5px; opacity: .92; font-weight: 600; }
+.tile .big { font: 700 clamp(2rem, 3.4vw, 2.7rem)/1.1 var(--font-display); margin-top: 10px; font-variant-numeric: tabular-nums; }
+.tile .big small { font: 500 15px var(--font-body); opacity: .85; margin-left: 4px; }
+.pills { display: grid; gap: 12px; min-width: 0; }
+.pill { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px; display: flex; align-items: center; gap: 12px; }
+.pill .ic { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.pill .ic svg { width: 19px; height: 19px; }
+.pill .name { font-weight: 600; }
+.pill .sub { color: var(--muted); font-size: 12px; }
+.pill .val { margin-left: auto; font: 700 17px var(--font-display); font-variant-numeric: tabular-nums; }
+.grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 18px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.s8 { grid-column: span 8; } .s4 { grid-column: span 4; }
+.head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+h2 { font: 600 16px var(--font-display); margin: 0; }
+.lg { display: flex; gap: 16px; color: var(--muted); font-size: 12.5px; flex-wrap: wrap; }
+.lg span { display: inline-flex; align-items: center; gap: 6px; }
+.lg i { width: 18px; height: 0; border-top: 2px solid; display: inline-block; }
+.chart { width: 100%; height: 300px; }
+.chart.sm { height: 260px; }
+.note { margin: 0; color: var(--muted); font-size: 12.5px; }
+.note b { color: var(--ink); }
+.foot { color: var(--muted); font-size: 12px; margin: 0; }
+@media (max-width: 1180px) {
+  .stages { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .stage::after { display: none; }
+  .tiles { grid-template-columns: 1fr 1fr; } .pills { grid-column: span 2; grid-template-columns: 1fr 1fr; }
+  .s8, .s4 { grid-column: span 12; }
+}
+@media (max-width: 720px) {
+  .stages { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .stage .body { flex-direction: column; align-items: flex-start; min-height: 0; }
+  .tiles { grid-template-columns: minmax(0, 1fr); } .pills { grid-column: auto; grid-template-columns: minmax(0, 1fr); }
+  .banner .tools { margin-left: 0; }
+}
+</style>
+
+<div class="glow" aria-hidden="true"></div>
+<div class="page">
+  <header class="banner">
+    <div>
+      <h1>Booking pipeline</h1>
+      <p id="sub"></p>
+    </div>
+    <div class="tools">
+      <div class="seg" role="group" aria-label="Hotel" id="slices">
+        <button type="button" data-slice="all" aria-pressed="true">All</button>
+        <button type="button" data-slice="City Hotel" aria-pressed="false">City</button>
+        <button type="button" data-slice="Resort Hotel" aria-pressed="false">Resort</button>
+      </div>
+      <button type="button" class="reset" id="reset"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4"/></svg>Reset filter</button>
+    </div>
+  </header>
+
+  <section class="stages" aria-label="Booking stages" id="stages"></section>
+
+  <section class="tiles" aria-label="Stay averages">
+    <div class="tile v"><div class="t">Average lead time</div><div class="big" id="t-lead"></div></div>
+    <div class="tile c"><div class="t">Average stay</div><div class="big" id="t-stay"></div></div>
+    <div class="pills">
+      <div class="pill"><span class="ic" style="background:rgba(168,85,247,.18);color:var(--violet)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg></span><div><div class="name">Room upgrades</div><div class="sub">assigned ≠ reserved room</div></div><span class="val" id="p-up"></span></div>
+      <div class="pill"><span class="ic" style="background:rgba(34,211,238,.16);color:var(--cyan)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 5h16v11H8l-4 4z"/></svg></span><div><div class="name">Special requests</div><div class="sub">per checked-out stay</div></div><span class="val" id="p-req"></span></div>
+    </div>
+  </section>
+
+  <section class="grid">
+    <article class="card s8">
+      <div class="head"><h2>Bookings vs cancellations</h2><div class="lg" id="trend-lg"></div></div>
+      <div class="chart" id="ch-trend"></div>
+    </article>
+    <article class="card s4">
+      <div class="head"><h2>Arrivals by weekday</h2></div>
+      <div class="chart" id="ch-wd"></div>
+    </article>
+    <article class="card s4">
+      <div class="head"><h2>Guest type</h2></div>
+      <div class="chart sm" id="ch-cust"></div>
+    </article>
+    <article class="card s4">
+      <div class="head"><h2>Deposit type</h2></div>
+      <div class="chart sm" id="ch-dep"></div>
+      <p class="note" id="dep-note"></p>
+    </article>
+    <article class="card s4">
+      <div class="head"><h2>Guests by country</h2></div>
+      <div class="chart sm" id="ch-map"></div>
+      <p class="note">Bubble area is bookings; Europe shown.</p>
+    </article>
+  </section>
+  <p class="foot">Source: Hotel_Bookings_Demand.csv, 119,390 bookings, arrivals 1 Jul 2015 to 31 Aug 2017. Canceled counts include no-shows; returning guests are a share of checked-out stays.</p>
+</div>
+
+<!--PLOTLY-->
+<!--DATA-->
+<!--CORE-->
+<script>
+(function () {
+  const { tok, fmt, sparkSVG, gaugeSVG, baseLayout, plot, bindSlices } = MK;
+  const D = window.DATA;
+  let slice = "all";
+  const STAGE_COLORS = ["#b45ad0", "#463c8f", "#3d5784", "#2f6f86", "#2f7f62"];
+
+  function stages(s, m) {
+    const g = (p, c) => `<div>${gaugeSVG(p, { w: 132, width: 15, color: c, track: tok("line"), text: Math.round(p) + "%", textColor: tok("ink") })}<div class="gauge-ends"><span>0%</span><span>100%</span></div></div>`;
+    const items = [
+      ["Booked", `<div><div class="num">${fmt.int(s.bookings)}</div><div class="lab">total bookings</div></div>${sparkSVG(m.bookings, { stroke: tok("violet"), w: 96, h: 46, endDot: false, label: "bookings by month" })}`],
+      ["Canceled", `<div><div class="num">${fmt.int(s.canceled_status)}</div><div class="lab">before arrival</div></div>${g(s.canceled_status / s.bookings * 100, tok("magenta"))}`],
+      ["No-show", `<div><div class="num">${fmt.int(s.no_show)}</div><div class="lab">never arrived</div></div>${g(s.no_show / s.bookings * 100, tok("amber"))}`],
+      ["Checked out", `<div><div class="num">${fmt.int(s.stayed)}</div><div class="lab">stays completed</div></div>${g(s.stayed / s.bookings * 100, tok("cyan"))}`],
+      ["Returning", `<div><div class="num">${fmt.pct(s.repeat_share)}</div><div class="lab">of checked-out stays</div></div>${sparkSVG(m.stayed, { stroke: tok("mint"), w: 96, h: 46, endDot: false, label: "stays by month" })}`],
+    ];
+    document.getElementById("stages").innerHTML = items.map(([h, b], i) =>
+      `<article class="stage"><h3 style="background:${STAGE_COLORS[i]}">${h}</h3><div class="body">${b}</div></article>`).join("");
+  }
+
+  function render() {
+    const S = D.slices[slice], s = S.summary, m = S.monthly;
+    const cyan = tok("cyan"), violet = tok("violet"), magenta = tok("magenta"), blue = tok("blue"), mint = tok("mint"), amber = tok("amber"), ink = tok("ink"), muted = tok("muted");
+    document.getElementById("sub").textContent = `${slice === "all" ? "City and Resort hotels" : slice} · arrivals Jul 2015 – Aug 2017 · ${fmt.int(s.bookings)} bookings`;
+    stages(s, m);
+    document.getElementById("t-lead").innerHTML = `${fmt.int(s.avg_lead)}<small>days ahead</small>`;
+    document.getElementById("t-stay").innerHTML = `${s.avg_stay.toFixed(1)}<small>nights</small>`;
+    document.getElementById("p-up").textContent = fmt.pct(s.upgrade_share);
+    document.getElementById("p-req").textContent = s.requests_avg.toFixed(2);
+
+    // Trend: solid bookings with a fading area, dotted cancellations, the maximum labelled.
+    const x = m.ym.map((v) => v + "-01");
+    const pk = m.bookings.indexOf(Math.max(...m.bookings));
+    document.getElementById("trend-lg").innerHTML = `<span><i style="border-color:${cyan}"></i>Bookings</span><span><i style="border-color:${violet};border-top-style:dotted"></i>Canceled</span>`;
+    const narrow = document.getElementById("ch-trend").clientWidth < 560;
+    plot("ch-trend", [
+      { x, y: m.bookings, name: "Bookings", type: "scatter", mode: "lines", line: { color: cyan, width: 2.5, shape: "spline", smoothing: 0.8 },
+        fill: "tozeroy", fillgradient: { type: "vertical", colorscale: [[0, "rgba(34,211,238,0)"], [1, "rgba(34,211,238,0.28)"]] },
+        hovertemplate: "%{y:,} bookings<extra></extra>" },
+      { x, y: m.canceled, name: "Canceled", type: "scatter", mode: "lines", line: { color: violet, width: 2.5, dash: "dot", shape: "spline", smoothing: 0.8 },
+        hovertemplate: "%{y:,} canceled<extra></extra>" },
+      { x: [x[pk]], y: [m.bookings[pk]], type: "scatter", mode: "markers", marker: { size: 13, color: cyan, line: { color: tok("panel"), width: 3 } }, hoverinfo: "skip", showlegend: false },
+    ], baseLayout({
+      showlegend: false, margin: { l: 40, r: 14, t: 40, b: 30 },
+      xaxis: { type: "date", tickformat: "%b %Y", dtick: narrow ? "M12" : "M6", hoverformat: "%B %Y", showgrid: true, gridcolor: tok("line") },
+      yaxis: { tickformat: "~s", rangemode: "tozero", griddash: "solid" },
+      annotations: [{ x: x[pk], y: m.bookings[pk], text: `Max = ${fmt.int(m.bookings[pk])}`, showarrow: true, arrowcolor: magenta, arrowhead: 0,
+        ax: 0, ay: -34, bgcolor: magenta, borderpad: 6, font: { color: "#ffffff", size: 12, family: tok("font-body") } }],
+    }));
+
+    // Weekday bars colored by value, cyan to violet.
+    const W = S.weekday;
+    plot("ch-wd", [{ x: W.day, y: W.bookings, type: "bar", marker: { color: W.bookings, colorscale: [[0, cyan], [1, violet]], cmin: Math.min(...W.bookings) * 0.9 },
+      hovertemplate: "%{x}: %{y:,} arrivals<extra></extra>" }],
+      baseLayout({ margin: { l: 40, r: 6, t: 10, b: 28 }, bargap: 0.45, barcornerradius: 4, yaxis: { tickformat: "~s", griddash: "solid" }, xaxis: { showgrid: true, gridcolor: tok("line") }, hovermode: "closest" }));
+
+    // Donuts with the answer in the middle.
+    const donut = (id, labels, values, colors, center) => plot(id, [{
+      type: "pie", hole: 0.72, labels, values, sort: false, domain: { x: [0, 0.58], y: [0, 1] }, direction: "clockwise", marker: { colors, line: { color: tok("panel"), width: 3 } },
+      textinfo: "none", hovertemplate: "%{label}: %{value:,} (%{percent})<extra></extra>" }],
+      baseLayout({ margin: { l: 8, r: 8, t: 8, b: 8 }, showlegend: true, hovermode: "closest",
+        legend: { orientation: "v", x: 1, xanchor: "right", y: 0.5, yanchor: "middle", font: { color: muted, size: 12 } },
+        annotations: [{ text: center, showarrow: false, x: 0.29, xanchor: "center", y: 0.5, xref: "paper", yref: "paper", font: { color: ink, size: 13, family: tok("font-display") } }] }));
+    const C = S.customer, ct = C.bookings.reduce((a, b) => a + b, 0);
+    donut("ch-cust", C.name, C.bookings, [cyan, blue, violet, magenta],
+      `<b style="font-size:22px">${fmt.pct(C.bookings[0] / ct * 100)}</b><br><span style="color:${muted}">${C.name[0]}</span>`);
+    const P = S.deposit, pt = P.bookings.reduce((a, b) => a + b, 0), nr = P.name.indexOf("Non Refund");
+    donut("ch-dep", P.name, P.bookings, [blue, magenta, amber],
+      nr >= 0 ? `<b style="font-size:22px">${fmt.pct(P.cancel_rate[nr])}</b><br><span style="color:${muted}">Non Refund<br>canceled</span>` : "");
+    document.getElementById("dep-note").innerHTML = nr >= 0 ? `Non-refundable bookings are <b>${fmt.pct(P.bookings[nr] / pt * 100)}</b> of all bookings and cancel <b>${fmt.pct(P.cancel_rate[nr])}</b> of the time.` : "";
+
+    // Bubble map: one circle per country, the count written inside the biggest.
+    const A = S.countries_all, n = Math.min(A.iso3.length, 40), bmax = A.bookings[0];
+    const iso = A.iso3.slice(0, n), bk = A.bookings.slice(0, n);
+    plot("ch-map", [{
+      type: "scattergeo", locationmode: "ISO-3", locations: iso, mode: "markers+text",
+      text: bk.map((v, i) => i < 3 ? fmt.short(v) : ""), textfont: { color: "#ffffff", size: 10, family: tok("font-body") },
+      marker: { size: bk.map((v) => 8 + 38 * Math.sqrt(v / bmax)), color: violet, opacity: 0.85, line: { color: magenta, width: 2 } },
+      customdata: bk, hovertemplate: "%{location}: %{customdata:,} bookings<extra></extra>",
+    }], baseLayout({
+      margin: { l: 0, r: 0, t: 0, b: 0 }, hovermode: "closest",
+      geo: { projection: { type: "mercator" }, lonaxis: { range: [-34, 50] }, lataxis: { range: [35, 61] }, showframe: false,
+        showland: true, landcolor: tok("panel-2"), showcountries: true, countrycolor: tok("line"), showcoastlines: true, coastlinecolor: tok("line"),
+        showocean: true, oceancolor: tok("panel"), bgcolor: "rgba(0,0,0,0)", showlakes: false },
+    }));
+  }
+
+  const slicesEl = document.getElementById("slices");
+  bindSlices(slicesEl, (v) => { slice = v; render(); });
+  document.getElementById("reset").addEventListener("click", () => slicesEl.querySelector('[data-slice="all"]').click());
+  render();
+})();
+</script>
