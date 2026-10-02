@@ -57,6 +57,7 @@ _ADDITIVE = frozenset(
 _COORDINATE = frozenset("lat lon lng long latitude longitude".split())
 # A number with this few values is a code (a sex, a class, a grade), not an amount: it groups rows.
 MAX_CODE_LEVELS = 4
+MIN_SENTENCE_CHARS = 40
 _CODE_WORDS = frozenset("category type status label group segment class kind tier grade level cluster".split())
 _ID_WORDS = frozenset("id key code uuid guid sku ref number no".split())
 # Measures in the order a reader asks about them.
@@ -123,7 +124,17 @@ def _role(col: Any, s: pd.Series, rows: int) -> tuple[str, pd.Series | None]:
     levels = present.nunique()
     if levels > MAX_DIMENSION_LEVELS and levels > 0.5 * max(len(present), 1):
         return ("id" if _words(col) & _ID_WORDS else "text"), None
+    if _written_in_sentences(present):
+        return "text", None
     return "dimension", None
+
+
+def _written_in_sentences(present: pd.Series) -> bool:
+    """A few long sentences repeated down the rows (a footnote, a remark) is a note, not a category to split by:
+    as a filter it is a wall of pills, and as a segment it headlines a page with a paragraph."""
+    values = pd.Series(present.astype(str).unique()[:500])
+    lengths = values.str.len()
+    return bool(len(values) and lengths.median() >= MIN_SENTENCE_CHARS and values.str.count(" ").median() >= 4)
 
 
 def needs_row_count(df: pd.DataFrame) -> bool:

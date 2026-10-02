@@ -100,7 +100,7 @@ def _rows(batch) -> list[dict[str, Any]]:
     return [{k: _plain(v) for k, v in row.items()} for row in batch.to_pylist()]
 
 
-def _view_sql(name: str, path: Path) -> str:
+def _view_sql(name: str, path: Path, as_text: bool = False) -> str:
     suffix = path.suffix.lower()
     target = _quote(str(path))
     if suffix in CSV_SUFFIXES:
@@ -110,6 +110,7 @@ def _view_sql(name: str, path: Path) -> str:
         with path.open("rb") as fh:
             utf16 = fh.read(2) in (b"\xff\xfe", b"\xfe\xff")  # DuckDB reads UTF-16 when it is told
         extra = ", encoding='utf-16'" if utf16 else ""
+        extra += ", all_varchar=true" if as_text else ""  # every cell as written: no Yes/No turned into true/false
         source = f"read_csv({target}, sample_size=100000, nullstr={nulls}{extra})"
     elif suffix == ".parquet":
         source = f"read_parquet({target})"
@@ -225,6 +226,7 @@ def _run_duckdb(
     preview_rows: int,
     memory_mb: int,
     threads: int,
+    as_text: bool = False,
 ) -> dict[str, Any]:
     import duckdb
 
@@ -236,7 +238,7 @@ def _run_duckdb(
         con.execute(f"SET temp_directory={_quote(spill)}")
         allowed = [str(p) for p in tables.values()]
         for name, path in tables.items():
-            con.execute(_view_sql(name, path))
+            con.execute(_view_sql(name, path, as_text))
         if database is not None:
             con.execute(f"ATTACH {_quote(str(database))} AS source_db (READ_ONLY)")
             con.execute("USE source_db")
@@ -353,8 +355,12 @@ def run_query(
     preview_rows: int = DEFAULT_PREVIEW,
     memory_mb: int = 1024,
     threads: int = 1,
+    as_text: bool = False,
 ) -> dict[str, Any]:
     """Run one read-only SELECT. Raises QueryRefused for anything the caller can fix by asking differently.
+
+    `as_text` reads every column of a CSV as the text the file holds, with no type guessed: rows copied out are
+    the rows the file said (a `Yes` stays `Yes`, `007` stays `007`).
 
     `remote` names a database server the operator configured (shared/sql_remote.py); a file's `database` is a path.
     """
@@ -379,4 +385,4 @@ def run_query(
         )
     if not tables and database is None:
         raise QueryRefused("Name what to query: file_path (one file, called `data`), tables, or database.")
-    return _run_duckdb(sql, tables, database, output, preview_rows, memory_mb, threads)
+    return _run_duckdb(sql, tables, database, output, preview_rows, memory_mb, threads, as_text)

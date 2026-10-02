@@ -109,6 +109,7 @@ from shared.metrics import (
     better_of,
     column_metrics,
     flag_rates,
+    hidden_columns,
     parameters_of,
     spec_metrics,
     text_flag_rates,
@@ -419,6 +420,7 @@ def _sample_of_big_file(path: Path, why: str) -> tuple[Path, dict] | None:
         preview_rows=0,
         memory_mb=memory_budget_mb(),
         threads=worker_threads(),
+        as_text=True,  # the sample says what the file said: DuckDB reads Yes/No as true/false, 007 as 7
     )
     return out, {"rows_in_file": total, "rows_used": DASHBOARD_SAMPLE_ROWS, "sample_file": str(out), "why": why}
 
@@ -951,9 +953,8 @@ def generate_dashboard(
                 progress.append(info("Every row embedded", f"{', '.join(inexact)} needs every row, not a cube"))
             else:
                 flat = df.copy()
-                for metric in metric_list:
-                    for hidden_col, hidden_values in metric.hidden.items():
-                        flat[hidden_col] = hidden_values
+                for hidden_col, hidden_values in hidden_columns(metric_list).items():
+                    flat[hidden_col] = hidden_values
                 for c in datetime_cols:
                     if c in flat.columns:
                         flat[c] = pd.to_datetime(flat[c], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
@@ -1016,9 +1017,8 @@ def generate_dashboard(
             embed_df = df.sample(cap, random_state=42) if was_sampled else df.copy()
             # A metric over a row formula aggregates a column computed here; the
             # page gets that column, never the formula (shared/metrics.py).
-            for metric in metric_list:
-                for hidden_col, hidden_values in metric.hidden.items():
-                    embed_df[hidden_col] = hidden_values.reindex(embed_df.index)
+            for hidden_col, hidden_values in hidden_columns(metric_list).items():
+                embed_df[hidden_col] = hidden_values.reindex(embed_df.index)
             embed_clean = embed_df.copy()
             for c in datetime_cols:
                 if c in embed_clean.columns:

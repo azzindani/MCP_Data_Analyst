@@ -28,6 +28,17 @@ pages, and fixed what the pages got wrong. 10 of 48 did not draw; now all 48 do.
   to the spec's limits instead of refusing the page.
 - A metric per group is made numeric once and reads only its own columns: Heart_Disease (320,000 rows, nine
   Yes/No flags) takes 11 s, not 25 s.
+- Found by looking at a page made live from a 3.5M-row file (6.8 s, 345 MiB in a 1 GB container): the
+  sample is written with every cell as the file had it (`query_data`'s `as_text`), where DuckDB had turned
+  `Yes`/`No` into `true`/`false`; a True/False flag's rate read 0.00% on an aggregated page (it is a dimension
+  of the cube there, so its rate now counts the Trues); two metrics that each needed a computed column both
+  named it `__m0_0` and the page kept one, so computed columns are named after their metric and a clash is
+  refused; a rate that is lower is "2.0x lower", not "2.0x cheaper".
+- And by looking at the pages of the corpus: a column of sentences repeated down the rows (the hospital file's
+  footnotes) is a note, no longer a wall of filter pills and a headline segment; a group with no values at all
+  is no longer drawn as an average of 0 (the mean, median or extreme of nothing is nothing; a sum of nothing is
+  still 0); a gap is a finding only when it matters (a rate differing by a percentage point, an average by a
+  fifth of its column's spread), so "11x higher" between 0.01 and 0.00 no longer leads a page.
 
 ### Added — a mockup's arrangement, a sparkline on a layout KPI; Fixed — what the story says
 

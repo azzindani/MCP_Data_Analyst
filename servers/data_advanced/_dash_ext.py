@@ -285,11 +285,16 @@ function _mval(n,d){
     return b?a/b:NaN;
   }
   if(n.agg==='count'&&!n.col)return _rows(d);
-  return _agg(d.map(function(r){return _cell(r,n.col);}),n.agg);
+  return _aggn(d.map(function(r){return _cell(r,n.col);}),n.agg);
+}
+// The mean, median or extreme of no values is no value: a group of hospitals with no rating is not rated 0.
+function _aggn(v,how){
+  if(how!=='sum'&&how!=='count'&&how!=='count_distinct'&&!v.some(function(x){return !_isna(x);}))return NaN;
+  return _agg(v,how);
 }
 function _measure(p,d){
   if(p.metric&&_METRICS[p.metric])return _mval(_METRICS[p.metric].tree,d);
-  return _agg(d.map(function(r){return _cell(r,p.value);}),p.agg||'sum');
+  return _aggn(d.map(function(r){return _cell(r,p.value);}),p.agg||'sum');
 }
 function _rgroups(d,keyOf){
   var m=new Map();

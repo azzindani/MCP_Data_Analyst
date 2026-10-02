@@ -21,12 +21,13 @@ from __future__ import annotations
 
 import ast
 import re
+import zlib
 from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 import pandas as pd
-from pandas.api.types import is_numeric_dtype
+from pandas.api.types import is_bool_dtype, is_numeric_dtype
 
 from shared.expr import AGGREGATE_ALLOWED, FormulaError, _Evaluator, _parse, aggregate
 
@@ -147,7 +148,7 @@ def compile_metric(
                 values = rows.visit(arg)
                 if not isinstance(values, pd.Series):
                     values = pd.Series([values] * len(df), index=df.index)
-                col = f"__m{slot}_{len(hidden)}"
+                col = f"__m{zlib.crc32(name.encode()):08x}_{len(hidden)}"  # named by its metric: two metrics never share one
                 if agg == "count_if":
                     hidden[col] = values.fillna(False).astype(bool).astype(float)
                     return {"agg": "sum", "col": col}
@@ -167,6 +168,19 @@ def compile_metric(
 # ---------------------------------------------------------------------------
 
 
+def hidden_columns(metrics: Any) -> dict[str, pd.Series]:
+    """The computed columns every metric needs on the page, by name. Two metrics owning one name is refused:
+    the page would hold one column and both metrics would read it."""
+    found: dict[str, pd.Series] = {}
+    owner: dict[str, str] = {}
+    for metric in metrics:
+        for col, values in metric.hidden.items():
+            if col in found:
+                raise MetricError(f"metrics {owner[col]!r} and {metric.name!r} compute the same hidden column {col!r}")
+            found[col], owner[col] = values, metric.name
+    return found
+
+
 def _numbers(values: pd.Series) -> pd.Series:
     return values if is_numeric_dtype(values) else pd.to_numeric(values, errors="coerce")
 
@@ -178,7 +192,7 @@ def _reduce(values: pd.Series, how: str) -> float:
     if how == "count_distinct":
         return float(present.nunique())
     if present.empty:
-        return 0.0  # the page's sum and mean of nothing
+        return 0.0 if how == "sum" else float("nan")  # a sum of nothing is 0; the mean, median or extreme of nothing is nothing
     return float(getattr(present, how)())
 
 
@@ -418,13 +432,25 @@ def flag_rates(df: pd.DataFrame, planned: dict[str, Any], taken: set[str] | None
         if name in taken:
             continue
         words = set(_words(col))
+        better = "down" if words & set(_BAD_FLAG) else ""
+        if is_bool_dtype(df[col]):
+            # A True/False column is a dimension of an aggregated (cube) page, which has no row values to average:
+            # its rate counts the Trues, as a rate of words does.
+            entry = {
+                "formula": f"count_if({_formula_col(col)}) / count()",
+                "unit": "percent",
+                "better": better,
+                "description": f"share of rows where {col} is True",
+            }
+            out.extend(spec_metrics(df, {name: entry}, taken={*taken}))
+            continue
         formula = f"mean({_formula_col(col)})"
         out.append(
             Metric(
                 name=name,
                 formula=formula,
                 unit="percent",
-                better="down" if words & set(_BAD_FLAG) else "",
+                better=better,
                 description=f"share of rows where {col} is 1 ({formula})",
                 source="auto",
                 tree={"agg": "mean", "col": str(col)},

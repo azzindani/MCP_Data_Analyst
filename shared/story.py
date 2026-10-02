@@ -35,7 +35,7 @@ import pandas as pd
 from shared.analysis_plan import ROWS_COLUMN
 from shared.column_utils import agg_label
 from shared.dashboard_spec import MAX_TEXT, MAX_TITLE, STYLE_TEXT
-from shared.metrics import Metric, by_group, value
+from shared.metrics import Metric, by_group, hidden_columns, value
 
 MAX_INSIGHTS = 8
 MIN_GROUP_SHARE = 0.05  # a segment under 5% of rows is too thin to headline
@@ -214,6 +214,21 @@ def _segment(dim: str, value: str) -> str:
     return f"{dim} = {value}" if _BARE_CODE.match(value.strip()) else value
 
 
+MIN_RATE_GAP = 0.01  # a rate must differ by a percentage point between segments to be a finding
+MIN_EFFECT = 0.2  # an average must differ by a fifth of the column's own spread
+
+
+def _material(metric: Metric, frame: pd.DataFrame, a: float, b: float) -> bool:
+    """Whether the gap between two segments is a finding: "11x higher" between 0.01 and 0.00 is not one."""
+    gap = abs(a - b)
+    if metric.unit == "percent":
+        return gap >= MIN_RATE_GAP
+    if metric.source == "column" and metric.columns and metric.columns[0] in frame.columns:
+        spread = float(pd.to_numeric(frame[metric.columns[0]], errors="coerce").std())
+        return bool(spread == spread and gap >= MIN_EFFECT * spread)
+    return True
+
+
 def _comparables(metrics: dict[str, Metric]) -> list[Metric]:
     """The metrics a story compares across segments and over time: the ratios first, then the average of each
     column that does not add up (so a table of ages and speeds has findings too: "X's average is 1.4x Y's")."""
@@ -238,9 +253,8 @@ def insights(df: pd.DataFrame, planned: dict[str, Any], metrics: dict[str, Metri
     measures = _summed(planned, metrics)
     ratios = _comparables(metrics)
     work = df.copy()
-    for m in metrics.values():
-        for col, vals in m.hidden.items():
-            work[col] = vals
+    for col, vals in hidden_columns(metrics.values()).items():
+        work[col] = vals
     # A placeholder is not a segment: "device" in the device column is a header
     # row, and it headlined as the cheapest device of all.
     for dim in dims:
@@ -300,12 +314,12 @@ def insights(df: pd.DataFrame, planned: dict[str, Any], metrics: dict[str, Metri
                 continue
             hi, lo = str(per.idxmax()), str(per.idxmin())
             a, b = float(per.max()), float(per.min())
-            if a / b < 1.5:
+            if a / b < 1.5 or not _material(metric, work, a, b):
                 continue
             best, worst = (lo, hi) if metric.better == "down" else (hi, lo)
             best, worst = _segment(dim, best), _segment(dim, worst)
             bv, wv = (b, a) if metric.better == "down" else (a, b)
-            word = "cheaper" if metric.better == "down" else "higher"
+            word = ("cheaper" if metric.unit == "currency" else "lower") if metric.better == "down" else "higher"  # a rate is not a price
             headline = f"{best} {metric.name} {fmt(bv, metric.unit, currency)} against {fmt(wv, metric.unit, currency)} for {worst}"
             text = (
                 f"On {metric.name} ({metric.description.split(' (')[0]}), {best} is {times(a, b)} {word} than {worst}. "

@@ -31,7 +31,8 @@ from shared.analysis_plan import ROWS_COLUMN, needs_row_count, plan
 from shared.column_utils import is_identifier
 from shared.dashboard_spec import validate as validate_spec
 from shared.file_utils import read_csv, read_table, sniff_encoding, sniff_separator
-from shared.metrics import flag_rates, text_flag_rates, value
+from shared.metrics import MetricError, evaluate_tree, flag_rates, hidden_columns, spec_metrics, text_flag_rates, value
+from tests.dashboard_page import run_js
 
 
 @pytest.fixture(autouse=True)
@@ -203,6 +204,18 @@ class TestAFlagIsAnOutcomeAndItsRateIsAFinding:
         neutral = sales.rename(columns={"defaulted": "is_premium"})
         assert {m.name: m.better for m in flag_rates(neutral, plan(neutral))} == {"is_premium rate": ""}
 
+    def test_a_rate_that_is_lower_is_lower_not_cheaper(self, _home, sales):
+        sales["defaulted"] = (
+            np.where(sales["segment"] == "a", 0.40, 0.10) > np.random.default_rng(3).random(len(sales))
+        ).astype(int)
+        path = _home / "loans.csv"
+        sales.to_csv(path, index=False)
+        result, _ = page(path, _home)
+        texts = " ".join(i["text"] for i in result["insights"] if "defaulted rate" in i["headline"])
+        assert "defaulted rate" in texts and "cheaper" not in texts and re.search(r"\d+(\.\d+)?x lower than", texts), (
+            texts
+        )
+
     @pytest.mark.parametrize("gaps", [False, True])
     def test_a_flag_written_in_words_has_a_rate_that_is_a_number(self, sales, gaps):
         """`count(col)` of words counts no numbers, so the first version of this rate was x / 0 = NaN."""
@@ -372,6 +385,24 @@ class TestAFileTooBigToHoldIsDrawnFromASample:
         assert any("sample of a file too big" in p["message"] for p in result["progress"])
         assert len(pd.read_csv(facts["sample_file"])) == 500
 
+    def test_the_sample_says_what_the_file_said(self, _home, monkeypatch):
+        """DuckDB reads Yes/No as true/false, 007 as 7 and 1.50 as 1.5: a copy of rows must not."""
+        path = _home / "orders.csv"
+        n = 900
+        pd.DataFrame(
+            {
+                "code": [f"{i % 400:03d}" for i in range(n)],
+                "returned": np.where(np.arange(n) % 5 == 0, "Yes", "No"),
+                "price": ["1.50", "2.00", "3.25"] * (n // 3),
+            }
+        ).to_csv(path, index=False)
+        monkeypatch.setenv("MCP_BIG_TABLE", "always")
+        monkeypatch.setattr(_adv_dashboard, "DASHBOARD_SAMPLE_ROWS", 100)
+        sample, facts = _adv_dashboard._sample_of_big_file(path, "test")
+        text = pd.read_csv(sample, dtype=str, keep_default_na=False)
+        assert set(text["returned"]) == {"Yes", "No"} and facts["rows_used"] == 100
+        assert set(text["price"]) <= {"1.50", "2.00", "3.25"} and text["code"].str.len().eq(3).all()
+
     def test_the_sample_is_what_customize_works_on(self, _home, sales, monkeypatch):
         path = _home / "huge.csv"
         pd.concat([sales] * 4, ignore_index=True).to_csv(path, index=False)
@@ -392,3 +423,143 @@ class TestAFileTooBigToHoldIsDrawnFromASample:
         path = _home / "fits.csv"
         sales.to_csv(path, index=False)
         assert "sampled_from_file" not in page(path, _home)[0]
+
+
+class TestAFlagIsRightOnAnAggregatedPage:
+    """Above 100,000 rows the page holds a cube; a flag's rate must still be the share of rows."""
+
+    @pytest.fixture
+    def flags(self, _home):
+        n = 120_000
+        rng = np.random.default_rng(1)
+        frame = pd.DataFrame(
+            {
+                "day": (pd.Timestamp("2024-01-01") + pd.to_timedelta(rng.integers(0, 300, n), unit="D")).strftime(
+                    "%Y-%m-%d"
+                ),
+                "region": rng.choice(["N", "S", "E", "W"], n),
+                "revenue": rng.integers(10, 500, n),
+                "int_flag": (rng.random(n) < 0.13).astype(int),
+                "bool_flag": rng.random(n) < 0.21,
+                "word_flag": np.where(rng.random(n) < 0.34, "Yes", "No"),
+            }
+        )
+        path = _home / "flags.csv"
+        frame.to_csv(path, index=False)
+        return path, frame
+
+    @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+    def test_each_kind_of_flag_reads_its_share_on_the_page(self, _home, flags):
+        path, frame = flags
+        _, html = page(path, _home)
+        assert run_js(html, "!!_CUBE") is True
+        want = {
+            "int_flag rate": frame["int_flag"].mean(),
+            "bool_flag rate": frame["bool_flag"].mean(),
+            "word_flag rate": (frame["word_flag"] == "Yes").mean(),
+        }
+        for name, share in want.items():
+            got = run_js(html, f"_mval(_METRICS[{name!r}].tree,_RAW)")
+            assert got == pytest.approx(share, abs=1e-3), name
+
+
+class TestANoteIsNotACategory:
+    """The hospital file's footnote columns (three sentences repeated down 4,818 rows) were its filters and its headline."""
+
+    FOOTNOTES = [
+        "Data are shown only for hospitals that participate in the Inpatient Quality Reporting programs",
+        "Results are not available for this reporting period",
+        "Data suppressed by CMS for one or more quarters",
+    ]
+
+    @pytest.fixture
+    def hospitals(self):
+        n = 300
+        rng = np.random.default_rng(2)
+        return pd.DataFrame(
+            {
+                "Hospital Type": rng.choice(["Acute Care", "Critical Access", "Children's"], n),
+                "Mortality footnote": rng.choice(self.FOOTNOTES, n),
+                "Rating": rng.integers(1, 6, n),
+                "Beds": rng.integers(10, 900, n),
+            }
+        )
+
+    def test_a_column_of_sentences_is_text(self, hospitals):
+        planned = plan(hospitals)
+        assert planned["columns"]["Mortality footnote"]["role"] == "text"
+        assert "Mortality footnote" not in planned["dimensions"]
+
+    def test_short_labels_with_spaces_are_still_categories(self, hospitals):
+        assert plan(hospitals)["columns"]["Hospital Type"]["role"] == "dimension"
+        assert (
+            plan(hospitals.assign(site=np.where(np.arange(300) % 2, "City Hotel", "Resort Hotel")))["columns"]["site"][
+                "role"
+            ]
+            == "dimension"
+        )
+
+    def test_the_page_neither_filters_nor_headlines_by_one(self, _home, hospitals):
+        path = _home / "hospitals.csv"
+        hospitals.to_csv(path, index=False)
+        result, _ = page(path, _home)
+        filters = [f if isinstance(f, str) else f.get("column") for f in result["spec"].get("filters", [])]
+        assert "Mortality footnote" not in filters
+        assert not any(self.FOOTNOTES[1] in i["headline"] for i in result["insights"])
+
+
+class TestAGapIsAFindingOnlyWhenItIsBigEnoughToMatter:
+    def test_eleven_times_nothing_is_not_the_headline(self, _home):
+        n = 600
+        rng = np.random.default_rng(4)
+        segment = rng.choice(["a", "b"], n)
+        frame = pd.DataFrame(
+            {
+                "segment": segment,
+                "region": rng.choice(["n", "s", "e"], n),
+                # rare spikes: segment a's mean is 3x segment b's, and both are about nothing next to the spikes
+                "calls": np.where(rng.random(n) < np.where(segment == "a", 0.03, 0.01), rng.exponential(5, n), 0.0),
+                "wage": np.where(segment == "a", 80.0, 50.0) + rng.normal(0, 8, n),
+            }
+        )
+        path = _home / "people.csv"
+        frame.to_csv(path, index=False)
+        result, _ = page(path, _home)
+        headlines = " ".join(i["headline"] for i in result["insights"])
+        assert "wage" in headlines and "calls" not in headlines, headlines
+
+
+class TestAnAverageOfNothingIsNothing:
+    def test_the_page_does_not_rate_a_group_with_no_values_zero(self, _home, sales):
+        if shutil.which("node") is None:
+            pytest.skip("node is not installed")
+        path = _home / "m.csv"
+        sales.to_csv(path, index=False)
+        _, html = page(path, _home)
+        assert run_js(html, "_mval({agg:'mean',col:'revenue'},[{revenue:null},{revenue:null}])") is None
+        assert run_js(html, "_mval({agg:'max',col:'revenue'},[{revenue:null}])") is None
+        assert run_js(html, "_measure({value:'revenue',agg:'mean'},[{revenue:null}])") is None
+        assert run_js(html, "_mval({agg:'sum',col:'revenue'},[{revenue:null}])") == 0
+        assert run_js(html, "_mval({agg:'mean',col:'revenue'},[{revenue:4},{revenue:null}])") == 4
+
+    def test_the_mirror_agrees(self):
+        empty = pd.DataFrame({"x": [None, None]})
+        assert np.isnan(evaluate_tree({"agg": "mean", "col": "x"}, empty))
+        assert evaluate_tree({"agg": "sum", "col": "x"}, empty) == 0.0
+
+
+class TestTwoMetricsNeverShareAComputedColumn:
+    def test_a_name_makes_its_own_column(self, sales):
+        frame = sales
+        one = spec_metrics(frame, {"A": "count_if(clicks > 3) / count()"})[0]
+        two = spec_metrics(frame, {"B": "count_if(clicks > 6) / count()"})[0]
+        assert not set(one.hidden) & set(two.hidden)
+        assert set(hidden_columns([one, two])) == set(one.hidden) | set(two.hidden)
+
+    def test_one_column_owned_twice_is_refused(self, sales):
+        frame = sales
+        one = spec_metrics(frame, {"A": "count_if(clicks > 3) / count()"})[0]
+        clash = spec_metrics(frame, {"B": "count_if(clicks > 6) / count()"})[0]
+        clash.hidden = dict(one.hidden)
+        with pytest.raises(MetricError, match="same hidden column"):
+            hidden_columns([one, clash])
