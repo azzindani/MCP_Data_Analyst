@@ -58,6 +58,7 @@ from shared.column_utils import (
     condition_column,
     filter_operand_error,
     missing_column_error,
+    names_not_dates,
     parse_dates,
     type_sample,
 )
@@ -624,14 +625,21 @@ def validate_dataset(
                     }
                 )
 
+        # A zero is a value. In a 0/1 column it is a class (`Status`, `is_canceled`: 75% and 63% "zeros" cost
+        # the loan and hotel files 19 and 6 points of score), and in a count it is "none" (99% of
+        # `babies`). Reported as advice, as check_data_quality and run_eda report it: the same file
+        # scored 41 here and 96 there. Advice is listed and never scored, and never fails `passed`.
         for col in df.columns:
             if pd.api.types.is_numeric_dtype(df[col]):
+                present = df[col].dropna()
+                if present.nunique() <= 2 and set(present.unique()) <= {0, 1}:
+                    continue
                 zc = int((df[col] == 0).sum())
                 if zc > 0:
                     pct = round(zc / total_rows * 100, 2) if total_rows > 0 else 0
                     issues.append(
                         {
-                            "severity": "warning",
+                            "severity": "advice",
                             "column": col,
                             "issue": f"{zc} zeros ({pct}%)",
                         }
@@ -671,11 +679,11 @@ def validate_dataset(
                 penalty += 5
             elif iss["severity"] == "warning":
                 penalty += 2
-            else:
+            elif iss["severity"] != "advice":
                 penalty += 1
         score = max(0, 100 - penalty)
 
-        passed = len(issues) == 0
+        passed = not any(iss["severity"] != "advice" for iss in issues)
         progress.append(
             ok(
                 f"Validated {path.name}",
@@ -780,7 +788,8 @@ def auto_detect_schema(
                 # format="mixed", errors="coerce", and an orientation chosen
                 # from the data rather than assumed.
                 candidates = _type_sample(s)
-                if len(candidates):
+                # "July" parses, as year 1: names with no day or year are a calendar part, not a date.
+                if len(candidates) and not names_not_dates(candidates):
                     parsed, date_meta = parse_dates(candidates)
                     date_match = float(parsed.notna().mean())
                     if date_match >= _TYPE_MATCH_THRESHOLD:

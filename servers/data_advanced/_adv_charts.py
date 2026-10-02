@@ -473,6 +473,13 @@ def generate_pairwise_plot(
                 "token_estimate": 20,
             }
 
+        # A scatter matrix draws every row in every panel: 148,670 rows by four columns was 12 panels
+        # of full scatter, an 8.6 MB page that did not finish loading in 120 s on a phone-width
+        # viewport. The siblings draw 5,000 points and say so; so does this.
+        full_rows = len(plot_df)
+        plot_df, sample_fields = sampled_frame(plot_df, MAX_PLOT_POINTS if full_rows > MAX_PLOT_POINTS else 0)
+        if sample_fields:
+            progress.append(info("Downsampled for plotting", f"{len(plot_df):,} of {full_rows:,} complete rows drawn"))
         fig = px.scatter_matrix(
             plot_df,
             title=f"Pairwise Plot: {', '.join(cols_to_plot)}",
@@ -500,6 +507,8 @@ def generate_pairwise_plot(
             "output_name": fname,
             "columns_plotted": cols_to_plot,
             "rows_used": rows_used,
+            "rows_plotted": int(len(plot_df)),
+            **{k: v for k, v in sample_fields.items() if k != "sample_note"},
             "progress": progress,
         }
         if rows_used < MIN_N_CORRELATION:
@@ -754,12 +763,16 @@ def export_data(
         # success: true with .mcp_versions empty.
         snapshot_if_exists(out)
 
+        # preview_rows is honoured by every format: it was read for Excel only, so a json export of
+        # 148,670 rows with preview_rows=3 wrote the whole 133 MB file and reported success.
+        previewing = 0 < preview_rows < len(df)
+        body = df.head(preview_rows) if previewing else df
         if format == "csv":
-            df.to_csv(str(out), index=False, encoding=encoding, sep=separator)
+            body.to_csv(str(out), index=False, encoding=encoding, sep=separator)
             if open_after:
                 _open_file(out)
         elif format == "json":
-            df.to_json(str(out), orient="records", indent=2)
+            body.to_json(str(out), orient="records", indent=2)
             if open_after:
                 _open_file(out)
         workbook_report: dict | None = None
@@ -780,7 +793,9 @@ def export_data(
                 _open_file(out)
 
         size_kb = round(out.stat().st_size / 1024)
-        progress.append(ok("Data exported", f"{out.name} ({size_kb:,} KB, {len(df)} rows)"))
+        # What was written, not what was read: an Excel preview of 1,000 rows said "119390 rows".
+        written = workbook_report["rows_written"] if workbook_report is not None else len(body)
+        progress.append(ok("Data exported", f"{out.name} ({size_kb:,} KB, {written:,} of {len(df):,} rows)"))
 
         result = {
             "success": True,
@@ -788,11 +803,14 @@ def export_data(
             "output_path": str(out),
             "output_name": out.name,
             "format": format,
-            "rows": len(df),
+            "rows": written,
             "columns": len(df.columns),
             "file_size_kb": size_kb,
             "progress": progress,
         }
+        if previewing and workbook_report is None:
+            result["rows_total"] = len(df)
+            result["is_preview"] = True
         if workbook_report is not None:
             result["workbook"] = workbook_report
             progress.append(
@@ -824,7 +842,7 @@ def export_data(
             op="export_data",
             source=path,
             rows_before=len(df),
-            rows_after=(workbook_report or {}).get("rows_written", len(df)),
+            rows_after=written,
             columns_before=len(df.columns),
             columns_after=len(df.columns),
             params={"format": format, "preview_rows": preview_rows} if preview_rows else {"format": format},

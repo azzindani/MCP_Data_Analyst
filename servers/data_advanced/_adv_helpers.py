@@ -198,12 +198,23 @@ def _find_geo_cols(df: pd.DataFrame) -> tuple[str, str, str]:
 
 
 def _detect_location_mode(df: pd.DataFrame, col: str) -> str:
-    """Guess Plotly locationmode from sample values in col."""
-    sample = df[col].dropna().astype(str).unique()[:20].tolist()
-    if not sample:
+    """Guess Plotly locationmode from the values in col.
+
+    By share, not by "every one of the first twenty": the hotel file's `country` holds 176 ISO-3
+    codes and one "CN", and that one value turned the whole column into "country names" -- the map
+    then said "176 of 177 values are not a country name" and drew Portugal alone. A column that is
+    nearly all one kind is that kind; the odd values are named afterwards by the same check that
+    names unplaceable ones.
+    """
+    uniques = df[col].dropna().astype(str).unique()[:500].tolist()
+    if not uniques:
         return "country names"
-    if all(len(v) == 3 and v.isupper() for v in sample):
+
+    def share(test) -> float:
+        return sum(1 for v in uniques if test(v)) / len(uniques)
+
+    if share(lambda v: len(v) == 3 and v.isalpha() and v.isupper()) >= 0.9:
         return "ISO-3"
-    if all(len(v) == 2 and v.upper() in _US_STATES for v in sample):
+    if share(lambda v: len(v) == 2 and v.upper() in _US_STATES) >= 0.9:
         return "USA-states"
     return "country names"

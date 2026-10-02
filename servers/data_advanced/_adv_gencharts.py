@@ -221,6 +221,11 @@ def generate_chart(
                 "progress": [fail("Missing params", "date_column")],
                 "token_estimate": 30,
             }
+        if chart_type == "sankey" and hierarchy_columns and len(hierarchy_columns) == 2:
+            # Two named levels are a source and a target: hierarchy_columns was accepted for a
+            # sankey and silently ignored, and the call then asked for color_column.
+            category_column = category_column or hierarchy_columns[0]
+            color_column = color_column or hierarchy_columns[1]
         if chart_type == "sankey" and not color_column:
             return {
                 "success": False,
@@ -322,6 +327,7 @@ def generate_chart(
             tmpl,
             go,
             px,
+            agg_func,
         )
 
         if fig is None:
@@ -389,6 +395,7 @@ def _dispatch_chart(
     tmpl,
     go,
     px,
+    agg_func="sum",
 ):
     """Build and return a plotly Figure for the given chart_type."""
     if chart_type == "bar":
@@ -515,22 +522,39 @@ def _dispatch_chart(
             title=chart_title,
         )
     if chart_type == "sankey":
-        return _build_sankey(df, category_column, color_column, value_column, chart_title, tmpl, go)
+        return _build_sankey(df, category_column, color_column, value_column, chart_title, tmpl, go, agg_func)
     return None
 
 
-def _build_sankey(df, source_col, target_col, value_col, chart_title, tmpl, go):
-    """Build a Sankey figure."""
-    grouped = df.groupby([source_col, target_col], as_index=False)[value_col].sum()
-    all_nodes = list(set(grouped[source_col].tolist() + grouped[target_col].tolist()))
-    node_idx = {n: i for i, n in enumerate(all_nodes)}
-    src_idx = [node_idx[v] for v in grouped[source_col]]
-    tgt_idx = [node_idx[v] for v in grouped[target_col]]
-    vals = grouped[value_col].tolist()
+def _build_sankey(df, source_col, target_col, value_col, chart_title, tmpl, go, agg_func="sum"):
+    """A Sankey of the flow from `source_col` to `target_col`, measured as `agg_func` of `value_col`.
+
+    Two columns of nodes, never one shared set: when both columns hold "Direct" and "Corporate", a
+    single set made each of them one node with a link to itself, and the flow looped back on its
+    own label. The measure is the one asked for -- it always summed, so agg_func=count drew the SUM
+    of adr under a title reading "count of adr" -- and the nodes are ordered by flow, not by the
+    arbitrary order of a set.
+    """
+    keys = [source_col, target_col]
+    if agg_func == "count":
+        grouped = df.groupby(keys, as_index=False, observed=True).size().rename(columns={"size": value_col})
+    else:
+        grouped = df.groupby(keys, as_index=False, observed=True)[value_col].agg(agg_func)
+    grouped = grouped[grouped[value_col] > 0]  # a Sankey carries non-negative flow only
+    grouped[source_col] = grouped[source_col].astype(str)
+    grouped[target_col] = grouped[target_col].astype(str)
+    left = grouped.groupby(source_col)[value_col].sum().sort_values(ascending=False).index.tolist()
+    right = grouped.groupby(target_col)[value_col].sum().sort_values(ascending=False).index.tolist()
+    left_at = {name: i for i, name in enumerate(left)}
+    right_at = {name: len(left) + i for i, name in enumerate(right)}
     fig = go.Figure(
         go.Sankey(
-            node=dict(label=all_nodes, pad=15, thickness=20),
-            link=dict(source=src_idx, target=tgt_idx, value=vals),
+            node=dict(label=left + right, pad=15, thickness=20),
+            link=dict(
+                source=[left_at[v] for v in grouped[source_col]],
+                target=[right_at[v] for v in grouped[target_col]],
+                value=grouped[value_col].tolist(),
+            ),
         )
     )
     fig.update_layout(title=chart_title, template=tmpl)

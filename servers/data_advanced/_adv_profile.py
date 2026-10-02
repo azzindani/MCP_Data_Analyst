@@ -546,7 +546,7 @@ def _profile_missing(df, missing_by_col, rows, ap_accent, _plot_bg, _font_color)
 </div>
 <script>
 (function(){{
-  var z={ap_miss_z};var x={json_for_script(ap_miss_cols)};var y={json_for_script(ap_miss_y)};
+  var z={json_for_script(ap_miss_z)};var x={json_for_script(ap_miss_cols)};var y={json_for_script(ap_miss_y)};
   var data=[{{z:z,x:x,y:y,type:'heatmap',colorscale:[['0','rgba(0,0,0,0)'],['1','{ap_accent}']],
     showscale:false,hovertemplate:'Column: %{{x}}<br>Row: %{{y}}<br>Missing: %{{z}}<extra></extra>'}}];
   var layout={{paper_bgcolor:'{_plot_bg}',plot_bgcolor:'{_plot_bg}',
@@ -569,9 +569,9 @@ def _profile_correlations(corr_matrix, corr_pairs, spearman_matrix, _plot_bg, _f
     corr_x = corr_matrix.columns.tolist()
     h.append(f"""<script>
 (function() {{
-    var z = {corr_z};
+    var z = {json_for_script(corr_z)};
     var x = {json_for_script(corr_x)};
-    var data = [{{z: z, x: x, y: x, type: 'heatmap', colorscale: 'RdBu', zmid: 0, text: z.map(function(r) {{ return r.map(function(v) {{ return v.toFixed(2); }}); }}), texttemplate: '%{{text}}', textfont: {{size: 11}}}}];
+    var data = [{{z: z, x: x, y: x, type: 'heatmap', colorscale: 'RdBu', zmid: 0, text: z.map(function(r) {{ return r.map(function(v) {{ return v===null?'':v.toFixed(2); }}); }}), texttemplate: '%{{text}}', textfont: {{size: 11}}}}];
     var layout = {{paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}', font: {{color: '{_font_color}'}}, margin: {{l: 120, r: 20, t: 20, b: 120}}, autosize: true}};
     Plotly.newPlot('corr-heatmap', data, layout, {PLOTLY_CFG_JS});
 }})();
@@ -601,8 +601,8 @@ def _profile_correlations(corr_matrix, corr_pairs, spearman_matrix, _plot_bg, _f
 <div class="chart-box"><div id="sp-corr-ap" class="chart-div heatmap"></div></div>
 <script>
 (function() {{
-    var z = {sp_z};var x = {json_for_script(sp_x)};
-    var data = [{{z: z, x: x, y: x, type: 'heatmap', colorscale: 'RdBu', zmid: 0, text: z.map(function(r) {{ return r.map(function(v) {{ return v.toFixed(2); }}); }}), texttemplate: '%{{text}}', textfont: {{size: 11}}}}];
+    var z = {json_for_script(sp_z)};var x = {json_for_script(sp_x)};
+    var data = [{{z: z, x: x, y: x, type: 'heatmap', colorscale: 'RdBu', zmid: 0, text: z.map(function(r) {{ return r.map(function(v) {{ return v===null?'':v.toFixed(2); }}); }}), texttemplate: '%{{text}}', textfont: {{size: 11}}}}];
     var layout = {{paper_bgcolor: '{_plot_bg}', plot_bgcolor: '{_plot_bg}', font: {{color: '{_font_color}'}}, margin: {{l: 120, r: 20, t: 20, b: 120}}, autosize: true}};
     Plotly.newPlot('sp-corr-ap', data, layout, {PLOTLY_CFG_JS});
 }})();

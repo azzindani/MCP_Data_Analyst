@@ -10,8 +10,8 @@ its columns.
 
 `plan(df)` returns, for the page and for the caller:
 
-- a role per column: date, id, measure (additive or not), dimension, flag,
-  constant, text; a unit (currency, count, percent, number); the share of
+- a role per column: date, calendar (a number that is a piece of a date: year, week, day of
+  month), id, measure (additive or not), dimension, flag, constant, text; a unit (currency, count, percent, number); the share of
   placeholders ("-", "N/A", "Undetermined", its own name);
 - alias groups: dimensions that split the rows identically;
 - hierarchies: a dimension whose every value sits inside one value of another;
@@ -28,7 +28,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from shared.column_utils import is_identifier, is_numeric_col, parse_date_column
+from shared.column_utils import calendar_part, is_identifier, is_numeric_col, parse_date_column
 from shared.data_alerts import placeholder_counts
 from shared.metrics import better_of, unit_of
 
@@ -76,6 +76,8 @@ def _role(col: Any, s: pd.Series, rows: int) -> tuple[str, pd.Series | None]:
             return "id", None
         if set(pd.unique(present)) <= {0, 1}:
             return "flag", None
+        if calendar_part(str(col), s):
+            return "calendar", None
         return "measure", None
     parsed = parse_date_column(s)
     if parsed is not None:
@@ -207,6 +209,12 @@ def plan(df: pd.DataFrame) -> dict[str, Any]:
         share = info.get("placeholder_share", 0)
         if share >= PLACEHOLDER_HEAVY:
             notes.append(f"{col} is a placeholder in {share:.0%} of rows, so it is left out of the segment views.")
+    parts = [c for c, i in columns.items() if i["role"] == "calendar"]
+    if parts:
+        notes.append(
+            f"{', '.join(parts)} {'is a part' if len(parts) == 1 else 'are parts'} of a date, so "
+            f"{'it is' if len(parts) == 1 else 'they are'} not summed, averaged or ranked as measures."
+        )
     for h in hierarchies:
         # A column already left out as placeholders adds nothing by nesting.
         if columns[h["child"]].get("placeholder_share", 0) < PLACEHOLDER_HEAVY:

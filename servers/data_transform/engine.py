@@ -473,7 +473,27 @@ def reshape_dataset(
             progress.append(ok(f"Combined into '{new_column}'", f"from {cols}"))
 
         elif mode == "transpose":
-            df = df.set_index(df.columns[0]).transpose().reset_index()
+            # The first column becomes the new header, so its values must be names: unique ones.
+            # Hotel's first column is `hotel` (two values over 119,390 rows) and the result was a
+            # CSV with 119,391 columns called "Resort Hotel" and "City Hotel", the labels gone
+            # from the data, and nothing said so -- dry_run reported only the shape.
+            first = df.columns[0]
+            if not df[first].is_unique:
+                distinct = int(df[first].nunique(dropna=False))
+                return {
+                    "success": False,
+                    "error": (
+                        f"transpose turns the first column ('{first}') into the header, and it has "
+                        f"{distinct:,} distinct value(s) over {len(df):,} rows."
+                    ),
+                    "hint": (
+                        "Put a column of unique labels first (an id), or aggregate to one row per label "
+                        "with aggregate_dataset(mode='groupby') and transpose that."
+                    ),
+                    "progress": [fail("First column is not unique", f"{first}: {distinct:,} of {len(df):,}")],
+                    "token_estimate": 60,
+                }
+            df = df.set_index(first).transpose().reset_index()
             df.columns.name = None
             progress.append(ok("Transposed", f"{before_shape} → {list(df.shape)}"))
 

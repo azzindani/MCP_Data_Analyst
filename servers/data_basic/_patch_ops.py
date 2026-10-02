@@ -14,6 +14,7 @@ from shared.value_alias import resolve as resolve_op
 _ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
+from shared.column_utils import names_not_dates
 from shared.expr import evaluate as evaluate_formula
 from shared.file_utils import read_csv as _read_csv
 from shared.file_utils import resolve_path as _resolve_path
@@ -139,6 +140,12 @@ def _op_cast_column(df: pd.DataFrame, op: dict) -> tuple[pd.DataFrame, dict]:
         df[col] = df[col].astype(str)
         to_dtype = "object"
     elif dtype == "datetime":
+        if not pd.api.types.is_numeric_dtype(df[col]) and names_not_dates(df[col], threshold=0.5):
+            raise ValueError(
+                f"'{col}' holds names with no year or day number, not dates: casting it would write "
+                "year 1 for every value. Map the names to numbers with replace_values (July -> 7), "
+                "or build a date from this column and a year column."
+            )
         converted = pd.to_datetime(df[col], format="mixed", dayfirst=False, errors="coerce")
         failed = max(0, int(converted.isna().sum()) - int(df[col].isna().sum()))
         df[col] = converted

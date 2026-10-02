@@ -361,6 +361,28 @@ def leakage_suspects(
     return suspects
 
 
+def with_original_nulls(processed: pd.DataFrame, raw: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    """`processed` with the cells that were null in `raw` put back as NaN, for the leakage read.
+
+    Training fills a number's null with its median and encodes a text null as a
+    class of its own, and then asks whether any feature already holds the answer.
+    By then a field that is empty for exactly one outcome -- the signature of
+    something recorded after it -- looks like an ordinary column: the loan file's
+    `Interest_rate_spread` is null for every default and none of the others, the
+    model scored accuracy 1.0, and the suspect list was empty while the quality
+    check on the same file named eight. The value-based signals still read the
+    filled and encoded columns; only the cells that were missing are restored.
+    """
+    out = processed.copy()
+    for col in columns:
+        if col not in out.columns or col not in raw.columns:
+            continue
+        was_null = raw[col].reindex(out.index).isna()
+        if bool(was_null.any()):
+            out[col] = pd.to_numeric(out[col], errors="coerce").astype(float).where(~was_null)
+    return out
+
+
 def leakage_note(suspects: list[dict[str, Any]], score: float | None = None) -> str:
     """One sentence for the response, or '' when nothing is suspect."""
     if not suspects:

@@ -482,6 +482,13 @@ def build(
         m = metrics.get(name)
         return f"{agg_label(m.tree['agg'])} {name}" if m is not None and m.source == "column" else name
 
+    def agg_of(name: str) -> dict[str, str]:
+        """The aggregate `named` promises, on the panel itself. A title that says "Avg" over a panel
+        that carries no `agg` is drawn with the page's default, which is a sum: the hotel file's
+        "Avg arrival_date_year" showed 240.7M."""
+        m = metrics.get(name)
+        return {"agg": m.tree["agg"]} if m is not None and m.source == "column" and m.tree.get("agg") else {}
+
     summary = [f for f in found if f["page"] == "Summary"]
     headline = (
         summary[0]["headline"] if summary else (found[0]["headline"] if found else f"{title}: {planned['rows']:,} rows")
@@ -506,6 +513,7 @@ def build(
             {
                 "chart": "kpi",
                 "cols": {"value": name},
+                **agg_of(name),
                 "title": named(name),
                 "place": {"span": 12 // max(len(kpi_names), 1)},
             },
@@ -527,6 +535,7 @@ def build(
             {
                 "chart": "time_series",
                 "cols": {"date": g["date"], "value": headline_metric},
+                **agg_of(headline_metric),
                 "title": f"{named(headline_metric)} by {g['grain']}",
                 # A forecast once there is a trend to extend: six complete periods.
                 "style": {"ma": 0, **({"forecast": 3} if bucket(df[g["date"]], g["grain"]).nunique() >= 7 else {})},
@@ -541,6 +550,7 @@ def build(
             {
                 "chart": "bar",
                 "cols": {"category": primary, "value": headline_metric},
+                **agg_of(headline_metric),
                 "title": f"{named(headline_metric)} by {primary}",
                 "style": {"orientation": "h", "other": True, "top_n": 10},
                 "place": {"span": 6},
@@ -599,6 +609,7 @@ def build(
             {
                 "chart": "table",
                 "cols": cols,
+                **agg_of(headline_metric),
                 "title": f"{named(headline_metric)} by {primary}",
                 "style": {"heat": True, "totals": True},
                 "place": {"span": 12},

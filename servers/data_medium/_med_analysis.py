@@ -89,6 +89,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+MATRIX_INLINE_MAX = 40
+INSIGHTS_INLINE_MAX = 20
+
+
 def correlation_analysis(
     file_path: str,
     method: str = "pearson",
@@ -161,10 +165,21 @@ def correlation_analysis(
             "method": method,
             "columns": cols,
             "top_pairs": top_pairs,
-            "matrix": matrix,
             "hint": "Call apply_patch() or run_cleaning_pipeline() to act on findings.",
             "progress": progress,
         }
+        # The matrix is N x N and the findings are one per redundant pair, so both grow faster than
+        # the file: a 4,290-column file answered with 23 MB (5.7 million tokens) in one reply, the
+        # matrix 1.9 MB of it and 39,941 findings the rest -- a caller's whole context in one
+        # tool result. Small matrices are inlined; larger ones say where they are instead.
+        if len(cols) <= MATRIX_INLINE_MAX:
+            result["matrix"] = matrix
+        else:
+            result["matrix_omitted"] = (
+                f"{len(cols)} x {len(cols)} matrix not inlined (limit {MATRIX_INLINE_MAX} columns). "
+                "It is drawn in the saved heatmap; top_pairs lists the strongest pairs, and passing "
+                "fewer columns returns the matrix itself."
+            )
 
         if _PLOTLY_AVAILABLE:
             z = [[matrix[r][c] if matrix[r][c] is not None else 0.0 for c in cols] for r in cols]
@@ -197,7 +212,13 @@ def correlation_analysis(
             # twice, drop one" was not, so the finding existed only for a reader
             # who already knew to look.
             found = from_correlations(pairs)
-            result["insights"] = found
+            result["insights"] = found[:INSIGHTS_INLINE_MAX]
+            if len(found) > INSIGHTS_INLINE_MAX:
+                result["insights_total"] = len(found)
+                result["insights_note"] = (
+                    f"The {INSIGHTS_INLINE_MAX} strongest of {len(found):,} findings are inlined; "
+                    "all of them are in insights_path."
+                )
             result["insights_path"] = write_insights(
                 abs_p,
                 found,
@@ -1635,7 +1656,10 @@ def detect_anomalies(
                 fixes.append(row_fix(hits))
             flagged["anomaly_reason"] = reasons
             flagged["suggested_fix"] = fixes
-            anomalies_out = str(default_output_path(Path(out), "only"))
+            # Beside the scored file, wherever the caller put it: `default_output_path` always answers
+            # with the output ROOT, so an output_path in a scratch folder still wrote this file
+            # into the user's own data folder.
+            anomalies_out = str(Path(out).with_name(f"{Path(out).stem}_only.csv"))
             flagged.to_csv(anomalies_out, index=False)
             anomalies_rows = len(flagged)
             progress.append(

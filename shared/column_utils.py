@@ -156,6 +156,15 @@ _ID_WORDS = frozenset(
 )
 
 
+# The thing a number refers to rather than measures: `agent` 9 is travel agent 9, and summing
+# or averaging agent numbers is as meaningless as summing customer_id. Only an integer column
+# named for one of these counts, so `agent_fee` and `store_count` stay measures.
+_ENTITY_WORDS = frozenset(
+    {"agent", "company", "customer", "client", "user", "member", "employee", "driver", "vendor", "supplier"}
+    | {"store", "shop", "branch", "account", "campaign", "region", "country"}
+)
+
+
 def _ordered_words(col: str) -> list[str]:
     spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", str(col))
     return [w for w in re.split(r"[^a-z0-9]+", spaced.lower()) if w]
@@ -176,11 +185,72 @@ def is_identifier(col: str, series: pd.Series) -> bool:
     if words and words[-1] in _ID_WORDS:
         return True
     values = series.dropna()
+    if words and words[-1] in _ENTITY_WORDS and len(values) and bool((values == values.round()).all()):
+        return True
     if len(values) < 20 or not bool((values == values.round()).all()):
         return False
     if values.nunique() != len(values):
         return False
     return bool((values.diff().dropna() == 1).all())
+
+
+def names_not_dates(values: pd.Series, threshold: float = 0.9) -> bool:
+    """True when a text column holds names and no numbers: "July", "Mon", "Q3", never "July 4".
+
+    A month or weekday name is a calendar part, not a date. Handed to a date parser it
+    comes back as year 1 -- `1-07-01` for every "July" -- with every value parsed and
+    nothing failed, so the hotel file's `arrival_date_month` was detected as a date
+    column, offered `cast_column dtype=datetime`, and written as year 1 on request;
+    date_parts then gave all 119,390 rows `arrival_date_month_year = 1`. A date carries
+    at least a day or a year, and either is a digit.
+    """
+    text = values.dropna().astype(str)
+    if text.empty:
+        return False
+    return float(text.str.contains(r"\d").mean()) < threshold
+
+
+# A number that is a piece of a date, by its name and by the range it stays in. Both: a column
+# named `stays_in_week_nights` ends in "nights" and holds 0-50, which is a quantity of nights.
+_CALENDAR_RANGES = {
+    "year": (1900, 2100),
+    "quarter": (1, 4),
+    "month": (1, 12),
+    "week": (1, 53),
+    "day_of_month": (1, 31),
+    "day": (1, 31),
+    "hour": (0, 23),
+    "weekday": (0, 7),
+    "dow": (0, 7),
+}
+_CALENDAR_NAME = re.compile(
+    r"(?:^|[_\s-])(day[_\s-]of[_\s-]month|day[_\s-]of[_\s-]week|year|quarter|month|week|day|hour|weekday|dow)"
+    r"(?:[_\s-]?(?:number|num|no|nr|of[_\s-]year))?$",
+    re.IGNORECASE,
+)
+
+
+def calendar_part(col: str, series: pd.Series) -> str:
+    """The date part a numeric column is ("year", "month", "week", ...), or "" when it is not one.
+
+    Summing arrival_date_year, averaging arrival_date_week_number or reading "1 brings 63% of
+    arrival_date_week_number" is a wrong answer in a right-looking sentence: they say when, and
+    the date column already says that.
+    """
+    if not is_numeric_col(series):
+        return ""
+    found = _CALENDAR_NAME.search(str(col).strip())
+    if not found:
+        return ""
+    values = series.dropna()
+    if values.empty or not bool((values == values.round()).all()):
+        return ""
+    part = re.sub(r"[\s-]+", "_", found.group(1).lower())
+    part = "day_of_month" if part == "day_of_month" else "day" if part == "day_of_week" else part
+    low, high = _CALENDAR_RANGES.get(part, (None, None))
+    if low is None or not (low <= float(values.min()) and float(values.max()) <= high):
+        return ""
+    return part
 
 
 # What a date looks like before it is parsed: a 19xx/20xx year, a d/m/y run,
@@ -208,7 +278,7 @@ def parse_date_column(series: pd.Series, named: bool = False, threshold: float =
     if values.empty:
         return None
     sample = values.sample(200, random_state=0) if len(values) > 200 else values
-    if not named and sample.str.contains(_DATE_SHAPE).mean() < threshold:
+    if not named and (sample.str.contains(_DATE_SHAPE).mean() < threshold or names_not_dates(sample, threshold)):
         return None
     present = int(series.notna().sum())
     for fmt in ("ISO8601", "mixed"):
@@ -715,6 +785,11 @@ def date_note(info: dict, column: str) -> dict:
     from shared.progress import warn as _warn
 
     order = "day-first (DD-MM-YYYY)" if info["dayfirst"] else "month-first (MM-DD-YYYY)"
+    # An ISO date has no day-versus-month question: the note said "month-first (MM-DD-YYYY)" over a
+    # reason reading "ISO year-first dates", which read as a claim that 2017/09/11 had been taken as
+    # 9 November.
+    if "year-first" in str(info.get("reason", "")).lower() and not info["ambiguous"]:
+        order = "year-first (YYYY-MM-DD)"
     if info["ambiguous"]:
         return _warn(
             f"'{column}' date order is ambiguous — read as {order}",
@@ -765,6 +840,8 @@ def looks_like_dates(series: pd.Series, dayfirst: str = "auto") -> tuple[bool, f
     sample = type_sample(series)
     if len(sample) == 0:
         return False, 0.0, {"dayfirst": False, "reason": "no values", "ambiguous": False}
+    if not pd.api.types.is_numeric_dtype(sample) and names_not_dates(sample, DATE_MATCH_THRESHOLD):
+        return False, 0.0, {"dayfirst": False, "reason": "names with no year or day number", "ambiguous": False}
     parsed, meta = parse_dates(sample, dayfirst)
     rate = float(parsed.notna().mean())
     return rate >= DATE_MATCH_THRESHOLD, rate, meta

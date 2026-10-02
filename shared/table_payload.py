@@ -14,6 +14,7 @@ array-of-row-objects on load, so nothing downstream of it changes.
 from __future__ import annotations
 
 import json
+import math
 
 import pandas as pd
 
@@ -74,8 +75,25 @@ def json_for_script(obj: object) -> str:
     after it becomes markup. Escaping the three characters that can start such a
     sequence keeps the value byte-identical once JavaScript decodes it.
     """
-    payload = json.dumps(obj, separators=(",", ":"), default=str)
+    try:
+        payload = json.dumps(obj, separators=(",", ":"), default=str, allow_nan=False)
+    except ValueError:
+        # A NaN or an infinity has no JSON form. Python's own `repr` of a matrix writes `nan`,
+        # which is not even a JavaScript name: a correlation matrix with one constant column in
+        # it (every cell of its row is NaN) threw "nan is not defined" and drew no heatmap.
+        payload = json.dumps(_finite(obj), separators=(",", ":"), default=str)
     return payload.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+
+
+def _finite(obj: object) -> object:
+    """`obj` with every non-finite float replaced by None, which a chart reads as a gap."""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _finite(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_finite(v) for v in obj]
+    return obj
 
 
 def records_js(df: pd.DataFrame) -> str:

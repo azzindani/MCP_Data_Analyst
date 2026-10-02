@@ -559,10 +559,10 @@ def _build_eda_html(
 <div class="chart-box"><div id="corr-chart" class="chart-div heatmap"></div></div>
 <script>
 (function(){{
-  var z={corr_z};var x={json_for_script(corr_x)};
+  var z={json_for_script(corr_z)};var x={json_for_script(corr_x)};
   {_bg_init}
   var data=[{{z:z,x:x,y:x,type:'heatmap',colorscale:'RdBu',zmid:0,
-    text:z.map(function(r){{return r.map(function(v){{return v.toFixed(2);}});}}),
+    text:z.map(function(r){{return r.map(function(v){{return v===null?'':v.toFixed(2);}});}}),
     texttemplate:'%{{text}}',textfont:{{size:11}}}}];
   var layout={{paper_bgcolor:{_bg_ref},plot_bgcolor:{_bg_ref},font:{{color:{_fc_ref}}},
     margin:{{l:120,r:20,t:20,b:120}},autosize:true}};
@@ -579,10 +579,10 @@ def _build_eda_html(
 <div class="chart-box"><div id="sp-corr-chart" class="chart-div heatmap"></div></div>
 <script>
 (function(){{
-  var z={sp_z};var x={json_for_script(sp_x)};
+  var z={json_for_script(sp_z)};var x={json_for_script(sp_x)};
   {_bg_init}
   var data=[{{z:z,x:x,y:x,type:'heatmap',colorscale:'RdBu',zmid:0,
-    text:z.map(function(r){{return r.map(function(v){{return v.toFixed(2);}});}}),
+    text:z.map(function(r){{return r.map(function(v){{return v===null?'':v.toFixed(2);}});}}),
     texttemplate:'%{{text}}',textfont:{{size:11}}}}];
   var layout={{paper_bgcolor:{_bg_ref},plot_bgcolor:{_bg_ref},font:{{color:{_fc_ref}}},
     margin:{{l:120,r:20,t:20,b:120}},autosize:true}};
@@ -817,7 +817,7 @@ def _build_missing_section(df, missing_by_col, rows, accent_color, bg_init, bg_r
 </div>
 <script>
 (function(){{
-  var z={miss_z};var x={json_for_script(miss_cols)};var y={json_for_script(miss_y)};
+  var z={json_for_script(miss_z)};var x={json_for_script(miss_cols)};var y={json_for_script(miss_y)};
   {bg_init}
   var data=[{{z:z,x:x,y:y,type:'heatmap',colorscale:[['0','rgba(0,0,0,0)'],['1','{accent_color}']],
     showscale:false,hovertemplate:'Column: %{{x}}<br>Row: %{{y}}<br>Missing: %{{z}}<extra></extra>'}}];

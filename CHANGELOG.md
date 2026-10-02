@@ -6,6 +6,34 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed — what the 2026-10-02 big-data sweep found untrue
+
+- A piece of a date is not a quantity. `arrival_date_year`, `..._week_number`, `..._day_of_month`
+  are a new `calendar` role (`shared/column_utils.calendar_part`: by name and by the range the
+  numbers stay in, so `stays_in_week_nights` is still a measure), and an integer code named for an
+  entity (`agent`, `company`) is an identifier. The dashboard no longer totals them or ranks
+  "1 brings 52% of lead_time".
+- A KPI titled "Avg x" now carries `agg: "mean"`; it drew a sum (240.7M for an average year).
+- A month name is not a date: `auto_detect_schema` no longer suggests `cast_column datetime`
+  for "July", `cast_column` refuses it (it wrote year 1), and `date_parts` makes no
+  `arrival_date_month_year = 1`. `date_note` says "year-first" for an ISO date.
+- A constant column no longer blanks the correlation heatmap in `run_eda` and
+  `generate_auto_profile` (`nan` was written into the page's script; it is `null` now).
+- `correlation_analysis` answers within a bound: a matrix above 40 columns is not inlined and
+  the findings are capped at 20 (`insights_total`, all of them in `insights_path`). A 286-column
+  file answered with 23 MB.
+- `detect_anomalies` writes the anomalies-only file beside the scored file, not into the output root.
+- `reshape_dataset(mode=transpose)` refuses a first column that is not unique (it made a CSV of
+  119,391 columns called "Resort Hotel" and "City Hotel").
+- `export_data` honours `preview_rows` for csv and json, and reports the rows it wrote.
+- `generate_geo_map` / dashboard: ISO-3 is detected by share (one "CN" among 176 codes turned
+  the whole column into "country names").
+- `generate_chart(sankey)` keeps the two sides' nodes apart (shared labels were self-loops), honours
+  `agg_func` (count drew a sum), orders nodes by flow, and takes two `hierarchy_columns`.
+- `generate_pairwise_plot` draws at most 5,000 rows and says so.
+- `validate_dataset` reports zeros as advice, not warnings, and never in a 0/1 column (the same file
+  scored 41 here and 96 in `run_eda`).
+
 ### Added — TOML and XML in, a JSON path query, a file hash
 
 - `convert_file` reads `.toml` (its one array of tables as the rows; several
