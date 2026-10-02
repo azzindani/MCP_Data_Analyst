@@ -6,6 +6,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added — dashboard looks: any number of designs around Plotly
+
+- `style.look` dresses a dashboard in a look: colour tokens for light and dark, type, card radius,
+  shadow and density, how the page is framed (a rail of tabs, a console sidebar for the filters, a banner
+  header, a rounded app frame) and what a KPI tile looks like (tinted, gradient). Six are built in
+  (`lagoon`, `harbor`, `nocturne`, `ledger`, `slate`, `signal`); Plotly still draws every mark and is
+  handed the look's colours and palette, re-drawn when the device's scheme changes. A look is embedded
+  in the page's spec, so `customize_dashboard(changes={'style': {'look': ...}})` re-dresses a page.
+- `dashboard_looks` (an action of `data_report`) lists the looks, tweaks one with `overrides`, reads a
+  new one out of an HTML mockup (`source`: CSS custom properties, radius, shadow, fonts; what could not
+  be read is reported) and saves it as a .json look. Every colour is checked against a strict grammar and
+  every other value is a number or a named choice, so a mockup cannot carry a rule or a script into
+  a page (`shared/dashboard_looks.py`). The mockups in `design/mockups` are the reference.
+
 ### Added — `relate_tables`: how a folder of tables fits together
 
 - `relate_tables` (an action of `data_reshape`) reads a folder or .zip of tables (or named `tables`)

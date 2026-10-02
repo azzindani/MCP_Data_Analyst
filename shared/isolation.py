@@ -226,10 +226,10 @@ def _stopped(name: str, why: str, started: float, status: int | None) -> dict[st
     if why == "memory":
         limit = _cgroup_limit()
         cap = _cap_bytes()
-        room = f" of the {_megabytes(cap or limit)} it has" if (cap or limit) else ""
+        room = f"it is allowed ({_megabytes(cap or limit)})" if (cap or limit) else "the server has"
         return _refusal(
             name,
-            f"This call needed more memory than the server has{room}, so it was stopped before it could take "
+            f"This call needed more memory than {room}, so it was stopped before it could take "
             "the server down. Nothing else was affected and nothing was written by this call.",
             "Narrow it: pass fewer columns, filter or sample the rows (sample_n, preview_rows, filter_rows), "
             "or work on a smaller file; or give the server more memory.",

@@ -315,7 +315,7 @@ CHART_STYLE: dict[str, tuple[str, ...]] = {
 }
 # The page's own style: a palette, and colours by category value that every
 # panel uses -- so "North" is one colour wherever it is drawn.
-PAGE_STYLE_KEYS: tuple[str, ...] = ("palette", "colors", "currency", "font", "logo", "toolbar", "slide", "sidebar")
+PAGE_STYLE_KEYS: tuple[str, ...] = ("palette", "colors", "currency", "font", "logo", "toolbar", "slide", "sidebar", "look")
 PAGE_FONTS: tuple[str, ...] = ("system", "humanist", "serif", "mono", "condensed")
 # rows: how many grid rows a panel is tall, so a tall panel sits beside a
 # column of shorter ones -- nested columns, on the one 12-column grid.
@@ -606,6 +606,19 @@ def validate_page_style(style: Any) -> None:
             raise SpecError(f"style.{flag} is true or false")
     if "logo" in style and not isinstance(style["logo"], str):
         raise SpecError("style.logo is a PNG/JPEG/GIF/WebP file or a data: URI; the page carries it")
+    if "look" in style:
+        from shared.dashboard_looks import BUILTIN, LookError, validate_look
+
+        look = style["look"]
+        if isinstance(look, dict):
+            try:
+                validate_look(look)
+            except LookError as exc:
+                raise SpecError(f"style.look: {exc}") from exc
+        elif not (isinstance(look, str) and (look.lower() in BUILTIN or look.lower().endswith(".json"))):
+            raise SpecError(
+                f"style.look {look!r}: a built-in look ({', '.join(BUILTIN)}), a saved look (.json), or a look as a dict"
+            )
 
 
 def validate_panel_style(where: str, chart: str, style: Any) -> None:

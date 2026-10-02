@@ -30,6 +30,7 @@ from _adv_dashboard import customize_dashboard, generate_dashboard  # type: igno
 from _adv_eda import run_eda  # type: ignore[import]
 from _adv_gencharts import generate_3d_chart, generate_chart, generate_geo_map  # type: ignore[import]
 from _adv_profile import generate_auto_profile  # type: ignore[import]
+from _dash_looks import dashboard_looks  # type: ignore[import]
 
 __all__ = [
     "run_eda",
@@ -43,6 +44,7 @@ __all__ = [
     "generate_geo_map",
     "generate_3d_chart",
     "customize_dashboard",
+    "dashboard_looks",
     "generate_dashboard",
     "customize_chart",
 ]

@@ -346,6 +346,12 @@ def customize_dashboard(
 
 
 @mcp.tool(annotations=CREATES)
+def dashboard_looks(name: str = "", source: str = "", overrides: dict = None, output_path: str = "") -> dict:
+    """List dashboard looks, tweak one, or read a new one from an HTML mockup."""
+    return engine.dashboard_looks(name, source, overrides, output_path)
+
+
+@mcp.tool(annotations=CREATES)
 def generate_dashboard(
     file_path: str,
     output_path: str = "",

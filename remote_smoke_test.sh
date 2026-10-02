@@ -303,6 +303,7 @@ if [ -n "$CHART_PATH" ]; then
 else
   fail "customize_chart skipped — no chart_path captured from generate_chart"
 fi
+run visual dashboard_looks "{}" "which looks can a dashboard wear?"
 # The round-trip the spec exists for: read back what the page was built from,
 # change one field, regenerate. Against the live server, so it also proves the
 # spec survived being written into the HTML and parsed out of it again.

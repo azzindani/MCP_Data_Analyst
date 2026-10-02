@@ -62,6 +62,7 @@ from shared import cube
 from shared.analysis_plan import parsed_dates
 from shared.analysis_plan import plan as plan_analysis
 from shared.column_utils import is_identifier, parse_date_column
+from shared.dashboard_looks import LookError, body_classes, chart_theme, effective_theme, look_css, resolve_look
 from shared.dashboard_spec import (
     CHART_KINDS,
     LAYOUT_SOURCE_KEY,
@@ -235,7 +236,66 @@ _PLACE_CSS = (
 )
 
 
-def _theme(theme: str) -> dict:
+def _device_script(theme: str, look: dict | None) -> str:
+    """The generic light/dark relayout, for a page that follows the device and has no look of its own.
+
+    A look carries its own colours per mode, and the renderer re-draws on a change of scheme with them;
+    the generic script would repaint its charts in the engine's colours.
+    """
+    return device_mode_js() if theme == "device" and look is None else ""
+
+
+def _bad_look(exc: Exception) -> dict:
+    return {
+        "success": False,
+        "op": "generate_dashboard",
+        "error": f"style.look: {exc}",
+        "hint": "A look is the name of a built-in, a saved look (.json), or a look as a dict; dashboard_looks() lists them.",
+        "progress": [fail("Invalid look", str(exc)[:200])],
+        "token_estimate": 60,
+    }
+
+
+def _page_look(resolved: dict, page_style_in: dict, theme: str) -> tuple[dict | None, str, str, dict]:
+    """The page's look (None when it names none), its built-in name, the theme once the look has its say,
+    and the refusal to return when the look cannot be drawn ({} when it can).
+
+    A look given by path is embedded in the spec as the look itself: the page carries it, so it means
+    the same wherever the dashboard is customized next.
+    """
+    wanted = resolved.get("style", {}).get("look")
+    if wanted is None:
+        return None, "", theme, {}
+    try:
+        look = resolve_look(wanted, resolve_path)
+    except LookError as exc:
+        return None, "", theme, _bad_look(exc)
+    named = isinstance(wanted, str) and not wanted.lower().endswith(".json")
+    if not named:
+        resolved["style"]["look"] = look
+    if look.get("palette") and "palette" not in page_style_in:
+        resolved["style"]["palette"] = look["palette"]
+    return look, (wanted.lower() if named else ""), effective_theme(look, theme), {}
+
+
+def _look_theme(look: dict, mode: str) -> dict:
+    """The look's colours as the renderer's theme: charts sit on the look's cards, in its text and palette."""
+    from shared.dashboard_looks import mode_tokens
+
+    t = mode_tokens(look, mode)
+    shown = chart_theme(look, mode)
+    if look["card"] == "glass":
+        shown["bg"] = "rgba(0,0,0,0)"  # the card is translucent: the figure lets it show
+    return {
+        **shown,
+        "land": t["border"],
+        "ocean": t["bg"],
+        "coast": t["text-muted"],
+        "palette": look.get("palette") or PALETTE,
+    }
+
+
+def _theme(theme: str, look: dict | None = None) -> dict:
     """The colours every panel is drawn over, for the page's theme.
 
     A "device" page follows the reader's light/dark setting, so it carries both
@@ -243,6 +303,10 @@ def _theme(theme: str) -> dict:
     the script meant to recolour the charts looked for a class these charts do
     not have: in dark mode every chart was a light panel on a dark page.
     """
+    if look is not None:
+        if look["mode"] == "device" and theme == "device":
+            return {"device": True, "light": _look_theme(look, "light"), "dark": _look_theme(look, "dark")}
+        return _look_theme(look, "dark" if theme == "dark" else "light")
     if theme == "device":
         return {"device": True, "light": _theme("light"), "dark": _theme("dark")}
     bg, font_c, _ = theme_plot_colors(theme)
@@ -683,6 +747,9 @@ def generate_dashboard(
         filter_columns = [f["col"] for f in filters]
         dashboard_title = resolved["title"]
         theme = resolved["theme"]
+        look, look_name, theme, bad_look = _page_look(resolved, page_style_in, theme)
+        if bad_look:
+            return bad_look
 
         if dry_run:
             progress.append(info("Dry run — no file written", path.name))
@@ -860,7 +927,7 @@ def generate_dashboard(
             data_hash=data_hash,
             tool="generate_dashboard",
         )
-        h.append(_dash_head(_css, dashboard_title, out.parent, page_header, resolved))
+        h.append(_dash_head(_css, dashboard_title, out.parent, page_header, resolved, look, look_name))
         full_call = f'generate_dashboard(file_path="{path.name}", spec={{"interactions": {{"embed_rows": 0}}}})'
         h.append(_dash_header(dashboard_title, embed_df, was_sampled, len(df), full_call, logo_src, cube_info))
         # Extra datasets are read before anything is written, so a missing or
@@ -929,6 +996,7 @@ def generate_dashboard(
                         (place or {}) if placed else None,
                         chart_spec.get("text"),
                         body,
+                        chart_spec["type"],
                     )
                 chart_specs.append(_panel(chart_spec, title, style))
         else:
@@ -974,7 +1042,7 @@ def generate_dashboard(
                 raw_json,
                 chart_specs,
                 kpis,
-                _theme(theme),
+                _theme(theme, look),
                 resolved.get("style") or {},
                 filter_doc,
                 _page_key(data_hash, filter_doc),
@@ -990,8 +1058,7 @@ def generate_dashboard(
         if source_frames:
             h.append(_dash_source_js())
 
-        if theme == "device":
-            h.append(device_mode_js())
+        h.append(_device_script(theme, look))
         h.append(_BACK_TO_TOP_JS)
         h.append("</body></html>")
 
@@ -1231,14 +1298,27 @@ def _trend(df, col: str) -> tuple[str, str]:
     return "→", "trend-flat"
 
 
-def _dash_head(_css, dashboard_title, output_dir, header=None, spec=None):
+def _dash_head(_css, dashboard_title, output_dir, header=None, spec=None, look=None, look_name=""):
     import html as _html
 
     page_style = (spec or {}).get("style") or {}
     font = FONTS.get(str(page_style.get("font") or ""), "")
     classes = [c for c in ("slide", "sidebar") if page_style.get(c)]
+    for extra in body_classes(look, look_name):
+        if extra not in classes:
+            classes.append(extra)
     body_class = f' class="{" ".join(classes)}"' if classes else ""
     full_css = css_dashboard(_css) + _PLACE_CSS + EXT_CSS + (f"body{{font-family:{font}}}" if font else "")
+    if look is not None:
+        # After the engine's own rules, so a look's tokens and shapes win; a page that names a font
+        # keeps it (the look sets the family before that rule applies).
+        full_css = (
+            css_dashboard(_css)
+            + _PLACE_CSS
+            + EXT_CSS
+            + look_css(look)
+            + (f"body{{font-family:{font}}}" if font else "")
+        )
     plotly_script = plotly_script_tag(output_dir)
     # The page carries what it is a picture of, and the document it was built
     # from. The second is what makes customize_dashboard possible: without it,
@@ -1497,7 +1577,15 @@ def _dash_kpi_row(df, numeric_cols, sparklines, quality, qual_clr, col_agg):
 
 
 def _card(
-    h, cid: str, ttl: str, full: bool, height: int, place: dict | None = None, text: str | None = None, body: str = ""
+    h,
+    cid: str,
+    ttl: str,
+    full: bool,
+    height: int,
+    place: dict | None = None,
+    text: str | None = None,
+    body: str = "",
+    kind: str = "",
 ) -> None:
     """A card: a Plotly figure's box, or -- with `height` 0 -- an HTML body (a KPI, a table, a note).
 
@@ -1505,6 +1593,9 @@ def _card(
     fills every other HTML body from the filtered rows.
     """
     cls = "cc full" if full else "cc"
+    if kind == "kpi":
+        # A look tints a KPI tile; its tone follows the order the page shows them in.
+        cls += f" cc-kpi kt{sum(str(x).startswith('<div class="cc ') and ' cc-kpi ' in str(x)[:60] for x in h) % 4}"
     # Use CSS class for height — tall (>380 px original) gets cc-body--tall
     body_cls = "cc-body--auto" if height == 0 else "cc-body--tall" if height > 380 else "cc-body"
     te = _html_esc.escape(ttl)

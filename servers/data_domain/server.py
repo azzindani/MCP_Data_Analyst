@@ -130,12 +130,13 @@ DOMAINS = {
         ],
     ),
     "data_report": (
-        "Whole-dataset reports as HTML: EDA, auto profile, dashboard.",
+        "Whole-dataset reports as HTML: EDA, auto profile, dashboard, and the looks a dashboard can wear.",
         [
             (visual, "run_eda"),
             (visual, "generate_auto_profile"),
             (visual, "generate_dashboard"),
             (visual, "customize_dashboard"),
+            (visual, "dashboard_looks"),
         ],
     ),
     "data_ingest": (

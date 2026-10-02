@@ -6,8 +6,8 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 
 ## Features
 
-- **One endpoint, eight tools** — `/mcp` serves the whole surface as eight domain tools: `data_inspect`, `data_edit`, `data_reshape`, `data_stats`, `data_chart`, `data_report`, `data_ingest`, `data_workspace`. Each takes an `action` (one of the 73 tools below, by its own name) and an `args` object whose every property says which actions take it. Same validation and answers as the tiers; the tier endpoints below keep serving for small local models and existing connections
-- **73 tools** across 7 servers: workspace (6), basic (9), medium (7), transform (13), statistics (12), visual (13), ingest (13) — no name listed twice. Four older medium tools are retired: `extended_stats`, `statistical_tests`, `filter_rows` and `compute_aggregations` are no longer listed, still answer as before, and each answer names the tool that replaced it
+- **One endpoint, eight tools** — `/mcp` serves the whole surface as eight domain tools: `data_inspect`, `data_edit`, `data_reshape`, `data_stats`, `data_chart`, `data_report`, `data_ingest`, `data_workspace`. Each takes an `action` (one of the 74 tools below, by its own name) and an `args` object whose every property says which actions take it. Same validation and answers as the tiers; the tier endpoints below keep serving for small local models and existing connections
+- **74 tools** across 7 servers: workspace (6), basic (9), medium (7), transform (13), statistics (12), visual (14), ingest (13) — no name listed twice. Four older medium tools are retired: `extended_stats`, `statistical_tests`, `filter_rows` and `compute_aggregations` are no longer listed, still answer as before, and each answer names the tool that replaced it
 - **LOCATE → INSPECT → PATCH → VERIFY** workflow for surgical data edits
 - **Automatic version control** — every write is snapshotted and fully restorable (Windows-safe: collision-proof timestamps)
 - **Operation receipt logging** — full audit trail of all modifications
@@ -182,7 +182,7 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
 ```
 
 4. Wait for the blue dot next to each server
-5. Start chatting — the model will see all 73 tools
+5. Start chatting — the model will see all 74 tools
 
 ### macOS / Linux
 
@@ -263,7 +263,7 @@ Replace the `"command"` and `"args"` in each entry with the bash equivalent:
 ### One endpoint: eight domain tools at `/mcp`
 
 For a capable model, connect `/mcp` instead of the seven tiers: eight tools
-instead of 73. `action` names a tool below; `args` holds its arguments.
+instead of 74. `action` names a tool below; `args` holds its arguments.
 
 ```json
 {"action": "statistical_test",
@@ -277,7 +277,7 @@ instead of 73. `action` names a tool below; `args` holds its arguments.
 | `data_reshape` | reshape_dataset, aggregate_dataset, pivot_table, merge_datasets, relate_tables, concat_datasets, resample_timeseries, export_data |
 | `data_stats` | extended_stats, statistical_test, check_outliers, correlation_analysis, lag_correlation, regression_analysis, time_series_analysis, period_comparison, cohort_analysis, detect_anomalies, analyze_text_column, compare_datasets |
 | `data_chart` | generate_chart, generate_distribution_plot, generate_correlation_heatmap, generate_pairwise_plot, generate_multi_chart, generate_geo_map, generate_3d_chart, customize_chart, cross_tabulate, value_counts |
-| `data_report` | run_eda, generate_auto_profile, generate_dashboard, customize_dashboard |
+| `data_report` | run_eda, generate_auto_profile, generate_dashboard, customize_dashboard, dashboard_looks |
 | `data_ingest` | list_sheets, extract_sheet, extract_all_sheets, detect_tables, extract_table, normalize_headers, trim_empty, promote_header, flatten_merged_cells, convert_file, query_json, query_data, hash_file |
 | `data_workspace` | create_workspace, open_workspace, register_workspace_file, list_workspace_files, save_workspace_pipeline, run_workspace_pipeline |
 
@@ -515,7 +515,7 @@ so a typo silently chose a date interpretation and the response said nothing.
 
 ---
 
-### Tier 3 — Visual (13 tools)
+### Tier 3 — Visual (14 tools)
 
 | Tool | Purpose |
 |---|---|
@@ -523,6 +523,7 @@ so a typo silently chose a date interpretation and the response said nothing.
 | `generate_auto_profile` | Full column profile: per-column charts, correlation network, quality dashboard |
 | `generate_dashboard` | Interactive HTML dashboard. With no layout it plans a storyline from the data -- a headline, KPIs with their change, insights, then Drivers, Segments, Risks and an Appendix; `spec={"story": false}` draws the page of detected charts: KPI cards, sparklines, violin plots, geo maps. Accepts a declarative `spec`, and `sources=[…]` for extra files as tabs. Every card is a panel in the page's own `_PANELS` document -- its columns, aggregate, title and style (colour, caps, bins, moving-average window, layout) -- drawn by one renderer over the theme; a `device` page follows the reader's light/dark setting |
 | `customize_dashboard` | Edit a saved dashboard's embedded spec and re-render — a JSON change, not a described-in-prose rebuild. `ops` edit one panel at a time (`set_panel`, `add_panel`, `remove_panel`, `move_panel`); `dry_run` checks the edit and writes nothing |
+| `dashboard_looks` | The looks a dashboard can wear. No arguments lists them (lagoon, harbor, nocturne, ledger, slate, signal) with a swatch; `name` + `overrides` tweaks one (a look is data: colour tokens per mode, font, card radius, shadow, density, card style, frame, header, KPI tile, palette); `source` reads a look out of an HTML mockup (its CSS custom properties, radius, shadow, fonts: what could not be read is reported, not guessed); `output_path` saves a .json look. Use one with `spec={'style': {'look': 'lagoon'}}` (a name, a saved .json, or the look itself); `customize_dashboard(changes={'style': {'look': ...}})` re-dresses a page |
 | `generate_chart` | 13 chart types: bar, pie, line, scatter, geo, treemap, radius, time_series, sunburst, waterfall, funnel, parallel_coords, sankey |
 | `generate_geo_map` | Scatter map (lat/lon) or choropleth (country/state) — auto-detected |
 | `generate_3d_chart` | 3D scatter or surface chart |
@@ -601,6 +602,7 @@ All of `run_eda` plus:
 - **Panel style and place**: a `layout` panel is `{chart, cols, agg, title, style, place}`. `style` takes only the fields its chart draws -- bar: `color colors top_n sort value_labels y_scale format prefix suffix`; line: `color accent ma legend y_scale format prefix suffix`; pie: `palette colors top_n legend`; scatter: `color accent legend y_scale`; histogram: `color accent bins`; box: `palette colors top_n y_scale format prefix suffix`; geo_scatter: `color`; choropleth: `colorscale format prefix suffix` -- and anything else is refused by name. A scatter's optional `group` column colours its points and draws a line per group -- the detected page picks one when separate lines fit markedly better than one. `place: {span: 1-12, height: px, rows: 1-4}` puts the page on a 12-column grid (one column on a phone); a panel `rows` tall stands beside a column of shorter ones. The page's own `style: {palette, colors}` sets the palette and a colour per category value that every panel uses, so "North" is one colour everywhere; a panel's `colors` wins over the page's. Sequential colour scales draw the largest value darkest
 - **Panels that are not plots**: `{chart: "section", title}` is a heading across the grid; `{chart: "text", title, text}` a note, escaped, in its own words; `{chart: "kpi", cols: {value}, agg, style: {color, format, prefix, suffix}}` one headline number; `{chart: "table", cols: {category, value}, agg, style: {top_n, sort, format, prefix, suffix}}` the top groups and their aggregate. The KPI and the table are computed in the page from the filtered rows, like every chart. `tabs` group any of them, and the tab bar sits above the cards it switches
 - **Filters as controls, defaults and scopes**: a `filters` entry is a column name or `{column, control, default, scope}`. `control` is `pills` or `dropdown` for a list of values, `range` for numbers, `date_range` for a date column (its days, YYYY-MM-DD). `default` is what the page opens on: a list of values, or `{min, max}` with either bound optional. `scope` is `"page"` (the default) or the layout slots the filter narrows; the KPI row, the row count, the rows table and the export follow the page's filters only. A control that does not fit its column, a value the column does not hold, or defaults that would open the page or a panel on no rows are refused by name
+- **Looks**: `style.look` dresses a page in a look -- colour tokens for light and dark, type, card radius and shadow, density, how the page is framed (a left rail of tabs, a console sidebar of filters, a banner header, a rounded app frame), KPI tiles tinted or gradient -- with Plotly still drawing every mark, handed the look's colours and palette. Six are built in, `dashboard_looks` makes more from a tweak or from an HTML mockup, and a look is checked against a strict grammar (colours, numbers, named choices) so a mockup cannot carry a rule or a script into the page. A look is embedded in the page's spec, so it survives `customize_dashboard`
 - **Panel edits**: `customize_dashboard(path, ops=[...])` edits the layout in place. `set_panel {slot, <fields>}` replaces the fields it names (null removes one); `cols`, `style` and `place` change key by key. `add_panel {panel, at, tab}`, `remove_panel {slot}` and `move_panel {slot, to}` do what they say. Tabs and filter scopes follow the panels they name, and an edit that would leave a tab or a scoped filter with no panel is refused by name. `changes` apply first, then the ops. A detected page's slots are chart kinds, not panels: hand its `spec.layout` back as `changes={'layout': ...}` to make it editable
 - **Templates**: `generate_dashboard(file, spec=..., save_template="sales.dashboard.json")` writes the page's spec to a file; `generate_dashboard(other_file, template="sales.dashboard.json")` builds another file's dashboard from it, with `spec` changing it on the way in. Every column the template names must be in the new file -- one it lacks is refused, naming all of them and the file the template was saved from. A template carries no data path, and no title that was only the first file's name. `customize_dashboard(..., save_template=...)` saves the page it rebuilt
 - **Multi-source tabs**: `sources=["chargedoff.csv", "anomalies.csv"]` renders each as its own tab. Row counts and summaries are computed server-side over the whole file, so a tab's totals are exact even when its table is paged
@@ -864,7 +866,7 @@ requires a bearer token even while it's publicly reachable.
 
 Run in CI against a container (the `e2e` job) and by hand against the
 deployment. `pytest` itself stays offline. Exercises a running HTTP endpoint: auth enforcement plus a real
-handwritten-prompt-style call for **all 77 tools** (73 listed, 4 retired) across all 7 sub-servers
+handwritten-prompt-style call for **all 78 tools** (74 listed, 4 retired) across all 7 sub-servers
 (basic, medium, statistics, transform, visual, workspace, ingest), against
 real generated fixtures (a 200-row sales CSV, a region-population CSV, a real
 GeoJSON, and a real messy multi-sheet `.xlsx` with merged cells), chaining
