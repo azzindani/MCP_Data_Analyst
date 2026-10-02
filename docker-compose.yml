@@ -37,6 +37,12 @@ services:
       MCP_MAX_CALLS: ${MCP_MAX_CALLS:-}
       MCP_CALL_TIMEOUT_S: ${MCP_CALL_TIMEOUT_S:-}
       MCP_CALL_MEMORY_MB: ${MCP_CALL_MEMORY_MB:-}
+      # A CSV too big to load whole is read in chunks by the first-look tools; auto, always or never.
+      MCP_BIG_TABLE: ${MCP_BIG_TABLE:-}
+      # A database server a call may query, by name (query_data database="warehouse"): the URL, and the
+      # password in it, stay here and never pass through a call. Add one line per database:
+      #   MCP_DB_WAREHOUSE_URL: postgresql://reader:password@host:5432/dbname   (or mysql://, mariadb://)
+      # Give it a role that can only read; the session is read-only either way.
       # OAuth 2.0 bridge for clients that require it (e.g. claude.ai's Custom
       # Connector) instead of a plain bearer header — see shared/oauth_bridge.py.
       # One state dir per sub-server (each is its own claude.ai connector, at

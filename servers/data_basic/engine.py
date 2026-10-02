@@ -38,8 +38,10 @@ _HERE = str(Path(__file__).resolve().parent)
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
+from _first_look_big import column_stats, inspect_stats, sample_rows
 from _patch_ops import OP_HANDLERS, _parse_expr, note_non_finite
 
+from shared import big_table
 from shared.column_utils import date_like
 from shared.counts import counted
 from shared.file_utils import atomic_write_text, count_data_rows, error_text, hint_for_error, resolve_path
@@ -159,7 +161,8 @@ def _stats_for_series(series: pd.Series, column: str) -> dict:
             "max": str(series.max()),
         }
 
-    if pd.api.types.is_numeric_dtype(series):
+    # A boolean is numeric to pandas but has no quartiles: it is a two-valued category here.
+    if pd.api.types.is_numeric_dtype(series) and not pd.api.types.is_bool_dtype(series):
         clean = series.dropna()
         # An infinity is not a null. It survives dropna(), counts toward
         # `count`, and then makes mean, std and max non-finite -- which the
@@ -318,6 +321,38 @@ def _search_df(
 # ---------------------------------------------------------------------------
 
 
+def _load_in_chunks(path: Path, why: str) -> dict:
+    """load_dataset for a file too big to load: its summary, counted where the file lies."""
+    table = big_table.BigTable(path)
+    stats = inspect_stats(table)
+    rows, cols = stats["rows"], stats["columns"]
+    progress = [
+        info("Read in chunks", why),
+        ok(f"Loaded {path.name}", f"{rows:,} rows × {cols} cols, counted in chunks"),
+    ]
+    result = {
+        "success": True,
+        "op": "load_dataset",
+        "file": path.name,
+        "file_path": str(path),
+        "rows": rows,
+        "total_rows": rows,
+        "counted_from_sample": False,
+        "columns": cols,
+        "dtypes": stats["dtypes"],
+        "null_counts": stats["null_counts"],
+        "unique_counts": stats["unique_counts"],
+        "sample": sample_rows(table),
+        "encoding_used": "utf-8",
+        "chunked": {"engine": "duckdb", "why": why},
+        "hint": "Too big to hold whole: call inspect_dataset() or read_column_stats() (both read in chunks), "
+        "or query_data() to filter, aggregate or sample it.",
+        "progress": progress,
+    }
+    result["token_estimate"] = _token_estimate(result)
+    return result
+
+
 def load_dataset(
     file_path: str,
     encoding: str = "utf-8",
@@ -354,6 +389,12 @@ def load_dataset(
                 "progress": [fail("Empty file", path.name)],
                 "token_estimate": 30,
             }
+
+        # The whole file asked for, too big to load, in the encoding and separator DuckDB reads on its own:
+        # the same summary, counted in chunks.
+        too_big = big_table.reason(path) if max_rows == 0 and encoding == "utf-8" and separator == "," else ""
+        if too_big:
+            return _load_in_chunks(path, too_big)
 
         try:
             df = _read_csv(str(path), encoding=encoding, separator=separator, max_rows=max_rows)
@@ -596,10 +637,16 @@ def inspect_dataset(
                 "token_estimate": 20,
             }
 
-        df = _read_csv(str(path))
-
-        # Ring-1 pure helper — no I/O
-        stats = _inspect_df(df)
+        # A file that cannot be loaded whole is read where it lies, in chunks: same fields, same shape.
+        too_big = big_table.reason(path)
+        if too_big:
+            table = big_table.BigTable(path)
+            stats = inspect_stats(table)
+            df = None
+        else:
+            df = _read_csv(str(path))
+            # Ring-1 pure helper — no I/O
+            stats = _inspect_df(df)
         rows = stats["rows"]
         cols = stats["columns"]
 
@@ -610,9 +657,12 @@ def inspect_dataset(
             "file_path": str(path),
             **stats,
         }
+        if too_big:
+            result["chunked"] = {"engine": "duckdb", "why": too_big}
+            progress.append(info("Read in chunks", too_big))
 
         if include_sample:
-            result["sample"] = df.head(2).fillna("").to_dict(orient="records")
+            result["sample"] = sample_rows(table) if df is None else df.head(2).fillna("").to_dict(orient="records")
 
         # Truncate column_names if response would exceed ~500 tokens
         estimate = _token_estimate(result)
@@ -676,23 +726,39 @@ def read_column_stats(
                 "token_estimate": 20,
             }
 
-        df = _read_csv(str(path))
+        too_big = big_table.reason(path)
+        if too_big:
+            table = big_table.BigTable(path)
+            stats = column_stats(table, column)
+            if stats is None:
+                available = ", ".join(table.names())
+                return {
+                    "success": False,
+                    "error": f"Column not found: {column}",
+                    "hint": f"Use inspect_dataset() first. Available: {available}",
+                    "progress": [fail("Column not found", column)],
+                    "token_estimate": 30,
+                }
+            progress.append(ok(f"Stats for {column}", f"{stats['dtype']}, read in chunks"))
+            stats["chunked"] = {"engine": "duckdb", "why": too_big}
+        else:
+            df = _read_csv(str(path))
 
-        if column not in df.columns:
-            available = ", ".join(df.columns.tolist())
-            return {
-                "success": False,
-                "error": f"Column not found: {column}",
-                "hint": f"Use inspect_dataset() first. Available: {available}",
-                "progress": [fail("Column not found", column)],
-                "token_estimate": 30,
-            }
+            if column not in df.columns:
+                available = ", ".join(df.columns.tolist())
+                return {
+                    "success": False,
+                    "error": f"Column not found: {column}",
+                    "hint": f"Use inspect_dataset() first. Available: {available}",
+                    "progress": [fail("Column not found", column)],
+                    "token_estimate": 30,
+                }
 
-        series = df[column]
-        progress.append(ok(f"Stats for {column}", _dtype_label(series)))
+            series = df[column]
+            progress.append(ok(f"Stats for {column}", _dtype_label(series)))
 
-        # Ring-1 pure helper — no I/O
-        stats = _stats_for_series(series, column)
+            # Ring-1 pure helper — no I/O
+            stats = _stats_for_series(series, column)
 
         result = {
             "success": True,

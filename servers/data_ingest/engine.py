@@ -18,6 +18,7 @@ if _ROOT not in sys.path:
 
 import pandas as pd
 
+from shared import sql_remote
 from shared.counts import counted
 from shared.file_utils import (
     atomic_write,
@@ -1646,9 +1647,26 @@ def query_data(
         for name, path in named.items():
             if not path.is_file():
                 return _missing(path, f"Table {name!r} file")
-        db = resolve_path(database) if database else None
+        if database and "://" in database:
+            return {
+                "success": False,
+                "op": "query_data",
+                "error": "A database is named here, not given by URL.",
+                "hint": "Ask the operator to set MCP_DB_<NAME>_URL on the server and pass <name>: a password in an "
+                "argument is read by the model and kept in transcripts."
+                + (f" Configured: {', '.join(sql_remote.names())}." if sql_remote.names() else ""),
+                "progress": [fail("Database given by URL", "not echoed")],
+                "token_estimate": 40,
+            }
+        # A database server is named, not located: the operator configured it (MCP_DB_<NAME>_URL), and no
+        # password ever passes through a call.
+        server = database if database and sql_remote.is_profile(database) else ""
+        db = resolve_path(database) if database and not server else None
         if db is not None and not db.is_file():
-            return _missing(db, "Database")
+            missing = _missing(db, "Database")
+            if sql_remote.names():
+                missing["hint"] += f" Database servers configured: {', '.join(sql_remote.names())}."
+            return missing
         out = resolve_path(output_path) if output_path else None
 
         budget = memory_mb if memory_mb > 0 else memory_budget_mb()
@@ -1663,12 +1681,13 @@ def query_data(
             sql,
             tables=named,
             database=db,
+            remote=server,
             output=out,
             preview_rows=max_rows,
             memory_mb=budget,
             threads=worker_threads(),
         )
-        source = ", ".join(f"{n} = {p.name}" for n, p in named.items()) or (db.name if db else "")
+        source = ", ".join(f"{n} = {p.name}" for n, p in named.items()) or (db.name if db else server)
         total = answer["rows_total"]
         progress.append(
             ok(
@@ -1697,12 +1716,17 @@ def query_data(
                 args={
                     "sql": sql[:500],
                     "tables": {n: p.name for n, p in named.items()},
-                    "database": db.name if db else "",
+                    "database": db.name if db else server,
                 },
                 result=f"{total:,} rows",
                 backup=backup,
             )
-            result["hint"] = "The whole result is in the file; load_dataset or any other tool reads it from there."
+            result["hint"] = (
+                "The whole result is in the file; load_dataset or any other tool reads it from there."
+                if out.suffix.lower() == ".csv"
+                else "The whole result is in the file. The other tools read CSV, not Parquet: write a .csv "
+                "output_path (or a narrower query) to hand it to them; query_data reads this file again."
+            )
         elif answer["is_preview"]:
             result["hint"] = (
                 f"Showing the first {answer['rows_returned']} row(s) of a larger result. Pass output_path "

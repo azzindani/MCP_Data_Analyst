@@ -39,6 +39,32 @@ FOLDER_SUFFIXES = TABLE_SUFFIXES - {".txt"}
 DUCKDB_SUFFIXES = {".duckdb"}
 SQLITE_SUFFIXES = {".sqlite", ".sqlite3", ".db"}
 OUTPUT_SUFFIXES = {".csv", ".parquet"}
+# The strings pandas reads as an empty cell. Every other tool in this server loads a CSV through pandas, so
+# a table read here has the nulls those tools see: "NA" in a number column is a gap, not text that makes
+# the column text.
+PANDAS_NULLS = (
+    "",
+    "#N/A",
+    "#N/A N/A",
+    "#NA",
+    "-1.#IND",
+    "-1.#QNAN",
+    "-NaN",
+    "-nan",
+    "1.#IND",
+    "1.#QNAN",
+    "<NA>",
+    "N/A",
+    "NA",
+    "NULL",
+    "NaN",
+    "None",
+    "n/a",
+    "nan",
+    "null",
+)
+# How a server says an Excel workbook becomes something this reads; a server with its own tool for it names that.
+WORKBOOK_ADVICE = "convert_file to csv or parquet"
 
 
 class QueryRefused(ValueError):
@@ -80,7 +106,8 @@ def _view_sql(name: str, path: Path) -> str:
     if suffix in CSV_SUFFIXES:
         # A sample of 100,000 rows settles a column's type; the default 20,480 mistyped a column
         # whose first non-integer sits further down.
-        source = f"read_csv({target}, sample_size=100000)"
+        nulls = "[" + ", ".join(_quote(n) for n in PANDAS_NULLS) + "]"
+        source = f"read_csv({target}, sample_size=100000, nullstr={nulls})"
     elif suffix == ".parquet":
         source = f"read_parquet({target})"
     elif suffix in JSON_SUFFIXES:
@@ -88,7 +115,7 @@ def _view_sql(name: str, path: Path) -> str:
     else:
         raise QueryRefused(
             f"Table {name!r}: {path.name} is not a file this reads in place (csv, tsv, parquet, json, jsonl). "
-            "An Excel workbook is converted first (convert_file to csv or parquet)."
+            f"An Excel workbook is converted first ({WORKBOOK_ADVICE})."
         )
     return f"CREATE VIEW {_identifier(name)} AS SELECT * FROM {source}"
 
@@ -298,23 +325,46 @@ def _run_sqlite(sql: str, database: Path, output: Path | None, preview_rows: int
     return answer
 
 
+def _run_remote(sql: str, profile: str, output: Path | None, preview_rows: int) -> dict[str, Any]:
+    """One SELECT on a configured database server (shared/sql_remote.py), streamed through the same drain."""
+    from shared import sql_remote
+
+    started = time.monotonic()
+    try:
+        with sql_remote.query(profile, sql) as (engine, batches):
+            answer = _drain(batches, output, preview_rows)
+    except sql_remote.RemoteRefused as exc:
+        raise QueryRefused(str(exc)) from None
+    answer["seconds"] = round(time.monotonic() - started, 2)
+    answer["engine"] = engine
+    return answer
+
+
 def run_query(
     sql: str,
     *,
     tables: dict[str, Path] | None = None,
     database: Path | None = None,
+    remote: str = "",
     output: Path | None = None,
     preview_rows: int = DEFAULT_PREVIEW,
     memory_mb: int = 1024,
     threads: int = 1,
 ) -> dict[str, Any]:
-    """Run one read-only SELECT. Raises QueryRefused for anything the caller can fix by asking differently."""
+    """Run one read-only SELECT. Raises QueryRefused for anything the caller can fix by asking differently.
+
+    `remote` names a database server the operator configured (shared/sql_remote.py); a file's `database` is a path.
+    """
     if not sql or not sql.strip():
         raise QueryRefused("sql is empty.")
     preview_rows = max(0, min(int(preview_rows), MAX_PREVIEW))
     tables = tables or {}
     if output is not None and output.suffix.lower() not in OUTPUT_SUFFIXES:
         raise QueryRefused(f"output_path writes {', '.join(sorted(OUTPUT_SUFFIXES))}; got {output.suffix or 'none'!r}.")
+    if remote:
+        if tables or database is not None:
+            raise QueryRefused("A database server and files cannot be queried together; export the table you need.")
+        return _run_remote(sql, remote, output, preview_rows)
     if database is not None and database.suffix.lower() in SQLITE_SUFFIXES:
         if tables:
             raise QueryRefused("A SQLite database and files cannot be queried together; export the table you need.")

@@ -268,3 +268,31 @@ class TestItIsAnActionOfTheIngestTool:
             )
         )
         assert result["success"] is True and result["rows"] == [{"n": ROWS}]
+
+
+class TestWhatTheOtherToolsCanRead:
+    """They read CSV, not Parquet: a hint that sent a caller to a .parquet result was a dead end."""
+
+    def test_a_csv_result_is_handed_on(self, sales, _home):
+        result = query_data("SELECT * FROM data", file_path=str(sales), output_path=str(_home / "r.csv"))
+        assert "reads it from there" in result["hint"]
+
+    def test_a_parquet_result_says_the_tools_read_csv(self, sales, _home):
+        result = query_data("SELECT * FROM data", file_path=str(sales), output_path=str(_home / "r.parquet"))
+        assert "CSV, not Parquet" in result["hint"] and "reads it from there" not in result["hint"]
+
+
+class TestACellPandasReadsAsEmptyIsEmptyHere:
+    """Every other tool loads a CSV through pandas, so a table read here must have the nulls those tools see."""
+
+    def test_na_in_a_number_column_is_a_gap_not_text(self, _home):
+        path = _home / "gaps.csv"
+        path.write_text("n,label\n1,a\nNA,b\n3,NULL\n,d\nnull,e\n")
+        result = query_data(
+            "SELECT count(n) AS n_seen, sum(n) AS total, count(label) AS labels FROM data", file_path=str(path)
+        )
+        assert result["success"] is True, result.get("error")
+        frame = pd.read_csv(path)
+        assert result["rows"] == [
+            {"n_seen": int(frame.n.count()), "total": float(frame.n.sum()), "labels": int(frame.label.count())}
+        ]

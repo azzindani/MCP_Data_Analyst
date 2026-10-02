@@ -173,7 +173,7 @@ DOMAINS = {
 }
 register_domains(mcp, DOMAINS)
 add_narrowing_hint(
-    "For a table too big to load, data_ingest(action='query_data') filters, aggregates or samples it where it lies, "
+    "For a table too big to load, query_data (an action of data_ingest) filters, aggregates or samples it where it lies, "
     "in chunks, and writes the smaller result for these tools to read."
 )
 
