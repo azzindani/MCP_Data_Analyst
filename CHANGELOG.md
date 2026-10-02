@@ -39,6 +39,12 @@ pages, and fixed what the pages got wrong. 10 of 48 did not draw; now all 48 do.
   is no longer drawn as an average of 0 (the mean, median or extreme of nothing is nothing; a sum of nothing is
   still 0); a gap is a finding only when it matters (a rate differing by a percentage point, an average by a
   fifth of its column's spread), so "11x higher" between 0.01 and 0.00 no longer leads a page.
+- Two-digit years are not read into the future: a `m/d/yy` column of 1951-2014 news came out as 1976-2075 and
+  was drawn in two clusters 80 years apart (a column whose dates run past next year, and which also holds dates
+  up to now, is read back a century). A period is complete only when its last *day* is: data that stops on a
+  Sunday morning no longer draws that week as a dip, nor forecasts from it, nor reports it as a spike (a spike
+  now says how far above or below a typical period it is). "Low brings 78% of the power" when Low is 78% of the
+  rows is no longer a finding.
 
 ### Added — a mockup's arrangement, a sparkline on a layout KPI; Fixed — what the story says
 

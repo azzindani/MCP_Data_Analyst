@@ -28,10 +28,11 @@ import pytest
 from servers.data_advanced import _adv_dashboard
 from servers.data_advanced._adv_dashboard import customize_dashboard, generate_dashboard
 from shared.analysis_plan import ROWS_COLUMN, needs_row_count, plan
-from shared.column_utils import is_identifier
+from shared.column_utils import is_identifier, parse_date_column
 from shared.dashboard_spec import validate as validate_spec
 from shared.file_utils import read_csv, read_table, sniff_encoding, sniff_separator
 from shared.metrics import MetricError, evaluate_tree, flag_rates, hidden_columns, spec_metrics, text_flag_rates, value
+from shared.story import grain_for
 from tests.dashboard_page import run_js
 
 
@@ -527,6 +528,96 @@ class TestAGapIsAFindingOnlyWhenItIsBigEnoughToMatter:
         result, _ = page(path, _home)
         headlines = " ".join(i["headline"] for i in result["insights"])
         assert "wage" in headlines and "calls" not in headlines, headlines
+
+
+class TestADateIsReadAsTheFileMeantIt:
+    def test_two_digit_years_of_a_file_of_the_past_are_not_read_into_the_future(self):
+        """The economic-news file (1951-2014, m/d/yy) was read as 1976-2075 and drawn in two clusters 80 years apart."""
+        years = [51, 60, 75, 80, 91, 99, 2, 7, 14]
+        text = pd.Series([f"{1 + i % 12}/{1 + i % 27}/{y:02d}" for i, y in enumerate(years * 20)])
+        parsed = parse_date_column(text)
+        assert parsed is not None
+        assert parsed.min().year == 1951 and parsed.max().year == 2014
+
+    def test_a_column_of_future_dates_alone_is_left_in_the_future(self):
+        text = pd.Series([f"{1 + i % 12}/{1 + i % 27}/{y}" for i, y in enumerate([30, 31, 32, 33] * 30)])
+        parsed = parse_date_column(text)
+        assert parsed is not None and parsed.min().year == 2030 and parsed.max().year == 2033
+
+    def test_four_digit_and_iso_dates_are_untouched(self):
+        iso = pd.Series(["2051-03-04", "1999-12-31", "2014-06-30"] * 30)
+        parsed = parse_date_column(iso)
+        assert parsed is not None and parsed.max().year == 2051
+
+
+class TestAPeriodIsCompleteOnlyWhenItsLastDayIs:
+    @staticmethod
+    def _grain(end: str, every: str = "10min", start: str = "2024-01-01"):
+        stamps = pd.date_range(start, end, freq=every)
+        frame = pd.DataFrame({"stamp": stamps.strftime("%Y-%m-%d %H:%M:%S"), "kw": np.arange(len(stamps)) % 7 + 50.0})
+        return grain_for(plan(frame))
+
+    def test_a_week_cut_off_on_its_last_morning_is_not_complete(self):
+        # Sunday 2024-03-10 at 10:40: the week of Mon 4 March has six and a half days.
+        assert self._grain("2024-03-10 10:40")["complete"] == "2024-02-26"
+
+    def test_a_week_that_ran_to_the_end_of_its_last_day_is_complete(self):
+        assert self._grain("2024-03-10 23:50")["complete"] == "2024-03-04"
+
+    def test_a_month_cut_off_on_its_last_day_is_not_complete(self):
+        assert self._grain("2024-03-31 10:00", every="1h", start="2023-12-01")["complete"] == "2024-02"
+        assert self._grain("2024-03-31 23:00", every="1h", start="2023-12-01")["complete"] == "2024-03"
+
+    def test_dates_without_times_are_whole_days(self):
+        frame = pd.DataFrame({"day": pd.date_range("2024-01-01", "2024-03-10").strftime("%Y-%m-%d"), "kw": 1.0})
+        assert grain_for(plan(frame))["complete"] == "2024-03-04"
+
+
+class TestASpikeIsASpikeOfAWholePeriod:
+    @staticmethod
+    def _plant(_home, end: str, burst: bool = False):
+        stamps = pd.date_range("2024-01-01", end, freq="1h")
+        rng = np.random.default_rng(8)
+        kw = 100 + rng.normal(0, 0.3, len(stamps))
+        if burst:
+            kw[(stamps >= "2024-02-12") & (stamps < "2024-02-19")] *= 3
+        path = _home / "plant.csv"
+        pd.DataFrame(
+            {
+                "stamp": stamps.strftime("%Y-%m-%d %H:%M:%S"),
+                "power_total": kw,
+                "site": rng.choice(["a", "b"], len(stamps)),
+            }
+        ).to_csv(path, index=False)
+        return path
+
+    def test_a_week_the_data_has_only_begun_is_not_a_dip(self, _home):
+        result, _ = page(self._plant(_home, "2024-03-10 10:00"), _home)  # a Sunday morning
+        assert not [i for i in result["insights"] if "a typical week" in i["headline"]], result["insights"]
+
+    def test_a_week_that_really_stands_out_is_named_by_how_far(self, _home):
+        result, _ = page(self._plant(_home, "2024-03-10 23:00", burst=True), _home)
+        found = [i["headline"] for i in result["insights"] if "a typical week" in i["headline"]]
+        assert found and "above a typical week" in found[0] and "2024-02-12" in found[0], found
+
+
+class TestAShareThatIsOnlyASizeIsNotAFinding:
+    def test_a_class_that_brings_what_its_size_says_is_left_out(self, _home):
+        n = 800
+        rng = np.random.default_rng(6)
+        frame = pd.DataFrame(
+            {
+                "mode": rng.choice(["Low", "High"], n, p=[0.78, 0.22]),
+                "site": rng.choice(["a", "b", "c"], n),
+                "revenue": rng.normal(100, 5, n),
+                "units": rng.integers(1, 9, n),
+            }
+        )
+        path = _home / "plant.csv"
+        frame.to_csv(path, index=False)
+        result, _ = page(path, _home)
+        headlines = [i["headline"] for i in result["insights"]]
+        assert not any(h.startswith("Low brings") or "mode = Low brings" in h for h in headlines), headlines
 
 
 class TestAnAverageOfNothingIsNothing:

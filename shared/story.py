@@ -89,6 +89,8 @@ def grain_for(planned: dict[str, Any]) -> dict[str, str]:
     start, end = pd.Timestamp(g["start"]), pd.Timestamp(g["end"])
     span = (end - start).days
     grain = "month" if span >= 90 else "week" if span >= 21 else "day"
+    if g.get("last_day_complete") is False:
+        end -= pd.Timedelta(days=1)  # the data stops partway through its last day: that day is not a whole one
     if grain == "month":
         month_end = end + pd.offsets.MonthEnd(0)
         complete = (
@@ -214,6 +216,7 @@ def _segment(dim: str, value: str) -> str:
     return f"{dim} = {value}" if _BARE_CODE.match(value.strip()) else value
 
 
+MIN_SHARE_GAP = 0.05  # a segment's share of an amount must differ from its share of the rows by this
 MIN_RATE_GAP = 0.01  # a rate must differ by a percentage point between segments to be a finding
 MIN_EFFECT = 0.2  # an average must differ by a fifth of the column's own spread
 
@@ -282,6 +285,9 @@ def insights(df: pd.DataFrame, planned: dict[str, Any], metrics: dict[str, Metri
                 other_share = float(other_totals.get(top, 0.0)) / float(other_totals.sum() or 1)
                 compare = f"of {meas}, from {other_share:.0%} of {other}"
                 gap = abs(share - other_share)
+            row_share = float((work[dim].astype(str) == top).mean())
+            if abs(share - row_share) < MIN_SHARE_GAP and gap < 0.15:
+                continue  # it brings what its size says: "Low brings 78% of the power" when Low is 78% of the rows
             text = f"{label} is where most of the {meas} comes from" + (
                 f", out of proportion to its {other}." if gap >= 0.15 else "."
             )
@@ -407,15 +413,17 @@ def insights(df: pd.DataFrame, planned: dict[str, Any], metrics: dict[str, Metri
         # Spikes: a period far from the typical one.
         if measures:
             series = work.groupby(periods)[measures[0]].sum().sort_index()
+            series = series[series.index <= g["complete"]]  # a period the data has only begun is short, not a dip
             if len(series) >= 8 and series.std() > 0:
                 z = (series - series.median()) / (1.4826 * (series - series.median()).abs().median() or series.std())
                 peak = z.abs().idxmax()
                 if abs(float(z[peak])) >= 4:
                     typical = float(series.median())
+                    off = float(series[peak]) / typical - 1 if typical else 0.0
                     found.append(
                         _insight(
                             "spike",
-                            f"{measures[0]} in {peak} was {times(float(series[peak]), typical)} a typical {g['grain']}",
+                            f"{measures[0]} in {peak} was {abs(off):.0%} {'above' if off > 0 else 'below'} a typical {g['grain']}",
                             fmt(float(series[peak]), planned["columns"][measures[0]].get("unit", "number"), currency),
                             f"typical {g['grain']}: {fmt(typical, planned['columns'][measures[0]].get('unit', 'number'), currency)}",
                             "One period this far from the rest is either an event worth naming or an error in the data.",

@@ -307,8 +307,25 @@ def parse_date_column(series: pd.Series, named: bool = False, threshold: float =
         except (ValueError, TypeError, OverflowError):
             continue
         if present and int(parsed.notna().sum()) / present >= threshold:
-            return parsed
+            return _repair_century(series, parsed)
     return None
+
+
+_TWO_DIGIT_YEAR = re.compile(r"(?<!\d)\d{1,2}[/.-]\d{1,2}[/.-]\d{2}(?!\d)")
+
+
+def _repair_century(text: pd.Series, parsed: pd.Series) -> pd.Series:
+    """Two-digit years are read within 50 years of today, so "6/1/52" in a file of 1951-2014 news became 2052. A
+    column written that way whose dates run into the future, and which also holds dates up to now, is read back a
+    century: the file is of the past, and a future date in it is a 19xx one."""
+    strings = text.dropna().astype(str)
+    if strings.empty or float(strings.str.contains(_TWO_DIGIT_YEAR).mean()) < 0.9 or parsed.dt.tz is not None:
+        return parsed
+    limit = pd.Timestamp.today().normalize() + pd.DateOffset(years=1)
+    late = parsed > limit
+    if not bool(late.any()) or not bool((parsed <= limit).any()):
+        return parsed
+    return parsed.where(~late, parsed - pd.DateOffset(years=100))
 
 
 def date_like(series: pd.Series) -> bool:

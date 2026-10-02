@@ -59,7 +59,10 @@ class TestACodeIsNamedByItsColumn:
         # A flag is an outcome, so a story with a real dimension to split by splits by that; with only the
         # flag left to split by, the code is what it has, and it still names its column.
         only_the_code = _home / "only_the_code.csv"
-        pd.read_csv(bookings).drop(columns=["channel"]).to_csv(only_the_code, index=False)
+        frame = pd.read_csv(bookings).drop(columns=["channel"])
+        # Cancelled bookings carry three times the revenue: a share that differs from the rows' is a finding.
+        frame["revenue"] = frame["revenue"] * np.where(frame["is_canceled"] == 1, 3, 1)
+        frame.to_csv(only_the_code, index=False)
         result = generate_dashboard(str(only_the_code), output_path=str(_home / "p.html"), open_after=False)
         assert result["success"] is True, result.get("error")
         words = " ".join(str(p.get(k, "")) for p in result["spec"]["layout"] for k in ("title", "text"))

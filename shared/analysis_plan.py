@@ -137,6 +137,23 @@ def _written_in_sentences(present: pd.Series) -> bool:
     return bool(len(values) and lengths.median() >= MIN_SENTENCE_CHARS and values.str.count(" ").median() >= 4)
 
 
+def _last_day_is_complete(parsed: pd.Series) -> bool:
+    """False when timestamped data stops partway through its last day: the latest time on that day is well short of
+    the latest time the days before it reached. Dates alone (no times) are whole days."""
+    present = parsed.dropna()
+    if present.empty:
+        return True
+    day = present.dt.normalize()
+    seconds = (present - day).dt.total_seconds()
+    if not bool((seconds > 0).any()):
+        return True
+    latest = seconds.groupby(day).max()
+    if len(latest) < 3:
+        return True
+    last = day.max()
+    return bool(latest[last] >= 0.9 * float(latest.drop(last).quantile(0.9)))
+
+
 def needs_row_count(df: pd.DataFrame) -> bool:
     """True when no column of `df` is a measure: a dashboard of it would have nothing to chart but the rows."""
     if ROWS_COLUMN in df.columns:
@@ -259,6 +276,7 @@ def plan(df: pd.DataFrame) -> dict[str, Any]:
             "frequency": _frequency(parsed),
             "start": str(parsed.min().date()) if pd.notna(parsed.min()) else "",
             "end": str(parsed.max().date()) if pd.notna(parsed.max()) else "",
+            "last_day_complete": _last_day_is_complete(parsed),
             "periods": int(parsed.nunique()),
             "rows_per_period": float(np.median(per_period)) if len(per_period) else 0.0,
         }
