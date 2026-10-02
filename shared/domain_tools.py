@@ -11,14 +11,18 @@ Nothing here is a second implementation. Each action IS an existing tool,
 registered on its tier: its schema is read from that tool, and a call runs
 that tool's own `run()`, so its validation, its wrappers (inline files,
 missing-file suggestions, refusals, token estimate) and its answers are
-exactly the tier's. The tiers keep serving their own endpoints unchanged.
+exactly the tier's. The call itself runs off the event loop and, on Linux, in a
+child process (shared/isolation.py), so a slow or memory-hungry call cannot
+freeze or kill the server. The tiers keep serving their own endpoints unchanged.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from shared.arg_errors import explain, looks_like_validation
+from shared.isolation import run_tool
 
 _READ_ONLY = "readOnlyHint"
 _DESTRUCTIVE = "destructiveHint"
@@ -97,6 +101,43 @@ def describe(summary: str, actions: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+# `filter_rows()` in a hint is how a tier names an action; at the domain tools it is data_edit(...).
+_INVOKED = re.compile(r"\b([a-z_][a-z0-9_]{2,})\(\)")
+
+
+def _retarget(pointer: dict, route: dict[str, str], server: str) -> None:
+    """Point `{"tool": "inspect_dataset"}` at the tool a client can call: the domain, with the action named."""
+    tool = pointer.get("tool")
+    if isinstance(tool, str) and tool in route and not pointer.get("action"):
+        pointer["tool"], pointer["action"] = route[tool], tool
+        if "server" in pointer:
+            pointer["server"] = server
+
+
+def point_at_domains(result: Any, route: dict[str, str], server: str) -> Any:
+    """Rewrite what an answer tells the caller to do next into the vocabulary this server serves.
+
+    Every tier names its own tools -- handover.suggested_next, an insight's action, "use filter_rows()"
+    in a hint -- and a client connected to the domain tools has no tool by any of those names:
+    `tools/call inspect_dataset` was "Unknown tool", and the pointers carried the pre-trim sub-server
+    ("data_basic") as `server`. `route` maps an action to the domain tool that has it.
+    """
+    if not isinstance(result, dict):
+        return result
+    handover = result.get("handover")
+    if isinstance(handover, dict):
+        for pointer in handover.get("suggested_next") or []:
+            if isinstance(pointer, dict):
+                _retarget(pointer, route, server)
+    for insight in result.get("insights") or []:
+        if isinstance(insight, dict) and isinstance(insight.get("action"), dict):
+            _retarget(insight["action"], route, server)
+    hint = result.get("hint")
+    if isinstance(hint, str):
+        result["hint"] = _INVOKED.sub(lambda m: f"{route[m[1]]}(action='{m[1]}')" if m[1] in route else m[0], hint)
+    return result
+
+
 def _refusal(tool_name: str, error: str, hint: str) -> dict[str, Any]:
     return {"success": False, "op": tool_name, "error": error, "hint": hint, "progress": [], "token_estimate": 0}
 
@@ -112,6 +153,9 @@ def register_domain(
     pointed at every right one.
     """
     elsewhere = elsewhere or {}
+    route = {action: homes[0] for action, homes in elsewhere.items() if homes}
+    route.update({action: name for action in actions})
+    server = getattr(mcp, "name", "") or name
 
     async def run(action: str, args: dict | None = None) -> dict:
         tool = actions.get(action)
@@ -132,7 +176,7 @@ def register_domain(
                 name, f"{action} does not take {', '.join(unknown)}.", f"{action} accepts: {', '.join(known)}."
             )
         try:
-            return await tool.run(given)
+            return point_at_domains(await run_tool(tool, given), route, server)
         except Exception as exc:
             if not looks_like_validation(str(exc)):
                 raise

@@ -6,6 +6,27 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed — a next step names a tool the client has
+
+- `handover.suggested_next`, an insight's `action` and a "use filter_rows()" hint named the tier's own
+  tools (`{"tool": "inspect_dataset", "server": "data_basic"}`), which a client of the domain tools does
+  not have: `tools/call inspect_dataset` was "Unknown tool". The dispatcher now answers
+  `{"tool": "<domain tool>", "action": "<action>", "server": ...}` and `<domain>(action='...')` in
+  hints (`shared/domain_tools.point_at_domains`).
+
+### Fixed — one heavy call cannot freeze or kill the server
+
+- The MCP SDK runs a synchronous tool inline on the event loop, so a long call answered no health
+  check and no other request, and a call that wanted more memory than the container had was killed
+  by the kernel together with the server and every call in flight. A call now runs in a child
+  process (Linux; a thread elsewhere; `MCP_CALL_ISOLATION=inline` restores the old behaviour),
+  stopped before the container is out of memory or after `MCP_CALL_TIMEOUT_S` (default 1800), with
+  a reply that says which. `MCP_MAX_CALLS` (default 2) and `MCP_CALL_MEMORY_MB` tune it
+  (`shared/isolation.py`).
+- `export_data(format=excel)` writes the sheet as a stream (`shared/workbook.py`): the hotel file
+  (119,390 x 32) peaks near 180 MB where `pd.ExcelWriter` needed about 3 GB and was killed at 1 GB.
+  A sheet past Excel's own row or column limit is refused instead of written as a file Excel repairs.
+
 ### Fixed — what the 2026-10-02 big-data sweep found untrue
 
 - A piece of a date is not a quantity. `arrival_date_year`, `..._week_number`, `..._day_of_month`

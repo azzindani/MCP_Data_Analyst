@@ -33,6 +33,7 @@ from shared.platform_utils import get_max_results
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
 from shared.version_control import drop_snapshot_if_unwritten, snapshot
+from shared.workbook import write_plain_workbook
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
@@ -1370,9 +1371,9 @@ def convert_file(
             df.to_parquet(buf, engine="pyarrow", index=False)
             atomic_write(out, buf.getvalue())
         elif output_format == "excel":
-            buf = BytesIO()
-            df.to_excel(buf, index=False, engine="openpyxl")
-            atomic_write(out, buf.getvalue())
+            # Streamed: `to_excel` into a BytesIO and then `getvalue()` held the sheet twice, and
+            # 119,390 x 32 cells needed more than the server's whole memory.
+            write_plain_workbook(df, out)
 
         append_receipt(
             str(path),

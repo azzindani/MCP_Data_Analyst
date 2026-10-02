@@ -160,8 +160,6 @@ def write_workbook(
     and a caller that says "formatted amounts" in its response had better be
     able to name which columns got them.
     """
-    import pandas as pd
-
     out = Path(out_path)
     rows_total = len(df)
     body = df.head(preview_rows) if preview_rows and preview_rows < rows_total else df
@@ -201,81 +199,168 @@ def write_workbook(
         source_fingerprint=source_fingerprint,
     )
 
-    with pd.ExcelWriter(out, engine="openpyxl") as writer:
-        body.to_excel(writer, sheet_name=DATA_SHEET, index=False)
-        pd.DataFrame(readme, columns=["Field", "Value"]).to_excel(writer, sheet_name=README_SHEET, index=False)
-
-        book = writer.book
-        book.active = book.sheetnames.index(README_SHEET)
-        for ws in book.worksheets:
-            ws.sheet_view.tabSelected = ws.title == README_SHEET
-        _style_readme(book[README_SHEET])
-        report.update(_style_data(book[DATA_SHEET], body))
-
+    report.update(_write_streaming(body, readme, out))
     return report
 
 
-def _style_readme(ws) -> None:
+# Excel's own ceilings: a sheet past either is a file Excel repairs on open, not one it shows.
+EXCEL_MAX_ROWS = 1_048_576
+EXCEL_MAX_COLS = 16_384
+
+# Rows turned into Python values at a time. The workbook is written as a stream: a 119,390 x 32
+# export (3.8 million cells) was 3 GB through `pd.ExcelWriter`, which holds every cell as an
+# object, and was killed at the server's 1 GB limit -- and the server with it.
+_CHUNK_ROWS = 5_000
+
+
+def _plain(value: Any) -> Any:
+    """A value openpyxl will write: what pandas' own writer wrote, text for anything it cannot."""
+    from datetime import date, time, timedelta
+    from decimal import Decimal
+
+    if isinstance(value, float) and value in (float("inf"), float("-inf")):
+        return "inf" if value > 0 else "-inf"  # Excel has no infinity; pandas' own writer wrote this text
+    if value is None or isinstance(value, (str, bool, int, float, datetime, date, time, timedelta, Decimal)):
+        return value
+    return str(value)
+
+
+def _write_streaming(body, readme: list[tuple[str, str]], out: Path) -> dict[str, Any]:
+    """Write the Data sheet row by row, then README, and return the styling report.
+
+    Everything sheet-wide (frozen header, filter, widths, dropdowns) is declared before the first
+    row, which is the order a streaming worksheet needs; number formats go on the cells of the
+    columns that have one.
+    """
+    from openpyxl import Workbook
+    from openpyxl.cell import WriteOnlyCell
     from openpyxl.styles import Alignment, Font
-
-    ws.column_dimensions["A"].width = 26
-    ws.column_dimensions["B"].width = 78
-    for cell in ws[1]:
-        cell.font = Font(bold=True)
-    for row in ws.iter_rows(min_row=2, min_col=2, max_col=2):
-        for cell in row:
-            cell.alignment = Alignment(wrap_text=True, vertical="top")
-
-
-def _style_data(ws, body) -> dict[str, Any]:
-    """Freeze, filter, size, format and validate the data sheet."""
-    from openpyxl.styles import Font
     from openpyxl.worksheet.datavalidation import DataValidation
 
     n_rows, n_cols = len(body), len(body.columns)
+    _check_excel_limits(n_rows, n_cols)
+
+    book = Workbook(write_only=True)
+    data = book.create_sheet(DATA_SHEET)
+    notes = book.create_sheet(README_SHEET)
+
     formatted: list[str] = []
     validated: list[str] = []
-
-    for cell in ws[1]:
-        cell.font = Font(bold=True)
-
-    # Row 2 down scrolls under a header that stays put. This is the single
-    # change that separates a workbook from a CSV in a spreadsheet.
-    ws.freeze_panes = "A2"
-
+    formats: list[str] = []
+    data.freeze_panes = "A2"
     last_col = _column_letter(n_cols) if n_cols else "A"
     if n_rows and n_cols:
-        ws.auto_filter.ref = f"A1:{last_col}{n_rows + 1}"
-
+        data.auto_filter.ref = f"A1:{last_col}{n_rows + 1}"
     for i, name in enumerate(body.columns, start=1):
         letter = _column_letter(i)
         series = body[name]
-
         sample = series.head(_WIDTH_SAMPLE).astype(str)
         widest = int(sample.str.len().max()) if len(sample) else 0
-        ws.column_dimensions[letter].width = max(MIN_COL_WIDTH, min(MAX_COL_WIDTH, max(widest, len(str(name))) + 2))
-
-        fmt = _number_format(series)
-        if fmt and n_rows:
-            # Per column, in one pass over that column only. openpyxl has no
-            # column-level number format Excel reliably honours, so this is the
-            # cheapest form that actually shows up in the file.
-            for (cell,) in ws.iter_rows(min_row=2, max_row=n_rows + 1, min_col=i, max_col=i):
-                cell.number_format = fmt
+        data.column_dimensions[letter].width = max(MIN_COL_WIDTH, min(MAX_COL_WIDTH, max(widest, len(str(name))) + 2))
+        fmt = _number_format(series) if n_rows else ""
+        formats.append(fmt)
+        if fmt:
             formatted.append(str(name))
-
-        choices = _validation_choices(series)
-        if choices and n_rows:
+        choices = _validation_choices(series) if n_rows else None
+        if choices:
             dv = DataValidation(type="list", formula1='"' + ",".join(choices) + '"', allow_blank=True)
             dv.error = f"Not one of the {len(choices)} value(s) in this column."
             dv.errorTitle = f"{name}: unexpected value"
-            ws.add_data_validation(dv)
+            data.data_validations.append(dv)
             dv.add(f"{letter}2:{letter}{n_rows + 1}")
             validated.append(str(name))
 
+    bold = Font(bold=True)
+    header = []
+    for name in body.columns:
+        cell = WriteOnlyCell(data, value=str(name))
+        cell.font = bold
+        header.append(cell)
+    data.append(header)
+
+    _append_rows(data, body, formats)
+
+    notes.column_dimensions["A"].width = 26
+    notes.column_dimensions["B"].width = 78
+    notes.append([_bold_cell(notes, "Field", bold), _bold_cell(notes, "Value", bold)])
+    for field, value in readme:
+        cell = WriteOnlyCell(notes, value=str(value))
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
+        notes.append([field, cell])
+
+    book.active = book.sheetnames.index(README_SHEET)
+    for ws in (data, notes):
+        ws.sheet_view.tabSelected = ws.title == README_SHEET
+    book.save(out)
     return {
         "frozen_header": True,
         "autofilter": bool(n_rows and n_cols),
         "formatted_columns": formatted,
         "validated_columns": validated,
     }
+
+
+def _check_excel_limits(n_rows: int, n_cols: int) -> None:
+    if n_rows + 1 > EXCEL_MAX_ROWS or n_cols > EXCEL_MAX_COLS:
+        raise ValueError(
+            f"This sheet is too large for Excel ({n_rows + 1:,} rows x {n_cols:,} columns; the limit is "
+            f"{EXCEL_MAX_ROWS:,} x {EXCEL_MAX_COLS:,}). Use preview_rows, or export as csv or parquet."
+        )
+
+
+def _append_rows(sheet, body, formats: list[str]) -> None:
+    """Append `body` to a write-only sheet a chunk at a time; a column with a number format gets it per cell."""
+    from openpyxl.cell import WriteOnlyCell
+
+    styled = [i for i, fmt in enumerate(formats) if fmt]
+    for start in range(0, len(body), _CHUNK_ROWS):
+        chunk = body.iloc[start : start + _CHUNK_ROWS]
+        values = chunk.astype(object).where(chunk.notna(), None)
+        for row in values.itertuples(index=False, name=None):
+            line = [_plain(v) for v in row]
+            for i in styled:
+                if line[i] is not None:
+                    cell = WriteOnlyCell(sheet, value=line[i])
+                    cell.number_format = formats[i]
+                    line[i] = cell
+            sheet.append(line)
+
+
+def write_plain_workbook(df, out_path: str | Path, sheet_name: str = "Sheet1") -> None:
+    """`df` as a one-sheet workbook with nothing added: what `df.to_excel` wrote, without holding it all.
+
+    For a conversion, where the caller asked for the same table in another format; `write_workbook`
+    is the one that adds a README and formatting. Written to a temporary file beside the target and
+    moved into place, so a failure leaves no half-written workbook under the real name.
+    """
+    import os
+    import shutil
+    import tempfile
+
+    from openpyxl import Workbook
+
+    from shared.file_utils import apply_default_mode
+
+    _check_excel_limits(len(df), len(df.columns))
+    book = Workbook(write_only=True)
+    sheet = book.create_sheet(sheet_name)
+    sheet.append([str(c) for c in df.columns])
+    _append_rows(sheet, df, [""] * len(df.columns))
+    target = Path(out_path)
+    fd, tmp = tempfile.mkstemp(dir=target.parent, suffix=".xlsx")
+    os.close(fd)
+    try:
+        book.save(tmp)
+        apply_default_mode(tmp)
+        shutil.move(tmp, str(target))
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def _bold_cell(ws, value: str, font) -> Any:
+    from openpyxl.cell import WriteOnlyCell
+
+    cell = WriteOnlyCell(ws, value=value)
+    cell.font = font
+    return cell
