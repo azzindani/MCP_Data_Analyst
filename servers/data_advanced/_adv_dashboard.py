@@ -65,7 +65,16 @@ from shared.analysis_plan import ROWS_COLUMN, needs_row_count, parsed_dates, wit
 from shared.analysis_plan import plan as plan_analysis
 from shared.big_table import reason as big_table_reason
 from shared.column_utils import is_identifier, parse_date_column
-from shared.dashboard_looks import LookError, body_classes, chart_theme, effective_theme, look_css, resolve_look
+from shared.dashboard_looks import (
+    CLASSIC_LOOK,
+    DEFAULT_LOOK,
+    LookError,
+    body_classes,
+    chart_theme,
+    effective_theme,
+    look_css,
+    resolve_look,
+)
 from shared.dashboard_spec import (
     CHART_KINDS,
     LAYOUT_SOURCE_KEY,
@@ -103,6 +112,7 @@ from shared.file_utils import (
 )
 from shared.geo_assets import assets_script
 from shared.geo_names import unrecognised_locations
+from shared.labels import humanize
 from shared.metrics import (
     MetricError,
     auto_ratios,
@@ -328,6 +338,20 @@ def _bad_look(exc: Exception) -> dict:
     }
 
 
+def _title_of(stem: str) -> str:
+    """A file's name as the page's title: `hotel_bookings` is "Hotel bookings"; a name already spaced is left."""
+    return humanize(stem) if _re.search(r"[_-]|[a-z][A-Z]", stem) else stem
+
+
+def _page_title(title: str, stem: str, original_stem: str, sampled: dict | None) -> str:
+    """The caller's title, else the file's name said as a person would, and when drawn from a sample, that."""
+    if title:
+        return title
+    if sampled:
+        return f"{_title_of(original_stem)} (a sample of {sampled['rows_used']:,} of {sampled['rows_in_file']:,} rows)"
+    return _title_of(stem)
+
+
 def _page_look(resolved: dict, page_style_in: dict, theme: str) -> tuple[dict | None, str, str, dict]:
     """The page's look (None when it names none), its built-in name, the theme once the look has its say,
     and the refusal to return when the look cannot be drawn ({} when it can).
@@ -336,7 +360,9 @@ def _page_look(resolved: dict, page_style_in: dict, theme: str) -> tuple[dict | 
     the same wherever the dashboard is customized next.
     """
     wanted = resolved.get("style", {}).get("look")
-    if wanted is None:
+    if wanted is None and resolved.get(LAYOUT_SOURCE_KEY) == "story" and "look" not in page_style_in:
+        wanted = resolved.setdefault("style", {})["look"] = DEFAULT_LOOK  # a generated page is designed
+    if wanted is None or wanted == CLASSIC_LOOK:
         return None, "", theme, {}
     try:
         look = resolve_look(wanted, resolve_path)
@@ -596,11 +622,7 @@ def generate_dashboard(
                 "progress": [fail("Template", str(exc))],
                 "token_estimate": 60,
             }
-        dashboard_title = title if title else path.stem
-        if sampled and not title:
-            dashboard_title = (
-                f"{original_stem} (a sample of {sampled['rows_used']:,} of {sampled['rows_in_file']:,} rows)"
-            )
+        dashboard_title = _page_title(title, path.stem, original_stem, sampled)
         # Whether the page's title is the caller's or only the file's name --
         # taken now, because the panel loop below rebinds `title`.
         titled = bool(title) or bool((spec or {}).get("title"))
@@ -1180,6 +1202,7 @@ def generate_dashboard(
                     bool(resolved["interactions"].get("cross_filter", True)),
                     cube=cube_info is not None,
                     sample_js=sample_js,
+                    columns=df.columns,
                 ),
             )
         )
@@ -1584,11 +1607,12 @@ def _dash_filterbar(filters: list[dict], theme: str = "device"):
         # reach the page intact, and both column names and cell values here come
         # straight from whatever CSV was loaded.
         lbl = _html_esc.escape(col)
+        shown = _html_esc.escape(humanize(col))
         # A JS string inside a double-quoted HTML attribute: escaped for JS,
         # then for the attribute. Escaping only \ and ' left a " free to end the
         # onchange="..." attribute and open a new one.
         col_js = _html_esc.escape(_js(col))
-        h.append(f'<div class="fgrp"><div class="flbl">{lbl}</div>')
+        h.append(f'<div class="fgrp"><div class="flbl">{shown}</div>')
         if style == "pills":
             h.append(f'<div class="pills" data-col="{lbl}">')
             for v in vals:
@@ -1636,7 +1660,7 @@ def _range_control(fc: dict, scheme: str) -> str:
         return f'<input {kind} data-bound="{bound}" aria-label="{lbl} {word}" onchange="rngCh(this)">'
 
     pair = box("min") + '<span class="nsep">–</span>' + box("max")
-    return f'<div class="fgrp"><div class="flbl">{lbl}</div><div class="nrng" data-col="{lbl}">{pair}</div></div>'
+    return f'<div class="fgrp"><div class="flbl">{_html_esc.escape(humanize(fc["col"]))}</div><div class="nrng" data-col="{lbl}">{pair}</div></div>'
 
 
 def _compact_num(v: float) -> str:
@@ -2349,7 +2373,7 @@ function _groups(d,keyOf,col){
   return m;
 }
 function _kpi(d,col,how){return _agg(d.map(function(r){return _cell(r,col);}),how);}
-function _axes(extra){return _merge({margin:{l:55,r:20,t:10,b:65},xaxis:{gridcolor:_T().grid,tickangle:'auto'},yaxis:{gridcolor:_T().grid}},extra);}
+function _axes(extra){return _merge({margin:{l:55,r:20,t:10,b:65},xaxis:{gridcolor:_T().grid,tickangle:'auto',zeroline:false,tickfont:{size:11}},yaxis:{gridcolor:_T().grid,zeroline:false,tickfont:{size:11}}},extra);}
 function _geo(){return{showland:true,landcolor:_T().land,showocean:true,oceancolor:_T().ocean,showcoastlines:true,coastlinecolor:_T().coast,showcountries:true,countrycolor:_T().coast,showframe:false,bgcolor:_T().bg};}
 function _pal(p){return p.style.palette||_STYLE.palette||_T().palette;}
 // A category value's colour: the panel's map, then the page's -- so a value is
@@ -2426,7 +2450,7 @@ const FIG={
       marker:{color:named.some(Boolean)?named.map(function(c){return c||s.color;}):s.color,opacity:0.85}};
     if(s.value_labels!==false){t.text=e.map(function(i){return _fmtv(i[1],s);});t.textposition='outside';}
     // A category named 0, 1, 2 is a label, not a position: Plotly would draw it on a number line with ticks at 0.5.
-    return{data:[t],layout:_axes({xaxis:{type:'category'},yaxis:_vaxis(s)})};
+    return{data:[t],layout:_axes({xaxis:{type:'category'},yaxis:_vaxis(s),bargap:0.42})};
   },
   pie:function(p,d){
     // With a value column the slices are its sums per category; without one
@@ -2438,6 +2462,16 @@ const FIG={
     // and spill out of the card, repeating names the legend already lists.
     var ti=e.length>6?'percent':'label+percent';
     var s=p.style,hole=s.hole!==undefined?s.hole/100:0.38,mid=[];
+    // "share:Yes" makes a ring of one category's share: it in the accent over a pale track, its share in the middle.
+    var focus=/^share:/.test(s.center||'')?s.center.slice(6):null;
+    if(focus!==null){
+      var all=e.reduce(function(a,i){return a+i[1];},0),hit=e.filter(function(i){return String(i[0])===focus;})[0],share=hit&&all>0?hit[1]/all:0;
+      var on=s.color||_pal(p)[0],off=_T().grid;
+      mid=[{text:'<b>'+(share*100).toFixed(share<0.1?2:1)+'%</b><br><span style="font-size:12px;opacity:.7">'+Math.round(hit?hit[1]:0).toLocaleString('en-US')+' of '+Math.round(all).toLocaleString('en-US')+'</span>',x:0.5,y:0.5,xref:'paper',yref:'paper',showarrow:false,font:{size:28,color:_T().font}}];
+      return{data:[{values:e.map(function(i){return i[1];}),labels:e.map(function(i){return i[0];}),type:'pie',hole:0.74,sort:false,direction:'clockwise',rotation:0,
+                    marker:{colors:e.map(function(i){return String(i[0])===focus?on:off;}),line:{width:0}},textinfo:'none',hoverinfo:'label+percent'}],
+             layout:{margin:{l:44,r:44,t:24,b:24},annotations:mid,showlegend:false}};
+    }
     // The answer in the middle of the ring: the total, or the words the panel was given.
     if(s.center&&hole>0.2){var tot=e.reduce(function(a,i){return a+i[1];},0);
       mid=[{text:s.center==='total'?_fmtv(tot,s):s.center,x:0.5,y:0.5,xref:'paper',yref:'paper',showarrow:false,font:{size:18}}];}
@@ -2558,7 +2592,7 @@ const FIG={
 // layout fields last so they win.
 function figure(p,d){
   var f=FIG[p.type](p,d);if(!f)return null;
-  var frame={paper_bgcolor:_T().bg,plot_bgcolor:_T().bg,font:{color:_T().font,size:12},autosize:true};
+  var frame={paper_bgcolor:_T().bg,plot_bgcolor:_T().bg,font:{color:_T().font,size:12,family:_T().family},autosize:true};
   return{data:f.data,layout:am(_merge(_merge(frame,f.layout),p.style.layout||{}))};
 }
 function renderPanel(p,d){
@@ -2608,6 +2642,12 @@ def _dash_js(
     return f"""<script>
 let _RAW={raw_json};
 {state}const _TOTAL=_rows(_RAW);
+// A page with a look paints its charts in the look's palette: a panel that kept the engine's default
+// colours takes the look's, one that was given a colour keeps it.
+(function(){{var pal=_STYLE.palette;if(!pal||!pal.length||!_STYLE.look)return;
+  var D={{'#3fb950':0,'#58a6ff':0,'#f0883e':2}};
+  _PANELS.forEach(function(p){{var s=p.style;if(!s)return;
+    ['color','accent'].forEach(function(k){{var c=typeof s[k]==='string'?s[k].toLowerCase():'';if(D[c]!==undefined)s[k]=pal[D[c]%pal.length];}});}});}})();
 let _CF={{}};  // a list filter: column -> the Set of values it keeps
 let _NF={{}};  // a range: column -> {{min, max}}, numbers or YYYY-MM-DD days
 var _FK={{}};_FILTERS.forEach(function(f){{_FK[f.col]=f;}});

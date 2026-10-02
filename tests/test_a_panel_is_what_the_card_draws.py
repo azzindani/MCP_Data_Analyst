@@ -193,13 +193,16 @@ class TestTheFilteredRowsReachEveryFigure:
         assert trace["x"] == ["North"] and trace["y"] == pytest.approx([sum(r["units"] for r in north)])
 
 
+PLAIN = {"style": {"look": "classic"}}  # the engine's own page, with no look's tokens to draw on
+
+
 class TestTheThemeIsTheFrame:
     @pytest.mark.parametrize("theme", ["dark", "light"])
     def test_every_figure_is_drawn_on_the_themes_colours(self, sales, theme):
         from shared.html_theme import theme_plot_colors
 
         bg, font, _ = theme_plot_colors(theme)
-        for cid, f in drawn(_page(sales, theme=theme))["figures"].items():
+        for cid, f in drawn(_page(sales, theme=theme, spec=PLAIN))["figures"].items():
             assert (f["layout"]["paper_bgcolor"], f["layout"]["font"]["color"]) == (bg, font), cid
 
     @pytest.mark.parametrize("dark", [False, True], ids=["reader-light", "reader-dark"])
@@ -208,7 +211,20 @@ class TestTheThemeIsTheFrame:
         from shared.html_theme import theme_plot_colors
 
         bg, font, _ = theme_plot_colors("dark" if dark else "light")
-        figures = drawn(_page(sales, theme="device"), dark=dark)["figures"]
+        figures = drawn(_page(sales, theme="device", spec=PLAIN), dark=dark)["figures"]
         assert figures
         for cid, f in figures.items():
             assert (f["layout"]["paper_bgcolor"], f["layout"]["font"]["color"]) == (bg, font), cid
+
+    @pytest.mark.parametrize("theme", ["dark", "light"])
+    def test_a_page_with_a_look_draws_on_that_looks_cards(self, sales, theme):
+        # A generated page wears `studio` unless it asks for another look or `classic`: its charts sit on
+        # that look's card colour and speak in its typeface, not the plain page's.
+        from shared.dashboard_looks import BUILTIN, DEFAULT_LOOK, chart_theme
+
+        want = chart_theme(BUILTIN[DEFAULT_LOOK], theme)
+        figures = drawn(_page(sales, theme=theme))["figures"]
+        assert figures
+        for cid, f in figures.items():
+            assert (f["layout"]["paper_bgcolor"], f["layout"]["font"]["color"]) == (want["bg"], want["font"]), cid
+            assert f["layout"]["font"]["family"] == want["family"], cid

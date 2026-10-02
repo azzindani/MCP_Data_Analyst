@@ -31,6 +31,7 @@ from __future__ import annotations
 import base64
 import html
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -193,8 +194,13 @@ FONTS: dict[str, str] = {
 SAFE_PALETTE = ["#0072B2", "#E69F00", "#009E73", "#D55E00", "#56B4E9", "#CC79A7", "#F0E442", "#999999"]
 
 EXT_CSS = """
-.kpi-delta{font-size:.8125rem;margin-top:.25rem;font-weight:600}
-.kpi-delta span{font-weight:400;color:var(--text-muted)}
+.kpi-delta{font-size:.8125rem;margin-top:.25rem;font-weight:600;display:flex;flex-wrap:wrap;align-items:center;gap:.25rem .5rem}
+.kpi-delta span{font-weight:400;color:var(--text-muted);font-size:.75rem}
+.kpi-delta b{font-weight:600;padding:.125rem .5rem;border-radius:999px;background:color-mix(in srgb,currentColor 13%,transparent)}
+.kpi-main{display:flex;align-items:flex-end;justify-content:space-between;gap:.75rem}
+.kpi-main .kpi-spark{flex:0 1 46%;height:2.75rem;margin:0}
+.kpi-foot{min-height:1.5rem}
+.cc-kpi .cc-hdr h3{font-size:.8125rem;font-weight:600;color:var(--text-muted)}
 .kpi-delta.good{color:var(--green,#2da44e)}.kpi-delta.bad{color:var(--red,#cf222e)}.kpi-delta.flat{color:var(--text-muted)}
 .md{font-size:.875rem;line-height:1.55;color:var(--text)}.md p{margin:.25rem 0 .5rem}.md ul,.md ol{margin:.25rem 0 .5rem 1.1rem;padding:0}
 .md h4{margin:.25rem 0 .375rem;font-size:1.25rem;line-height:1.3}.md a{color:var(--accent)}.md code{font-size:.8125rem;padding:0 .2rem;border-radius:4px;background:rgba(127,127,127,.15)}
@@ -256,6 +262,9 @@ if(_STYLE.toolbar===false)PCFG.displayModeBar=false;
 function _isna(v){return v===null||v===undefined||(typeof v==='number'&&isNaN(v));}
 function _cell(r,c){
   var s=_num(r[c]);if(!_CUBE||isNaN(s))return s;
+  // A column the cube groups by holds one value per cell, and every row of the cell has it: a page that groups by
+  // a 0/1 outcome (a ring of its share) and also averages it reads its sum as value x rows, exactly.
+  if(r[c+'#n']===undefined){var n=+r.__n||0;return{s:s*n,n:n,lo:s,hi:s};}
   return{s:s,n:+r[c+'#n']||0,lo:_num(r[c+'#lo']),hi:_num(r[c+'#hi'])};
 }
 function _rows(d){if(!_CUBE)return d.length;var n=0;for(var i=0;i<d.length;i++)n+=+d[i].__n||0;return n;}
@@ -306,6 +315,8 @@ function _rgroups(d,keyOf){
 function _unit(p){return(p.metric&&_METRICS[p.metric])?_METRICS[p.metric].unit:(p.unit||'');}
 function _better(p){return(p.metric&&_METRICS[p.metric])?_METRICS[p.metric].better:(p.better===undefined?'up':p.better);}
 // A value in its unit: a share as a percentage, a ratio as 2.4x, money with the page's currency.
+function _lab(n){return Object.prototype.hasOwnProperty.call(_LAB,n)?_LAB[n]:n;}
+function _rgba(hex,a){var m=/^#([0-9a-f]{6})$/i.exec(hex||'');return m?'rgba('+parseInt(m[1].slice(0,2),16)+','+parseInt(m[1].slice(2,4),16)+','+parseInt(m[1].slice(4,6),16)+','+a+')':'rgba(127,127,127,'+a+')';}
 function _fmtu(v,p){
   var s=p.style||{},u=_unit(p);
   if(v===null||v===undefined||!isFinite(v))return'–';
@@ -351,17 +362,26 @@ function _delta(p,a,b,label){
   // A change that rounds to nothing is shown as none, not as a red "-0.0".
   if(d1===0){txt=u==='percent'?'0.0 pp':'0.0%';}
   var bt=_better(p),cls=d1===0||!bt?'flat':((bt==='up')===(a>b)?'good':'bad');
-  return'<div class="kpi-delta '+cls+'">'+(d1===0?'■':a>b?'▲':'▼')+' '+_esc(txt)+' <span>'+_esc(label)+'</span></div>';
+  return'<div class="kpi-delta '+cls+'"><b>'+(d1===0?'■':a>b?'▲':'▼')+' '+_esc(txt)+'</b> <span>'+_esc(label)+'</span></div>';
 }
 
 HTMLP.kpi=function(p,d){
-  var s=p.style,v,sub='over '+_rows(d).toLocaleString('en-US')+' rows',out=[];
+  var s=p.style,v,sub=s.sub!==undefined?s.sub:'',out=[];
   var two=(p.date)?_lastTwo(p,d):null;
   if(s.period==='last'&&two){v=two.a;sub='in '+two.cur;}else{v=_measure(p,d);}
   if(two)out.push(_delta(p,two.a,two.b,two.cur+' vs '+two.prev));
   if(s.target!==undefined)out.push(_delta(p,v,+s.target,'vs target '+_fmtu(+s.target,p)));
-  return'<div class="kpi-big"'+(s.color?' style="color:'+_esc(s.color)+'"':'')+'>'+_esc(_fmtu(v,p))+'</div>'+out.join('')
-    +'<div class="kpi-sub">'+_esc(sub)+'</div>'+(p.date?'<div class="kpi-spark" id="'+_esc(p.id)+'-sp"></div>':'');
+  // A figure with no line beneath it says what it is made of: a sum, per row; an average, over what range.
+  if(!sub&&!p.date&&!p.metric&&!two){
+    var how=p.agg||'sum',rows=_rows(d);
+    if(how==='sum'&&rows>0&&isFinite(v))sub=_fmtu(v/rows,p)+' per row';
+    else if(how==='mean'){var cells=d.map(function(r){return _cell(r,p.value);}),lo=_agg(cells,'min'),hi=_agg(cells,'max');if(isFinite(lo)&&isFinite(hi))sub='range '+_fmtu(lo,p)+' to '+_fmtu(hi,p);}
+  }
+  // The rows a figure is over are said when a filter has narrowed them: unfiltered, it is the whole file.
+  if(_rows(d)<_TOTAL)sub=(sub?sub+' · ':'')+'over '+_rows(d).toLocaleString('en-US')+' rows';
+  return'<div class="kpi-main"><div class="kpi-big"'+(s.color?' style="color:'+_esc(s.color)+'"':'')+'>'+_esc(_fmtu(v,p))+'</div>'
+    +(p.date?'<div class="kpi-spark" id="'+_esc(p.id)+'-sp"></div>':'')+'</div>'
+    +'<div class="kpi-foot">'+out.join('')+(sub?'<div class="kpi-sub">'+_esc(sub)+'</div>':'')+'</div>';
 };
 // The tile's line: the measure by period, drawn by Plotly in the page's accent (it cannot read a CSS variable).
 HTMLP_AFTER.kpi=function(p,d){
@@ -373,8 +393,9 @@ HTMLP_AFTER.kpi=function(p,d){
   var a=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#58a6ff',
       m=/^#([0-9a-f]{6})$/i.exec(a),
       f=m?'rgba('+parseInt(m[1].slice(0,2),16)+','+parseInt(m[1].slice(2,4),16)+','+parseInt(m[1].slice(4,6),16)+',0.12)':'rgba(88,166,255,0.1)';
+  var lo=Math.min.apply(null,ys),hi=Math.max.apply(null,ys),pad=Math.max((hi-lo)*0.18,Math.abs(hi)*0.02,1e-9);
   Plotly.react(el,[{y:ys,type:'scatter',mode:'lines',line:{color:a,width:1.5},fill:'tozeroy',fillcolor:f,hoverinfo:'skip'}],
-    {paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',margin:{l:0,r:0,t:0,b:0},xaxis:{visible:false},yaxis:{visible:false},showlegend:false},
+    {paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',margin:{l:0,r:0,t:0,b:0},xaxis:{visible:false},yaxis:{visible:false,range:[lo-pad,hi+pad]},showlegend:false},
     {responsive:true,displayModeBar:false,staticPlot:true});
 };
 
@@ -499,22 +520,44 @@ FIG.ts=function(p,d){
   var partial=!!(p.complete&&keys.length>1&&keys[keys.length-1]>p.complete),cut=partial?keys.length-1:keys.length;
   // The same at the start: a data set that begins on the 23rd has a short first month, which is no ramp up from nothing.
   var lead=!!(p.first&&cut>2&&keys[0]<p.first),from=lead?1:0;
-  var t=[{x:keys.slice(from,cut),y:vals.slice(from,cut),type:'scatter',mode:'lines+markers',name:p.metric||p.value,line:{color:s.color,width:2},marker:{size:4}}];
+  var t=[{x:keys.slice(from,cut),y:vals.slice(from,cut),type:'scatter',mode:'lines+markers',name:_lab(p.metric||p.value),line:{color:s.color,width:2},marker:{size:4}}];
   if(w>0){
     var ma=vals.slice(from,cut).map(function(_,i){if(i<w-1)return null;var a=0;for(var j=i-w+1;j<=i;j++)a+=vals[from+j];return a/w;});
     t.push({x:keys.slice(from+w-1,cut),y:ma.slice(w-1),type:'scatter',mode:'lines',name:w+'-period MA',line:{color:s.accent,width:2,dash:'dot'}});
   }
-  var lay=_axes(_merge({xaxis:{title:'Date'},yaxis:_merge({title:p.metric||p.value},_utick(p))},_legend(s,{showlegend:true,legend:{x:0,y:1.1,orientation:'h'}})));
+  // A designed page names a chart in its card header: no axis titles, the area under the line, the peak called out.
+  var designed=!!_STYLE.look,lay=_axes(_merge({xaxis:{title:s.x_title||''},yaxis:_merge({title:s.y_title||(designed?'':p.metric||p.value)},_utick(p))},_legend(s,{showlegend:true,legend:{x:0,y:1.1,orientation:'h'}})));
+  if(s.fill){t[0].mode='lines';t[0].fill='tozeroy';t[0].fillcolor=_rgba(s.color,0.12);}
+  var med=(function(){var a=vals.slice(from,cut).filter(isFinite).sort(function(x,y){return x-y;});return a.length?a[a.length>>1]:0;})();
+  if(s.peak&&cut-from>2){
+    var pk=from;for(var i=from;i<cut;i++)if(vals[i]>vals[pk])pk=i;
+    if(vals[pk]>1.12*med)lay.annotations=(lay.annotations||[]).concat([{x:keys[pk],y:vals[pk],text:'Peak '+keys[pk]+' · '+_fmtu(vals[pk],p),showarrow:true,arrowhead:0,arrowcolor:s.color,arrowwidth:1,ax:0,ay:-36,
+      font:{size:11,color:'#fff'},bgcolor:s.color,bordercolor:s.color,borderpad:4}]);
+  }
   if(lead){
     t.push({x:[keys[0],keys[1]],y:[vals[0],vals[1]],type:'scatter',mode:'lines',line:{color:s.color,width:1.5,dash:'dot'},showlegend:false,hoverinfo:'skip'});
     t.push({x:[keys[0]],y:[vals[0]],type:'scatter',mode:'markers',name:'incomplete period',showlegend:!partial,marker:{size:9,symbol:'circle-open',color:s.color}});
   }
+  var partials=[];
   if(partial){
     var k=keys.length-1;
-    t.push({x:[keys[k-1],keys[k]],y:[vals[k-1],vals[k]],type:'scatter',mode:'lines',line:{color:s.color,width:1.5,dash:'dot'},showlegend:false,hoverinfo:'skip'});
-    t.push({x:[keys[k]],y:[vals[k]],type:'scatter',mode:'markers',name:'incomplete period',marker:{size:9,symbol:'circle-open',color:s.color}});
+    partials.push({x:[keys[k-1],keys[k]],y:[vals[k-1],vals[k]],type:'scatter',mode:'lines',line:{color:s.color,width:1.5,dash:'dot'},showlegend:false,hoverinfo:'skip'});
+    partials.push({x:[keys[k]],y:[vals[k]],type:'scatter',mode:'markers',name:'incomplete period',marker:{size:9,symbol:'circle-open',color:s.color}});
+    t=t.concat(partials);
   }
   if(s.forecast>0){var fc=_forecast(keys,vals,grain,s.forecast,p.complete,p.first);if(fc)t=t.concat(fc);}
+  // A line that barely moves is not drawn from zero: the axis hugs it, so the little it does is visible.
+  if(s.fill){
+    var all=t[0].y.slice();if(fc)fc.forEach(function(tr){tr.y.forEach(function(y){all.push(y);});});
+    all=all.filter(isFinite);
+    if(all.length){var lo=Math.min.apply(null,all),hi=Math.max.apply(null,all),span=hi-lo;
+      if(span<0.35*Math.abs(hi)){var pad=Math.max(span*0.6,Math.abs(hi)*0.03);lay.yaxis=_merge(lay.yaxis||{},{range:[lo-pad,hi+pad]});
+        // A partial period far outside that axis would leave the chart as a line to nowhere: it is said in words instead.
+        if(partial&&(vals[keys.length-1]<lo-pad||vals[keys.length-1]>hi+pad)){
+          t=t.filter(function(x){return partials.indexOf(x)<0;});
+          lay.annotations=(lay.annotations||[]).concat([{text:'latest period incomplete',xref:'paper',yref:'paper',x:1,y:1.06,xanchor:'right',showarrow:false,font:{size:10,color:_T().font}}]);
+        }}}
+  }
   if(s.events&&s.events.length){
     lay.shapes=(lay.shapes||[]).concat(s.events.map(function(e){var x=_bucket(e.date,grain);return{type:'line',xref:'x',yref:'paper',x0:x,x1:x,y0:0,y1:1,line:{dash:'dot',width:1,color:'#8b949e'}};}));
     lay.annotations=(lay.annotations||[]).concat(s.events.map(function(e){return{x:_bucket(e.date,grain),y:1,xref:'x',yref:'paper',text:_esc(e.label),showarrow:false,yanchor:'bottom',font:{size:10}};}));
@@ -755,16 +798,29 @@ HTMLP.table=function(p,d){
 
 
 def ext_state(
-    metrics: list[dict], parameters: dict[str, Any], cross_filter: bool, cube: bool = False, sample_js: str = "[]"
+    metrics: list[dict],
+    parameters: dict[str, Any],
+    cross_filter: bool,
+    cube: bool = False,
+    sample_js: str = "[]",
+    columns: Iterable[Any] = (),
 ) -> str:
-    """The globals the extensions read, as JSON a <script> can hold."""
+    """The globals the extensions read, as JSON a <script> can hold.
+
+    `columns` are the data's header names: with the metrics' names, each that a person would say another way
+    ("lead_time" is "Lead time") goes to the page, so a title it writes names it as the slide does.
+    """
+    from shared.labels import humanize
     from shared.table_payload import json_for_script
 
+    names = [*columns, *(m["name"] for m in metrics)]
+    labels = {str(n): humanize(n) for n in names if humanize(n) != str(n)}
     return (
         f"const _METRICS={json_for_script({m['name']: m for m in metrics})};\n"
         f"let _PARAMS={json_for_script({k: v['default'] for k, v in (parameters or {}).items()})};\n"
         f"const _CROSS={json_for_script(bool(cross_filter))};\n"
         f"const _CUBE={json_for_script(bool(cube))};\n"
+        f"const _LAB={json_for_script(labels)};\n"
         f"const _SAMPLE={sample_js};\n"
     )
 

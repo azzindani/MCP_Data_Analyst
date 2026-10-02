@@ -6,6 +6,40 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added — a generated dashboard that reads like a person made it
+
+A generated page was right and looked a machine's: header-row spellings ("Avg lead_time",
+"is_canceled rate"), a system font, a column of tall tiles, a trend drawn from zero. It is still one
+Plotly figure per chart; what changed is the words, the type, the cards and the composition around them.
+
+- **Words**: `shared/labels.py` says a column as a person would (`lead_time` is "Lead time",
+  `PoliceReportFiled` "Police report filed", `is_canceled` "Canceled", `adr` "ADR") and swaps whole names
+  only, so titles, findings and filter labels read well while the code keeps the real names. A header
+  that is already somebody's wording is left alone; "Total total of special requests" no longer happens.
+- **Type**: five open-licence families (Nunito, Nunito Sans, Source Sans 3, Sora, Manrope) are bundled in
+  `shared/fonts` with their licences and carried inside the page as data: URIs, only the faces a look
+  uses, so the page reads the same offline and nothing is fetched. A mockup's font is read into the
+  nearest bundled face; a look can still name a system font.
+- **`studio` is the default look**: a generated page wears it (Okabe-Ito marks, a blue accent, quiet
+  filter pills, Source Sans 3). `look: classic` takes the look off and leaves the engine's plain page.
+- **Cards and charts**: a KPI is a compact card with a coloured change pill against the previous period, a
+  sparkline of its own history and a context line (per row, or the range a mean spans; `style.sub` sets it).
+  A line takes `fill` (the area under it, and an axis that hugs a line that barely moves; a last period
+  far off that axis is said in words, not drawn as a line to nowhere) and `peak` (the high point called
+  out, only when it stands clear of the rest). A `pie` needs no value column (it counts rows), and
+  `style.center: "share:<category value>"` makes a ring of that one category's share, with its percentage
+  and count in the middle.
+- **The overview is composed from the data**: KPI cards in one row, the trend with its area and peak
+  beside an outcome ring (when the data has a flag), a split of the main measure, a "What stands out"
+  card, then the findings as their own tab. Between a bar and a ranking of the same split it draws one.
+  A difference has to be half the column's own spread to be called a finding.
+- **Fixed**: a flag column that was also a "by" group was read as a measure and its rate showed 0.00%; a
+  key column is exact per cell of the cube, so the rate by group is the real one.
+- Tests: `test_a_dashboard_that_reads_like_a_person_wrote_it.py` pins each of the above and was run once
+  with each fix switched off. Ten older tests that encoded the old default page (no look, tall tiles, the
+  plain theme on story pages) were re-anchored to `look: classic` or to the layout the story now writes,
+  each keeping the property it protects, with a new test pinning the new behaviour.
+
 ### Added — a dashboard from any table it is given; Fixed — what 48 real files showed
 
 Swept `generate_dashboard` over the 48 CSV and workbook files of `/root/Evals/dataframe`, looked at the

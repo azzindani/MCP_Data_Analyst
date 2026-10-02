@@ -122,9 +122,12 @@ class TestWhatCannotWorkIsRefused:
         assert r["success"] is False and "this spec has no layout of its own" in r["error"]
 
     def test_a_scope_on_a_storyline_names_its_panels(self, sales):
-        # A storyline's layout is one panel per slot, so a scope is checked against it.
-        r = _build(sales, filters=[{"column": "units", "scope": [0]}])
-        assert r["success"] is False and "names slot 0, a markdown panel, which draws no rows" in r["error"]
+        # A storyline's layout is one panel per slot, so a scope is checked against it. The slot is found
+        # in the layout the story wrote, not assumed: the overview opens on KPI cards, not on text.
+        layout = _build(sales)["spec"]["layout"]
+        slot = next(i for i, p in enumerate(layout) if p["chart"] == "markdown")
+        r = _build(sales, filters=[{"column": "units", "scope": [slot]}])
+        assert r["success"] is False and f"names slot {slot}, a markdown panel, which draws no rows" in r["error"]
 
     def test_defaults_that_together_keep_no_rows(self, sales):
         df = _frame(sales)

@@ -34,6 +34,7 @@ were.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -92,7 +93,8 @@ class TestConstantColumnsAreNotCharted:
 
     def test_the_columns_that_vary_are_still_charted(self, rendered: str):
         """The point is to drop the useless charts, not to draw fewer charts."""
-        assert "by campaign_platform" in rendered
+        # The story says the column as a person would ("by campaign platform"); the detected page keeps the header.
+        assert re.search(r"by campaign[_ ]platform", rendered)
 
     def test_the_detected_page_still_draws_their_distribution(self, constant_col_csv: Path, tmp_path: Path):
         assert "campaign_platform Distribution" in _render(constant_col_csv, tmp_path / "d.html", {"story": False})

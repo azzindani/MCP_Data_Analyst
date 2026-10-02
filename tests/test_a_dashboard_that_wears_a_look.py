@@ -88,11 +88,25 @@ class TestAPageWearsIt:
         assert f"look-{name}" in html
         assert result["spec"]["style"]["look"] == name
 
-    def test_a_page_with_no_look_is_what_it_was(self, data, _home):
-        result = generate_dashboard(data, output_path=str(_home / "plain.html"), open_after=False)
+    def test_a_page_that_asks_for_classic_is_what_it_was(self, data, _home):
+        # The engine's own page, as it was before looks: still there for whoever asks for it by name.
+        result = generate_dashboard(
+            data, output_path=str(_home / "plain.html"), open_after=False, spec={"style": {"look": "classic"}}
+        )
+        assert result["success"] is True, result.get("error")
         html = (_home / "plain.html").read_text(encoding="utf-8")
-        assert "/* look */" not in html and "frame-" not in html
-        assert "look" not in result["spec"].get("style", {})
+        assert "/* look */" not in html and "frame-" not in html and "look-" not in html
+
+    def test_a_generated_page_wears_studio_unless_it_asks_otherwise(self, data, _home):
+        result = generate_dashboard(data, output_path=str(_home / "dflt.html"), open_after=False)
+        html = (_home / "dflt.html").read_text(encoding="utf-8")
+        assert f"look-{looks.DEFAULT_LOOK}" in html and "/* look */" in html
+        assert "@font-face" in html and "font/woff2" in html  # its typeface travels inside the page
+        other = generate_dashboard(
+            data, output_path=str(_home / "other.html"), open_after=False, spec={"style": {"look": "nocturne"}}
+        )
+        assert other["success"] is True and "look-nocturne" in (_home / "other.html").read_text(encoding="utf-8")
+        assert result["success"] is True
 
     def test_a_dark_only_look_is_dark_whatever_was_asked(self, data, _home):
         _, html = _page(data, _home, "nocturne")
@@ -113,7 +127,9 @@ class TestAPageWearsIt:
         assert '"palette":["#111111","#222222"]' in mine
 
     def test_the_generic_device_relayout_does_not_repaint_a_look(self, data, _home):
-        plain = generate_dashboard(data, output_path=str(_home / "a.html"), open_after=False)
+        plain = generate_dashboard(
+            data, output_path=str(_home / "a.html"), open_after=False, spec={"style": {"look": "classic"}}
+        )
         assert plain["success"]
         _, with_look = _page(data, _home, "lagoon", name="b")
         marker = "function applyTheme"
@@ -224,7 +240,7 @@ class TestALookFromAMockup:
         assert look["mode"] == "device" and look["frame"] == "rail" and look["radius"] == 20
         assert look["light"]["accent"] == "#11a9ba" and look["light"]["surface"] == "#ffffff"
         assert look["light"]["rail"] == "#15b0bf" and look["dark"]["surface"] == "#15303a"
-        assert look["font"] == "rounded" and report["dark_set"] is True and look["shadow"] == "soft"
+        assert look["font"] == "nunito" and report["dark_set"] is True and look["shadow"] == "soft"  # a bundled face
 
     def test_harbor_is_read_back_with_its_dark_set(self):
         look, _ = looks.digest_html((MOCKUPS / "harbor.src.html").read_text(), "harbor")

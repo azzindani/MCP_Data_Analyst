@@ -20,6 +20,8 @@ cannot carry a rule, a URL or a script into the dashboard it styles.
 
 from __future__ import annotations
 
+import base64
+import functools
 import json
 import re
 from pathlib import Path
@@ -32,7 +34,8 @@ CARDS = ("flat", "outlined", "raised", "glass")
 FRAMES = ("plain", "rail", "sidebar", "banner")
 HEADERS = ("bar", "plain", "gradient")
 KPIS = ("plain", "tile", "gradient")
-# System stacks only: a web font is a fetch, and the page is carried whole.
+# System stacks, and five bundled faces (shared/fonts, SIL OFL): a web font is a fetch and the page is carried
+# whole, so a bundled face travels inside the page as a data: URI. Any other family name falls back to its stack.
 STACKS: dict[str, str] = {
     "system": "system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif",
     "humanist": "'Segoe UI',Candara,'Trebuchet MS',Optima,sans-serif",
@@ -40,7 +43,21 @@ STACKS: dict[str, str] = {
     "mono": "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",
     "condensed": "'Arial Narrow','Roboto Condensed','Helvetica Neue',sans-serif",
     "rounded": "'Segoe UI Rounded','Nunito','Trebuchet MS','Segoe UI',system-ui,sans-serif",
+    "nunito": "'Nunito','Segoe UI Rounded','Trebuchet MS','Segoe UI',system-ui,sans-serif",
+    "nunito-sans": "'Nunito Sans','Segoe UI',system-ui,-apple-system,Roboto,Arial,sans-serif",
+    "source-sans-3": "'Source Sans 3','Segoe UI',system-ui,-apple-system,Roboto,Arial,sans-serif",
+    "sora": "'Sora','Segoe UI',system-ui,-apple-system,Roboto,Arial,sans-serif",
+    "manrope": "'Manrope','Segoe UI',system-ui,-apple-system,Roboto,Arial,sans-serif",
 }
+# stack name -> (family as CSS names it, file under shared/fonts, the weights the variable file spans)
+BUNDLED: dict[str, tuple[str, str, str]] = {
+    "nunito": ("Nunito", "nunito.woff2", "200 1000"),
+    "nunito-sans": ("Nunito Sans", "nunito-sans.woff2", "200 1000"),
+    "source-sans-3": ("Source Sans 3", "source-sans-3.woff2", "200 900"),
+    "sora": ("Sora", "sora.woff2", "100 800"),
+    "manrope": ("Manrope", "manrope.woff2", "200 800"),
+}
+FONT_DIR = Path(__file__).parent / "fonts"
 REQUIRED_TOKENS = ("bg", "surface", "border", "text", "text-muted", "accent")
 OPTIONAL_TOKENS = ("green", "orange", "red", "ground", "rail", "rail-ink", "header", "header-ink", "accent-ink")
 TOKENS = REQUIRED_TOKENS + OPTIONAL_TOKENS
@@ -83,6 +100,22 @@ def _choice(where: str, value: Any, allowed: tuple[str, ...]) -> str:
     if value not in allowed:
         raise LookError(f"{where} is one of {', '.join(allowed)}; got {value!r}.")
     return str(value)
+
+
+@functools.cache
+def _font_face(key: str) -> str:
+    family, filename, weights = BUNDLED[key]
+    data = base64.b64encode((FONT_DIR / filename).read_bytes()).decode("ascii")
+    return (
+        f"@font-face{{font-family:'{family}';font-style:normal;font-weight:{weights};font-display:swap;"
+        f"src:url(data:font/woff2;base64,{data}) format('woff2')}}"
+    )
+
+
+def font_css(look: dict[str, Any]) -> str:
+    """@font-face rules for the bundled faces a look uses, each carried in the page as a data: URI."""
+    used = dict.fromkeys(k for k in (look.get("font"), look.get("display")) if k in BUNDLED)
+    return "".join(_font_face(k) for k in used)
 
 
 def _face(where: str, value: Any) -> str:
@@ -167,7 +200,29 @@ def validate_look(look: Any) -> dict[str, Any]:
 # Built-in looks
 # ---------------------------------------------------------------------------
 
+DEFAULT_LOOK = "studio"  # what a generated page wears when it names no look
+CLASSIC_LOOK = "classic"  # the engine's own plain page, as it was before looks: asked for by name
+
 BUILTIN: dict[str, dict[str, Any]] = {
+    "studio": {
+        "label": "Studio",
+        "about": "The default: white cards on a cool grey page, Source Sans, one blue accent, colour-blind-safe series colours, soft shadows; light and dark.",
+        "mode": "device",
+        "light": {
+            "ground": "#f3f5f9", "bg": "#f3f5f9", "surface": "#ffffff", "border": "#e4e9f0", "text": "#152033",
+            "text-muted": "#64748b", "accent": "#0072b2", "green": "#15803d", "orange": "#b45309", "red": "#dc2626",
+            "header": "#f3f5f9", "header-ink": "#152033",
+        },
+        "dark": {
+            "ground": "#0d131c", "bg": "#0d131c", "surface": "#161f2c", "border": "#243044", "text": "#e6ecf5",
+            "text-muted": "#93a1b7", "accent": "#56b4e9", "green": "#4cc38a", "orange": "#e8a347", "red": "#f27474",
+            "header": "#0d131c", "header-ink": "#e6ecf5",
+        },
+        "font": "source-sans-3", "display": "source-sans-3", "radius": 12, "shadow": "soft", "density": "comfortable",
+        "card": "raised", "frame": "plain", "header": "plain", "kpi": "plain",
+        # Okabe-Ito: a reader with any common colour vision can tell the series apart (the story's own palette).
+        "palette": ["#0072B2", "#E69F00", "#009E73", "#D55E00", "#56B4E9", "#CC79A7", "#F0E442", "#999999"],
+    },
     "lagoon": {
         "label": "Lagoon",
         "about": "Pastel cards in a rounded app frame with a teal icon rail; light and dark.",
@@ -182,7 +237,7 @@ BUILTIN: dict[str, dict[str, Any]] = {
             "text-muted": "#8eacb7", "accent": "#2ec6d3", "green": "#47d49a", "orange": "#f6c45b", "red": "#f38884",
             "rail": "#0d8995", "rail-ink": "#e9fbfc",
         },
-        "font": "rounded", "display": "rounded", "radius": 20, "shadow": "soft", "density": "airy", "card": "raised",
+        "font": "nunito-sans", "display": "nunito", "radius": 20, "shadow": "soft", "density": "airy", "card": "raised",
         "frame": "rail", "inset": True, "header": "plain", "kpi": "tile",
         "palette": ["#11a9ba", "#5b59e0", "#f2b33d", "#e8615e", "#18a56b", "#8f8cff", "#2ec6d3", "#f38884"],
     },
@@ -200,7 +255,7 @@ BUILTIN: dict[str, dict[str, Any]] = {
             "text-muted": "#8b99af", "accent": "#3d94ff", "green": "#36bf80", "orange": "#e0a13a", "red": "#f06a6e",
             "rail": "#060c17", "rail-ink": "#8ea0bf", "header": "#111a29", "header-ink": "#e3e9f3",
         },
-        "font": "system", "display": "system", "radius": 8, "shadow": "soft", "density": "comfortable",
+        "font": "source-sans-3", "display": "source-sans-3", "radius": 8, "shadow": "soft", "density": "comfortable",
         "card": "raised", "frame": "sidebar", "header": "bar", "kpi": "plain",
         "palette": ["#1f7cf0", "#6aa8f6", "#1e9a61", "#d8474c", "#c77f12", "#8b5cf6", "#0ea5a5", "#b9d7fb"],
     },
@@ -213,7 +268,7 @@ BUILTIN: dict[str, dict[str, Any]] = {
             "text-muted": "#969cba", "accent": "#a855f7", "green": "#34d399", "orange": "#fbbf24", "red": "#fb7185",
             "header": "#3b1d6e", "header-ink": "#ffffff",
         },
-        "font": "humanist", "display": "humanist", "radius": 18, "shadow": "glow", "density": "comfortable",
+        "font": "manrope", "display": "sora", "radius": 18, "shadow": "glow", "density": "comfortable",
         "card": "glass", "frame": "banner", "header": "gradient", "kpi": "gradient",
         "palette": ["#a855f7", "#e046c4", "#22d3ee", "#3b82f6", "#34d399", "#fbbf24", "#fb7185", "#818cf8"],
     },
@@ -323,7 +378,8 @@ def mode_tokens(look: dict[str, Any], mode: str) -> dict[str, str]:
 def chart_theme(look: dict[str, Any], mode: str) -> dict[str, Any]:
     """What a Plotly figure needs to sit on this look's cards: their colour, the text colour, the grid."""
     t = mode_tokens(look, mode)
-    return {"bg": t["surface"], "font": t["text"], "grid": t["border"], "palette": look.get("palette")}
+    family = STACKS.get(look["font"], look["font"])
+    return {"bg": t["surface"], "font": t["text"], "family": family, "grid": t["border"], "palette": look.get("palette")}
 
 
 def _vars(tokens: dict[str, str]) -> str:
@@ -464,7 +520,14 @@ def look_css(look: dict[str, Any]) -> str:
         f"header h1,.kpi-val,.cc-hdr h3,.cc-sec,.sec-hdr{{font-family:{display_font}}}"
         ".btn-p,.pill.active,.tabs .tab-btn[aria-selected=true]{color:var(--accent-ink)}"
     )
-    return "/* look */" + root + shape + _card_css(look) + _header_css(look) + _kpi_css(look) + _frame_css(look)
+    pills = (
+        ".filter-bar .pill{background:var(--surface);color:var(--text-muted);border:1px solid var(--border)}"
+        ".filter-bar .pill.active{background:color-mix(in srgb,var(--accent) 13%,var(--surface));color:var(--accent);"
+        "border-color:color-mix(in srgb,var(--accent) 38%,transparent)}"
+    )
+    return (
+        "/* look */" + font_css(look) + root + shape + pills + _card_css(look) + _header_css(look) + _kpi_css(look) + _frame_css(look)
+    )
 
 
 def body_classes(look: dict[str, Any] | None, name: str = "") -> list[str]:
@@ -622,6 +685,12 @@ def _classify_shadow(value: str) -> str:
 
 def _pick_face(text: str) -> str:
     lowered = text.lower()
+    # A family the engine carries is used as the mockup named it (the first of its list that is bundled).
+    for family in re.split(r"\s*,\s*", lowered):
+        name = family.strip(" '\"")
+        for key, (css_name, _file, _weights) in BUNDLED.items():
+            if name == css_name.lower():
+                return key
     if "mono" in lowered or "consolas" in lowered or "menlo" in lowered:
         return "mono"
     if "serif" in lowered and "sans" not in lowered.split("serif")[0][-8:]:

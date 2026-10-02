@@ -91,7 +91,7 @@ CHART_NEEDS: dict[str, tuple[str, ...]] = {
     "bar": ("category", "value"),
     "line": ("date", "value"),
     "time_series": ("date", "value"),
-    "pie": ("category", "value"),
+    "pie": ("category",),  # without a value column the slices are row counts
     "scatter": ("x", "y"),
     "histogram": ("value",),
     "box": ("value",),
@@ -228,8 +228,10 @@ STYLE_INTS: dict[str, tuple[int, int]] = {
     "periods": (2, 24),
     "hole": (0, 85),
 }
-STYLE_TEXT: dict[str, int] = {"prefix": 8, "suffix": 8, "x_title": 80, "y_title": 80, "comparison": 160, "center": 40}
-STYLE_BOOLS = ("value_labels", "other", "ci", "show_n", "significance", "normalize", "yoy", "heat", "totals")
+STYLE_TEXT: dict[str, int] = {
+    "prefix": 8, "suffix": 8, "x_title": 80, "y_title": 80, "comparison": 160, "center": 40, "sub": 60,
+}  # fmt: skip
+STYLE_BOOLS = ("value_labels", "other", "ci", "show_n", "significance", "normalize", "yoy", "heat", "totals", "fill", "peak")
 STYLE_NUMBERS = ("target", "min", "max")
 MAX_MARKS = 20
 _MARKS = ("ref_lines", "bands", "annotations", "x_title", "y_title", "y_range")
@@ -265,6 +267,8 @@ CHART_STYLE: dict[str, tuple[str, ...]] = {
         "yoy",
         "events",
         "forecast",
+        "fill",
+        "peak",
         *_MARKS,
     ),
     "time_series": (
@@ -280,9 +284,11 @@ CHART_STYLE: dict[str, tuple[str, ...]] = {
         "yoy",
         "events",
         "forecast",
+        "fill",
+        "peak",
         *_MARKS,
     ),
-    # hole: the donut's hole as a percentage of its radius; center: "total" or the words in it.
+    # hole: the donut's hole as a percentage of its radius; center: "total", the words in it, or "share:<category value>".
     "pie": ("palette", "colors", "top_n", "legend", "hole", "center"),
     "scatter": ("color", "accent", "legend", "y_scale", *_MARKS),
     "histogram": ("color", "accent", "bins"),
@@ -291,7 +297,7 @@ CHART_STYLE: dict[str, tuple[str, ...]] = {
     "choropleth": ("colorscale", "format", "prefix", "suffix"),
     "section": (),
     "text": (),
-    "kpi": ("color", "format", "prefix", "suffix", "target", "period"),
+    "kpi": ("color", "format", "prefix", "suffix", "target", "period", "sub"),
     "table": ("top_n", "sort", "format", "prefix", "suffix", "heat", "totals", "other"),
     "ranking": ("top_n", "sort", "format", "prefix", "suffix", "color", "other"),
     "stacked_bar": (
@@ -336,6 +342,7 @@ MAX_COLOR_MAP = 200
 # Roles a chart can take beyond the ones it needs.
 # A scatter's `group` colours its points by a category and draws a line per group.
 CHART_OPTIONAL: dict[str, tuple[str, ...]] = {
+    "pie": ("value",),
     "box": ("category",),
     "scatter": ("group",),
     "kpi": ("date",),
@@ -623,7 +630,7 @@ def validate_page_style(style: Any) -> None:
         except ValueError as exc:
             raise SpecError(f"style.arrange {exc}") from exc
     if "look" in style:
-        from shared.dashboard_looks import BUILTIN, LookError, validate_look
+        from shared.dashboard_looks import BUILTIN, CLASSIC_LOOK, LookError, validate_look
 
         look = style["look"]
         if isinstance(look, dict):
@@ -631,9 +638,12 @@ def validate_page_style(style: Any) -> None:
                 validate_look(look)
             except LookError as exc:
                 raise SpecError(f"style.look: {exc}") from exc
-        elif not (isinstance(look, str) and (look.lower() in BUILTIN or look.lower().endswith(".json"))):
+        elif not (
+            isinstance(look, str) and (look.lower() in (*BUILTIN, CLASSIC_LOOK) or look.lower().endswith(".json"))
+        ):
             raise SpecError(
-                f"style.look {look!r}: a built-in look ({', '.join(BUILTIN)}), a saved look (.json), or a look as a dict"
+                f"style.look {look!r}: a built-in look ({', '.join(BUILTIN)}, or {CLASSIC_LOOK} for the plain page), a saved look (.json), "
+                "or a look as a dict"
             )
 
 

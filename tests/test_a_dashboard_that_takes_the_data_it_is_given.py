@@ -767,6 +767,36 @@ class TestACategoryNamedByANumberIsALabel:
         assert figure["layout"][axis]["type"] == "category"
 
 
+class TestAColumnGroupedByAndMeasuredIsRead:
+    """A ring of an outcome's share names the 0/1 column as its category, which makes it a key of the cube: its own
+    rate (the mean of the same column) then read the key as a measure, and said 0.00% for every group."""
+
+    @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+    def test_the_rate_of_a_key_column_is_exact_overall_and_by_group(self, _home):
+        n = 120_000
+        rng = np.random.default_rng(10)
+        frame = pd.DataFrame(
+            {
+                "kind": rng.choice(["a", "b", "c"], n),
+                "region": rng.choice(["N", "S"], n),
+                "amount": rng.integers(10, 500, n),
+            }
+        )
+        frame["default"] = (rng.random(n) < np.where(frame["kind"] == "a", 0.40, 0.10)).astype(int)
+        path = _home / "defaults.csv"
+        frame.to_csv(path, index=False)
+        _, html = page(path, _home)
+        assert run_js(html, "!!_CUBE") is True
+        assert run_js(html, "_mval(_METRICS['default rate'].tree,_RAW)") == pytest.approx(
+            frame["default"].mean(), abs=1e-9
+        )
+        for kind, share in frame.groupby("kind")["default"].mean().items():
+            got = run_js(
+                html, f"_mval(_METRICS['default rate'].tree,_RAW.filter(function(r){{return r.kind==={kind!r};}}))"
+            )
+            assert got == pytest.approx(share, abs=1e-9), kind
+
+
 class TestTwoMetricsNeverShareAComputedColumn:
     def test_a_name_makes_its_own_column(self, sales):
         frame = sales

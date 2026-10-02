@@ -35,6 +35,7 @@ import pandas as pd
 from shared.analysis_plan import ROWS_COLUMN
 from shared.column_utils import agg_label
 from shared.dashboard_spec import MAX_TEXT, MAX_TITLE, STYLE_TEXT
+from shared.labels import humanize, relabel
 from shared.metrics import Metric, by_group, hidden_columns, value
 
 MAX_INSIGHTS = 8
@@ -225,7 +226,7 @@ def _segment(dim: str, value: str) -> str:
 
 MIN_SHARE_GAP = 0.05  # a segment's share of an amount must differ from its share of the rows by this
 MIN_RATE_GAP = 0.01  # a rate must differ by a percentage point between segments to be a finding
-MIN_EFFECT = 0.2  # an average must differ by a fifth of the column's own spread
+MIN_EFFECT = 0.5  # an average must differ by half the column's own spread
 
 
 def _material(metric: Metric, frame: pd.DataFrame, a: float, b: float) -> bool:
@@ -522,6 +523,49 @@ def insights(df: pd.DataFrame, planned: dict[str, Any], metrics: dict[str, Metri
 # ---------------------------------------------------------------------------
 
 
+_COUNT_IF = re.compile(r'^count_if\((?P<c>`[^`]+`|\w+) == "(?P<v>[^"]*)"\)')
+_COUNT_IF_TRUE = re.compile(r"^count_if\((?P<c>`[^`]+`|\w+)\) /")
+_MEAN_OF = re.compile(r"^mean\((?P<c>`[^`]+`|\w+)\)$")
+
+
+def _outcome_ring(df: pd.DataFrame, planned: dict[str, Any], metrics: dict[str, Metric]) -> dict[str, Any] | None:
+    """The outcome a page draws as a ring: the rate of a yes/no column and the value that counts as yes.
+
+    Read from the metric that already exists for it (a 0/1 column's mean, a True/False column's count, a Yes/No
+    column's count_if), so the ring and the figure beside it are one number. A rate that is bad news leads.
+    """
+    found: list[dict[str, Any]] = []
+    for m in metrics.values():
+        if m.unit != "percent" or m.source not in ("auto", "spec"):
+            continue
+        formula, positive = m.formula, ""
+        if hit := _COUNT_IF.match(formula):
+            positive = hit["v"]
+        elif hit := _COUNT_IF_TRUE.match(formula):
+            positive = "true"
+        elif (hit := _MEAN_OF.match(formula)) and planned["columns"].get(hit["c"].strip("`"), {}).get("role") == "flag":
+            positive = "true" if pd.api.types.is_bool_dtype(df[hit["c"].strip("`")]) else "1"
+        else:
+            continue
+        column = hit["c"].strip("`")
+        if column in df.columns:
+            found.append({"metric": m.name, "column": column, "positive": positive, "bad": m.better == "down"})
+    return next((f for f in found if f["bad"]), found[0] if found else None)
+
+
+def _best_split(work: pd.DataFrame, metric: Metric, dims: list[str], planned: dict[str, Any], skip: str = "") -> str:
+    """The dimension (of a few levels) over which a metric differs most, else "": where a ranking has something to say."""
+    best, widest = "", 1.0
+    for dim in dims[:4]:
+        if dim == skip or not 2 <= planned["columns"][dim]["levels"] <= 12:
+            continue
+        per = by_group(metric, work, [dim])
+        per = per[np.isfinite(per) & (per > 0)]
+        if len(per) >= 2 and float(per.max() / per.min()) > widest:
+            best, widest = dim, float(per.max() / per.min())
+    return best
+
+
 def build(
     df: pd.DataFrame, planned: dict[str, Any], metrics: dict[str, Metric], *, title: str, currency: str = ""
 ) -> dict[str, Any]:
@@ -535,7 +579,15 @@ def build(
     layout: list[dict] = []
     tabs: dict[str, list[int]] = {"Summary": [], "Drivers": [], "Segments": [], "Risks": [], "Appendix": []}
 
+    names = [*df.columns, *metrics]
+
     def add(tab: str, panel: dict) -> None:
+        # A page says "Lead time", not lead_time: the code keeps the real names, the words the panel shows are readable.
+        for key in ("title", "text"):
+            if isinstance(panel.get(key), str):
+                panel[key] = relabel(panel[key], names)
+        if isinstance(panel.get("style"), dict) and isinstance(panel["style"].get("comparison"), str):
+            panel["style"]["comparison"] = relabel(panel["style"]["comparison"], names)
         # The spec's limits: a long column name or a long segment label made a title, a comparison or a note over them.
         if isinstance(panel.get("title"), str) and len(panel["title"]) > MAX_TITLE:
             panel["title"] = panel["title"][: MAX_TITLE - 3].rstrip() + "..."
@@ -552,7 +604,12 @@ def build(
         m = metrics.get(name)
         if name == ROWS_COLUMN:
             return "Rows"
-        return f"{agg_label(m.tree['agg'])} {name}" if m is not None and m.source == "column" else name
+        if m is None or m.source != "column":
+            return name
+        word = agg_label(m.tree["agg"])
+        if humanize(name).lower().startswith(word.lower()):
+            return name  # "total_of_special_requests" is already a total: not "Total total of ..."
+        return f"{word} {name}"
 
     def agg_of(name: str) -> dict[str, str]:
         """The aggregate `named` promises, on the panel itself. A title that says "Avg" over a panel
@@ -565,20 +622,19 @@ def build(
     headline = (
         summary[0]["headline"] if summary else (found[0]["headline"] if found else f"{title}: {planned['rows']:,} rows")
     )
-    span = f" from {planned['grain']['start']} to {planned['grain']['end']}" if planned.get("grain") else ""
-    add(
-        "Summary",
-        {
-            "chart": "markdown",
-            "title": "The answer first",
-            "text": f"### {headline}\n{planned['rows']:,} rows{span}. "
-            + " ".join(f"**{f['headline']}.**" for f in summary[1:3]),
-            "place": {"span": 12},
-        },
-    )
+    primary = dims[0] if dims else ""
+    work = df.copy()
+    for col, vals in hidden_columns(metrics.values()).items():
+        work[col] = vals
 
-    # A KPI need not add up -- an average is a fine headline number -- so any measure may lead.
-    kpi_names = list(dict.fromkeys([*planned.get("measures", [])[:2], *ratios[:2]]))[:4]
+    # --- The overview is composed from what the data holds: figures, the trend, the outcome, the splits ---
+    ring = _outcome_ring(df, planned, metrics)
+    # A KPI need not add up -- an average is a fine headline number -- so any measure may lead. The outcome the ring
+    # draws is not repeated as a tile.
+    spare = [r for r in ratios if not (ring and r == ring["metric"])]
+    kpi_names = list(
+        dict.fromkeys([*planned.get("measures", [])[:2], *spare[:2], *planned.get("measures", [])[2:], *spare[2:]])
+    )[:4]
     for name in kpi_names:
         add(
             "Summary",
@@ -590,18 +646,9 @@ def build(
                 "place": {"span": 12 // max(len(kpi_names), 1)},
             },
         )
-    for f in summary[:3]:
-        add(
-            "Summary",
-            {
-                "chart": "insight",
-                "title": f["headline"],
-                "text": f["text"],
-                "style": {"tone": f["tone"], "comparison": f"{f['value']} · {f['comparison']}"},
-                "place": {"span": 4},
-            },
-        )
-    if g and headline_metric:
+    trend = bool(g and headline_metric)
+    beside = 8 if ring else 12
+    if trend:
         add(
             "Summary",
             {
@@ -610,15 +657,30 @@ def build(
                 **agg_of(headline_metric),
                 "title": f"{named(headline_metric)} by {g['grain']}",
                 # A forecast once there is a trend to extend: six complete periods.
-                "style": {"ma": 0, **({"forecast": 3} if bucket(df[g["date"]], g["grain"]).nunique() >= 7 else {})},
-                "place": {"span": 12},
+                "style": {
+                    "ma": 0,
+                    "fill": True,
+                    "peak": True,
+                    **({"forecast": 3} if bucket(df[g["date"]], g["grain"]).nunique() >= 7 else {}),
+                },
+                "place": {"span": beside},
             },
         )
-
-    primary = dims[0] if dims else ""
-    # With no date to trend over the first page would hold no chart at all: it draws the headline's split instead.
-    split_on_summary = bool(primary and headline_metric and not (g and headline_metric))
+    if ring:
+        add(
+            "Summary",
+            {
+                "chart": "pie",
+                "cols": {"category": ring["column"]},
+                "title": ring["metric"],
+                "style": {"hole": 74, "center": f"share:{ring['positive']}"},
+                "place": {"span": 4},
+            },
+        )
+    # With no date to trend over, the page's wide chart is the headline's split: bars up for a few groups, across for many.
+    split_on_summary = bool(primary and headline_metric and not trend)
     if split_on_summary:
+        few = planned["columns"][primary]["levels"] <= 6
         add(
             "Summary",
             {
@@ -626,8 +688,67 @@ def build(
                 "cols": {"category": primary, "value": headline_metric},
                 **agg_of(headline_metric),
                 "title": f"{named(headline_metric)} by {primary}",
-                "style": {"orientation": "h", "other": True, "top_n": 10},
-                "place": {"span": 12},
+                "style": {"other": True, "top_n": 10, **({} if few else {"orientation": "h"})},
+                "place": {"span": beside},
+            },
+        )
+    lists: list[dict] = []
+    if primary and headline_metric and not split_on_summary:
+        lists.append(
+            {
+                "chart": "ranking",
+                "cols": {"category": primary, "value": headline_metric},
+                **agg_of(headline_metric),
+                "title": f"{named(headline_metric)} by {primary}",
+                "style": {"top_n": 6},
+            }
+        )
+    rate = metrics.get(ring["metric"]) if ring else next((metrics[r] for r in ratios if r in metrics), None)
+    cut = _best_split(work, rate, dims, planned, skip=ring["column"] if ring else "") if rate is not None else ""
+    if rate is not None and cut:
+        lists.append(
+            {
+                "chart": "ranking",
+                "cols": {"category": cut, "value": rate.name},
+                "title": f"{rate.name} by {cut}",
+                "style": {"top_n": 6},
+            }
+        )
+    secondary = dims[1] if len(dims) > 1 else ""
+    if split_on_summary and secondary and headline_metric and secondary != cut:
+        lists.insert(
+            0,
+            {
+                "chart": "ranking",
+                "cols": {"category": secondary, "value": headline_metric},
+                **agg_of(headline_metric),
+                "title": f"{named(headline_metric)} by {secondary}",
+                "style": {"top_n": 6},
+            },
+        )
+    for panel in lists[: 2 if summary else 3]:
+        add("Summary", {**panel, "place": {"span": 4}})
+    if summary:
+        points = [f["headline"] for f in summary[:5]]
+        span = f" from {planned['grain']['start']} to {planned['grain']['end']}" if planned.get("grain") else ""
+        add(
+            "Summary",
+            {
+                "chart": "markdown",
+                "title": "What stands out",
+                "text": f"**{headline}**\n\n" + "\n".join(f"- {p}" for p in points[1:]) + f"\n\n{planned['rows']:,} rows{span}.",
+                "place": {"span": 4 if len(lists) >= 2 else 12 - 4 * len(lists)},
+            },
+        )
+    for f in summary[:3]:
+        add(
+            "Drivers",
+            {
+                "chart": "insight",
+                "title": f["headline"],
+                "text": f["text"],
+                "style": {"tone": f["tone"], "comparison": f"{f['value']} · {f['comparison']}"},
+                "place": {"span": 4},
             },
         )
     if primary and headline_metric:

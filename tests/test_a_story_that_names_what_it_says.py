@@ -66,7 +66,8 @@ class TestACodeIsNamedByItsColumn:
         result = generate_dashboard(str(only_the_code), output_path=str(_home / "p.html"), open_after=False)
         assert result["success"] is True, result.get("error")
         words = " ".join(str(p.get(k, "")) for p in result["spec"]["layout"] for k in ("title", "text"))
-        assert re.search(r"is_canceled = [01] (brings|is where)", words), words[:600]
+        # The column is said as a person would ("Canceled = 1"), but it is still named.
+        assert re.search(r"Canceled = [01] (brings|is where)", words), words[:600]
         assert not re.search(r"(^|\. |### )[01] (brings|is where)", words), "a bare code opens a sentence"
 
 
