@@ -35,7 +35,7 @@ import pandas as pd
 import pytest
 
 from servers.data_advanced._adv_dashboard import generate_dashboard
-from tests.dashboard_page import NODE, drawn, run_js
+from tests.dashboard_page import NODE, drawn, run_js, whole_series
 
 needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
@@ -152,9 +152,8 @@ class TestThePageOpensOnItsDefaults:
         page = df[df["region"].isin(["North", "South"]) & (df["day"] >= "2024-03-01")]
         assert opened["rows"] == f"{len(page)} of {len(df)} rows"
         assert f"over {len(page)} rows" in opened["kpi"]
-        line = opened["figs"]["p2_line"]["data"][0]
         want = page.groupby(page["day"].str[:7])["revenue"].sum()
-        assert dict(zip(line["x"], line["y"], strict=True)) == pytest.approx(want.to_dict())
+        assert whole_series(opened["figs"]["p2_line"]) == pytest.approx(want.to_dict())
 
     def test_a_scoped_filter_narrows_its_panel_and_nothing_else(self, sales):
         opened = run_js(_page(sales, layout=LAYOUT, filters=self.FILTERS), OPENED)

@@ -167,6 +167,57 @@ def get_default_output_dir(input_path: str | None = None) -> Path:
 
 
 _ENCODING_FALLBACKS = ("utf-8-sig", "cp1252", "latin-1")
+# A byte-order mark says the encoding outright. Without it a UTF-16 file (what Excel's "Unicode text" writes)
+# "decodes" as cp1252 -- every character followed by a NUL -- and reads as one column of garbage.
+_BOMS: tuple[tuple[bytes, str], ...] = ((b"\xff\xfe", "utf-16"), (b"\xfe\xff", "utf-16"), (b"\xef\xbb\xbf", "utf-8-sig"))
+
+
+def sniff_encoding(file_path: str | Path, default: str = "utf-8") -> str:
+    """The encoding a byte-order mark names, else `default`."""
+    try:
+        with Path(file_path).open("rb") as fh:
+            head = fh.read(3)
+    except OSError:
+        return default
+    return next((enc for mark, enc in _BOMS if head.startswith(mark)), default)
+
+
+def sniff_separator(file_path: str | Path, encoding: str = "utf-8", default: str = ",") -> str:
+    """The delimiter a file's first lines agree on: `;` (what Excel writes in much of Europe and Turkey), a tab or
+    `|`, when the header holds no comma. Anything unclear is `default`.
+
+    A semicolon file read as comma-separated is one column holding every header and every row whole, and
+    every tool then reports a one-column table without saying why.
+    """
+    try:
+        with Path(file_path).open("rb") as fh:
+            raw = fh.read(16384)
+    except OSError:
+        return default
+    text = raw.decode("utf-16" if encoding == "utf-16" else "utf-8", errors="replace").lstrip("\ufeff")
+    lines = [line for line in text.splitlines()[:6] if line.strip()]
+    if len(lines) < 2:
+        return default
+
+    def outside_quotes(line: str, mark: str) -> int:
+        count, quoted = 0, False
+        for char in line:
+            if char == '"':
+                quoted = not quoted
+            elif char == mark and not quoted:
+                count += 1
+        return count
+
+    if outside_quotes(lines[0], default):
+        return default
+    best, best_count = default, 0
+    for mark in (";", "\t", "|"):
+        counts = {outside_quotes(line, mark) for line in lines[:5]}
+        # The same number of delimiters on every line it was checked on, and at least one.
+        if len(counts) == 1 and (n := counts.pop()) > best_count:
+            best, best_count = mark, n
+    return best
+
 
 
 class NotATextTableError(ValueError):
@@ -225,6 +276,10 @@ def read_csv(
     zero-padded identifier out of an int64.
     """
     refuse_non_csv(file_path)
+    if encoding == "utf-8":
+        encoding = sniff_encoding(file_path, encoding)
+    if separator == ",":
+        separator = sniff_separator(file_path, encoding)
     kwargs: dict = {"sep": separator, "low_memory": False}
     if max_rows > 0:
         kwargs["nrows"] = max_rows
@@ -256,6 +311,64 @@ def read_csv(
 
     df.columns = df.columns.str.strip()
     return df
+
+
+_EXCEL_SUFFIXES = (".xlsx", ".xlsm", ".xls", ".ods")
+_JSON_LINES = (".jsonl", ".ndjson")
+# What a workbook's front page is called when it only describes the data (this fleet's own exports have one).
+_ABOUT_SHEETS = ("readme", "about", "notes", "info", "metadata")
+
+
+def read_table(file_path: str, sheet: str | int | None = None) -> pd.DataFrame:
+    """A table from a CSV, an Excel or ODS workbook, a Parquet file or a JSON file, as a DataFrame.
+
+    Everything that draws from a file's rows (the dashboard) reads it through this, so it takes any of them
+    instead of asking the caller to convert first. A workbook's first sheet that holds data is read (a sheet
+    called README or About is skipped) unless `sheet` names one.
+    """
+    path = Path(file_path)
+    suffix = path.suffix.lower()
+    if suffix in _EXCEL_SUFFIXES:
+        if suffix == ".xls":
+            raise ValueError(f"{path.name} is an old .xls workbook; save it as .xlsx (or .csv) first.")
+        book = pd.ExcelFile(path, engine="odf" if suffix == ".ods" else "openpyxl")
+        names = [str(n) for n in book.sheet_names]
+        if sheet is None:
+            candidates = [n for n in names if n.strip().lower() not in _ABOUT_SHEETS] or names
+        else:
+            wanted = names[int(sheet)] if isinstance(sheet, int) or str(sheet).lstrip("-").isdigit() else str(sheet)
+            if wanted not in names:
+                raise ValueError(f"{path.name} has no sheet {sheet!r}. Sheets: {', '.join(names)}")
+            candidates = [wanted]
+        for name in candidates:
+            frame = book.parse(name)
+            if len(frame.columns) and len(frame):
+                frame.columns = [str(c).strip() for c in frame.columns]
+                return frame
+        raise ValueError(f"{path.name} has no sheet with data in it.")
+    if suffix == ".parquet":
+        return pd.read_parquet(path)
+    if suffix in (".json", *_JSON_LINES):
+        import json
+
+        with path.open(encoding="utf-8-sig") as fh:
+            if suffix in _JSON_LINES:
+                records: Any = [json.loads(line) for line in fh if line.strip()]
+            else:
+                records = json.load(fh)
+        if isinstance(records, dict):
+            # {"data": [ {...}, {...} ]}: the first list of records is the table; {"a": [..], "b": [..]} is by column.
+            found = next((v for v in records.values() if isinstance(v, list) and v and isinstance(v[0], dict)), None)
+            if found is not None:
+                records = found
+            elif all(isinstance(v, list) for v in records.values()):
+                return pd.DataFrame(records)
+            else:
+                records = [records]
+        frame = pd.json_normalize(records)
+        frame.columns = [str(c).strip() for c in frame.columns]
+        return frame
+    return read_csv(str(path))
 
 
 # A field whose first character is a zero followed by another digit. `0.5` is a
@@ -290,6 +403,10 @@ def padded_id_columns(
     numeric = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
     if not numeric:
         return []
+    if encoding == "utf-8":
+        encoding = sniff_encoding(file_path, encoding)
+    if separator == ",":
+        separator = sniff_separator(file_path, encoding)
     try:
         raw = pd.read_csv(
             file_path,

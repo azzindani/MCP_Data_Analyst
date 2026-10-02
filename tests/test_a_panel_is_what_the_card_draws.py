@@ -28,7 +28,7 @@ import pandas as pd
 import pytest
 
 from servers.data_advanced._adv_dashboard import PANEL_STYLE, generate_dashboard
-from tests.dashboard_page import NODE, drawn, main_script
+from tests.dashboard_page import NODE, drawn, main_script, whole_series
 
 pytestmark = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
@@ -136,10 +136,10 @@ class TestTheNumbersAreTheData:
 
     def test_time_series_by_month(self, sales):
         spec = _layout({"chart": "line", "cols": {"date": "day", "value": "revenue"}, "agg": "sum"})
-        trace = drawn(_page(sales, **spec))["figures"]["p0_line"]["data"][0]
+        figure = drawn(_page(sales, **spec))["figures"]["p0_line"]
         df = pd.read_csv(sales)
         want = df.groupby(df["day"].str[:7])["revenue"].sum()
-        assert dict(zip(trace["x"], trace["y"], strict=True)) == pytest.approx(want.to_dict())
+        assert whole_series(figure) == pytest.approx(want.to_dict())
 
     def test_pie_counts_rows(self, sales):
         out = drawn(_page(sales, **_layout({"chart": "pie"})))

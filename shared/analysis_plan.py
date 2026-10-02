@@ -40,6 +40,24 @@ _NON_ADDITIVE = frozenset(
     "roas margin probability prob duration tenure balance "
     "lead latency wait delay elapsed interval speed adr arpu aov per".split()
 )
+# The column a page counts rows with when a table has nothing to add up (labels, text, codes).
+ROWS_COLUMN = "Rows"
+
+
+# A measure adds up only when its name says so. Summing a property of a row (an age, a BMI, a blood
+# pressure, a bedroom count, an area) is not a rough total but a meaningless one, and the sweep's corpus
+# showed "Total BMI" and "Total Blood pressure" as headline KPIs; an average of a quantity that does add up
+# is merely modest. So the default is the mean, and these words earn the sum.
+_ADDITIVE = frozenset(
+    "revenue sales income gmv profit spend spends cost costs expense expenses amount amt total quantity qty "
+    "units unit count counts clicks impressions views visits sessions users orders conversions installs "
+    "downloads sold volume kwh mwh energy production output generated consumption emissions fare tip tax "
+    "fees fee payment payments budget bill rows records".split()
+)
+_COORDINATE = frozenset("lat lon lng long latitude longitude".split())
+# A number with this few values is a code (a sex, a class, a grade), not an amount: it groups rows.
+MAX_CODE_LEVELS = 4
+_CODE_WORDS = frozenset("category type status label group segment class kind tier grade level cluster".split())
 _ID_WORDS = frozenset("id key code uuid guid sku ref number no".split())
 # Measures in the order a reader asks about them.
 _HEADLINE = ("revenue", "sales", "income", "gmv", "profit", "spend", "spends", "cost", "conversions", "orders",
@@ -65,6 +83,8 @@ def _frequency(dates: pd.Series) -> str:
 
 
 def _role(col: Any, s: pd.Series, rows: int) -> tuple[str, pd.Series | None]:
+    if col == ROWS_COLUMN and bool((s == 1).all()):
+        return "measure", None  # the page's own row counter: all 1s, and exactly what a count adds up
     present = s.dropna()
     if present.nunique() <= 1:
         return "constant", None
@@ -79,6 +99,23 @@ def _role(col: Any, s: pd.Series, rows: int) -> tuple[str, pd.Series | None]:
             return "flag", None
         if calendar_part(str(col), s):
             return "calendar", None
+        if _words(col) & _COORDINATE:
+            return "coordinate", None
+        levels = present.nunique()
+        # A number named for a kind of thing (a type, a status, a segment) is a category held as a code.
+        if (
+            _words(col) & _CODE_WORDS
+            and 2 <= levels <= MAX_DIMENSION_LEVELS
+            and bool((present == present.round()).all())
+        ):
+            return "dimension", None
+        if (
+            2 <= levels <= MAX_CODE_LEVELS
+            and bool((present == present.round()).all())
+            and not _words(col) & _ADDITIVE
+            and len(present) >= 20
+        ):
+            return "dimension", None
         return "measure", None
     parsed = parse_date_column(s)
     if parsed is not None:
@@ -87,6 +124,19 @@ def _role(col: Any, s: pd.Series, rows: int) -> tuple[str, pd.Series | None]:
     if levels > MAX_DIMENSION_LEVELS and levels > 0.5 * max(len(present), 1):
         return ("id" if _words(col) & _ID_WORDS else "text"), None
     return "dimension", None
+
+
+def needs_row_count(df: pd.DataFrame) -> bool:
+    """True when no column of `df` is a measure: a dashboard of it would have nothing to chart but the rows."""
+    if ROWS_COLUMN in df.columns:
+        return False
+    rows = len(df)
+    return not any(_role(c, df[c], rows)[0] == "measure" for c in df.columns)
+
+
+def with_row_counter(df: pd.DataFrame) -> pd.DataFrame:
+    """`df`, with a `Rows` column of 1s when it has nothing to add up (the page counts rows with it)."""
+    return df.assign(**{ROWS_COLUMN: 1}) if needs_row_count(df) else df
 
 
 def _variance_explained(values: pd.Series, groups: pd.Series) -> float:
@@ -119,7 +169,8 @@ def plan(df: pd.DataFrame) -> dict[str, Any]:
                 # Already in points: 5.2 is 5.2%, and drawn as a share it would read 520%.
                 info["unit"] = "number"
             info["additive"] = (
-                not (words & _NON_ADDITIVE)
+                bool(words & _ADDITIVE)
+                and not (words & _NON_ADDITIVE)
                 and info["unit"] != "percent"
                 and bool((pd.to_numeric(s, errors="coerce").dropna() >= 0).all())
             )
@@ -210,6 +261,9 @@ def plan(df: pd.DataFrame) -> dict[str, Any]:
         share = info.get("placeholder_share", 0)
         if share >= PLACEHOLDER_HEAVY:
             notes.append(f"{col} is a placeholder in {share:.0%} of rows, so it is left out of the segment views.")
+    coords = [c for c, i in columns.items() if i["role"] == "coordinate"]
+    if coords:
+        notes.append(f"{', '.join(coords)} {'is a' if len(coords) == 1 else 'are'} map coordinate(s), not measured or summed.")
     parts = [c for c, i in columns.items() if i["role"] == "calendar"]
     if parts:
         notes.append(

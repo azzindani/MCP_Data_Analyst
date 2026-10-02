@@ -487,15 +487,19 @@ FIG.ts=function(p,d){
   }
   var g=_rgroups(d,function(r){return _bucket(r[p.date],grain);});
   var keys=Array.from(g.keys()).sort(),vals=keys.map(function(k){return _measure(p,g.get(k));});
-  var t=[{x:keys,y:vals,type:'scatter',mode:'lines+markers',name:p.metric||p.value,line:{color:s.color,width:2},marker:{size:4}}];
+  // A period the data has only begun is drawn apart, so a half month is not read as a fall: the line stops at the last
+  // complete period and a dotted step reaches the partial one.
+  var partial=!!(p.complete&&keys.length>1&&keys[keys.length-1]>p.complete),cut=partial?keys.length-1:keys.length;
+  var t=[{x:keys.slice(0,cut),y:vals.slice(0,cut),type:'scatter',mode:'lines+markers',name:p.metric||p.value,line:{color:s.color,width:2},marker:{size:4}}];
   if(w>0){
-    var ma=vals.map(function(_,i){if(i<w-1)return null;var a=0;for(var j=i-w+1;j<=i;j++)a+=vals[j];return a/w;});
-    t.push({x:keys.slice(w-1),y:ma.slice(w-1),type:'scatter',mode:'lines',name:w+'-period MA',line:{color:s.accent,width:2,dash:'dot'}});
+    var ma=vals.slice(0,cut).map(function(_,i){if(i<w-1)return null;var a=0;for(var j=i-w+1;j<=i;j++)a+=vals[j];return a/w;});
+    t.push({x:keys.slice(w-1,cut),y:ma.slice(w-1),type:'scatter',mode:'lines',name:w+'-period MA',line:{color:s.accent,width:2,dash:'dot'}});
   }
   var lay=_axes(_merge({xaxis:{title:'Date'},yaxis:_merge({title:p.metric||p.value},_utick(p))},_legend(s,{showlegend:true,legend:{x:0,y:1.1,orientation:'h'}})));
-  // A period the data has only begun is drawn apart, so a half month is not read as a fall.
-  if(p.complete&&keys.length&&keys[keys.length-1]>p.complete){
-    var k=keys.length-1;t.push({x:[keys[k]],y:[vals[k]],type:'scatter',mode:'markers',name:'incomplete period',marker:{size:9,symbol:'circle-open',color:s.color}});
+  if(partial){
+    var k=keys.length-1;
+    t.push({x:[keys[k-1],keys[k]],y:[vals[k-1],vals[k]],type:'scatter',mode:'lines',line:{color:s.color,width:1.5,dash:'dot'},showlegend:false,hoverinfo:'skip'});
+    t.push({x:[keys[k]],y:[vals[k]],type:'scatter',mode:'markers',name:'incomplete period',marker:{size:9,symbol:'circle-open',color:s.color}});
   }
   if(s.forecast>0){var fc=_forecast(keys,vals,grain,s.forecast,p.complete);if(fc)t=t.concat(fc);}
   if(s.events&&s.events.length){

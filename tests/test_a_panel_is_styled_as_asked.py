@@ -122,8 +122,8 @@ class TestEachFieldChangesItsFigure:
         f = _one(
             sales, {"chart": "line", "cols": {"date": "day", "value": "revenue"}, "style": {"ma": 0, "legend": "none"}}
         )
-        # The last period's marker, when the data ends inside one, is no average.
-        drawn_lines = [d for d in f["data"] if d.get("name") != "incomplete period"]
+        # What the data's unfinished last period adds (a dotted step and a hollow point) is no average.
+        drawn_lines = [d for d in f["data"] if d.get("mode") == "lines+markers"]
         assert len(drawn_lines) == 1 and f["layout"]["showlegend"] is False
         f = _one(sales, {"chart": "line", "cols": {"date": "day", "value": "revenue"}, "style": {"legend": "right"}})
         assert f["layout"]["legend"]["orientation"] == "v"

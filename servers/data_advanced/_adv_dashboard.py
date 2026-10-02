@@ -61,8 +61,9 @@ from _dash_ext import (
 )
 
 from shared import cube
-from shared.analysis_plan import parsed_dates
+from shared.analysis_plan import ROWS_COLUMN, needs_row_count, parsed_dates, with_row_counter
 from shared.analysis_plan import plan as plan_analysis
+from shared.big_table import reason as big_table_reason
 from shared.column_utils import is_identifier, parse_date_column
 from shared.dashboard_looks import LookError, body_classes, chart_theme, effective_theme, look_css, resolve_look
 from shared.dashboard_spec import (
@@ -97,11 +98,22 @@ from shared.file_utils import (
     error_text,
     hint_for_error,
     no_rows_error,
+    read_table,
     resolve_path,
 )
 from shared.geo_assets import assets_script
 from shared.geo_names import unrecognised_locations
-from shared.metrics import MetricError, auto_ratios, better_of, column_metrics, parameters_of, spec_metrics, unit_of
+from shared.metrics import (
+    MetricError,
+    auto_ratios,
+    better_of,
+    column_metrics,
+    flag_rates,
+    parameters_of,
+    spec_metrics,
+    text_flag_rates,
+    unit_of,
+)
 from shared.metrics import value as metric_value
 from shared.mockup_layout import arrange
 from shared.provenance import frame_hash, provenance, provenance_script, read_provenance, read_spec, spec_script
@@ -382,6 +394,69 @@ def _theme(theme: str, look: dict | None = None) -> dict:
     }
 
 
+# A file too big to load is drawn from a uniform random sample this many rows long, said on the page's title.
+DASHBOARD_SAMPLE_ROWS = 200_000
+
+
+def _sample_of_big_file(path: Path, why: str) -> tuple[Path, dict] | None:
+    """A uniform sample of a CSV too big to load, written beside the dashboard (the page's source from then on).
+
+    None when the file has no more rows than a sample holds: it is loaded as it is.
+    """
+    from shared import big_table
+    from shared.isolation import memory_budget_mb, worker_threads
+    from shared.sql_query import run_query
+
+    total = big_table.BigTable(path).rows()
+    if total <= DASHBOARD_SAMPLE_ROWS:
+        return None
+    out = get_output_path("", path, "sample", "csv")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    run_query(
+        f"SELECT * FROM data USING SAMPLE reservoir({DASHBOARD_SAMPLE_ROWS} ROWS) REPEATABLE (0)",
+        tables={"data": path},
+        output=out,
+        preview_rows=0,
+        memory_mb=memory_budget_mb(),
+        threads=worker_threads(),
+    )
+    return out, {"rows_in_file": total, "rows_used": DASHBOARD_SAMPLE_ROWS, "sample_file": str(out), "why": why}
+
+
+def _load_source(path: Path, progress: list) -> tuple[Any, Path, dict | None, str]:
+    """The page's rows: the file (any table format), or a sample of it when it is too big to hold.
+
+    Returns (frame, the path the page is built from, the sample's facts or None, the file's own stem). A big file
+    is drawn from a sample written beside the page, said on its title and in the response: every figure is of the
+    sample, which beats a refusal and is not mistaken for the whole.
+    """
+    stem = path.stem
+    sampled: dict | None = None
+    if path.suffix.lower() in (".csv", ".tsv", ".txt") and (too_big := big_table_reason(path)):
+        found = _sample_of_big_file(path, too_big)
+        if found is not None:
+            path, sampled = found
+            progress.append(
+                warn(
+                    "A sample of a file too big to load",
+                    f"{sampled['rows_used']:,} of {sampled['rows_in_file']:,} rows; every figure is of the sample",
+                )
+            )
+    return read_table(str(path)), path, sampled, stem
+
+
+def _count_rows_if_nothing_to_sum(df: Any, progress: list) -> Any:
+    """A table of labels and text has nothing to add up, and every chart of the page is "a measure by a dimension":
+    the corpus sweep's spam, review and semicolon-table files drew no chart at all. Its rows are what can be
+    counted, so each row counts as one."""
+    if not needs_row_count(df):
+        return df
+    progress.append(
+        info("Rows are counted", f"no column to add up, so a {ROWS_COLUMN} column of 1s is added to the page's data")
+    )
+    return with_row_counter(df)
+
+
 def generate_dashboard(
     file_path: str,
     output_path: str = "",
@@ -466,7 +541,7 @@ def generate_dashboard(
                 "token_estimate": 20,
             }
 
-        df = _read_csv(str(path))
+        df, path, sampled, original_stem = _load_source(path, progress)
         if err := no_rows_error("generate_dashboard", df, path.name, "Building a dashboard"):
             return err
         # A template is a spec saved from another file's dashboard: checked
@@ -520,10 +595,15 @@ def generate_dashboard(
                 "token_estimate": 60,
             }
         dashboard_title = title if title else path.stem
+        if sampled and not title:
+            dashboard_title = (
+                f"{original_stem} (a sample of {sampled['rows_used']:,} of {sampled['rows_in_file']:,} rows)"
+            )
         # Whether the page's title is the caller's or only the file's name --
         # taken now, because the panel loop below rebinds `title`.
         titled = bool(title) or bool((spec or {}).get("title"))
         _parse_dates(df, spec if isinstance(spec, dict) else None)
+        df = _count_rows_if_nothing_to_sum(df, progress)
 
         numeric_all = [c for c in df.columns if is_numeric_col(df[c])]
         # An override names what a column is, so it is checked against every
@@ -635,6 +715,8 @@ def generate_dashboard(
             )
             origin = {c: v["dataset"] for c, v in joined["blend"]["columns"].items()} if joined else None
             page_metrics = {m.name: m for m in auto_ratios(df, measure_cols, origin)}
+            page_metrics.update({m.name: m for m in flag_rates(df, planned, set(page_metrics))})
+            page_metrics.update({m.name: m for m in text_flag_rates(df, planned, set(page_metrics))})
             page_metrics.update(
                 {
                     m.name: m
@@ -989,7 +1071,7 @@ def generate_dashboard(
             if not src_path.exists():
                 return _bad_source(str(raw), "file not found")
             try:
-                src_df = _read_csv(str(src_path))
+                src_df = read_table(str(src_path))
             except Exception as exc:
                 return _bad_source(str(raw), f"could not be read as CSV: {error_text(exc)}")
             if src_df.empty:
@@ -1145,6 +1227,7 @@ def generate_dashboard(
             source_frames=source_frames,
             resolved=resolved,
             progress=progress,
+            sampled=sampled,
         )
         if used:
             result["template"] = {"name": used["name"], "from": used["from"]}
@@ -1194,6 +1277,7 @@ def _dashboard_result(
     source_frames,
     resolved,
     progress,
+    sampled=None,
 ) -> dict:
     """What generate_dashboard answers: the page's path, the plan it was drawn from and the spec to hand back."""
     return {
@@ -1236,6 +1320,7 @@ def _dashboard_result(
         **({"cube": cube_info} if cube_info else {}),
         "rows_total": len(df),
         "was_sampled": was_sampled,
+        **({"sampled_from_file": sampled} if sampled else {}),
         "report_size_kb": size_kb,
         "sources": [
             {
@@ -1637,7 +1722,9 @@ def _dash_kpi_row(df, numeric_cols, sparklines, quality, qual_clr, col_agg):
         else:
             init_val = float(series.sum())
         lbl = f"{agg_label(agg)} {nc}"
-        if abs(init_val) >= 1_000_000:
+        if abs(init_val) >= 1_000_000_000:
+            iv = f"{init_val / 1_000_000_000:.1f}B"
+        elif abs(init_val) >= 1_000_000:
             iv = f"{init_val / 1_000_000:.1f}M"
         elif abs(init_val) >= 1_000:
             iv = f"{init_val / 1_000:.1f}K"
@@ -2061,7 +2148,9 @@ def _scatter_group(df, x: str, y: str, cat_cols) -> str:
     pooled = _line_ssr(xs, ys)
     best, best_f = "", 0.0
     for col in list(cat_cols)[:8]:
-        groups = df[col].astype(str).to_numpy()[usable]
+        # A missing value is its own level: astype(str) keeps it a float NaN, and numpy cannot sort that
+        # against text (the sweep: 9 of 46 corpus files could not draw a dashboard at all).
+        groups = df[col].map(lambda v: "(missing)" if pd.isna(v) else str(v)).to_numpy(dtype=object)[usable]
         levels, counts = np.unique(groups, return_counts=True)
         if not 2 <= len(levels) <= _GROUP_MAX_LEVELS or counts.min() < _GROUP_MIN_ROWS:
             continue
@@ -2229,7 +2318,9 @@ const PCFG={responsive:true,displayModeBar:true,scrollZoom:true};
 function _dark(){return typeof window!=='undefined'&&!!window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;}
 function _T(){return _THEME.device?(_dark()?_THEME.dark:_THEME.light):_THEME;}
 const _ARRAY={median:1,count:1,count_distinct:1};
-function _fmt(v){return v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(1)+'K':Math.round(v).toString();}
+function _fmt(v){var a=Math.abs(v),g=v<0?'-':'';return a>=1e12?g+(a/1e12).toFixed(1)+'T':a>=1e9?g+(a/1e9).toFixed(1)+'B':a>=1e6?g+(a/1e6).toFixed(1)+'M':a>=1e3?g+(a/1e3).toFixed(1)+'K':_small(v);}
+// Under a thousand a mean keeps its decimals: an average of 3.37 read '3' and a BMI of 28.3 read '28'.
+function _small(v){var a=Math.abs(v);return a>=100||Number.isInteger(v)?Math.round(v).toString():a>=10?String(+v.toFixed(1)):a>=1?String(+v.toFixed(2)):String(+v.toPrecision(2));}
 function _key(r,c){return String(r[c]??'');}
 function _isObj(v){return v!==null&&typeof v==='object'&&!Array.isArray(v);}
 function _merge(a,b){
@@ -3149,7 +3240,8 @@ def _source_summary(df, primary_columns: list[str], primary_rows: int) -> dict:
     smaller.
     """
     cols = [str(c) for c in df.columns]
-    same_schema = set(cols) == set(primary_columns)
+    # The page's own row counter (a table of labels has one) is not a column the file has.
+    same_schema = set(cols) - {ROWS_COLUMN} == {str(c) for c in primary_columns} - {ROWS_COLUMN}
     out: dict = {
         "rows": len(df),
         "columns": len(cols),

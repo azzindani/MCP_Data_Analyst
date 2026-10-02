@@ -32,7 +32,9 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from shared.analysis_plan import ROWS_COLUMN
 from shared.column_utils import agg_label
+from shared.dashboard_spec import MAX_TEXT, MAX_TITLE, STYLE_TEXT
 from shared.metrics import Metric, by_group, value
 
 MAX_INSIGHTS = 8
@@ -156,7 +158,10 @@ def noun(column: str) -> str:
 
 def cohorts(df: pd.DataFrame, entity: str, date: str, periods: int = 12) -> dict[str, Any]:
     """Each entity's first month, and the share of each month's newcomers active in each month after it."""
-    frame = pd.DataFrame({"id": df[entity].astype(str), "month": pd.to_datetime(df[date], errors="coerce").dt.to_period("M")})
+    when = pd.to_datetime(df[date], errors="coerce")
+    if when.dt.tz is not None:
+        when = when.dt.tz_localize(None)  # a month is a month in the file's own clock; Period drops the zone with a warning
+    frame = pd.DataFrame({"id": df[entity].astype(str), "month": when.dt.to_period("M")})
     frame = frame.dropna().drop_duplicates()
     first = frame.groupby("id")["month"].min().rename("first")
     frame = frame.join(first, on="id")
@@ -209,12 +214,29 @@ def _segment(dim: str, value: str) -> str:
     return f"{dim} = {value}" if _BARE_CODE.match(value.strip()) else value
 
 
+def _comparables(metrics: dict[str, Metric]) -> list[Metric]:
+    """The metrics a story compares across segments and over time: the ratios first, then the average of each
+    column that does not add up (so a table of ages and speeds has findings too: "X's average is 1.4x Y's")."""
+    ratios = [m for m in metrics.values() if m.source in ("auto", "spec") and not m.additive]
+    means = [m for m in metrics.values() if m.source == "column" and not m.additive]
+    return ratios + means
+
+
+def _segments(planned: dict[str, Any]) -> list[str]:
+    """The dimensions a story splits by: a 0/1 outcome (default, churn, fraud) is what the rates measure, and
+    "0 brings 50% of the amount" is no finding, so flags come last and only when nothing else is there."""
+    dims = list(planned.get("dimensions", []))
+    columns = planned.get("columns", {})
+    named = [d for d in dims if columns.get(d, {}).get("role") != "flag"]
+    return named or dims
+
+
 def insights(df: pd.DataFrame, planned: dict[str, Any], metrics: dict[str, Metric], currency: str = "") -> list[dict]:
     """Findings a reader would act on, each a number, a comparison and what it means; best first."""
     found: list[dict] = []
-    dims = planned.get("dimensions", [])[:4]
+    dims = _segments(planned)[:4]
     measures = _summed(planned, metrics)
-    ratios = [m for m in metrics.values() if m.source in ("auto", "spec") and not m.additive]
+    ratios = _comparables(metrics)
     work = df.copy()
     for m in metrics.values():
         for col, vals in m.hidden.items():
@@ -288,9 +310,9 @@ def insights(df: pd.DataFrame, planned: dict[str, Any], metrics: dict[str, Metri
             text = (
                 f"On {metric.name} ({metric.description.split(' (')[0]}), {best} is {times(a, b)} {word} than {worst}. "
                 + (
-                    f"Worth checking that it holds within each {others[0]} before moving budget on it."
+                    f"Worth checking that it holds within each {others[0]} before acting on it."
                     if others
-                    else "Worth checking that it holds over time before moving budget on it."
+                    else "Worth checking that it holds over time before acting on it."
                 )
             )
             found.append(
@@ -300,7 +322,7 @@ def insights(df: pd.DataFrame, planned: dict[str, Any], metrics: dict[str, Metri
                     times(a, b),
                     f"{metric.name}: {best} vs {worst}",
                     text,
-                    "good",
+                    "good" if metric.better else "info",  # no good direction: nothing is good news
                     0.6 + min(math.log(a / b), 3.0) / 3 - 0.15 * rank,
                     "Summary",
                 )
@@ -476,20 +498,30 @@ def build(
     """A storyline spec: layout, tabs, filters and the insights it was built from."""
     found = insights(df, planned, metrics, currency)
     g = grain_for(planned)
-    dims = planned.get("dimensions", [])
+    dims = _segments(planned)
     measures = _summed(planned, metrics) or planned.get("measures", [])
-    ratios = [m.name for m in metrics.values() if m.source in ("auto", "spec") and not m.additive]
+    ratios = [m.name for m in _comparables(metrics)]
     headline_metric = measures[0] if measures else (ratios[0] if ratios else "")
     layout: list[dict] = []
     tabs: dict[str, list[int]] = {"Summary": [], "Drivers": [], "Segments": [], "Risks": [], "Appendix": []}
 
     def add(tab: str, panel: dict) -> None:
+        # The spec's limits: a long column name or a long segment label made a title, a comparison or a note over them.
+        if isinstance(panel.get("title"), str) and len(panel["title"]) > MAX_TITLE:
+            panel["title"] = panel["title"][: MAX_TITLE - 3].rstrip() + "..."
+        if isinstance(panel.get("text"), str) and len(panel["text"]) > MAX_TEXT:
+            panel["text"] = panel["text"][: MAX_TEXT - 3].rstrip() + "..."
+        style = panel.get("style")
+        if isinstance(style, dict) and isinstance(style.get("comparison"), str) and len(style["comparison"]) > STYLE_TEXT["comparison"]:
+            style["comparison"] = style["comparison"][: STYLE_TEXT["comparison"] - 3].rstrip() + "..."
         tabs[tab].append(len(layout))
         layout.append(panel)
 
     def named(name: str) -> str:
         """A column's number says how it is aggregated -- "Avg revenue" is not a total; a metric is its name."""
         m = metrics.get(name)
+        if name == ROWS_COLUMN:
+            return "Rows"
         return f"{agg_label(m.tree['agg'])} {name}" if m is not None and m.source == "column" else name
 
     def agg_of(name: str) -> dict[str, str]:
@@ -554,18 +586,33 @@ def build(
         )
 
     primary = dims[0] if dims else ""
-    if primary and headline_metric:
+    # With no date to trend over the first page would hold no chart at all: it draws the headline's split instead.
+    split_on_summary = bool(primary and headline_metric and not (g and headline_metric))
+    if split_on_summary:
         add(
-            "Drivers",
+            "Summary",
             {
                 "chart": "bar",
                 "cols": {"category": primary, "value": headline_metric},
                 **agg_of(headline_metric),
                 "title": f"{named(headline_metric)} by {primary}",
                 "style": {"orientation": "h", "other": True, "top_n": 10},
-                "place": {"span": 6},
+                "place": {"span": 12},
             },
         )
+    if primary and headline_metric:
+        if not split_on_summary:
+            add(
+                "Drivers",
+                {
+                    "chart": "bar",
+                    "cols": {"category": primary, "value": headline_metric},
+                    **agg_of(headline_metric),
+                    "title": f"{named(headline_metric)} by {primary}",
+                    "style": {"orientation": "h", "other": True, "top_n": 10},
+                    "place": {"span": 6},
+                },
+            )
         for name in ratios[:3]:
             add(
                 "Drivers",

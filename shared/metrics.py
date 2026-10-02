@@ -26,6 +26,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from pandas.api.types import is_numeric_dtype
 
 from shared.expr import AGGREGATE_ALLOWED, FormulaError, _Evaluator, _parse, aggregate
 
@@ -166,8 +167,12 @@ def compile_metric(
 # ---------------------------------------------------------------------------
 
 
+def _numbers(values: pd.Series) -> pd.Series:
+    return values if is_numeric_dtype(values) else pd.to_numeric(values, errors="coerce")
+
+
 def _reduce(values: pd.Series, how: str) -> float:
-    present = pd.to_numeric(values, errors="coerce").dropna()
+    present = _numbers(values).dropna()
     if how == "count":
         return float(len(present))
     if how == "count_distinct":
@@ -199,9 +204,18 @@ def evaluate_tree(tree: dict, frame: pd.DataFrame, params: dict[str, float] | No
     return _reduce(frame[tree["col"]], tree["agg"])
 
 
+def _tree_columns(tree: dict) -> list[str]:
+    if "col" in tree:
+        return [tree["col"]]
+    return [c for side in ("a", "b") if side in tree for c in _tree_columns(tree[side])]
+
+
 def by_group(metric: Metric, frame: pd.DataFrame, by: list[str], params: dict[str, float] | None = None) -> pd.Series:
     """The metric per group of `by`, largest value first."""
     work = frame.assign(**metric.hidden) if metric.hidden else frame
+    read = _tree_columns(metric.tree)
+    # Only what the metric reads goes into each group, and it is made numeric once rather than once per group.
+    work = work[list(dict.fromkeys([*by, *read]))].assign(**{c: _numbers(work[c]) for c in read if c not in by})
     out = {
         key if len(by) > 1 else key[0] if isinstance(key, tuple) else key: evaluate_tree(metric.tree, part, params)
         for key, part in work.groupby(by, dropna=True, sort=False)
@@ -262,6 +276,10 @@ _UNIT_WORDS: dict[str, tuple[str, ...]] = {
 # change in either is shown without a verdict.
 _BETTER_DOWN = ("cpc", "cpm", "cpa", "cac", "churn", "returns", "refunds", "defects", "errors", "complaints", "latency",
                 "bounce", "cancellations", "chargebacks")  # fmt: skip
+# A 0/1 column whose "1" is bad news: its rate is better down. Any other flag has no good direction.
+_BAD_FLAG = ("churn", "churned", "default", "defaulted", "fraud", "fraudulent", "cancel", "canceled", "cancelled",
+             "canceled", "attrition", "bounce", "bounced", "refund", "refunded", "return", "returned", "defect",
+             "defective", "complaint", "late", "delayed", "failure", "failed", "fail", "dropout", "spam", "risk")  # fmt: skip
 _NEUTRAL = ("cost", "costs", "spend", "spends", "spent", "budget", "expenses")
 
 
@@ -278,11 +296,22 @@ def unit_of(name: str) -> str:
     return "number"
 
 
+# Up is good news for these. A column the name does not place in either list has no verdict: a fall in
+# lead time, mileage or temperature is not "bad" and a rise in it is not "good", and a page that paints one
+# red and the other green says what the author did not know.
+_BETTER_UP = ("revenue", "sales", "profit", "income", "gmv", "margin", "roas", "ctr", "cvr", "clicks", "impressions",
+              "conversions", "orders", "users", "sessions", "visits", "views", "customers", "rating", "ratings",
+              "score", "satisfaction", "retention", "growth", "yield", "quantity", "units", "volume", "installs",
+              "downloads", "subscribers", "followers", "attendance", "engagement")  # fmt: skip
+
+
 def better_of(name: str) -> str:
     words = set(_words(name))
     if words & set(_BETTER_DOWN):
         return "down"
-    return "" if words & set(_NEUTRAL) else "up"
+    if words & set(_NEUTRAL):
+        return ""
+    return "up" if words & set(_BETTER_UP) else ""
 
 
 def match_role(role: str, columns: list[str]) -> str:
@@ -367,6 +396,89 @@ def auto_ratios(df: pd.DataFrame, measures: list[str], origin: dict[str, str] | 
             )
         )
     return out
+
+
+def flag_rates(df: pd.DataFrame, planned: dict[str, Any], taken: set[str] | None = None) -> list[Metric]:
+    """The share of rows where each 0/1 column is 1: a default rate, a churn rate, a cancellation rate.
+
+    A table with an outcome flag is almost always about that outcome, and what a reader wants is how it
+    differs between segments -- "defaults are 2.4x higher for ..." -- which a rate lets the page say.
+    Skipped when the flag is nearly constant: a rate that never moves has nothing to compare.
+    """
+    taken = set(taken or ())
+    out = []
+    for col, info in planned.get("columns", {}).items():
+        if info.get("role") != "flag" or col not in df.columns:
+            continue
+        values = pd.to_numeric(df[col], errors="coerce").dropna()
+        positives = int(values.sum())
+        if len(values) < 50 or positives < 20 or positives > len(values) - 20:
+            continue
+        name = f"{col} rate"
+        if name in taken:
+            continue
+        words = set(_words(col))
+        formula = f"mean({_formula_col(col)})"
+        out.append(
+            Metric(
+                name=name,
+                formula=formula,
+                unit="percent",
+                better="down" if words & set(_BAD_FLAG) else "",
+                description=f"share of rows where {col} is 1 ({formula})",
+                source="auto",
+                tree={"agg": "mean", "col": str(col)},
+                columns=[str(col)],
+            )
+        )
+    return out
+
+
+_YES = ("yes", "true", "y", "t", "positive")
+_NO = ("no", "false", "n", "f", "negative")
+
+
+def _yes_no(series: pd.Series) -> str:
+    """The "yes" value of a two-valued text column that says yes and no ("Yes"/"No", "True"/"False", "Y"/"N"), else ""."""
+    values = [str(v) for v in series.dropna().unique()]
+    if len(values) != 2:
+        return ""
+    yes = [v for v in values if v.strip().lower() in _YES and v.isalnum()]
+    no = [v for v in values if v.strip().lower() in _NO]
+    return yes[0] if len(yes) == 1 and len(no) == 1 else ""
+
+
+def _answered(df: pd.DataFrame, col: str) -> str:
+    """The rows that answered, as a formula. `count(col)` of words counts no numbers, so it is rows or a hidden flag."""
+    if bool(df[col].notna().all()):
+        return "count()"
+    return f"count_if(notnull({_formula_col(col)}))"
+
+
+def text_flag_rates(df: pd.DataFrame, planned: dict[str, Any], taken: set[str] | None = None) -> list[Metric]:
+    """flag_rates for the flags written in words: a `HeartDisease` column of Yes and No has a rate too."""
+    taken = set(taken or ())
+    entries: dict[str, dict[str, str]] = {}
+    for col, info in planned.get("columns", {}).items():
+        if info.get("role") != "dimension" or col not in df.columns or is_numeric_dtype(df[col]):
+            continue
+        yes = _yes_no(df[col])
+        if not yes:
+            continue
+        positives = int((df[col] == yes).sum())
+        if len(df) < 50 or positives < 20 or positives > int(df[col].notna().sum()) - 20:
+            continue
+        name = f"{col} rate"
+        if name in taken:
+            continue
+        words = set(_words(col))
+        entries[name] = {
+            "formula": f'count_if({_formula_col(col)} == "{yes}") / {_answered(df, col)}',
+            "unit": "percent",
+            "better": "down" if words & set(_BAD_FLAG) else "",
+            "description": f"share of rows where {col} is {yes}",
+        }
+    return spec_metrics(df, entries, taken={*taken}) if entries else []
 
 
 def spec_metrics(

@@ -33,7 +33,7 @@ import pytest
 
 from servers.data_advanced._adv_dashboard import customize_dashboard, generate_dashboard
 from shared.dashboard_spec import MAX_OPS
-from tests.dashboard_page import NODE, drawn
+from tests.dashboard_page import NODE, drawn, whole_series
 
 needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
@@ -121,10 +121,9 @@ class TestAnOpChangesWhatItNames:
         assert r["ops_applied"] == ["slot 1: set chart, cols, style (bar -> line)"]
         html = Path(r["output_path"]).read_text(encoding="utf-8")
         assert _cards(html) == ["p1_line", "p2_line"]
-        trace = drawn(html)["figures"]["p1_line"]["data"][0]
         df = pd.read_csv(sales)
         want = df.groupby(df["day"].str[:7])["units"].sum()
-        assert dict(zip(trace["x"], trace["y"], strict=True)) == pytest.approx(want.to_dict())
+        assert whole_series(drawn(html)["figures"]["p1_line"]) == pytest.approx(want.to_dict())
 
 
 class TestWhatNamesAPanelFollowsIt:

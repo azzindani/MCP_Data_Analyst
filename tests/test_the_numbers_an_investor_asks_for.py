@@ -84,7 +84,7 @@ def test_the_forecast_extends_the_complete_months_with_its_range(home):
     want = [intercept + slope * (len(complete) - 1 + h) for h in (1, 2, 3)]
     assert fc["y"][1:] == pytest.approx(want, rel=1e-6)
     assert fc["x"][0] == complete.index[-1] and len(fc["x"]) == 4
-    band = [t for t in fig["data"] if t.get("name") == "80% range" or t.get("hoverinfo") == "skip"]
+    band = [t for t in fig["data"] if t.get("line", {}).get("width") == 0]
     lo, hi = band[0]["y"][1:], band[1]["y"][1:]
     assert all(a < m < b for a, m, b in zip(lo, fc["y"][1:], hi, strict=True))
 

@@ -56,7 +56,11 @@ class TestACodeIsNamedByItsColumn:
         assert _segment("channel", value) == value
 
     def test_the_story_says_which_column_the_code_is_of(self, bookings, _home):
-        result = generate_dashboard(bookings, output_path=str(_home / "p.html"), open_after=False)
+        # A flag is an outcome, so a story with a real dimension to split by splits by that; with only the
+        # flag left to split by, the code is what it has, and it still names its column.
+        only_the_code = _home / "only_the_code.csv"
+        pd.read_csv(bookings).drop(columns=["channel"]).to_csv(only_the_code, index=False)
+        result = generate_dashboard(str(only_the_code), output_path=str(_home / "p.html"), open_after=False)
         assert result["success"] is True, result.get("error")
         words = " ".join(str(p.get(k, "")) for p in result["spec"]["layout"] for k in ("title", "text"))
         assert re.search(r"is_canceled = [01] (brings|is where)", words), words[:600]

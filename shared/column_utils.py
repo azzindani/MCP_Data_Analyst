@@ -153,7 +153,19 @@ def infer_agg(col: str, series: pd.Series | None = None) -> str:
 # find a row by, not a quantity -- customer_id, zip_code, productKey, sku.
 _ID_WORDS = frozenset(
     {"id", "uuid", "guid", "key", "code", "zip", "zipcode", "postcode", "sku", "ref", "phone", "isbn", "ssn"}
+    | {"name", "names", "mcc"}  # a name held as a number (anonymised) is a label, not a quantity
 )
+# These identify a row wherever they stand in a name ("Phone Number", "Merchant Category Code (MCC)").
+_STRONG_ID_WORDS = frozenset(
+    {"id", "uuid", "guid", "zip", "zipcode", "postcode", "isbn", "ssn", "phone", "mcc", "sku", "name", "surname", "firstname", "lastname", "fullname"}
+)
+# "zip_share_pct" is a share of something, not a zip code: a word that says what is measured wins.
+_MEASURE_QUALIFIERS = frozenset(
+    {"share", "pct", "percent", "percentage", "rate", "ratio", "avg", "average", "mean", "median", "count", "total", "sum", "per", "length", "size", "len", "chars"}
+)
+# "keywordid", "userid": a word that ends in "id" -- but "valid" and "liquid" do not mean an identifier.
+_ID_SUFFIX = re.compile(r"^[a-z]{3,}id$")
+_NOT_ID_SUFFIX = frozenset({"valid", "invalid", "liquid", "rapid", "solid", "avoid", "hybrid", "fluid", "humid", "vivid", "rigid", "stupid", "timid", "squid", "grid", "acid", "paid", "unpaid", "android"})
 
 
 # The thing a number refers to rather than measures: `agent` 9 is travel agent 9, and summing
@@ -183,6 +195,12 @@ def is_identifier(col: str, series: pd.Series) -> bool:
         return False
     words = _ordered_words(col)
     if words and words[-1] in _ID_WORDS:
+        return True
+    if not set(words) & _MEASURE_QUALIFIERS and (
+        set(words) & _STRONG_ID_WORDS or any(_ID_SUFFIX.match(w) and w not in _NOT_ID_SUFFIX for w in words)
+    ):
+        return True
+    if "unnamed" in words:  # the index column a pandas export leaves behind, whether or not it still counts 0, 1, 2...
         return True
     values = series.dropna()
     if words and words[-1] in _ENTITY_WORDS and len(values) and bool((values == values.round()).all()):

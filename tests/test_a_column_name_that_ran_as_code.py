@@ -40,9 +40,10 @@ from tests.dashboard_page import drawn  # noqa: E402
 HOSTILE = {
     "region": "<img src=x onerror=alert(1)>",
     "channel": "re\"gion' </script>",
-    "revenue": "rev'enue\\",
-    "units": '</script><script>alert("u")</script>',
-    "cost": 'x" onmouseover="alert(2)',
+    # Each keeps the word a name's role is read from (revenue and units add up, cost is spend): only the markup differs.
+    "revenue": "revenue'\\",
+    "units": '</script><script>alert("units")</script>',
+    "cost": 'cost" onmouseover="alert(2)',
 }
 
 
@@ -159,7 +160,7 @@ def test_every_inline_script_still_parses(tmp_path, page):
 def test_the_names_still_read_as_themselves(tmp_path):
     # Escaping must not mangle what a reader sees: the label is the column name.
     html = _build(tmp_path, HOSTILE, "hostile", _spec(HOSTILE))
-    assert "rev&#x27;enue" in html or "rev'enue" in re.sub(r"<script.*?</script>", "", html, flags=re.S)
+    assert "revenue&#x27;" in html or "revenue'" in re.sub(r"<script.*?</script>", "", html, flags=re.S)
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")

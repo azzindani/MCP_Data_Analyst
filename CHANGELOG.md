@@ -6,6 +6,29 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added — a dashboard from any table it is given; Fixed — what 48 real files showed
+
+Swept `generate_dashboard` over the 48 CSV and workbook files of `/root/Evals/dataframe`, looked at the
+pages, and fixed what the pages got wrong. 10 of 48 did not draw; now all 48 do.
+
+- A dashboard takes a CSV or TSV, an `.xlsx` / `.xlsm` / `.ods` workbook, a Parquet file and a `.json` /
+  `.jsonl` file (`read_table`). A file's BOM and its delimiter (`;`, tab, `|`) are read from the file
+  (`sniff_encoding`, `sniff_separator`, also in the CSV reader of every tool and in ML), so a semicolon
+  or UTF-16 export no longer reads as one column. A file past 200,000 rows is drawn from a reproducible
+  sample of 200,000, said so on the page and in `sampled_from_file`.
+- What a column is comes from its name as well as its values. A column is added up only when its name says
+  it is a total, so a KPI of `age`, `bmi`, `speed` or `lead_time` is the mean it should be; coordinates,
+  short codes, names and postcodes are no longer measures; a file with nothing to sum counts rows
+  (`Rows`). A 0/1 or Yes/No outcome gets a rate, with the direction that is good for it (neutral when its
+  name does not say), and the insights say where the rate differs. A rate for a flag written in words
+  was `x / 0`: `count()` of text counts no numbers; it now divides by the rows that answered.
+- Time series stop their line at the last complete period, dotted into the unfinished one; scatter groups
+  keep their missing values as "(missing)"; billions and trillions are written `B` and `T`; a mean under
+  a thousand keeps its decimals (an average of 3.37 read `3`); panel titles, notes and comparisons are cut
+  to the spec's limits instead of refusing the page.
+- A metric per group is made numeric once and reads only its own columns: Heart_Disease (320,000 rows, nine
+  Yes/No flags) takes 11 s, not 25 s.
+
 ### Added — a mockup's arrangement, a sparkline on a layout KPI; Fixed — what the story says
 
 - `dashboard_looks(source=mockup.html)` also reads how the mockup is set out (`shared/mockup_layout.py`):

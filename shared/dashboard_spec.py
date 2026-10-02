@@ -39,6 +39,7 @@ from typing import Any
 
 import pandas as pd
 
+from shared.analysis_plan import ROWS_COLUMN
 from shared.column_utils import is_numeric_col
 
 # Charts the dashboard knows how to draw. `generate_dashboard` detects a subset
@@ -750,6 +751,10 @@ def validate(
     a caller who believes they configured something, and a dashboard that
     quietly ignored them looks exactly like one that obeyed.
     """
+    if spec is not None and repr(ROWS_COLUMN) in repr(spec) and ROWS_COLUMN not in df.columns:
+        from shared.analysis_plan import with_row_counter
+
+        df = with_row_counter(df)  # a page of labels counts its rows in `Rows`; its spec names that column
     if spec is None:
         return {}
     if not isinstance(spec, dict):

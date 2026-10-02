@@ -72,6 +72,16 @@ def drawn(html: str, rows: list[dict] | None = None, dark: bool = False) -> dict
     return json.loads(done.stdout)
 
 
+def whole_series(figure: dict) -> dict:
+    """A line panel's points by x: the solid line, and the unfinished last period drawn apart as a hollow point."""
+    first, *rest = figure["data"]
+    points = dict(zip(first["x"], first["y"], strict=True))
+    for trace in rest:
+        if trace.get("name") == "incomplete period":
+            points.update(zip(trace["x"], trace["y"], strict=True))
+    return points
+
+
 def run_js(html: str, expression: str, storage: dict[str, str] | None = None) -> object:
     """Evaluate `expression` in the page's script (after it has loaded) and return its JSON value.
 

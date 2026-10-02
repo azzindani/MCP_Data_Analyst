@@ -107,7 +107,10 @@ def _view_sql(name: str, path: Path) -> str:
         # A sample of 100,000 rows settles a column's type; the default 20,480 mistyped a column
         # whose first non-integer sits further down.
         nulls = "[" + ", ".join(_quote(n) for n in PANDAS_NULLS) + "]"
-        source = f"read_csv({target}, sample_size=100000, nullstr={nulls})"
+        with path.open("rb") as fh:
+            utf16 = fh.read(2) in (b"\xff\xfe", b"\xfe\xff")  # DuckDB reads UTF-16 when it is told
+        extra = ", encoding='utf-16'" if utf16 else ""
+        source = f"read_csv({target}, sample_size=100000, nullstr={nulls}{extra})"
     elif suffix == ".parquet":
         source = f"read_parquet({target})"
     elif suffix in JSON_SUFFIXES:

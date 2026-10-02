@@ -35,7 +35,7 @@ def planned() -> dict:
                     "age": 30 + i % 20,
                     "click_rate": 0.01 * (1 + i % 5),
                     "interest_rate": 4.5 + i % 3,
-                    "net_change": (-1) ** i * 5.0,
+                    "net_change": (-1) ** i * (5.0 + i % 6),
                 }
             )
     return plan(pd.DataFrame(rows))
