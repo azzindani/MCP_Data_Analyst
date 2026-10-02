@@ -174,3 +174,22 @@ class TestAMonthNameIsNotADate:
         assert result["success"] is True, result.get("error")
         assert not any(c.startswith("arrival_date_month_") for c in result["new_columns"]), result["new_columns"]
         assert "reservation_status_date_year" in result["new_columns"]
+
+
+class TestAnExplicitLayoutsKpiRow:
+    """A page laid out by the caller, with no `kpis`, opened on `numeric_cols[:7]`: every number, so the
+    hotel file's row led with "Total arrival_date_year 240.7M" and a total of week numbers."""
+
+    def test_the_default_kpis_are_the_measures(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("MCP_OUTPUT_DIR", str(tmp_path))
+        _hotel().to_csv(tmp_path / "h.csv", index=False)
+        result = generate_dashboard(
+            str(tmp_path / "h.csv"),
+            output_path=str(tmp_path / "h.html"),
+            open_after=False,
+            spec={"layout": [{"chart": "bar", "cols": {"category": "hotel", "value": "adr"}, "agg": "mean"}]},
+        )
+        assert result["success"] is True, result.get("error")
+        shown = set(result["spec"]["kpis"])
+        assert {"lead_time", "adr"} <= shown
+        assert not shown & {"arrival_date_year", "arrival_date_week_number", "arrival_date_day_of_month", "agent"}

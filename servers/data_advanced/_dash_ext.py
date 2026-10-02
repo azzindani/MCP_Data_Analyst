@@ -204,6 +204,14 @@ EXT_CSS = """
 .callout{border-radius:8px;padding:.625rem .875rem;border:1px solid var(--border)}
 .callout-info{background:rgba(9,105,218,.08)}.callout-good{background:rgba(45,164,78,.1)}.callout-warn{background:rgba(191,135,0,.12)}.callout-bad{background:rgba(207,34,46,.1)}
 .cc-div{grid-column:1/-1;border-top:1px solid var(--border);margin:.25rem 0}
+.rank{list-style:none;margin:0;padding:.25rem 0}
+.rank li{display:grid;grid-template-columns:1.75rem minmax(0,1fr) auto;column-gap:.5rem;row-gap:.25rem;align-items:baseline;padding:.4rem 0}
+.rank .rk{color:var(--text-muted);font-variant-numeric:tabular-nums;font-size:.8125rem}
+.rank .rn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font-size:.875rem}
+.rank .rv{font-variant-numeric:tabular-nums;font-weight:600;font-size:.875rem;color:var(--text)}
+.rank .rv i{font-style:normal;font-weight:400;color:var(--text-muted);font-size:.75rem;margin-left:.25rem}
+.rank .rb{grid-column:2/-1;height:.375rem;border-radius:999px;background:color-mix(in srgb,var(--border) 70%,transparent);overflow:hidden}
+.rank .rb b{display:block;height:100%;border-radius:999px;background:var(--accent)}
 .pimg{max-width:100%;max-height:100%;object-fit:contain;display:block;margin:auto}
 .dash-logo{height:2rem;width:auto;margin-right:.75rem;vertical-align:middle}
 .clk-chip{display:inline-flex;align-items:center;gap:.25rem;margin:0 .375rem .25rem 0;padding:.125rem .5rem;border-radius:999px;border:1px solid var(--accent);font-size:.75rem;cursor:pointer;background:transparent;color:var(--text)}
@@ -675,6 +683,21 @@ document.querySelectorAll('.tab-btn').forEach(function(b){
     });
   });
 })();
+
+// --- a ranked list: the leaders, each with its share and a bar -----------------
+HTMLP.ranking=function(p,d){
+  var s=p.style,e=_ranked(p,d).filter(function(i){return isFinite(i[1]);});
+  if(!e.length)return'<p class="ptext">Nothing to rank.</p>';
+  var top=Math.max.apply(null,e.map(function(i){return Math.abs(i[1]);}))||1,sum=e.reduce(function(a,i){return a+Math.max(i[1],0);},0);
+  // A share of the whole only means something for what adds up: sums and counts, not averages or ratios.
+  var adds=!p.metric&&(!p.agg||p.agg==='sum'||p.agg==='count');
+  return'<ol class="rank">'+e.map(function(i,n){
+    var w=Math.max(2,Math.abs(i[1])/top*100),share=adds&&sum>0&&i[1]>0?(i[1]/sum*100).toFixed(1)+'%':'';
+    return'<li><span class="rk">'+(n+1)+'</span><span class="rn">'+_esc(i[0])+'</span>'
+      +'<span class="rv">'+_esc(_fmtu(i[1],p))+(share?' <i>'+share+'</i>':'')+'</span>'
+      +'<span class="rb"><b style="width:'+w.toFixed(1)+'%'+(s.color?';background:'+_esc(s.color):'')+'"></b></span></li>';
+  }).join('')+'</ol>';
+};
 
 // --- a table that reads like a report ---------------------------------------
 var _table0=HTMLP.table;

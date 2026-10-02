@@ -80,6 +80,8 @@ CHART_KINDS: tuple[str, ...] = (
     "text",
     "kpi",
     "table",
+    # A ranked list: the leaders of a category with a bar, a share and their value.
+    "ranking",
 )
 
 # What each chart needs before it can be drawn. Stated once, so a refusal can
@@ -98,6 +100,7 @@ CHART_NEEDS: dict[str, tuple[str, ...]] = {
     "text": (),
     "kpi": ("value",),
     "table": ("category", "value"),
+    "ranking": ("category", "value"),
     "stacked_bar": ("category", "group", "value"),
     "pareto": ("category", "value"),
     "variance": ("category", "value"),
@@ -128,7 +131,7 @@ WRITTEN: tuple[str, ...] = (
 # Charts whose value may be a metric the page defines (shared/metrics.py): a
 # pie shares out a sum, so it takes a column.
 METRIC_CHARTS: tuple[str, ...] = (
-    "bar", "line", "time_series", "kpi", "table", "choropleth", "stacked_bar", "pareto", "variance",
+    "bar", "line", "time_series", "kpi", "table", "ranking", "choropleth", "stacked_bar", "pareto", "variance",
     "waterfall", "small_multiples", "gauge", "bullet", "insight",
 )  # fmt: skip
 # Charts whose bars add up to a whole. A ratio's parts do not add up to it --
@@ -222,8 +225,9 @@ STYLE_INTS: dict[str, tuple[int, int]] = {
     "series": (1, 20),
     "forecast": (0, 12),
     "periods": (2, 24),
+    "hole": (0, 85),
 }
-STYLE_TEXT: dict[str, int] = {"prefix": 8, "suffix": 8, "x_title": 80, "y_title": 80, "comparison": 160}
+STYLE_TEXT: dict[str, int] = {"prefix": 8, "suffix": 8, "x_title": 80, "y_title": 80, "comparison": 160, "center": 40}
 STYLE_BOOLS = ("value_labels", "other", "ci", "show_n", "significance", "normalize", "yoy", "heat", "totals")
 STYLE_NUMBERS = ("target", "min", "max")
 MAX_MARKS = 20
@@ -277,7 +281,8 @@ CHART_STYLE: dict[str, tuple[str, ...]] = {
         "forecast",
         *_MARKS,
     ),
-    "pie": ("palette", "colors", "top_n", "legend"),
+    # hole: the donut's hole as a percentage of its radius; center: "total" or the words in it.
+    "pie": ("palette", "colors", "top_n", "legend", "hole", "center"),
     "scatter": ("color", "accent", "legend", "y_scale", *_MARKS),
     "histogram": ("color", "accent", "bins"),
     "box": ("palette", "colors", "top_n", "y_scale", "format", "prefix", "suffix"),
@@ -287,6 +292,7 @@ CHART_STYLE: dict[str, tuple[str, ...]] = {
     "text": (),
     "kpi": ("color", "format", "prefix", "suffix", "target", "period"),
     "table": ("top_n", "sort", "format", "prefix", "suffix", "heat", "totals", "other"),
+    "ranking": ("top_n", "sort", "format", "prefix", "suffix", "color", "other"),
     "stacked_bar": (
         "palette",
         "colors",
@@ -345,7 +351,7 @@ DATE_ROLES = frozenset({"date"})
 # A panel's `agg` means something only where values are grouped; a pie shows
 # shares of a total, so the only aggregate it can draw is a sum.
 PANEL_AGGS: tuple[str, ...] = ("sum", "mean", "median", "max", "min", "count", "count_distinct")
-AGG_CHARTS: tuple[str, ...] = ("bar", "line", "time_series", "pie", "choropleth", "kpi", "table")
+AGG_CHARTS: tuple[str, ...] = ("bar", "line", "time_series", "pie", "choropleth", "kpi", "table", "ranking")
 
 # Set by the generator when the layout is its own detection rather than the
 # caller's, so a round-trip through customize_dashboard redraws the detected

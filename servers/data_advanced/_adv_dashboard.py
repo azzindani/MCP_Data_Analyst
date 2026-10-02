@@ -200,10 +200,11 @@ PANEL_STYLE: dict[str, dict] = {
     "geo_scatter": {"color": "#58a6ff"},
     "geo_choro": {"colorscale": "YlOrRd"},
     "table": {"top_n": 10},
+    "ranking": {"top_n": 8},
 }
 
 # Panels drawn as HTML by the renderer, and panels that are static once written.
-HTML_PANELS = ("kpi", "table")
+HTML_PANELS = ("kpi", "table", "ranking")
 STATIC_PANELS = ("section", "text")
 
 
@@ -692,7 +693,9 @@ def generate_dashboard(
             title=dashboard_title,
             theme=theme,
             detected_layout=detected_layout,
-            kpi_columns=numeric_cols[:7],
+            # The page's measures, not every number: a year, a week number or an id is not a total.
+            kpi_columns=[c for c in planned["measures"] if str(c) in {str(n) for n in numeric_cols}][:7]
+            or numeric_cols[:7],
             filter_columns=[fc["col"] for fc in default_controls] + [nr["col"] for nr in default_ranges],
         )
         # The build document records where the data came from. The provenance
@@ -1560,12 +1563,17 @@ def _dash_kpi_row(df, numeric_cols, sparklines, quality, qual_clr, col_agg):
             f'<div class="kpi-spark" id="ks-{sc}"></div>'
             f"</div>"
         )
+        # The line is the page's accent as it is now (a look sets it); Plotly cannot read a CSS variable.
         h.append(
             f"<script>(function(){{"
+            f"var a=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#58a6ff',"
+            f"m=/^#([0-9a-f]{{6}})$/i.exec(a),"
+            f"f=m?'rgba('+parseInt(m[1].slice(0,2),16)+','+parseInt(m[1].slice(2,4),16)+','+parseInt(m[1].slice(4,6),16)+',0.12)'"
+            f":'rgba(88,166,255,0.08)';"
             f"Plotly.newPlot('ks-{sc}',"
             f"[{{y:{_json.dumps(sv)},type:'scatter',mode:'lines',"
-            f"line:{{color:'var(--accent)',width:1.5}},"
-            f"fill:'tozeroy',fillcolor:'rgba(88,166,255,0.08)'}}],"
+            f"line:{{color:a,width:1.5}},"
+            f"fill:'tozeroy',fillcolor:f}}],"
             f"{{paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',"
             f"margin:{{l:0,r:0,t:0,b:0}},xaxis:{{visible:false}},"
             f"yaxis:{{visible:false}},showlegend:false}},"
@@ -1764,10 +1772,10 @@ def _plan_panels(layout, df, cat_cols, numeric_cols, datetime_cols, geo, col_agg
         elif kind == "kpi":
             value, label = measure()
             plan.append((dated({"id": cid, "type": "kpi", **value}), label, False, 0))
-        elif kind == "table":
+        elif kind in ("table", "ranking"):
             cc = pick("category", cat_cols, "text column with 2-100 values")
             value, label = measure()
-            spec = {"id": cid, "type": "table", "category": cc, **value, "header": label}
+            spec = {"id": cid, "type": kind, "category": cc, **value, "header": label}
             if cols.get("date"):
                 spec.update({"date": str(cols["date"]), "grain": extras.get("grain") or "month"})
             plan.append((spec, f"{label} by {cc}", False, 0))
@@ -2236,8 +2244,12 @@ const FIG={
     // Past a handful of slices, labels drawn outside on leader lines overlap
     // and spill out of the card, repeating names the legend already lists.
     var ti=e.length>6?'percent':'label+percent';
-    return{data:[{values:e.map(function(i){return i[1];}),labels:e.map(function(i){return i[0];}),type:'pie',hole:0.38,marker:{colors:e.map(function(i,j){return _seriesColor(p,i[0],j);})},textinfo:ti,textposition:'inside',insidetextorientation:'horizontal',textfont:{size:11},pull:e.map(function(_,i){return i===0?0.04:0;})}],
-           layout:_merge({margin:{l:20,r:20,t:10,b:20}},_legend(p.style,{showlegend:true,legend:{orientation:'h',y:-0.14}}))};
+    var s=p.style,hole=s.hole!==undefined?s.hole/100:0.38,mid=[];
+    // The answer in the middle of the ring: the total, or the words the panel was given.
+    if(s.center&&hole>0.2){var tot=e.reduce(function(a,i){return a+i[1];},0);
+      mid=[{text:s.center==='total'?_fmtv(tot,s):s.center,x:0.5,y:0.5,xref:'paper',yref:'paper',showarrow:false,font:{size:18}}];}
+    return{data:[{values:e.map(function(i){return i[1];}),labels:e.map(function(i){return i[0];}),type:'pie',hole:hole,marker:{colors:e.map(function(i,j){return _seriesColor(p,i[0],j);})},textinfo:ti,textposition:'inside',insidetextorientation:'horizontal',textfont:{size:11},pull:e.map(function(_,i){return i===0?0.04:0;})}],
+           layout:_merge({margin:{l:20,r:20,t:10,b:20},annotations:mid},_legend(p.style,{showlegend:true,legend:{orientation:'h',y:-0.14}}))};
   },
   scatter:function(p,d){
     var s=p.style,g=new Map();

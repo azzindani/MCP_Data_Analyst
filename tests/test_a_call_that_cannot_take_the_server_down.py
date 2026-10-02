@@ -231,3 +231,11 @@ class TestHowManyAtOnce:
         monkeypatch.setenv("MCP_CONSTRAINED_MODE", "1")
         monkeypatch.setenv("MCP_MAX_CALLS", "2")
         assert self._two_naps() < 1.45
+
+
+class TestTheRefusalPointsAtTheServersOwnWayDown:
+    def test_this_server_names_query_data(self):
+        import servers.data_domain.server  # noqa: F401  (importing it registers the hint)
+
+        refused = isolation._stopped("x", "memory", time.monotonic(), None)
+        assert "query_data" in refused["hint"] and "sample_n" in refused["hint"]

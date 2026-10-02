@@ -36,6 +36,7 @@ from servers.data_workspace.server import mcp as workspace  # noqa: E402
 from shared.arg_errors import contract_errors  # noqa: E402
 from shared.deploy_auth import build_auth, build_oauth_bridge  # noqa: E402
 from shared.domain_tools import register_domains  # noqa: E402
+from shared.isolation import add_narrowing_hint  # noqa: E402
 from shared.strict_args import enforce_known_arguments  # noqa: E402
 
 _VERSION = "0.3.0"  # keep in sync with pyproject.toml [project].version
@@ -171,6 +172,10 @@ DOMAINS = {
     ),
 }
 register_domains(mcp, DOMAINS)
+add_narrowing_hint(
+    "For a table too big to load, data_ingest(action='query_data') filters, aggregates or samples it where it lies, "
+    "in chunks, and writes the smaller result for these tools to read."
+)
 
 
 @mcp.custom_route("/health", methods=["GET"])

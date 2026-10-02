@@ -39,6 +39,16 @@ POLL_SECONDS = 0.25
 HEADROOM = 0.92
 DEFAULT_TIMEOUT_S = 1800.0
 
+# What else a server can offer a caller whose call needed too much memory (DA: query_data reads in chunks).
+NARROWING_HINTS: list[str] = []
+
+
+def add_narrowing_hint(text: str) -> None:
+    """A sentence a server adds to the memory refusal, naming its own way to work on less."""
+    if text not in NARROWING_HINTS:
+        NARROWING_HINTS.append(text)
+
+
 _children: dict[int, _Child] = {}
 _gates: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore] = weakref.WeakKeyDictionary()
 
@@ -232,7 +242,7 @@ def _stopped(name: str, why: str, started: float, status: int | None) -> dict[st
             f"This call needed more memory than {room}, so it was stopped before it could take "
             "the server down. Nothing else was affected and nothing was written by this call.",
             "Narrow it: pass fewer columns, filter or sample the rows (sample_n, preview_rows, filter_rows), "
-            "or work on a smaller file; or give the server more memory.",
+            "or work on a smaller file; or give the server more memory. " + " ".join(NARROWING_HINTS),
         )
     if why == "timeout":
         return _refusal(

@@ -6,6 +6,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added — a ranked list and a donut that says its answer; Fixed — a layout's KPI row
+
+- `ranking {category, value}`: the leaders of a category with a rank, a bar, the value and, for what adds
+  up (sums and counts, not means), its share of the whole; it follows the filters. A pie takes
+  `style.hole` (percent of its radius) and `style.center` (`"total"` or words): the donut with the answer
+  in the middle.
+- A page laid out by the caller with no `kpis` opened on every number (`numeric_cols[:7]`): the hotel
+  file led with "Total arrival_date_year 240.7M". It is the page's measures now, as the storyline's is.
+- The default KPI row's sparklines are drawn in the page's accent, not always blue.
+- A memory refusal in `data_domain` names `query_data` as the way to work on a table too big to load.
+
 ### Added — dashboard looks: any number of designs around Plotly
 
 - `style.look` dresses a dashboard in a look: colour tokens for light and dark, type, card radius,
