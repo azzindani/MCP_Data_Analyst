@@ -45,6 +45,13 @@ pages, and fixed what the pages got wrong. 10 of 48 did not draw; now all 48 do.
   Sunday morning no longer draws that week as a dip, nor forecasts from it, nor reports it as a spike (a spike
   now says how far above or below a typical period it is). "Low brings 78% of the power" when Low is 78% of the
   rows is no longer a finding.
+- Found by looking at every page of the corpus: on an aggregated page (above 100,000 rows) a measure whose
+  first cell has no value, such as the mileage of new cars, made every sum, average, minimum and maximum of it
+  read 0 (`US_Car_Sales` showed an average mileage of 0, the true figure is 52,721); the Clicked_Ads ROAS was
+  "Area Income" over "Daily Time Spent on Site", which is a time, not money (a column measured in time, age or
+  distance is no spend, revenue or profit); a category named 1, 2, 3 or 0/1 was drawn on a number line with
+  ticks at 0.5 and 1.5, and is now a category axis; and a data set that begins on the 23rd no longer draws its
+  short first month as a ramp up from zero, nor forecasts from it (dotted and hollow, as the last period is).
 
 ### Added — a mockup's arrangement, a sparkline on a layout KPI; Fixed — what the story says
 

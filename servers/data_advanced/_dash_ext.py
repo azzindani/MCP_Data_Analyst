@@ -262,7 +262,9 @@ function _rows(d){if(!_CUBE)return d.length;var n=0;for(var i=0;i<d.length;i++)n
 function _w(r){return _CUBE?(+r.__n||0):1;}
 var _agg0=_agg;
 _agg=function(v,how){
-  if(!_CUBE||!v.length||typeof v[0]!=='object'||v[0]===null)return _agg0(v,how);
+  // A cell with no value for this measure arrives as NaN, so the first value says nothing about whether the rest are cells:
+  // US_Car_Sales' first cell had no mileage and the whole page's Avg Mileage read 0.
+  if(!_CUBE||!v.length||!v.some(function(c){return c!==null&&typeof c==='object';}))return _agg0(v,how);
   var x=v.filter(function(c){return c&&!isNaN(c.s);});
   if(how==='count')return x.reduce(function(a,c){return a+c.n;},0);
   if(!x.length)return 0;
@@ -423,7 +425,7 @@ FIG.bar=function(p,d){
     var t={x:e.map(function(x){return x[0];}),y:e.map(function(x){return x[1].m;}),type:'bar',marker:{color:s.color,opacity:0.85},text:labels,textposition:'outside',
       customdata:e.map(function(x){return x[1].n;}),hovertemplate:'%{x}: %{y:.4g} (n=%{customdata})<extra></extra>'};
     if(s.ci)t.error_y={type:'data',array:e.map(function(x){return x[1].n>1?_tcrit(x[1].n-1)*x[1].sd/Math.sqrt(x[1].n):0;}),visible:true,thickness:1.2};
-    f={data:[t],layout:_axes({yaxis:_merge({title:'mean '+p.value+(s.ci?' (95% CI)':'')},_utick(p))})};
+    f={data:[t],layout:_axes({xaxis:{type:'category'},yaxis:_merge({title:'mean '+p.value+(s.ci?' (95% CI)':'')},_utick(p))})};
     if(s.significance)f.layout.annotations=[{text:'* differs from the other groups (p<0.05)',xref:'paper',yref:'paper',x:0,y:1.08,showarrow:false,font:{size:10}}];
   }else if(s.orientation==='h'){
     // Long names read across, largest on top, each bar labelled in its unit.
@@ -436,7 +438,7 @@ FIG.bar=function(p,d){
     th.textposition=s.value_labels!==false?'outside':'none';
     var xs=e.map(function(i){return i[1];}),mx=Math.max.apply(null,xs.concat([0])),mn=Math.min.apply(null,xs.concat([0]));
     var xa=mn>=0&&mx>0?_merge(_utick(p),{range:[0,mx*1.18]}):_utick(p);
-    f={data:[th],layout:_axes({margin:{l:10,r:30,t:10,b:40},xaxis:xa,yaxis:{autorange:'reversed',automargin:true,gridcolor:_T().grid}})};
+    f={data:[th],layout:_axes({margin:{l:10,r:30,t:10,b:40},xaxis:xa,yaxis:{type:'category',autorange:'reversed',automargin:true,gridcolor:_T().grid}})};
   }else{
     f=_bar0(p,d);
     if(p.metric){f.data[0].text=_ranked(p,d).map(function(i){return _fmtu(i[1],p);});f.layout.yaxis=_merge(f.layout.yaxis||{},_utick(p));}
@@ -459,9 +461,9 @@ function _after(last,grain,h){
 // A straight-line forecast from the complete periods, with its 80% band: the
 // trend a reader would draw by eye, and how far off the line the past has run.
 // A series that has never gone below zero (spend, orders) is not forecast below it.
-function _forecast(keys,vals,grain,h,complete){
+function _forecast(keys,vals,grain,h,complete,first){
   var k=[],v=[];
-  keys.forEach(function(x,i){if((!complete||x<=complete)&&isFinite(vals[i])){k.push(x);v.push(vals[i]);}});
+  keys.forEach(function(x,i){if((!complete||x<=complete)&&(!first||x>=first)&&isFinite(vals[i])){k.push(x);v.push(vals[i]);}});
   k=k.slice(-24);v=v.slice(-24);
   var n=v.length;if(n<6)return null;
   var mt=(n-1)/2,mv=v.reduce(function(a,b){return a+b;},0)/n,sxx=0,sxy=0;
@@ -495,18 +497,24 @@ FIG.ts=function(p,d){
   // A period the data has only begun is drawn apart, so a half month is not read as a fall: the line stops at the last
   // complete period and a dotted step reaches the partial one.
   var partial=!!(p.complete&&keys.length>1&&keys[keys.length-1]>p.complete),cut=partial?keys.length-1:keys.length;
-  var t=[{x:keys.slice(0,cut),y:vals.slice(0,cut),type:'scatter',mode:'lines+markers',name:p.metric||p.value,line:{color:s.color,width:2},marker:{size:4}}];
+  // The same at the start: a data set that begins on the 23rd has a short first month, which is no ramp up from nothing.
+  var lead=!!(p.first&&cut>2&&keys[0]<p.first),from=lead?1:0;
+  var t=[{x:keys.slice(from,cut),y:vals.slice(from,cut),type:'scatter',mode:'lines+markers',name:p.metric||p.value,line:{color:s.color,width:2},marker:{size:4}}];
   if(w>0){
-    var ma=vals.slice(0,cut).map(function(_,i){if(i<w-1)return null;var a=0;for(var j=i-w+1;j<=i;j++)a+=vals[j];return a/w;});
-    t.push({x:keys.slice(w-1,cut),y:ma.slice(w-1),type:'scatter',mode:'lines',name:w+'-period MA',line:{color:s.accent,width:2,dash:'dot'}});
+    var ma=vals.slice(from,cut).map(function(_,i){if(i<w-1)return null;var a=0;for(var j=i-w+1;j<=i;j++)a+=vals[from+j];return a/w;});
+    t.push({x:keys.slice(from+w-1,cut),y:ma.slice(w-1),type:'scatter',mode:'lines',name:w+'-period MA',line:{color:s.accent,width:2,dash:'dot'}});
   }
   var lay=_axes(_merge({xaxis:{title:'Date'},yaxis:_merge({title:p.metric||p.value},_utick(p))},_legend(s,{showlegend:true,legend:{x:0,y:1.1,orientation:'h'}})));
+  if(lead){
+    t.push({x:[keys[0],keys[1]],y:[vals[0],vals[1]],type:'scatter',mode:'lines',line:{color:s.color,width:1.5,dash:'dot'},showlegend:false,hoverinfo:'skip'});
+    t.push({x:[keys[0]],y:[vals[0]],type:'scatter',mode:'markers',name:'incomplete period',showlegend:!partial,marker:{size:9,symbol:'circle-open',color:s.color}});
+  }
   if(partial){
     var k=keys.length-1;
     t.push({x:[keys[k-1],keys[k]],y:[vals[k-1],vals[k]],type:'scatter',mode:'lines',line:{color:s.color,width:1.5,dash:'dot'},showlegend:false,hoverinfo:'skip'});
     t.push({x:[keys[k]],y:[vals[k]],type:'scatter',mode:'markers',name:'incomplete period',marker:{size:9,symbol:'circle-open',color:s.color}});
   }
-  if(s.forecast>0){var fc=_forecast(keys,vals,grain,s.forecast,p.complete);if(fc)t=t.concat(fc);}
+  if(s.forecast>0){var fc=_forecast(keys,vals,grain,s.forecast,p.complete,p.first);if(fc)t=t.concat(fc);}
   if(s.events&&s.events.length){
     lay.shapes=(lay.shapes||[]).concat(s.events.map(function(e){var x=_bucket(e.date,grain);return{type:'line',xref:'x',yref:'paper',x0:x,x1:x,y0:0,y1:1,line:{dash:'dot',width:1,color:'#8b949e'}};}));
     lay.annotations=(lay.annotations||[]).concat(s.events.map(function(e){return{x:_bucket(e.date,grain),y:1,xref:'x',yref:'paper',text:_esc(e.label),showarrow:false,yanchor:'bottom',font:{size:10}};}));
@@ -523,7 +531,7 @@ FIG.stacked=function(p,d){
     var byCat=_rgroups(groups.get(gname),function(r){return _key(r,p.category);});
     return{x:cats,y:cats.map(function(c){return byCat.has(c)?_measure(p,byCat.get(c)):0;}),type:'bar',name:gname,marker:{color:_seriesColor(p,gname,i)}};
   });
-  var lay=_axes(_merge({barmode:'stack',yaxis:s.normalize?{title:'share',ticksuffix:'%'}:_merge({},_utick(p))},_legend(s,{showlegend:true,legend:{orientation:'h',x:0,y:1.12}})));
+  var lay=_axes(_merge({barmode:'stack',xaxis:{type:'category'},yaxis:s.normalize?{title:'share',ticksuffix:'%'}:_merge({},_utick(p))},_legend(s,{showlegend:true,legend:{orientation:'h',x:0,y:1.12}})));
   if(s.normalize)lay.barnorm='percent';
   return{data:t,layout:lay};
 };

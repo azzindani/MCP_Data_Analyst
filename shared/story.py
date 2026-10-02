@@ -91,19 +91,26 @@ def grain_for(planned: dict[str, Any]) -> dict[str, str]:
     grain = "month" if span >= 90 else "week" if span >= 21 else "day"
     if g.get("last_day_complete") is False:
         end -= pd.Timedelta(days=1)  # the data stops partway through its last day: that day is not a whole one
+    if g.get("first_day_complete") is False:
+        start += pd.Timedelta(days=1)  # and the data starts partway through its first day
     if grain == "month":
         month_end = end + pd.offsets.MonthEnd(0)
         complete = (
             end if end.normalize() == month_end.normalize() else end - pd.offsets.MonthBegin(1) - pd.Timedelta(days=1)
         )
         label = complete.strftime("%Y-%m")
+        opening = start if start.day == 1 else start + pd.offsets.MonthBegin(1)
+        first = opening.strftime("%Y-%m")
     elif grain == "week":
         monday = end - pd.Timedelta(days=end.weekday())
         complete = monday if end.weekday() == 6 else monday - pd.Timedelta(days=7)
         label = complete.strftime("%Y-%m-%d")
+        opening = start if start.weekday() == 0 else start + pd.Timedelta(days=7 - start.weekday())
+        first = opening.strftime("%Y-%m-%d")
     else:
         label = end.strftime("%Y-%m-%d")
-    return {"date": g["date"], "grain": grain, "complete": label}
+        first = start.strftime("%Y-%m-%d")
+    return {"date": g["date"], "grain": grain, "complete": label, "first": first}
 
 
 def bucket(dates: pd.Series, grain: str) -> pd.Series:
@@ -356,7 +363,7 @@ def insights(df: pd.DataFrame, planned: dict[str, Any], metrics: dict[str, Metri
             metric = metrics.get(name)
             if metric is None:
                 continue
-            labels = sorted(p for p in periods.dropna().unique() if p <= g["complete"])
+            labels = sorted(p for p in periods.dropna().unique() if g["first"] <= p <= g["complete"])
             if len(labels) < 2:
                 continue
             cur, prev = labels[-1], labels[-2]
@@ -383,7 +390,7 @@ def insights(df: pd.DataFrame, planned: dict[str, Any], metrics: dict[str, Metri
                 )
             )
         if g["grain"] == "month":
-            months = sorted(p for p in periods.dropna().unique() if p <= g["complete"])
+            months = sorted(p for p in periods.dropna().unique() if g["first"] <= p <= g["complete"])
             cur = months[-1] if months else ""
             prior = f"{int(cur[:4]) - 1}{cur[4:]}" if cur else ""
             if prior in months:
@@ -413,7 +420,8 @@ def insights(df: pd.DataFrame, planned: dict[str, Any], metrics: dict[str, Metri
         # Spikes: a period far from the typical one.
         if measures:
             series = work.groupby(periods)[measures[0]].sum().sort_index()
-            series = series[series.index <= g["complete"]]  # a period the data has only begun is short, not a dip
+            # a period the data has only begun, or has stopped partway through, is short, not a dip
+            series = series[(series.index >= g["first"]) & (series.index <= g["complete"])]
             if len(series) >= 8 and series.std() > 0:
                 z = (series - series.median()) / (1.4826 * (series - series.median()).abs().median() or series.std())
                 peak = z.abs().idxmax()

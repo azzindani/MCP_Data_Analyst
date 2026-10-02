@@ -31,9 +31,18 @@ from shared.analysis_plan import ROWS_COLUMN, needs_row_count, plan
 from shared.column_utils import is_identifier, parse_date_column
 from shared.dashboard_spec import validate as validate_spec
 from shared.file_utils import read_csv, read_table, sniff_encoding, sniff_separator
-from shared.metrics import MetricError, evaluate_tree, flag_rates, hidden_columns, spec_metrics, text_flag_rates, value
+from shared.metrics import (
+    MetricError,
+    auto_ratios,
+    evaluate_tree,
+    flag_rates,
+    hidden_columns,
+    spec_metrics,
+    text_flag_rates,
+    value,
+)
 from shared.story import grain_for
-from tests.dashboard_page import run_js
+from tests.dashboard_page import drawn, run_js
 
 
 @pytest.fixture(autouse=True)
@@ -290,12 +299,17 @@ class TestATableOfLabelsStillGetsACharts:
 
 
 class TestAPartialLastPeriodIsNotAFall:
+    @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
     def test_the_line_stops_where_the_data_is_complete(self, sales, _home):
         path = _home / "t.csv"
         sales.to_csv(path, index=False)
         _, html = page(path, _home)
-        assert "partial=!!(p.complete" in html and "keys.slice(0,cut)" in html
-        assert "dash:'dot'" in html and "incomplete period" in html
+        figure = next(f for k, f in drawn(html)["figures"].items() if k.endswith("time_series"))
+        last = str(pd.to_datetime(sales["day"]).max())[:7]
+        assert last not in figure["data"][0]["x"]  # the month the data stops inside is not on the solid line
+        marks = [t for t in figure["data"] if t.get("name") == "incomplete period"]
+        assert marks and last in marks[0]["x"]
+        assert any(t.get("line", {}).get("dash") == "dot" and t.get("showlegend") is False for t in figure["data"])
 
 
 class TestBigNumbersAreWrittenAsBigNumbers:
@@ -601,6 +615,58 @@ class TestASpikeIsASpikeOfAWholePeriod:
         assert found and "above a typical week" in found[0] and "2024-02-12" in found[0], found
 
 
+class TestAPeriodTheDataBeginsInIsNotComplete:
+    @staticmethod
+    def _grain(start: str, end: str, every: str = "1D"):
+        stamps = pd.date_range(start, end, freq=every)
+        text = stamps.strftime("%Y-%m-%d" if every.endswith("D") else "%Y-%m-%d %H:%M:%S")
+        return grain_for(plan(pd.DataFrame({"stamp": text, "kw": np.arange(len(stamps)) % 7 + 50.0})))
+
+    def test_a_month_begun_on_the_23rd_is_not_the_first_complete_month(self):
+        assert self._grain("2023-03-23", "2023-12-31")["first"] == "2023-04"
+        assert self._grain("2023-03-01", "2023-12-31")["first"] == "2023-03"
+
+    def test_a_week_begun_on_a_wednesday_is_not_the_first_complete_week(self):
+        assert self._grain("2024-01-03", "2024-02-20")["first"] == "2024-01-08"
+        assert self._grain("2024-01-01", "2024-02-20")["first"] == "2024-01-01"
+
+    def test_data_that_starts_at_10_40_does_not_have_a_whole_first_day(self):
+        partial = self._grain("2024-01-01 10:40", "2024-04-30 23:50", every="1h")
+        whole = self._grain("2024-01-01 00:00", "2024-04-30 23:50", every="1h")
+        assert whole["first"] == "2024-01" and partial["first"] == "2024-02"
+
+    @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+    def test_the_line_draws_a_short_first_month_apart(self, _home):
+        days = pd.date_range("2023-03-23", "2024-02-29")
+        frame = pd.DataFrame(
+            {"day": days.strftime("%Y-%m-%d"), "revenue": 100.0, "region": np.where(np.arange(len(days)) % 2, "N", "S")}
+        )
+        path = _home / "late.csv"
+        frame.to_csv(path, index=False)
+        _, html = page(path, _home)
+        figure = next(f for k, f in drawn(html)["figures"].items() if k.endswith("time_series"))
+        solid = figure["data"][0]
+        assert "2023-03" not in solid["x"] and solid["x"][0] == "2023-04"
+        marks = [t for t in figure["data"] if t.get("name") == "incomplete period"]
+        assert marks and "2023-03" in marks[0]["x"]
+
+
+class TestASpikeIsNotAShortFirstPeriod:
+    def test_a_week_the_data_began_in_is_not_a_dip(self, _home):
+        stamps = pd.date_range("2024-01-04 12:00", "2024-03-31 23:00", freq="1h")  # begins on a Thursday noon
+        rng = np.random.default_rng(8)
+        path = _home / "plant.csv"
+        pd.DataFrame(
+            {
+                "stamp": stamps.strftime("%Y-%m-%d %H:%M:%S"),
+                "power_total": 100 + rng.normal(0, 0.3, len(stamps)),
+                "site": rng.choice(["a", "b"], len(stamps)),
+            }
+        ).to_csv(path, index=False)
+        result, _ = page(path, _home)
+        assert not [i for i in result["insights"] if "a typical week" in i["headline"]], result["insights"]
+
+
 class TestAShareThatIsOnlyASizeIsNotAFinding:
     def test_a_class_that_brings_what_its_size_says_is_left_out(self, _home):
         n = 800
@@ -637,6 +703,68 @@ class TestAnAverageOfNothingIsNothing:
         empty = pd.DataFrame({"x": [None, None]})
         assert np.isnan(evaluate_tree({"agg": "mean", "col": "x"}, empty))
         assert evaluate_tree({"agg": "sum", "col": "x"}, empty) == 0.0
+
+
+class TestAMeasureThatTheFirstCellLacksIsStillAdded:
+    """US_Car_Sales: new cars have no mileage and came first, so the aggregated page read every mileage figure as 0."""
+
+    @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+    @pytest.mark.parametrize("how", ["mean", "sum", "min", "max"])
+    def test_the_page_aggregates_what_the_cells_that_have_it_hold(self, _home, how):
+        n = 120_000
+        rng = np.random.default_rng(9)
+        kind = np.where(np.arange(n) % 5 == 0, "a", "b")  # "a" has no mileage and its cells come first
+        frame = pd.DataFrame(
+            {
+                "kind": kind,
+                "region": rng.choice(["N", "S", "E", "W"], n),
+                "price": rng.integers(10_000, 60_000, n),
+                "mileage": np.where(kind == "a", np.nan, rng.integers(1_000, 90_000, n)),
+            }
+        )
+        path = _home / "cars.csv"
+        frame.to_csv(path, index=False)
+        _, html = page(path, _home)
+        assert run_js(html, "!!_CUBE") is True
+        got = run_js(html, f"_kpi(_RAW,'mileage','{how}')")
+        assert got == pytest.approx(getattr(frame["mileage"], how)(), rel=1e-9)
+
+
+class TestATimeIsNotSpend:
+    def test_time_spent_on_a_site_is_not_what_was_spent(self):
+        frame = pd.DataFrame(
+            {"Daily Time Spent on Site": [60.0, 70.0, 80.0], "Area Income": [50_000.0, 60_000.0, 70_000.0]}
+        )
+        assert [m.name for m in auto_ratios(frame, list(frame.columns))] == []
+
+    def test_money_spent_still_makes_a_return(self):
+        frame = pd.DataFrame({"spend": [10.0, 20.0], "revenue": [30.0, 80.0]})
+        assert [m.name for m in auto_ratios(frame, list(frame.columns))] == ["ROAS"]
+
+
+class TestACategoryNamedByANumberIsALabel:
+    """A category named 1, 2, 3 is a label: drawn on a number line it got ticks at 1.5 and 2.5."""
+
+    @pytest.fixture
+    def houses(self, _home):
+        n = 400
+        rng = np.random.default_rng(12)
+        frame = pd.DataFrame({"floors": rng.choice([1, 2, 3], n), "area": rng.integers(500, 3000, n)})
+        path = _home / "houses.csv"
+        frame.to_csv(path, index=False)
+        return path
+
+    @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+    @pytest.mark.parametrize(
+        ("style", "axis"),
+        [({}, "xaxis"), ({"orientation": "h"}, "yaxis"), ({"ci": True}, "xaxis")],
+        ids=["vertical", "horizontal", "with-intervals"],
+    )
+    def test_the_bar_puts_its_categories_on_a_category_axis(self, _home, houses, style, axis):
+        layout = [{"chart": "bar", "cols": {"category": "floors", "value": "area"}, "agg": "mean", "style": style}]
+        _, html = page(houses, _home, spec={"story": False, "layout": layout})
+        figure = next(f for k, f in drawn(html)["figures"].items() if k.endswith("_bar"))
+        assert figure["layout"][axis]["type"] == "category"
 
 
 class TestTwoMetricsNeverShareAComputedColumn:

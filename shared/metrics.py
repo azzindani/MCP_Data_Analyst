@@ -328,9 +328,16 @@ def better_of(name: str) -> str:
     return "up" if words & set(_BETTER_UP) else ""
 
 
+# "Daily Time Spent on Site" is not what was spent: a column measured in time, age or distance is no money.
+_NOT_MONEY = frozenset("time duration minutes mins hours seconds days age usage length distance speed".split())
+_MONEY_ROLES = frozenset(("spend", "revenue", "profit"))
+
+
 def match_role(role: str, columns: list[str]) -> str:
     """The column that plays `role`, or "": an exact name first, then a name containing the word."""
     words = ROLE_WORDS[role]
+    if role in _MONEY_ROLES:
+        columns = [c for c in columns if not set(_words(c)) & _NOT_MONEY]
     exact = [c for c in columns if "_".join(_words(c)) in words]
     if exact:
         return exact[0]

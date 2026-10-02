@@ -154,4 +154,10 @@ def test_the_page_draws_every_card_without_a_warning(home, ads):
 )
 def test_the_last_period_compared_is_the_last_complete_one(start, end, grain, complete):
     got = grain_for({"grain": {"date": "day", "start": start, "end": end}})
-    assert got == {"date": "day", "grain": grain, "complete": complete}
+    # Every case starts on Monday the 1st, so the first period is whole too.
+    assert got == {
+        "date": "day",
+        "grain": grain,
+        "complete": complete,
+        "first": "2024-01" if grain == "month" else "2024-01-01",
+    }

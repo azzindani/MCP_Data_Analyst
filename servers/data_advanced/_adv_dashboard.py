@@ -1893,7 +1893,12 @@ def _plan_panels(layout, df, cat_cols, numeric_cols, datetime_cols, geo, col_agg
             dc = str(cols.get("date") or extras.get("date") or "")
             if dc:
                 spec.update(
-                    {"date": dc, "grain": extras.get("grain") or "month", "complete": extras.get("complete", "")}
+                    {
+                        "date": dc,
+                        "grain": extras.get("grain") or "month",
+                        "complete": extras.get("complete", ""),
+                        "first": extras.get("first", ""),
+                    }
                 )
             return spec
 
@@ -1911,7 +1916,13 @@ def _plan_panels(layout, df, cat_cols, numeric_cols, datetime_cols, geo, col_agg
             value, label = measure()
             spec = {"id": cid, "type": "ts", "date": dc, **value}
             if dc == extras.get("date"):
-                spec.update({"grain": extras.get("grain") or "month", "complete": extras.get("complete", "")})
+                spec.update(
+                    {
+                        "grain": extras.get("grain") or "month",
+                        "complete": extras.get("complete", ""),
+                        "first": extras.get("first", ""),
+                    }
+                )
             plan.append((spec, f"{label} Over Time", True, 380))
         elif kind == "scatter":
             x = pick("x", numeric_cols, "numeric column")
@@ -2414,7 +2425,8 @@ const FIG={
     var t={x:e.map(function(i){return i[0];}),y:e.map(function(i){return i[1];}),type:'bar',
       marker:{color:named.some(Boolean)?named.map(function(c){return c||s.color;}):s.color,opacity:0.85}};
     if(s.value_labels!==false){t.text=e.map(function(i){return _fmtv(i[1],s);});t.textposition='outside';}
-    return{data:[t],layout:_axes({yaxis:_vaxis(s)})};
+    // A category named 0, 1, 2 is a label, not a position: Plotly would draw it on a number line with ticks at 0.5.
+    return{data:[t],layout:_axes({xaxis:{type:'category'},yaxis:_vaxis(s)})};
   },
   pie:function(p,d){
     // With a value column the slices are its sums per category; without one
@@ -2470,7 +2482,7 @@ const FIG={
       var m=a.get(k);
       return{x:gs,y:gs.map(function(g){return m.has(g)?_agg(m.get(g),how):0;}),type:'bar',name:k,marker:{color:_seriesColor(p,k,i),opacity:0.85}};
     });
-    return{data:t,layout:_axes({barmode:'group',showlegend:true,legend:{orientation:'h',x:0,y:1.12}})};
+    return{data:t,layout:_axes({barmode:'group',xaxis:{type:'category'},showlegend:true,legend:{orientation:'h',x:0,y:1.12}})};
   },
   cscat:function(p,d){
     var g=new Map();
