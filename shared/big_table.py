@@ -206,6 +206,9 @@ class BigTable:
             f"count(*) FILTER (WHERE {c} = 0) AS zeros, count(*) FILTER (WHERE isinf({c})) AS non_finite FROM data"
         )[0]
         stats = {k: _number(v) for k, v in row.items()}
+        if stats["n"] and stats["n"] >= 3 and stats["lo"] == stats["hi"]:
+            # A constant column has no skew: pandas says 0.0, DuckDB says NaN or, on some CPUs, rounding noise.
+            stats["skew"] = 0.0
         q1, q3, mean, std = stats["q1"], stats["q3"], stats["mean"], stats["std"]
         fences: list[str] = []
         if q1 is not None and q3 is not None and math.isfinite(q1) and math.isfinite(q3):
