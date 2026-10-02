@@ -29,6 +29,7 @@ from _med_transform import (  # type: ignore[import]
     run_cleaning_pipeline,
     smart_impute,
 )
+from _relate import relate_tables  # type: ignore[import-not-found]  # noqa: F401  (re-exported for server.py)
 
 from shared.choice import AGG_ALIASES, AGG_FUNCS, UnknownChoice, normalize_mode
 from shared.choice import refusal as choice_refusal

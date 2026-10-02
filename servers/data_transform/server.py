@@ -255,6 +255,19 @@ def merge_datasets(
 
 
 @mcp.tool(annotations=CREATES)
+def relate_tables(
+    source: str = "",
+    tables: dict[str, str] | None = None,
+    fact: str = "",
+    aggregate_children: bool = False,
+    output_path: str = "",
+    memory_mb: int = 0,
+) -> dict:
+    """Find how a folder of tables relate; plan a join that keeps one fact's rows."""
+    return engine.relate_tables(source, tables, fact, aggregate_children, output_path, memory_mb)
+
+
+@mcp.tool(annotations=CREATES)
 def concat_datasets(
     file_paths: list[str],
     direction: Direction = "rows",

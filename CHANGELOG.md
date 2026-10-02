@@ -6,6 +6,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added — `relate_tables`: how a folder of tables fits together
+
+- `relate_tables` (an action of `data_reshape`) reads a folder or .zip of tables (or named `tables`)
+  and finds each table's key and which columns refer to which other table's key: a name has to say
+  so (the same name, the parent's name plus its key, or a role such as `origin_country` for
+  `country`) AND at least 90% of the child's values have to exist in the parent. Each is one-to-one
+  or many-to-one, with the share of rows that find no parent. On the logistics corpus it finds the
+  14-table schema's every foreign key and nothing else; on the retail and supply-chain sets, theirs.
+- With `fact` it plans the join: one row per fact row (many-to-one and one-to-one edges only; a role
+  played twice is joined twice, each column named for its role), and names the tables that point back
+  at the fact, to be aggregated first or, with `aggregate_children`, as a count and averages in the
+  row. `output_path` writes the joined table and checks the row count; `query_data_args` is the same
+  join as a `query_data` call (`shared/table_graph.py`).
+
 ### Added — `query_data`: SQL over tables too big to load
 
 - `query_data` (an action of `data_ingest`) runs one read-only SELECT over CSV, TSV, Parquet, JSON

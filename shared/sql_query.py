@@ -34,6 +34,8 @@ MAX_PREVIEW = 1_000
 CSV_SUFFIXES = {".csv", ".tsv", ".txt"}
 JSON_SUFFIXES = {".json", ".jsonl", ".ndjson"}
 TABLE_SUFFIXES = CSV_SUFFIXES | JSON_SUFFIXES | {".parquet"}
+# A folder of tables is read by these: a stray .txt (a schema note, a readme) is not one.
+FOLDER_SUFFIXES = TABLE_SUFFIXES - {".txt"}
 DUCKDB_SUFFIXES = {".duckdb"}
 SQLITE_SUFFIXES = {".sqlite", ".sqlite3", ".db"}
 OUTPUT_SUFFIXES = {".csv", ".parquet"}

@@ -260,6 +260,7 @@ run transform reshape_dataset "{\"file_path\":\"$SALES\",\"mode\":\"pivot\",\"in
 run transform aggregate_dataset "{\"file_path\":\"$SALES\",\"mode\":\"groupby\",\"group_by\":[\"region\"],\"agg\":{\"revenue\":\"sum\"}}" "aggregate sales by region"
 run transform resample_timeseries "{\"file_path\":\"$SALES\",\"date_col\":\"date\",\"freq\":\"W\"}" "resample sales to weekly"
 run transform merge_datasets "{\"file_path\":\"$SALES\",\"right_file_path\":\"$SALES2\",\"left_on\":\"region\",\"right_on\":\"region\"}" "merge sales with region population"
+run transform relate_tables "{\"tables\":{\"sales\":\"$SALES\",\"regions\":\"$SALES2\"}}" "how do sales and the region table relate?"
 run transform concat_datasets "{\"file_paths\":[\"$SALES\",\"$SALES\"]}" "stack two copies of sales together"
 run transform smart_impute "{\"file_path\":\"$SALES\"}" "smart-impute any missing values"
 run transform run_cleaning_pipeline "{\"file_path\":\"$SALES\",\"ops\":[{\"op\":\"drop_duplicates\"}]}" "drop duplicate rows"

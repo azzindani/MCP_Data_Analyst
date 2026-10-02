@@ -6,8 +6,8 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 
 ## Features
 
-- **One endpoint, eight tools** — `/mcp` serves the whole surface as eight domain tools: `data_inspect`, `data_edit`, `data_reshape`, `data_stats`, `data_chart`, `data_report`, `data_ingest`, `data_workspace`. Each takes an `action` (one of the 72 tools below, by its own name) and an `args` object whose every property says which actions take it. Same validation and answers as the tiers; the tier endpoints below keep serving for small local models and existing connections
-- **72 tools** across 7 servers: workspace (6), basic (9), medium (7), transform (12), statistics (12), visual (13), ingest (13) — no name listed twice. Four older medium tools are retired: `extended_stats`, `statistical_tests`, `filter_rows` and `compute_aggregations` are no longer listed, still answer as before, and each answer names the tool that replaced it
+- **One endpoint, eight tools** — `/mcp` serves the whole surface as eight domain tools: `data_inspect`, `data_edit`, `data_reshape`, `data_stats`, `data_chart`, `data_report`, `data_ingest`, `data_workspace`. Each takes an `action` (one of the 73 tools below, by its own name) and an `args` object whose every property says which actions take it. Same validation and answers as the tiers; the tier endpoints below keep serving for small local models and existing connections
+- **73 tools** across 7 servers: workspace (6), basic (9), medium (7), transform (13), statistics (12), visual (13), ingest (13) — no name listed twice. Four older medium tools are retired: `extended_stats`, `statistical_tests`, `filter_rows` and `compute_aggregations` are no longer listed, still answer as before, and each answer names the tool that replaced it
 - **LOCATE → INSPECT → PATCH → VERIFY** workflow for surgical data edits
 - **Automatic version control** — every write is snapshotted and fully restorable (Windows-safe: collision-proof timestamps)
 - **Operation receipt logging** — full audit trail of all modifications
@@ -182,7 +182,7 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
 ```
 
 4. Wait for the blue dot next to each server
-5. Start chatting — the model will see all 72 tools
+5. Start chatting — the model will see all 73 tools
 
 ### macOS / Linux
 
@@ -263,7 +263,7 @@ Replace the `"command"` and `"args"` in each entry with the bash equivalent:
 ### One endpoint: eight domain tools at `/mcp`
 
 For a capable model, connect `/mcp` instead of the seven tiers: eight tools
-instead of 72. `action` names a tool below; `args` holds its arguments.
+instead of 73. `action` names a tool below; `args` holds its arguments.
 
 ```json
 {"action": "statistical_test",
@@ -274,7 +274,7 @@ instead of 72. `action` names a tool below; `args` holds its arguments.
 |---|---|
 | `data_inspect` | load_dataset, load_geo_dataset, inspect_dataset, read_column_stats, search_columns, sample_data, auto_detect_schema, validate_dataset, scan_nulls_zeros, read_receipt |
 | `data_edit` | apply_patch, list_patch_ops, run_cleaning_pipeline, smart_impute, feature_engineering, list_derive_ops, filter_dataset, enrich_with_geo, run_chain, restore_version |
-| `data_reshape` | reshape_dataset, aggregate_dataset, pivot_table, merge_datasets, concat_datasets, resample_timeseries, export_data |
+| `data_reshape` | reshape_dataset, aggregate_dataset, pivot_table, merge_datasets, relate_tables, concat_datasets, resample_timeseries, export_data |
 | `data_stats` | extended_stats, statistical_test, check_outliers, correlation_analysis, lag_correlation, regression_analysis, time_series_analysis, period_comparison, cohort_analysis, detect_anomalies, analyze_text_column, compare_datasets |
 | `data_chart` | generate_chart, generate_distribution_plot, generate_correlation_heatmap, generate_pairwise_plot, generate_multi_chart, generate_geo_map, generate_3d_chart, customize_chart, cross_tabulate, value_counts |
 | `data_report` | run_eda, generate_auto_profile, generate_dashboard, customize_dashboard |
@@ -368,7 +368,7 @@ Files can be referenced anywhere via `workspace:name/alias` syntax — all tools
 
 Chart-producing medium tools accept `theme: "dark" | "light" | "device"`, `output_path`, and `open_after`.
 
-### Tier 2 — Transform (11 tools)
+### Tier 2 — Transform (13 tools)
 
 Focused transformation server — richer filtering, reshaping, and aggregation than the basic tier.
 
@@ -379,6 +379,7 @@ Focused transformation server — richer filtering, reshaping, and aggregation t
 | `aggregate_dataset` | Aggregate: `groupby`, `crosstab`, `value_counts`, `describe`, `window` |
 | `resample_timeseries` | Resample time series (D/W/M/Q/Y/H). `agg_func`: `sum mean count min max median std first last`. `dayfirst`: `auto` (default), `true`, `false` |
 | `merge_datasets` | Merge two datasets; a key is picked unasked only when it identifies rows |
+| `relate_tables` | Read a folder (or .zip) of tables, or named `tables`, and say how they relate: each table's key, which columns refer to which other table's key (a name has to say so AND 90% of the values have to be in the parent), one-to-one or many-to-one, and the share of rows with no match. With `fact`, a join that keeps one row per fact row (many-to-one and one-to-one edges only; a role such as `origin_country` is joined under its own name) and the tables that point back at it, to aggregate first or with `aggregate_children`. `output_path` writes the joined table and checks the row count; `query_data_args` is the same join as a `query_data` call |
 | `concat_datasets` | Stack multiple CSVs. `direction`: `rows`, or `columns` (side by side — needs equal row counts) |
 | `smart_impute` | Auto-impute: numeric→median, datetime→ffill, categorical→mode |
 | `run_cleaning_pipeline` | Multi-op cleaning with single snapshot + rollback |
@@ -863,7 +864,7 @@ requires a bearer token even while it's publicly reachable.
 
 Run in CI against a container (the `e2e` job) and by hand against the
 deployment. `pytest` itself stays offline. Exercises a running HTTP endpoint: auth enforcement plus a real
-handwritten-prompt-style call for **all 76 tools** (72 listed, 4 retired) across all 7 sub-servers
+handwritten-prompt-style call for **all 77 tools** (73 listed, 4 retired) across all 7 sub-servers
 (basic, medium, statistics, transform, visual, workspace, ingest), against
 real generated fixtures (a 200-row sales CSV, a region-population CSV, a real
 GeoJSON, and a real messy multi-sheet `.xlsx` with merged cells), chaining

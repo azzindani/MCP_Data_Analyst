@@ -85,12 +85,13 @@ DOMAINS = {
         ],
     ),
     "data_reshape": (
-        "Make a new table from one or more: reshape, aggregate, pivot, merge, concat, resample, export.",
+        "Make a new table from one or more: reshape, aggregate, pivot, merge, concat, resample, export; relate_tables finds how several tables join.",
         [
             (transform, "reshape_dataset"),
             (transform, "aggregate_dataset"),
             (medium, "pivot_table"),
             (transform, "merge_datasets"),
+            (transform, "relate_tables"),
             (transform, "concat_datasets"),
             (transform, "resample_timeseries"),
             (visual, "export_data"),
