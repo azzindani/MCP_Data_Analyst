@@ -201,6 +201,14 @@ def _thin(frame: pd.DataFrame, dim: str) -> set:
     return set(shares[shares < MIN_GROUP_SHARE].index)
 
 
+_BARE_CODE = re.compile(r"^-?\d+(\.\d+)?$|^(true|false|yes|no|y|n|t|f)$", re.IGNORECASE)
+
+
+def _segment(dim: str, value: str) -> str:
+    """A segment's name as a sentence can use it: a bare code (1, False, Y) is `is_canceled = 1`, not "1"."""
+    return f"{dim} = {value}" if _BARE_CODE.match(value.strip()) else value
+
+
 def insights(df: pd.DataFrame, planned: dict[str, Any], metrics: dict[str, Metric], currency: str = "") -> list[dict]:
     """Findings a reader would act on, each a number, a comparison and what it means; best first."""
     found: list[dict] = []
@@ -226,6 +234,7 @@ def insights(df: pd.DataFrame, planned: dict[str, Any], metrics: dict[str, Metri
             if total <= 0 or len(totals) < 2:
                 continue
             top = str(totals.idxmax())
+            label = _segment(dim, top)
             share = float(totals.max()) / total
             if share < 0.35:
                 continue
@@ -237,13 +246,13 @@ def insights(df: pd.DataFrame, planned: dict[str, Any], metrics: dict[str, Metri
                 other_share = float(other_totals.get(top, 0.0)) / float(other_totals.sum() or 1)
                 compare = f"of {meas}, from {other_share:.0%} of {other}"
                 gap = abs(share - other_share)
-            text = f"{top} is where most of the {meas} comes from" + (
+            text = f"{label} is where most of the {meas} comes from" + (
                 f", out of proportion to its {other}." if gap >= 0.15 else "."
             )
             found.append(
                 _insight(
                     "share",
-                    f"{top} brings {share:.0%} of {meas}",
+                    f"{label} brings {share:.0%} of {meas}",
                     f"{share:.0%}",
                     compare or f"of all {meas}",
                     text,
@@ -272,6 +281,7 @@ def insights(df: pd.DataFrame, planned: dict[str, Any], metrics: dict[str, Metri
             if a / b < 1.5:
                 continue
             best, worst = (lo, hi) if metric.better == "down" else (hi, lo)
+            best, worst = _segment(dim, best), _segment(dim, worst)
             bv, wv = (b, a) if metric.better == "down" else (a, b)
             word = "cheaper" if metric.better == "down" else "higher"
             headline = f"{best} {metric.name} {fmt(bv, metric.unit, currency)} against {fmt(wv, metric.unit, currency)} for {worst}"

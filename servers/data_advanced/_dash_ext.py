@@ -354,7 +354,21 @@ HTMLP.kpi=function(p,d){
   if(two)out.push(_delta(p,two.a,two.b,two.cur+' vs '+two.prev));
   if(s.target!==undefined)out.push(_delta(p,v,+s.target,'vs target '+_fmtu(+s.target,p)));
   return'<div class="kpi-big"'+(s.color?' style="color:'+_esc(s.color)+'"':'')+'>'+_esc(_fmtu(v,p))+'</div>'+out.join('')
-    +'<div class="kpi-sub">'+_esc(sub)+'</div>';
+    +'<div class="kpi-sub">'+_esc(sub)+'</div>'+(p.date?'<div class="kpi-spark" id="'+_esc(p.id)+'-sp"></div>':'');
+};
+// The tile's line: the measure by period, drawn by Plotly in the page's accent (it cannot read a CSS variable).
+HTMLP_AFTER.kpi=function(p,d){
+  var el=document.getElementById(p.id+'-sp');if(!el||!window.Plotly)return;
+  var g=_rgroups(d,function(r){return _bucket(r[p.date],p.grain||'month');});
+  var keys=Array.from(g.keys()).filter(function(k){return!p.complete||k<=p.complete;}).sort().slice(-24);
+  var ys=keys.map(function(k){return _measure(p,g.get(k));}).filter(function(y){return isFinite(y);});
+  if(ys.length<3){el.remove();return;}
+  var a=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#58a6ff',
+      m=/^#([0-9a-f]{6})$/i.exec(a),
+      f=m?'rgba('+parseInt(m[1].slice(0,2),16)+','+parseInt(m[1].slice(2,4),16)+','+parseInt(m[1].slice(4,6),16)+',0.12)':'rgba(88,166,255,0.1)';
+  Plotly.react(el,[{y:ys,type:'scatter',mode:'lines',line:{color:a,width:1.5},fill:'tozeroy',fillcolor:f,hoverinfo:'skip'}],
+    {paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',margin:{l:0,r:0,t:0,b:0},xaxis:{visible:false},yaxis:{visible:false},showlegend:false},
+    {responsive:true,displayModeBar:false,staticPlot:true});
 };
 
 // Ranked groups with a metric, or with the rest folded into "Other".

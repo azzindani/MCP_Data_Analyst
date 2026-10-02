@@ -21,6 +21,7 @@ from shared.dashboard_looks import (
     validate_look,
 )
 from shared.file_utils import atomic_write_text, error_text, hint_for_error, resolve_path
+from shared.mockup_layout import digest_arrangement
 from shared.progress import fail, info, ok
 from shared.receipt import append_receipt
 from shared.version_control import snapshot_if_exists
@@ -63,6 +64,7 @@ def dashboard_looks(name: str = "", source: str = "", overrides: dict | None = N
         if name and source:
             return _refusal("Pass name or source, not both.", "name starts from a look; source reads an HTML mockup.")
         report: dict = {}
+        arrangement: dict = {}
         if not name and not source and not overrides:
             listing = [_summary(n, validate_look(look)) for n, look in BUILTIN.items()]
             progress.append(ok("Looks listed", f"{len(listing)} built in"))
@@ -87,7 +89,18 @@ def dashboard_looks(name: str = "", source: str = "", overrides: dict | None = N
                 return _refusal(
                     f"{path.name} is over {MAX_MOCKUP_BYTES // 1_000_000} MB.", "Pass the mockup's HTML alone."
                 )
-            look, report = digest_html(path.read_text(encoding="utf-8", errors="replace"), path.stem)
+            text = path.read_text(encoding="utf-8", errors="replace")
+            look, report = digest_html(text, path.stem)
+            arrangement = digest_arrangement(text)
+            # How the mockup is framed and spaced is part of its look; how wide its cards are is the arrangement.
+            look = validate_look(
+                {
+                    **look,
+                    "frame": arrangement["frame"],
+                    **({"density": arrangement["density"]} if arrangement["density"] else {}),
+                }
+            )
+            report["frame"] = f"{arrangement['frame']} (from {arrangement['report']['frame_from']})"
             progress.append(ok(f"Read {path.name}", f"{len(report['read_by_name'])} token(s) by name"))
             label = path.stem
         elif name:
@@ -132,8 +145,23 @@ def dashboard_looks(name: str = "", source: str = "", overrides: dict | None = N
             progress.append(ok("Look saved", out.name))
             use = str(out)
         result["use"] = {"style": {"look": use}}
+        if arrangement and arrangement["spans"]:
+            result["arrangement"] = {
+                "rows": arrangement["rows"],
+                "spans": arrangement["spans"],
+                "report": arrangement["report"],
+            }
+            result["use"]["style"]["arrange"] = arrangement["spans"]
+            progress.append(
+                ok(
+                    "Arrangement read",
+                    f"{arrangement['report']['cards']} card(s): "
+                    + ", ".join(f"{k} {v}" for k, v in arrangement["spans"].items()),
+                )
+            )
         result["hint"] = (
-            "Pass `use` as part of generate_dashboard's spec (spec={'style': {'look': ...}}); "
+            "Pass `use` as part of generate_dashboard's spec (spec={'style': {'look': ...}}); a mockup's `arrange` "
+            "also sets the widths of the generated cards (a KPI a quarter of the row, the trend chart two thirds). "
             "customize_dashboard(changes={'style': {'look': ...}}) re-dresses a page that exists."
         )
         result["token_estimate"] = len(str(result)) // 4

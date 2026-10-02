@@ -321,7 +321,9 @@ CHART_STYLE: dict[str, tuple[str, ...]] = {
 }
 # The page's own style: a palette, and colours by category value that every
 # panel uses -- so "North" is one colour wherever it is drawn.
-PAGE_STYLE_KEYS: tuple[str, ...] = ("palette", "colors", "currency", "font", "logo", "toolbar", "slide", "sidebar", "look")
+PAGE_STYLE_KEYS: tuple[str, ...] = (
+    "palette", "colors", "currency", "font", "logo", "toolbar", "slide", "sidebar", "look", "arrange",
+)  # fmt: skip
 PAGE_FONTS: tuple[str, ...] = ("system", "humanist", "serif", "mono", "condensed")
 # rows: how many grid rows a panel is tall, so a tall panel sits beside a
 # column of shorter ones -- nested columns, on the one 12-column grid.
@@ -612,6 +614,13 @@ def validate_page_style(style: Any) -> None:
             raise SpecError(f"style.{flag} is true or false")
     if "logo" in style and not isinstance(style["logo"], str):
         raise SpecError("style.logo is a PNG/JPEG/GIF/WebP file or a data: URI; the page carries it")
+    if "arrange" in style:
+        from shared.mockup_layout import validate_arrangement
+
+        try:
+            validate_arrangement(style["arrange"])
+        except ValueError as exc:
+            raise SpecError(f"style.arrange {exc}") from exc
     if "look" in style:
         from shared.dashboard_looks import BUILTIN, LookError, validate_look
 

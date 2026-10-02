@@ -6,6 +6,42 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added — a mockup's arrangement, a sparkline on a layout KPI; Fixed — what the story says
+
+- `dashboard_looks(source=mockup.html)` also reads how the mockup is set out (`shared/mockup_layout.py`):
+  the frame (a rail, a sidebar, a banner header), how airy the gap between cards is, and the width each
+  kind of card (KPI, chart, ranked list, table) takes on its twelve-column grid. They come back as the
+  look's `frame` and `density` and as `arrangement` / `use.style.arrange`; a generated dashboard given
+  `style.arrange` takes those widths in order and its rows end flush, the short ones sharing what is left.
+  What a script fills in at run time cannot be read, and the response says which grids those are.
+- A KPI tile in a layout draws its measure by period as a Plotly sparkline in the page's accent.
+- A story sentence names a bare code by its column: "is_canceled = 0 brings 63%", not "0 brings 63%".
+- Durations and rates (`lead_time`, `adr`, `latency`, `per`...) are averaged, not summed, as KPIs.
+
+### Added — a first look at a table too big to load; Fixed — the tier endpoints, a boolean column
+
+- `inspect_dataset`, `load_dataset` and `read_column_stats` read the whole file into pandas, so a file of a
+  few hundred MB killed a 1 GB container on the first question asked of it. When loading a file whole
+  would need more than a call may hold (`shared/big_table.py`: file size x 6 against what the container
+  allows; `MCP_BIG_TABLE=always|never` forces it) they answer from DuckDB in chunks, with the same fields,
+  counted exactly (rows, nulls, distinct counts, mean, std, quartiles, outliers). The response carries
+  `chunked: {engine, why}`. A test reads one file both ways and holds the numbers equal. Every other
+  tool still loads the file and, if it cannot, refuses with the way down (`query_data`).
+- `query_data` reads a CSV's cells the way pandas does (`NA`, `NULL`, `nan` are gaps, as in every other
+  tool), so a number column with `NA` in it stays a number. Its hint no longer sends a caller to a
+  `.parquet` result the CSV tools cannot read.
+- `query_data` reads a database server: `database="warehouse"` names a PostgreSQL, MySQL or MariaDB
+  server the operator set up (`MCP_DB_WAREHOUSE_URL`). The URL, and the password in it, never pass through
+  a call and are taken out of any error; one SELECT is checked and the session is read-only on the
+  server as well; rows stream through a server-side cursor, so a table of any size costs one batch of
+  memory (`shared/sql_remote.py`; adds `psycopg` and `pymysql`). Checked live against PostgreSQL 16 and
+  MariaDB 11 (a million rows to CSV in 6 s at 183 MB).
+- The tier endpoints (`/basic/mcp` and the others) run their sync tools in a child process too when
+  served over HTTP (`isolate_calls`, installed first in each tier so every argument guard still runs
+  ahead of it).
+- `read_column_stats` failed on a True/False column (it asked it for quartiles); it is a two-valued
+  category there now.
+
 ### Added — a ranked list and a donut that says its answer; Fixed — a layout's KPI row
 
 - `ranking {category, value}`: the leaders of a category with a rank, a bar, the value and, for what adds
@@ -52,7 +88,7 @@ All notable changes to this project will be documented in this file.
   disk, a memory limit that is kept), or over a SQLite / DuckDB database file opened read-only.
   `file_path` is the table `data`; `tables` names several and they can be joined. It returns a
   preview (`max_rows`, up to 1,000) and, with `output_path` (.csv or .parquet), writes every row of
-  the result for the other tools to read. The query is locked down: one SELECT, only the files the
+  the result (a .csv is what the other tools read; they read CSV, not Parquet). The query is locked down: one SELECT, only the files the
   call names, no network, no extension install, no writes. A failed query names the table's columns.
   Adds the `duckdb` dependency (`shared/sql_query.py`).
 

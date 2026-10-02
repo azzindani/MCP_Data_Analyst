@@ -103,6 +103,7 @@ from shared.geo_assets import assets_script
 from shared.geo_names import unrecognised_locations
 from shared.metrics import MetricError, auto_ratios, better_of, column_metrics, parameters_of, spec_metrics, unit_of
 from shared.metrics import value as metric_value
+from shared.mockup_layout import arrange
 from shared.provenance import frame_hash, provenance, provenance_script, read_provenance, read_spec, spec_script
 from shared.quality import is_advice
 from shared.story import SAFE_PALETTE, fmt, grain_for
@@ -280,6 +281,27 @@ def _default_kpi_columns(planned: Any, numeric_cols: Any) -> list[Any]:
     """The KPI row of a page that names none: its measures, not every number (a year, a week, an id is no total)."""
     numeric = {str(n) for n in numeric_cols}
     return ([c for c in planned["measures"] if str(c) in numeric] or list(numeric_cols))[:7]
+
+
+def _arrange_page(resolved: dict, progress: list) -> None:
+    """Set a generated layout's card widths from `style.arrange` (a mockup's), once.
+
+    The widths are written into the layout, so the page carries them and a later customize_dashboard
+    edits them like any others; a layout the caller wrote is placed as written.
+    """
+    spans = resolved.get("style", {}).pop("arrange", None)
+    if not spans:
+        return
+    if resolved.get(LAYOUT_SOURCE_KEY) != "story":
+        progress.append(
+            info(
+                "style.arrange not applied",
+                "it sets the widths of a generated layout; a layout you wrote is placed as written",
+            )
+        )
+        return
+    moved = arrange(resolved["layout"], resolved.get("tabs"), spans)
+    progress.append(ok("Cards set out like the mockup", f"{moved} width(s) set from {', '.join(spans)}"))
 
 
 def _bad_look(exc: Exception) -> dict:
@@ -773,6 +795,7 @@ def generate_dashboard(
         look, look_name, theme, bad_look = _page_look(resolved, page_style_in, theme)
         if bad_look:
             return bad_look
+        _arrange_page(resolved, progress)
 
         if dry_run:
             progress.append(info("Dry run — no file written", path.name))
@@ -2278,6 +2301,8 @@ function _esc(v){return String(v).replace(/[&<>"']/g,function(c){return{'&':'&am
 
 // Cards drawn as HTML, from the same filtered rows as every figure. Every
 // value is escaped: a category or a column name is data, never markup.
+// What a card draws once its HTML is in the page (a line, a ring): Plotly needs the element to exist.
+const HTMLP_AFTER={};
 const HTMLP={
   kpi:function(p,d){
     var s=p.style,v=_kpi(d,p.value,p.agg||'sum');
@@ -2434,7 +2459,7 @@ function figure(p,d){
   return{data:f.data,layout:am(_merge(_merge(frame,f.layout),p.style.layout||{}))};
 }
 function renderPanel(p,d){
-  if(HTMLP[p.type]){var el=document.getElementById(p.id);if(el)el.innerHTML=HTMLP[p.type](p,d);return;}
+  if(HTMLP[p.type]){var el=document.getElementById(p.id);if(el){el.innerHTML=HTMLP[p.type](p,d);if(HTMLP_AFTER[p.type])HTMLP_AFTER[p.type](p,d);}return;}
   if(!FIG[p.type])return;  // a section or a note: written once, nothing to redraw
   var f=figure(p,d);if(f)Plotly.react(p.id,f.data,f.layout,PCFG);
 }

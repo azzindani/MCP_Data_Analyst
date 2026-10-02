@@ -37,7 +37,8 @@ from shared.metrics import better_of, unit_of
 _NON_ADDITIVE = frozenset(
     "age rate ratio pct percent percentage price score rating avg average mean median temperature temp "
     "lat lon lng latitude longitude year month day hour index rank level grade share ctr cvr cpc cpm cpa "
-    "roas margin probability prob duration tenure balance".split()
+    "roas margin probability prob duration tenure balance "
+    "lead latency wait delay elapsed interval speed adr arpu aov per".split()
 )
 _ID_WORDS = frozenset("id key code uuid guid sku ref number no".split())
 # Measures in the order a reader asks about them.
