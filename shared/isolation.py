@@ -85,6 +85,30 @@ def _cap_bytes() -> int | None:
         return None
 
 
+def memory_budget_mb(default: int = 1024) -> int:
+    """What one call may hold, for a library that takes its own memory limit (DuckDB does).
+
+    MCP_CALL_MEMORY_MB when set (a little under it, the library is not the only thing in the process),
+    else half the container's limit, else `default`.
+    """
+    cap = _cap_bytes()
+    if cap:
+        return max(64, int(cap * 0.8 / 1024 / 1024))
+    limit = _cgroup_limit()
+    if limit:
+        return max(128, int(limit * 0.5 / 1024 / 1024))
+    return default
+
+
+def worker_threads() -> int:
+    """CPUs this process may use, at most four: a query's threads are not worth more than that here."""
+    try:
+        usable = len(os.sched_getaffinity(0))
+    except AttributeError:
+        usable = os.cpu_count() or 1
+    return max(1, min(4, usable))
+
+
 def _cgroup_limit() -> int | None:
     """The container's memory limit in bytes, or None when it has none (or this is not a cgroup)."""
     for name in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):

@@ -6,8 +6,8 @@ A self-hosted MCP server that gives local LLMs structured access to CSV/tabular 
 
 ## Features
 
-- **One endpoint, eight tools** — `/mcp` serves the whole surface as eight domain tools: `data_inspect`, `data_edit`, `data_reshape`, `data_stats`, `data_chart`, `data_report`, `data_ingest`, `data_workspace`. Each takes an `action` (one of the 71 tools below, by its own name) and an `args` object whose every property says which actions take it. Same validation and answers as the tiers; the tier endpoints below keep serving for small local models and existing connections
-- **71 tools** across 7 servers: workspace (6), basic (9), medium (7), transform (12), statistics (12), visual (13), ingest (12) — no name listed twice. Four older medium tools are retired: `extended_stats`, `statistical_tests`, `filter_rows` and `compute_aggregations` are no longer listed, still answer as before, and each answer names the tool that replaced it
+- **One endpoint, eight tools** — `/mcp` serves the whole surface as eight domain tools: `data_inspect`, `data_edit`, `data_reshape`, `data_stats`, `data_chart`, `data_report`, `data_ingest`, `data_workspace`. Each takes an `action` (one of the 72 tools below, by its own name) and an `args` object whose every property says which actions take it. Same validation and answers as the tiers; the tier endpoints below keep serving for small local models and existing connections
+- **72 tools** across 7 servers: workspace (6), basic (9), medium (7), transform (12), statistics (12), visual (13), ingest (13) — no name listed twice. Four older medium tools are retired: `extended_stats`, `statistical_tests`, `filter_rows` and `compute_aggregations` are no longer listed, still answer as before, and each answer names the tool that replaced it
 - **LOCATE → INSPECT → PATCH → VERIFY** workflow for surgical data edits
 - **Automatic version control** — every write is snapshotted and fully restorable (Windows-safe: collision-proof timestamps)
 - **Operation receipt logging** — full audit trail of all modifications
@@ -182,7 +182,7 @@ The first launch clones the repo and installs dependencies (~2-5 minutes). Subse
 ```
 
 4. Wait for the blue dot next to each server
-5. Start chatting — the model will see all 71 tools
+5. Start chatting — the model will see all 72 tools
 
 ### macOS / Linux
 
@@ -263,7 +263,7 @@ Replace the `"command"` and `"args"` in each entry with the bash equivalent:
 ### One endpoint: eight domain tools at `/mcp`
 
 For a capable model, connect `/mcp` instead of the seven tiers: eight tools
-instead of 71. `action` names a tool below; `args` holds its arguments.
+instead of 72. `action` names a tool below; `args` holds its arguments.
 
 ```json
 {"action": "statistical_test",
@@ -278,7 +278,7 @@ instead of 71. `action` names a tool below; `args` holds its arguments.
 | `data_stats` | extended_stats, statistical_test, check_outliers, correlation_analysis, lag_correlation, regression_analysis, time_series_analysis, period_comparison, cohort_analysis, detect_anomalies, analyze_text_column, compare_datasets |
 | `data_chart` | generate_chart, generate_distribution_plot, generate_correlation_heatmap, generate_pairwise_plot, generate_multi_chart, generate_geo_map, generate_3d_chart, customize_chart, cross_tabulate, value_counts |
 | `data_report` | run_eda, generate_auto_profile, generate_dashboard, customize_dashboard |
-| `data_ingest` | list_sheets, extract_sheet, extract_all_sheets, detect_tables, extract_table, normalize_headers, trim_empty, promote_header, flatten_merged_cells, convert_file, query_json, hash_file |
+| `data_ingest` | list_sheets, extract_sheet, extract_all_sheets, detect_tables, extract_table, normalize_headers, trim_empty, promote_header, flatten_merged_cells, convert_file, query_json, query_data, hash_file |
 | `data_workspace` | create_workspace, open_workspace, register_workspace_file, list_workspace_files, save_workspace_pipeline, run_workspace_pipeline |
 
 An action asked of the wrong tool is pointed at the right one; an argument
@@ -286,7 +286,7 @@ the action does not take is refused by name.
 
 ### The tiers
 
-### Tier — Ingest (12 tools)
+### Tier — Ingest (13 tools)
 
 Parse and normalize spreadsheets before analysis. Handles multi-sheet Excel/ODS files, multiple tables on a single sheet, merged cells, and format conversion. All write tools include `dry_run` and create `.mcp_versions/` snapshots.
 
@@ -303,6 +303,7 @@ Parse and normalize spreadsheets before analysis. Handles multi-sheet Excel/ODS 
 | `flatten_merged_cells` | Forward-fill merged cell regions in xlsx → CSV |
 | `convert_file` | Convert xlsx / ods / csv / json / parquet / toml / xml to csv / json / parquet / excel. A TOML file's one array of tables becomes the rows; an XML file's rows are the root's children |
 | `query_json` | Read values out of a JSON or TOML file by path: `$.a.b`, `$['a b']`, `$.rows[0]`, `$.rows[*].id` (or `.*`), `$..id`. Each match carries its own path; filters and slices are refused by name |
+| `query_data` | Read-only SQL on files too big to load, or on a SQLite / DuckDB database file. `file_path` is the table `data`; `tables` names several (`{"orders": "/o.csv", "items": "/i.parquet"}`) and they can be joined; csv, tsv, parquet, json and jsonl are read where they lie, in chunks, with a sort or join that does not fit spilled to disk and a memory limit (`memory_mb`) that is kept. One SELECT only, over the files the call names: no writes, no other file, no network. Returns a preview (`max_rows`, up to 1,000) and, with `output_path` (.csv or .parquet), writes every row of the result for the other tools to read |
 | `hash_file` | sha256 (default), md5 or sha1 of a file, streamed, with its size: the same digest later means the same bytes |
 
 ---
@@ -862,7 +863,7 @@ requires a bearer token even while it's publicly reachable.
 
 Run in CI against a container (the `e2e` job) and by hand against the
 deployment. `pytest` itself stays offline. Exercises a running HTTP endpoint: auth enforcement plus a real
-handwritten-prompt-style call for **all 75 tools** (71 listed, 4 retired) across all 7 sub-servers
+handwritten-prompt-style call for **all 76 tools** (72 listed, 4 retired) across all 7 sub-servers
 (basic, medium, statistics, transform, visual, workspace, ingest), against
 real generated fixtures (a 200-row sales CSV, a region-population CSV, a real
 GeoJSON, and a real messy multi-sheet `.xlsx` with merged cells), chaining
@@ -934,7 +935,7 @@ MCP_Data_Analyst/
 │   │   ├── server.py
 │   │   ├── engine.py        ← re-exports data_advanced + customize_chart
 │   │   └── _adv_customize.py← post-generate chart editing
-│   └── data_ingest/         ← Ingest: xlsx/ods parsing, multi-table, normalization (12 tools)
+│   └── data_ingest/         ← Ingest: xlsx/ods parsing, multi-table, normalization, SQL over big files (13 tools)
 │       ├── server.py
 │       └── engine.py        ← list_sheets, extract_*, detect_tables, normalize_*, convert_file
 ├── shared/                  ← Ring-2 utilities (no MCP imports)

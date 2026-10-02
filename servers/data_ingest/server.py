@@ -190,6 +190,20 @@ def query_json(file_path: str, path: str = "$") -> dict:
     return engine.query_json(file_path, path)
 
 
+@mcp.tool(annotations=CREATES)
+def query_data(
+    sql: str,
+    file_path: str = "",
+    tables: dict[str, str] | None = None,
+    database: str = "",
+    output_path: str = "",
+    max_rows: int = 50,
+    memory_mb: int = 0,
+) -> dict:
+    """Read-only SQL on big csv/parquet/json files or a database, in chunks."""
+    return engine.query_data(sql, file_path, tables, database, output_path, max_rows, memory_mb)
+
+
 @mcp.tool(annotations=READS)
 def hash_file(file_path: str, algorithm: HashAlgorithm = "sha256") -> dict:
     """Checksum a file (sha256/md5/sha1) to prove it is the one expected."""

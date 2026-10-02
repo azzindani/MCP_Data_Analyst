@@ -73,7 +73,13 @@ def tool(name: str):
 
 @pytest.fixture(autouse=True)
 def _process_mode(monkeypatch):
-    for name in ("MCP_CALL_ISOLATION", "MCP_CALL_MEMORY_MB", "MCP_CALL_TIMEOUT_S", "MCP_MAX_CALLS"):
+    for name in (
+        "MCP_CALL_ISOLATION",
+        "MCP_CALL_MEMORY_MB",
+        "MCP_CALL_TIMEOUT_S",
+        "MCP_MAX_CALLS",
+        "MCP_CONSTRAINED_MODE",
+    ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("MCP_CALL_ISOLATION", "process")
 
@@ -216,3 +222,12 @@ class TestHowManyAtOnce:
     def test_one_when_told_so(self, monkeypatch):
         monkeypatch.setenv("MCP_MAX_CALLS", "1")
         assert self._two_naps() >= 1.55
+
+    def test_one_in_constrained_mode(self, monkeypatch):
+        monkeypatch.setenv("MCP_CONSTRAINED_MODE", "1")
+        assert self._two_naps() >= 1.55
+
+    def test_the_limit_can_still_be_raised_in_constrained_mode(self, monkeypatch):
+        monkeypatch.setenv("MCP_CONSTRAINED_MODE", "1")
+        monkeypatch.setenv("MCP_MAX_CALLS", "2")
+        assert self._two_naps() < 1.45

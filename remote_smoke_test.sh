@@ -335,6 +335,7 @@ run ingest promote_header "{\"file_path\":\"$D/table0.csv\",\"row_index\":0}" "p
 run ingest flatten_merged_cells "{\"file_path\":\"$XLSX\",\"sheet\":\"Sheet1\",\"output_path\":\"$D/flattened.csv\"}" "flatten the merged cells in Sheet1"
 run ingest convert_file "{\"file_path\":\"$SALES\",\"output_format\":\"excel\"}" "convert sales.csv to xlsx"
 run ingest query_json "{\"file_path\":\"$GEOJSON\",\"path\":\"$.features[*].properties\"}" "what properties does each region in the GeoJSON carry?"
+run ingest query_data "{\"sql\":\"SELECT count(*) AS n FROM data\",\"file_path\":\"$SALES\"}" "how many rows does sales.csv have, counted without loading it?"
 run ingest hash_file "{\"file_path\":\"$SALES\"}" "give me the sha256 of sales.csv"
 
 echo

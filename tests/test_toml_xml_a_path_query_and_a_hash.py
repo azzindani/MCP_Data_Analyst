@@ -224,7 +224,7 @@ class TestHashFile:
 class TestTheyAreIngestActions:
     def test_listed_under_data_ingest(self):
         actions = [name for _, name in DOMAINS["data_ingest"][1]]
-        assert actions[-2:] == ["query_json", "hash_file"]
+        assert {"query_json", "hash_file"} <= set(actions)
 
     def test_the_algorithm_enum_is_in_the_schema(self):
         tool = next(t for t in asyncio.run(domain.list_tools()) if t.name == "data_ingest")

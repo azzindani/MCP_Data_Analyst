@@ -29,10 +29,12 @@ from shared.file_utils import (
     normalise_export_format,
     resolve_path,
 )
+from shared.isolation import memory_budget_mb, worker_threads
 from shared.platform_utils import get_max_results
 from shared.progress import fail, info, ok, warn
 from shared.receipt import append_receipt
-from shared.version_control import drop_snapshot_if_unwritten, snapshot
+from shared.sql_query import DEFAULT_PREVIEW, QueryRefused, run_query
+from shared.version_control import drop_snapshot_if_unwritten, snapshot, snapshot_if_exists
 from shared.workbook import write_plain_workbook
 
 logger = logging.getLogger(__name__)
@@ -1602,6 +1604,129 @@ def hash_file(file_path: str, algorithm: str = "sha256") -> dict:
             "success": False,
             "error": error_text(exc),
             "hint": hint_for_error(exc, "Check that file_path is absolute and readable."),
+            "progress": [fail("Unexpected error", str(exc)[:200])],
+            "token_estimate": 20,
+        }
+
+
+def _missing(path: Path, what: str) -> dict:
+    return {
+        "success": False,
+        "error": f"{what} not found: {path.name}",
+        "hint": "Check the path is absolute and the file exists.",
+        "progress": [fail(f"{what} not found", str(path))],
+        "token_estimate": 20,
+    }
+
+
+def query_data(
+    sql: str,
+    file_path: str = "",
+    tables: dict[str, str] | None = None,
+    database: str = "",
+    output_path: str = "",
+    max_rows: int = DEFAULT_PREVIEW,
+    memory_mb: int = 0,
+) -> dict:
+    progress: list[dict] = []
+    try:
+        named: dict[str, Path] = {}
+        if file_path:
+            named["data"] = resolve_path(file_path)
+        for name, location in (tables or {}).items():
+            if name in named:
+                return {
+                    "success": False,
+                    "error": f"Table name {name!r} is used twice (file_path is the table called `data`).",
+                    "hint": "Give each table its own name in `tables`.",
+                    "progress": [fail("Duplicate table name", name)],
+                    "token_estimate": 20,
+                }
+            named[name] = resolve_path(location)
+        for name, path in named.items():
+            if not path.is_file():
+                return _missing(path, f"Table {name!r} file")
+        db = resolve_path(database) if database else None
+        if db is not None and not db.is_file():
+            return _missing(db, "Database")
+        out = resolve_path(output_path) if output_path else None
+
+        budget = memory_mb if memory_mb > 0 else memory_budget_mb()
+        backup = ""
+        if out is not None:
+            out.parent.mkdir(parents=True, exist_ok=True)
+            backup = snapshot_if_exists(out)
+            if backup:
+                progress.append(info("Snapshot created", Path(backup).name))
+
+        answer = run_query(
+            sql,
+            tables=named,
+            database=db,
+            output=out,
+            preview_rows=max_rows,
+            memory_mb=budget,
+            threads=worker_threads(),
+        )
+        source = ", ".join(f"{n} = {p.name}" for n, p in named.items()) or (db.name if db else "")
+        total = answer["rows_total"]
+        progress.append(
+            ok(
+                f"Queried {source}",
+                f"{answer['engine']}: {total:,} row(s) in {answer['seconds']} s"
+                if total is not None
+                else f"{answer['engine']}: first {answer['rows_returned']} row(s) in {answer['seconds']} s",
+            )
+        )
+        result: dict = {
+            "success": True,
+            "op": "query_data",
+            **answer,
+            "memory_limit_mb": budget if answer["engine"] == "duckdb" else None,
+            "progress": progress,
+        }
+        if out is not None:
+            progress.append(ok("Result written", f"{out.name} ({total:,} rows)"))
+            result["output_path"] = str(out)
+            result["output_name"] = out.name
+            if backup:
+                result["backup"] = backup
+            append_receipt(
+                str(out),
+                tool="query_data",
+                args={
+                    "sql": sql[:500],
+                    "tables": {n: p.name for n, p in named.items()},
+                    "database": db.name if db else "",
+                },
+                result=f"{total:,} rows",
+                backup=backup,
+            )
+            result["hint"] = "The whole result is in the file; load_dataset or any other tool reads it from there."
+        elif answer["is_preview"]:
+            result["hint"] = (
+                f"Showing the first {answer['rows_returned']} row(s) of a larger result. Pass output_path "
+                "(.csv or .parquet) to keep all of it, or aggregate or LIMIT in the query."
+            )
+        else:
+            result["hint"] = "Pass output_path (.csv or .parquet) to keep this result as a file other tools can read."
+        result["token_estimate"] = _token_estimate(result)
+        return result
+    except QueryRefused as exc:
+        return {
+            "success": False,
+            "op": "query_data",
+            "error": str(exc),
+            "hint": "A query is one SELECT over the files named in file_path or tables (each is a table of that name).",
+            "progress": [fail("Query refused", str(exc).splitlines()[0][:200])],
+            "token_estimate": 40,
+        }
+    except Exception as exc:
+        logger.exception("query_data error")
+        return {
+            "success": False,
+            "error": error_text(exc),
+            "hint": hint_for_error(exc, "Check the paths are absolute and the files readable."),
             "progress": [fail("Unexpected error", str(exc)[:200])],
             "token_estimate": 20,
         }

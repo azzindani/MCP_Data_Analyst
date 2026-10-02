@@ -6,6 +6,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added — `query_data`: SQL over tables too big to load
+
+- `query_data` (an action of `data_ingest`) runs one read-only SELECT over CSV, TSV, Parquet, JSON
+  and JSONL files where they lie (DuckDB: chunked reads, a sort or join that does not fit spilled to
+  disk, a memory limit that is kept), or over a SQLite / DuckDB database file opened read-only.
+  `file_path` is the table `data`; `tables` names several and they can be joined. It returns a
+  preview (`max_rows`, up to 1,000) and, with `output_path` (.csv or .parquet), writes every row of
+  the result for the other tools to read. The query is locked down: one SELECT, only the files the
+  call names, no network, no extension install, no writes. A failed query names the table's columns.
+  Adds the `duckdb` dependency (`shared/sql_query.py`).
+
 ### Fixed — a next step names a tool the client has
 
 - `handover.suggested_next`, an insight's `action` and a "use filter_rows()" hint named the tier's own
