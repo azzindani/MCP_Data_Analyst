@@ -42,6 +42,7 @@ from servers.data_transform.server import mcp as transform_mcp
 from servers.data_visual.server import mcp as visual_mcp
 from servers.data_workspace.server import mcp as workspace_mcp
 from shared.exchange import upload_route
+from shared.isolation import enable_tier_isolation
 
 _VERSION = "0.3.0"
 
@@ -71,6 +72,7 @@ _SUB_SERVERS = {
 # mounted sub-apps. Same fix as MCP_Microsoft_Office, which hit this first.
 for _sub_mcp in (*_SUB_SERVERS.values(), domain_mcp):
     _sub_mcp.settings.transport_security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+
 
 _sub_apps = {name: mcp.streamable_http_app() for name, mcp in _SUB_SERVERS.items()}
 # The eight domain tools, served at the root: /mcp. Every tier above keeps its
@@ -204,6 +206,10 @@ def main() -> None:
     # default here, not only in docker-compose.yml, so a deployment started any
     # other way is confined too. MCP_CONFINE_PATHS=0 opts out explicitly.
     os.environ.setdefault("MCP_CONFINE_PATHS", "1")
+    # A tier's tools are sync, and the SDK runs a sync tool inline on the event loop: one heavy call froze the
+    # server and one that needed too much memory took it down. Served over HTTP, the tiers answer from a child
+    # process too (each tier installed its half in server.py).
+    enable_tier_isolation()
     uvicorn.run(app, host=args.host, port=args.port, timeout_keep_alive=keepalive)
 
 

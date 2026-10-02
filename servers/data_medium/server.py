@@ -264,6 +264,10 @@ retire(
         "compute_aggregations": "aggregate_dataset on the transform server, mode='groupby'",
     },
 )
+# The innermost layer, so every guard below still runs ahead of it: the HTTP server turns it on (shared/isolation.py).
+from shared.isolation import isolate_calls  # noqa: E402
+
+isolate_calls(mcp)
 suggest_missing_files(mcp)
 sanitize_responses(mcp)
 measure_responses(mcp)

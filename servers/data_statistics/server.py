@@ -344,6 +344,10 @@ def cohort_analysis(
 # so the number describes what actually goes on the wire.
 # A missing file is answered with the nearest files that exist; see
 # shared/missing_file.py for why this is a choke point.
+# The innermost layer, so every guard below still runs ahead of it: the HTTP server turns it on (shared/isolation.py).
+from shared.isolation import isolate_calls  # noqa: E402
+
+isolate_calls(mcp)
 suggest_missing_files(mcp)
 sanitize_responses(mcp)
 measure_responses(mcp)

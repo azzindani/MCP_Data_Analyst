@@ -332,3 +332,40 @@ async def run_tool(tool: Any, given: dict) -> Any:
         import anyio
 
         return await anyio.to_thread.run_sync(lambda: asyncio.run(tool.run(given)))
+
+
+_tiers_isolated = False
+
+
+def enable_tier_isolation() -> None:
+    """Turn on child-process calls for every server that has called `isolate_calls` (the HTTP server does)."""
+    global _tiers_isolated
+    _tiers_isolated = True
+
+
+def isolate_calls(mcp: Any) -> None:
+    """Let the sync tools on `mcp` run as `run_tool` runs a domain action, once `enable_tier_isolation()` is called.
+
+    The tier endpoints (/basic/mcp ...) answer through the SDK's tool manager, which calls a sync tool
+    inline. This is installed *first*, before the guards that wrap `call_tool` (unknown arguments, contract
+    errors), so every one of them still runs, in the server, ahead of a call that then runs in a child. A
+    tool that is async or takes the request context stays inline: a context cannot cross a process, and an
+    async tool does not block the loop. Until it is enabled (a local stdio install, the tests) it is a
+    pass-through.
+    """
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    manager = mcp._tool_manager
+    original = manager.call_tool
+
+    async def call_tool(name: str, arguments: dict[str, Any], context: Any = None, convert_result: bool = False) -> Any:
+        tool = manager.get_tool(name)
+        if not _tiers_isolated or tool is None or tool.is_async or tool.context_kwarg is not None or mode() == "inline":
+            return await original(name, arguments, context=context, convert_result=convert_result)
+        try:
+            result = await run_tool(tool, arguments)
+        except RuntimeError as exc:
+            raise ToolError(str(exc)) from None
+        return tool.fn_metadata.convert_result(result) if convert_result else result
+
+    manager.call_tool = call_tool

@@ -239,3 +239,87 @@ class TestTheRefusalPointsAtTheServersOwnWayDown:
 
         refused = isolation._stopped("x", "memory", time.monotonic(), None)
         assert "query_data" in refused["hint"] and "sample_n" in refused["hint"]
+
+
+class TestTheTierEndpointsToo:
+    """/basic/mcp and the other tier endpoints answer through the SDK's tool manager, not the dispatcher."""
+
+    @pytest.fixture
+    def tier(self, monkeypatch):
+        from shared.arg_errors import contract_errors
+        from shared.strict_args import enforce_known_arguments
+
+        tier = FastMCP("tier")
+
+        @tier.tool()
+        def whoami() -> dict:
+            """Say which process answered."""
+            return {"success": True, "pid": os.getpid()}
+
+        @tier.tool()
+        async def whoami_async() -> dict:
+            """Async, so it never blocked the loop."""
+            return {"success": True, "pid": os.getpid()}
+
+        tier.tool()(hog)
+        tier.tool()(boom)
+        # In the order a tier's server.py installs them: isolation first, so every guard runs ahead of it.
+        isolation.isolate_calls(tier)
+        contract_errors(tier)
+        enforce_known_arguments(tier)
+        monkeypatch.setattr(isolation, "_tiers_isolated", True)
+        return tier
+
+    @staticmethod
+    def _answer(blocks) -> dict:
+        import json
+
+        content = blocks[0] if isinstance(blocks, tuple) else blocks
+        return json.loads(content[0].text)
+
+    def test_a_sync_tool_runs_in_another_process(self, tier):
+        answer = self._answer(asyncio.run(tier.call_tool("whoami", {})))
+        assert answer["success"] is True and answer["pid"] != os.getpid()
+
+    def test_an_async_tool_stays_where_it_was(self, tier):
+        answer = self._answer(asyncio.run(tier.call_tool("whoami_async", {})))
+        assert answer["pid"] == os.getpid()
+
+    def test_a_call_that_wants_too_much_is_refused_not_fatal(self, tier, monkeypatch):
+        monkeypatch.setenv("MCP_CALL_MEMORY_MB", "64")
+        refused = self._answer(asyncio.run(tier.call_tool("hog", {"megabytes": 400})))
+        assert refused["success"] is False and "more memory" in refused["error"]
+        assert self._answer(asyncio.run(tier.call_tool("whoami", {})))["success"] is True
+
+    def test_an_exception_still_reaches_the_caller_with_its_words(self, tier):
+        from mcp.server.fastmcp.exceptions import ToolError
+
+        with pytest.raises(ToolError, match="it broke"):
+            asyncio.run(tier.call_tool("boom", {}))
+
+    def test_an_argument_no_tool_declares_is_still_refused_ahead_of_the_child(self, tier):
+        refused = self._answer(asyncio.run(tier.call_tool("whoami", {"nonsense": 1})))
+        assert refused["success"] is False and "nonsense" in str(refused)
+
+    def test_inline_mode_is_what_the_sdk_did(self, tier, monkeypatch):
+        monkeypatch.setenv("MCP_CALL_ISOLATION", "inline")
+        assert self._answer(asyncio.run(tier.call_tool("whoami", {})))["pid"] == os.getpid()
+
+    def test_it_is_off_until_the_http_server_turns_it_on(self, tier, monkeypatch):
+        monkeypatch.setattr(isolation, "_tiers_isolated", False)
+        assert self._answer(asyncio.run(tier.call_tool("whoami", {})))["pid"] == os.getpid()
+
+    def test_every_tier_installs_it_before_its_guards(self):
+        import re
+        from pathlib import Path
+
+        servers = sorted((Path(__file__).resolve().parents[1] / "servers").glob("*/server.py"))
+        tiers = [s for s in servers if "\nsuggest_missing_files(mcp)\n" in s.read_text(encoding="utf-8")]
+        assert len(tiers) >= 3
+        for server in tiers:
+            text = server.read_text(encoding="utf-8")
+            first = re.search(r"^isolate_calls\(mcp\)$", text, flags=re.M)
+            guard = re.search(r"^suggest_missing_files\(mcp\)$", text, flags=re.M)
+            assert first and guard and first.start() < guard.start(), (
+                f"{server.parent.name}: isolation must be installed first"
+            )
