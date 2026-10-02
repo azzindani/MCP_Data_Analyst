@@ -8,7 +8,9 @@ import logging
 import re as _re
 import sys
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
+from typing import Any
 
 _ROOT = Path(__file__).resolve().parents[2]
 _HERE = str(Path(__file__).resolve().parent)
@@ -246,7 +248,35 @@ def _device_script(theme: str, look: dict | None) -> str:
     return device_mode_js() if theme == "device" and look is None else ""
 
 
-def _default_kpi_columns(planned: dict, numeric_cols: list) -> list:
+def _value_text(name: str, agg: str, *, page_metrics, df, parameters, currency: str, col_agg, planned) -> str:
+    """A column's or metric's value as the page writes it (its own figure in a panel's words)."""
+    if name in page_metrics:
+        m = page_metrics[name]
+        return fmt(metric_value(m, df, parameters), m.unit, currency)
+    how = agg or col_agg.get(name, "sum")
+    series = pd.to_numeric(df[name], errors="coerce")
+    number = float(
+        series.count() if how == "count" else series.nunique() if how == "count_distinct" else getattr(series, how)()
+    )
+    return fmt(number, planned["columns"].get(name, {}).get("unit", "number"), currency)
+
+
+def _resolve_page_spec(spec, df, planned, cat_cols, numeric_cols, title, theme, detected_layout) -> dict:
+    """The spec the page is drawn from: the caller's over the detection, with the defaults that describe the
+    page actually drawn (the KPI row of its measures, the filters its bar offers)."""
+    controls = _build_filter_controls(df, cat_cols)
+    ranges = _build_num_ranges(df, numeric_cols)
+    return resolve_spec(
+        spec,
+        title=title,
+        theme=theme,
+        detected_layout=detected_layout,
+        kpi_columns=_default_kpi_columns(planned, numeric_cols),
+        filter_columns=[fc["col"] for fc in controls] + [nr["col"] for nr in ranges],
+    )
+
+
+def _default_kpi_columns(planned: Any, numeric_cols: Any) -> list[Any]:
     """The KPI row of a page that names none: its measures, not every number (a year, a week, an id is no total)."""
     numeric = {str(n) for n in numeric_cols}
     return ([c for c in planned["measures"] if str(c) in numeric] or list(numeric_cols))[:7]
@@ -651,22 +681,15 @@ def generate_dashboard(
             }
         period = grain_for(planned)
 
-        def value_text(name: str, agg: str) -> str:
-            if name in page_metrics:
-                m = page_metrics[name]
-                return fmt(metric_value(m, df, parameters), m.unit, str(page_style_in.get("currency") or ""))
-            how = agg or col_agg.get(name, "sum")
-            series = pd.to_numeric(df[name], errors="coerce")
-            number = float(
-                series.count()
-                if how == "count"
-                else series.nunique()
-                if how == "count_distinct"
-                else getattr(series, how)()
-            )
-            return fmt(
-                number, planned["columns"].get(name, {}).get("unit", "number"), str(page_style_in.get("currency") or "")
-            )
+        value_text = partial(
+            _value_text,
+            page_metrics=page_metrics,
+            df=df,
+            parameters=parameters,
+            currency=str(page_style_in.get("currency") or ""),
+            col_agg=col_agg,
+            planned=planned,
+        )
 
         panel_extras = {"metrics": set(page_metrics), **period, "value_text": value_text, "columns": planned["columns"]}
 
@@ -692,15 +715,8 @@ def generate_dashboard(
         # The defaults describe the page that is actually drawn. They used to
         # say eight KPIs over a row of seven, and every text column as a filter
         # while the bar offered only those with 2-50 values and no numeric ranges.
-        default_controls = _build_filter_controls(df, cat_cols)
-        default_ranges = _build_num_ranges(df, numeric_cols)
-        resolved = resolve_spec(
-            spec,
-            title=dashboard_title,
-            theme=theme,
-            detected_layout=detected_layout,
-            kpi_columns=_default_kpi_columns(planned, numeric_cols),
-            filter_columns=[fc["col"] for fc in default_controls] + [nr["col"] for nr in default_ranges],
+        resolved = _resolve_page_spec(
+            spec, df, planned, cat_cols, numeric_cols, dashboard_title, theme, detected_layout
         )
         # The build document records where the data came from. The provenance
         # block records only the file NAME -- deliberately, since that block
@@ -1086,62 +1102,27 @@ def generate_dashboard(
             )
         progress.append(ok("Dashboard saved", f"{out.name} ({size_kb:,} KB)"))
 
-        result = {
-            "success": True,
-            "op": "generate_dashboard",
-            "file_path": str(path),
-            "output_path": str(out.resolve()),
-            "output_name": out.name,
-            "dashboard_title": dashboard_title,
-            "charts_included": charts,
-            # A storyline answers first; the answer travels in the response too.
-            **(
-                {
-                    "headline": story["headline"],
-                    "insights": [
-                        {k: f[k] for k in ("headline", "value", "comparison", "text", "page")}
-                        for f in story["insights"]
-                    ],
-                    "pages": [t["name"] for t in story["tabs"]],
-                }
-                if story is not None
-                else {}
-            ),
-            # Several files: each triaged, how they relate, how they were blended, where they disagree.
-            **({k: joined[k] for k in ("datasets", "relationships", "blend", "reconciliation")} if joined else {}),
-            "metrics": {
-                m.name: {"formula": m.formula, "unit": m.unit, "better": m.better, "description": m.description}
-                for m in metric_list
-            },
-            "plan": {
-                "measures": planned["measures"],
-                "dimensions": planned["dimensions"],
-                "aliases": planned["aliases"],
-                "hierarchies": planned["hierarchies"],
-                "grain": planned["grain"],
-            },
-            "kpi_columns": kpi_cols,
-            "column_roles": column_roles,
-            "filter_columns": filter_columns,
-            "rows_embedded": len(embed_df),
-            **({"cube": cube_info} if cube_info else {}),
-            "rows_total": len(df),
-            "was_sampled": was_sampled,
-            "report_size_kb": size_kb,
-            "sources": [
-                {
-                    "name": name,
-                    "rows_shown": min(len(src_df), SOURCE_ROW_CAP),
-                    **summary,
-                }
-                for name, src_df, summary in source_frames
-            ],
-            # The document this page was built from. Returned so a caller can
-            # edit one field and hand it back, rather than describing the change
-            # in prose to a tool that only auto-detects.
-            "spec": resolved,
-            "progress": progress,
-        }
+        result = _dashboard_result(
+            path=path,
+            out=out,
+            title=dashboard_title,
+            charts=charts,
+            story=story,
+            joined=joined,
+            metric_list=metric_list,
+            planned=planned,
+            kpi_cols=kpi_cols,
+            column_roles=column_roles,
+            filter_columns=filter_columns,
+            embed_df=embed_df,
+            cube_info=cube_info,
+            df=df,
+            was_sampled=was_sampled,
+            size_kb=size_kb,
+            source_frames=source_frames,
+            resolved=resolved,
+            progress=progress,
+        )
         if used:
             result["template"] = {"name": used["name"], "from": used["from"]}
         if target:
@@ -1167,6 +1148,86 @@ def generate_dashboard(
 # ---------------------------------------------------------------------------
 # Dashboard helpers
 # ---------------------------------------------------------------------------
+
+
+def _dashboard_result(
+    *,
+    path,
+    out,
+    title,
+    charts,
+    story,
+    joined,
+    metric_list,
+    planned,
+    kpi_cols,
+    column_roles,
+    filter_columns,
+    embed_df,
+    cube_info,
+    df,
+    was_sampled,
+    size_kb,
+    source_frames,
+    resolved,
+    progress,
+) -> dict:
+    """What generate_dashboard answers: the page's path, the plan it was drawn from and the spec to hand back."""
+    return {
+        "success": True,
+        "op": "generate_dashboard",
+        "file_path": str(path),
+        "output_path": str(out.resolve()),
+        "output_name": out.name,
+        "dashboard_title": title,
+        "charts_included": charts,
+        # A storyline answers first; the answer travels in the response too.
+        **(
+            {
+                "headline": story["headline"],
+                "insights": [
+                    {k: f[k] for k in ("headline", "value", "comparison", "text", "page")} for f in story["insights"]
+                ],
+                "pages": [t["name"] for t in story["tabs"]],
+            }
+            if story is not None
+            else {}
+        ),
+        # Several files: each triaged, how they relate, how they were blended, where they disagree.
+        **({k: joined[k] for k in ("datasets", "relationships", "blend", "reconciliation")} if joined else {}),
+        "metrics": {
+            m.name: {"formula": m.formula, "unit": m.unit, "better": m.better, "description": m.description}
+            for m in metric_list
+        },
+        "plan": {
+            "measures": planned["measures"],
+            "dimensions": planned["dimensions"],
+            "aliases": planned["aliases"],
+            "hierarchies": planned["hierarchies"],
+            "grain": planned["grain"],
+        },
+        "kpi_columns": kpi_cols,
+        "column_roles": column_roles,
+        "filter_columns": filter_columns,
+        "rows_embedded": len(embed_df),
+        **({"cube": cube_info} if cube_info else {}),
+        "rows_total": len(df),
+        "was_sampled": was_sampled,
+        "report_size_kb": size_kb,
+        "sources": [
+            {
+                "name": name,
+                "rows_shown": min(len(src_df), SOURCE_ROW_CAP),
+                **summary,
+            }
+            for name, src_df, summary in source_frames
+        ],
+        # The document this page was built from. Returned so a caller can
+        # edit one field and hand it back, rather than describing the change
+        # in prose to a tool that only auto-detects.
+        "spec": resolved,
+        "progress": progress,
+    }
 
 
 def _build_sparklines(df, numeric_cols):
