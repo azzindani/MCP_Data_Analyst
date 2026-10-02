@@ -246,6 +246,12 @@ def _device_script(theme: str, look: dict | None) -> str:
     return device_mode_js() if theme == "device" and look is None else ""
 
 
+def _default_kpi_columns(planned: dict, numeric_cols: list) -> list:
+    """The KPI row of a page that names none: its measures, not every number (a year, a week, an id is no total)."""
+    numeric = {str(n) for n in numeric_cols}
+    return ([c for c in planned["measures"] if str(c) in numeric] or list(numeric_cols))[:7]
+
+
 def _bad_look(exc: Exception) -> dict:
     return {
         "success": False,
@@ -693,9 +699,7 @@ def generate_dashboard(
             title=dashboard_title,
             theme=theme,
             detected_layout=detected_layout,
-            # The page's measures, not every number: a year, a week number or an id is not a total.
-            kpi_columns=[c for c in planned["measures"] if str(c) in {str(n) for n in numeric_cols}][:7]
-            or numeric_cols[:7],
+            kpi_columns=_default_kpi_columns(planned, numeric_cols),
             filter_columns=[fc["col"] for fc in default_controls] + [nr["col"] for nr in default_ranges],
         )
         # The build document records where the data came from. The provenance
