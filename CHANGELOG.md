@@ -18,6 +18,9 @@ All notable changes to this project will be documented in this file.
   not drag (a tap hovers or filters, the toolbar zooms), and the expanded chart, which covers the page, still
   zooms on the wheel and drags to zoom. A tap on a bar on a phone now filters, as a click does, instead of first
   showing its tooltip.
+- The EDA and profile reports and the single-chart pages had the same trap and no longer do: the shared chart
+  config no longer asks for `scrollZoom`, and every page that carries Plotly carries `CHART_SCROLL_JS` (the wheel
+  scrolls, Ctrl/Cmd + wheel zooms, a touch screen's charts do not drag). The ML repo ships the same config string.
 
 ### Added — a look you define yourself
 

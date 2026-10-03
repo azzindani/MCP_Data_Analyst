@@ -45,6 +45,7 @@ from _adv_helpers import (
     warn,
 )
 
+from shared.chart_page import CHART_SCROLL_JS
 from shared.column_utils import read_dates
 from shared.file_utils import embed_content, error_text, hint_for_error, resolve_path
 from shared.table_payload import json_for_script
@@ -182,6 +183,7 @@ def generate_auto_profile(
         h.append(_KPI_COUNTER_JS)
         h.append(_COPY_CLIPBOARD_JS)
         h.append(_BACK_TO_TOP_JS)
+        h.append(CHART_SCROLL_JS)
         h.append("</div></body></html>")
 
         html_content = "\n".join(h)

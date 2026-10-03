@@ -46,6 +46,7 @@ from _adv_helpers import (
 )
 
 from shared.association import compare_frames, target_association
+from shared.chart_page import CHART_SCROLL_JS
 from shared.column_utils import read_dates
 from shared.data_alerts import alerts_html, compute_alerts
 from shared.data_alerts import quality_score as compute_quality_score
@@ -792,6 +793,7 @@ def _build_eda_html(
 {_KPI_COUNTER_JS}
 {_COPY_CLIPBOARD_JS}
 {_BACK_TO_TOP_JS}
+{CHART_SCROLL_JS}
 </body></html>"""
 
 

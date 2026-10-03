@@ -122,6 +122,18 @@ body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
 """
 
 
+# A chart that took every wheel turn and every swipe would trap the page: a report of charts could not be scrolled
+# with the pointer over one. The wheel scrolls the page and only Ctrl/Cmd + wheel zooms a chart (`_enablescrollzoom` is
+# plotly's own override for this); on a touch screen drag-to-zoom cancels the swipe, so there the charts do not drag --
+# they hover on a tap and the toolbar zooms them.
+CHART_SCROLL_JS = """<script>
+document.addEventListener('wheel',function(e){var g=e.target&&e.target.closest&&e.target.closest('.js-plotly-plot');
+  if(g&&g._fullLayout)g._fullLayout._enablescrollzoom=!!(e.ctrlKey||e.metaKey);},{capture:true,passive:true});
+if(window.matchMedia&&window.matchMedia('(pointer:coarse)').matches)window.addEventListener('load',function(){
+  if(window.Plotly)document.querySelectorAll('.js-plotly-plot').forEach(function(g){Plotly.relayout(g,{dragmode:false});});});
+</script>"""
+
+
 def chart_page_html(
     chart_html: str,
     title: str,
@@ -175,6 +187,7 @@ def chart_page_html(
 </div>
 {block}
 {device_js}
+{CHART_SCROLL_JS}
 </body></html>"""
 
 

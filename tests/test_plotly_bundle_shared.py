@@ -276,4 +276,4 @@ class TestWebGlChartsActuallyDraw:
         """Both repos ship this string; it is the one the other one uses."""
         from shared.html_layout import PLOTLY_CFG_JS
 
-        assert PLOTLY_CFG_JS == '{"responsive":true,"displayModeBar":true,"scrollZoom":true}'
+        assert PLOTLY_CFG_JS == '{"responsive":true,"displayModeBar":true,"scrollZoom":false}'

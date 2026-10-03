@@ -139,7 +139,9 @@ class TestPageMarkup:
 
     def test_device_js_is_only_included_when_given(self):
         assert "<script>dev</script>" in chart_page_html("", "T", ":root{}", "<script>dev</script>")
-        assert "<script>" not in chart_page_html("", "T", ":root{}", "")
+        pinned = chart_page_html("", "T", ":root{}", "")
+        assert "<script>dev</script>" not in pinned
+        assert pinned.count("<script>") == 1, "a page pinned to one theme carries only the scroll script"
 
 
 class _FakeFig:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from shared.chart_page import apply_chart_margins, chart_page_html, take_page_title
+from shared.chart_page import CHART_SCROLL_JS, apply_chart_margins, chart_page_html, take_page_title
 from shared.geo_assets import assets_script, topojson_names
 from shared.html_layout import (  # noqa: F401  (re-exported)
     VIEWPORT_META,
@@ -478,7 +478,7 @@ def save_chart(
     chart_html = fig.to_html(
         include_plotlyjs=include_js,
         full_html=False,
-        config={"responsive": True, "displayModeBar": True, "scrollZoom": True},
+        config={"responsive": True, "displayModeBar": True, "scrollZoom": False},
     )
     # A map's outlines travel with it; see shared/geo_assets.py.
     chart_html = assets_script(topojson_names(fig)) + chart_html

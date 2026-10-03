@@ -147,12 +147,12 @@ def get_plotlyjs_script() -> str:
 
 
 # Standardised Plotly config — use in every Plotly.newPlot / fig.to_html call
-PLOTLY_CFG_JS = '{"responsive":true,"displayModeBar":true,"scrollZoom":true}'
+PLOTLY_CFG_JS = '{"responsive":true,"displayModeBar":true,"scrollZoom":false}'
 
 
 def plotly_config() -> dict:
     """Return standard Plotly config dict for Python (fig.to_html / fig.show)."""
-    return {"responsive": True, "displayModeBar": True, "scrollZoom": True}
+    return {"responsive": True, "displayModeBar": True, "scrollZoom": False}  # the wheel scrolls the page
 
 
 # ---------------------------------------------------------------------------
