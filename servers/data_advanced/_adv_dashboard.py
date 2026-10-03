@@ -2362,7 +2362,14 @@ _RENDERER_JS = r"""
 // field of the panel read here -- never a new template -- and a column name is
 // data in _PANELS, never text pasted into code.
 // Zoom, pan, zoom in/out, autoscale, reset and the camera; box and lasso select only paint points on charts of totals.
-const PCFG={responsive:true,displayModeBar:true,scrollZoom:true,displaylogo:false,modeBarButtonsToRemove:['select2d','lasso2d']};
+const PCFG={responsive:true,displayModeBar:true,scrollZoom:false,displaylogo:false,modeBarButtonsToRemove:['select2d','lasso2d']};
+// A chart that took every wheel turn and every swipe would trap the page: a dashboard of charts could not be scrolled with the
+// pointer over one. The wheel scrolls the page and only Ctrl/Cmd + wheel zooms a chart (the expanded one, which covers the page,
+// zooms on the wheel). On a touch screen a finger dragging on a drag-to-zoom chart cannot scroll either, so there the charts do
+// not drag: they hover on a tap and the toolbar zooms them.
+document.addEventListener('wheel',function(e){var gd=e.target&&e.target.closest&&e.target.closest('.js-plotly-plot');
+  if(gd&&gd._fullLayout)gd._fullLayout._enablescrollzoom=!!(e.ctrlKey||e.metaKey)||gd.id==='mdiv';},{capture:true,passive:true});
+const _COARSE=typeof window!=='undefined'&&!!window.matchMedia&&window.matchMedia('(pointer:coarse)').matches;
 // The theme in force. A device page holds a light and a dark one and follows
 // the reader's setting, at every draw.
 function _dark(){return typeof window!=='undefined'&&!!window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;}
@@ -2655,7 +2662,7 @@ function figure(p,d){
 function renderPanel(p,d){
   if(HTMLP[p.type]){var el=document.getElementById(p.id);if(el){el.innerHTML=HTMLP[p.type](p,d);if(HTMLP_AFTER[p.type])HTMLP_AFTER[p.type](p,d);}return;}
   if(!FIG[p.type])return;  // a section or a note: written once, nothing to redraw
-  var f=figure(p,d);if(f)Plotly.react(p.id,f.data,f.layout,PCFG);
+  var f=figure(p,d);if(f){if(_COARSE)f.layout.dragmode=false;Plotly.react(p.id,f.data,f.layout,PCFG);}
 }
 
 function updKPIs(d){
@@ -2959,7 +2966,7 @@ function expand(id,ttl){{
   const src=document.getElementById(id);if(!src||!src.data)return;
   document.getElementById('mttl').textContent=ttl;
   document.getElementById('modal').classList.add('open');
-  Plotly.newPlot('mdiv',src.data,Object.assign({{}},src.layout,{{height:null,autosize:true}}),PCFG);
+  Plotly.newPlot('mdiv',src.data,Object.assign({{}},src.layout,{{height:null,autosize:true,dragmode:'zoom'}}),PCFG);
 }}
 function closeM(){{document.getElementById('modal').classList.remove('open');Plotly.purge('mdiv');}}
 document.getElementById('modal').addEventListener('click',function(e){{if(e.target===this)closeM();}});

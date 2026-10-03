@@ -6,6 +6,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed — a page you can scroll
+
+- The Lagoon look could not be scrolled, on a desktop or a phone. An inset look drew the page as a rounded card with
+  `body{overflow:hidden}`, which a browser hands to the viewport when `html` leaves its own overflow `visible`. The
+  `html` now takes the scrolling and the body only clips to its corners (`overflow:clip`, so a sticky bar still
+  sticks); this holds for every inset look, a hand-made one too.
+- A chart no longer takes the page's scrolling. Every chart took the mouse wheel (`scrollZoom`) and, drag-to-zoom
+  cancelling the touch, every one-finger swipe, so a page of charts stopped scrolling whenever the pointer was on
+  one. The wheel now scrolls the page over a chart and Ctrl/Cmd + wheel zooms it; on a touch screen the charts do
+  not drag (a tap hovers or filters, the toolbar zooms), and the expanded chart, which covers the page, still
+  zooms on the wheel and drags to zoom. A tap on a bar on a phone now filters, as a click does, instead of first
+  showing its tooltip.
+
 ### Added — a look you define yourself
 
 Four built-in looks were all a caller could pick, and a look could say little about how the marks are drawn.

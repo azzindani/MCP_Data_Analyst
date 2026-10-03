@@ -669,8 +669,10 @@ def _frame_css(look: dict[str, Any]) -> str:
     css = ""
     if look["inset"]:
         css += (
-            "html{background:var(--ground)}"
-            f"body{{max-width:92rem;margin:1.5rem auto;border-radius:{round(radius * 1.4)}px;overflow:hidden;"
+            # `overflow:hidden` on a body whose html is `visible` is handed to the viewport, which then cannot scroll:
+            # the html takes the scrolling and the body only clips to its rounded corners (clip, so sticky still works).
+            "html{background:var(--ground);overflow-y:auto}"
+            f"body{{max-width:92rem;margin:1.5rem auto;border-radius:{round(radius * 1.4)}px;overflow:clip;"
             "box-shadow:var(--shadow);background:var(--bg)}"
             "@media(max-width:48rem){body{margin:0;border-radius:0}}"
         )

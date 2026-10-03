@@ -65,7 +65,7 @@ class TestEveryChartHasItsToolbar:
     def test_the_modebar_is_on_for_every_figure(self, bookings, spec):
         for cid, f in _figures(_html(bookings, **spec)).items():
             assert f["config"]["displayModeBar"] is True, cid
-            assert f["config"]["scrollZoom"] is True, cid
+            assert f["config"]["scrollZoom"] is False, cid  # the wheel scrolls the page; Ctrl/Cmd + wheel zooms
 
     def test_a_generated_page_no_longer_says_it_is_for_reading(self, bookings):
         result = generate_dashboard(str(bookings), output_path=str(bookings.parent / "r.html"), open_after=False)
@@ -87,7 +87,7 @@ class TestEveryChartHasItsToolbar:
         assert layout["hoverlabel"]["font"]["family"] == want["family"]
 
     def test_fullscreen_opens_the_chart_with_the_same_toolbar(self, bookings):
-        assert "{height:null,autosize:true}),PCFG);" in _html(bookings)
+        assert "{height:null,autosize:true,dragmode:'zoom'}),PCFG);" in _html(bookings)
 
 
 @needs_node

@@ -31,20 +31,25 @@ function __el(id){
     querySelector(){return null;},querySelectorAll(){return [];},appendChild(){}};
   return __els[id];
 }
+var __dlis={};
 var document={getElementById:__el,querySelector(){return null;},querySelectorAll(){return [];},
-  addEventListener(){},createElement(){return __el('_new');},body:__el('body'),documentElement:__el('html')};
+  addEventListener(ev,fn){(__dlis[ev]=__dlis[ev]||[]).push(fn);},createElement(){return __el('_new');},body:__el('body'),documentElement:__el('html')};
 var __store=__STORE__;
 var sessionStorage={getItem(k){return k in __store?__store[k]:null;},setItem(k,v){__store[k]=String(v);}};
 var CSS={escape:function(s){return s;}};
 var __lis={};
-var window={addEventListener(ev,fn){(__lis[ev]=__lis[ev]||[]).push(fn);},matchMedia(){return{matches:__DARK__,addEventListener(){}};}};
+var window={addEventListener(ev,fn){(__lis[ev]=__lis[ev]||[]).push(fn);},matchMedia(q){return{matches:/prefers-color-scheme: dark/.test(q)?__DARK__:/pointer:\s*coarse/.test(q)?__COARSE__:false,addEventListener(){}};}};
 var Plotly={react:function(id,data,layout,config){__figs[id]={data:data,layout:layout,config:config};},newPlot(){},purge(){},relayout(){}};
 console.warn=function(){__warn.push(Array.prototype.map.call(arguments,String).join(' '));};
 """
 
 
-def _stub(dark: bool = False, storage: dict[str, str] | None = None) -> str:
-    return _STUB.replace("__DARK__", "true" if dark else "false").replace("__STORE__", json.dumps(storage or {}))
+def _stub(dark: bool = False, storage: dict[str, str] | None = None, coarse: bool = False) -> str:
+    return (
+        _STUB.replace("__DARK__", "true" if dark else "false")
+        .replace("__COARSE__", "true" if coarse else "false")
+        .replace("__STORE__", json.dumps(storage or {}))
+    )
 
 
 def main_script(html: str) -> str:
@@ -55,10 +60,10 @@ def main_script(html: str) -> str:
     raise AssertionError("the page has no script declaring _PANELS")
 
 
-def drawn(html: str, rows: list[dict] | None = None, dark: bool = False) -> dict:
+def drawn(html: str, rows: list[dict] | None = None, dark: bool = False, coarse: bool = False) -> dict:
     """Every figure the page draws, by card id; the KPI texts; and console warnings.
 
-    `dark` is the reader's prefers-color-scheme, for a page that follows it.
+    `dark` is the reader's prefers-color-scheme, for a page that follows it; `coarse` is a touch screen (pointer: coarse).
     """
     assert NODE, "node is not installed"
     tail = "__figs={};renderAll(" + (json.dumps(rows) if rows is not None else "_RAW") + ");"
@@ -67,7 +72,7 @@ def drawn(html: str, rows: list[dict] | None = None, dark: bool = False) -> dict
         "var __h={};Object.keys(__els).forEach(function(id){if(__els[id].innerHTML)__h[id]=__els[id].innerHTML;});"
         "process.stdout.write(JSON.stringify({figures:__figs,kpis:__k,html:__h,warnings:__warn,panels:_PANELS}));"
     )
-    program = _stub(dark) + main_script(html) + "\n" + tail
+    program = _stub(dark, coarse=coarse) + main_script(html) + "\n" + tail
     done = subprocess.run([NODE, "-"], input=program, capture_output=True, encoding="utf-8", timeout=120)
     assert done.returncode == 0, done.stderr[-3000:]
     return json.loads(done.stdout)
