@@ -2388,7 +2388,24 @@ function _groups(d,keyOf,col){
   return m;
 }
 function _kpi(d,col,how){return _agg(d.map(function(r){return _cell(r,col);}),how);}
-function _axes(extra){return _merge({margin:{l:55,r:20,t:10,b:65},xaxis:{gridcolor:_T().grid,tickangle:'auto',zeroline:false,tickfont:{size:11}},yaxis:{gridcolor:_T().grid,zeroline:false,tickfont:{size:11}}},extra);}
+// What the look says about the marks (look.chart): the grid, the axis line, the type inside a chart.
+function _ch(){return _T().chart||{};}
+function _axisStyle(){
+  var c=_ch(),g=c.grid||'soft',a={gridcolor:g==='strong'?_rgba(_T().font,0.22):_T().grid,tickangle:'auto',zeroline:false,tickfont:{size:c.font_size||11}};
+  if(g==='none')a.showgrid=false;
+  if(g==='dotted')a.griddash='dot';
+  if(c.axis_line){a.showline=true;a.linecolor=_rgba(_T().font,0.4);}
+  return a;
+}
+function _axes(extra){var y=_axisStyle();delete y.tickangle;return _merge({margin:{l:55,r:20,t:10,b:65},xaxis:_axisStyle(),yaxis:y},extra);}
+// The look's bars: their corners and the gap between them (a ranked list sets its own gap).
+function _lookChart(p,f){
+  var c=_ch();
+  (f.data||[]).forEach(function(t){
+    if(t.type==='bar'&&c.bar_radius!==undefined){t.marker=t.marker||{};if(t.marker.cornerradius===undefined)t.marker.cornerradius=c.bar_radius;}
+  });
+  if(c.bar_gap!==undefined&&p.type!=='ranking'){f.layout=f.layout||{};f.layout.bargap=c.bar_gap/100;}
+}
 function _geo(){return{showland:true,landcolor:_T().land,showocean:true,oceancolor:_T().ocean,showcoastlines:true,coastlinecolor:_T().coast,showcountries:true,countrycolor:_T().coast,showframe:false,bgcolor:_T().bg};}
 function _pal(p){return p.style.palette||_STYLE.palette||_T().palette;}
 // A category value's colour: the panel's map, then the page's -- so a value is
@@ -2624,9 +2641,11 @@ var _NW={};
 function _narrowChart(p){var el=document.getElementById(p.id);return!!(el&&el.clientWidth&&el.clientWidth<480);}
 function figure(p,d){
   var f=FIG[p.type](p,d);if(!f)return null;
-  var frame={paper_bgcolor:_T().bg,plot_bgcolor:_T().bg,font:{color:_T().font,size:12,family:_T().family},autosize:true,
+  _lookChart(p,f);
+  var frame={paper_bgcolor:_T().bg,plot_bgcolor:_T().bg,font:{color:_T().font,size:_ch().font_size||12,family:_T().family},autosize:true,
     // The toolbar and the hover label are the page's too: quiet icons that read on a dark card, the tooltip in the page's typeface.
     modebar:{bgcolor:'rgba(0,0,0,0)',color:_rgba(_T().font,0.55),activecolor:_pal(p)[0]},hoverlabel:{font:{family:_T().family,size:12}}};
+  if(_ch().hover==='dark')frame.hoverlabel={bgcolor:_T().font,bordercolor:_T().font,font:{color:_T().bg,family:_T().family,size:12}};
   var lay=am(_merge(_merge(frame,f.layout),p.style.layout||{}));
   _NW[p.id]=_narrowChart(p);
   if(_NW[p.id]&&!p.style.legend&&lay.showlegend!==false&&lay.legend&&lay.legend.orientation==='h')

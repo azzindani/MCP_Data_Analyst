@@ -228,6 +228,8 @@ body.slide .cgrid{aspect-ratio:16/9;overflow:hidden}
 .cc-body--auto:has(> .cohort-wrap){max-height:none}
 /* A tile reads its own width, not the screen's: the number and its line side by side, or one over the other. */
 .cc-kpi{container-type:inline-size}
+/* A number is one line: it takes the tile's width (in a wide typeface too), never wraps under itself. */
+.cc-kpi .kpi-big{white-space:nowrap;font-size:clamp(1.35rem,13cqi,2.25rem)}
 @container (max-width:15rem){
   .kpi-main{flex-direction:column;align-items:stretch;gap:.25rem}
   .kpi-main .kpi-spark{flex:none;width:100%;height:2.25rem}
@@ -541,7 +543,11 @@ FIG.ts=function(p,d){
   var partial=!!(p.complete&&keys.length>1&&keys[keys.length-1]>p.complete),cut=partial?keys.length-1:keys.length;
   // The same at the start: a data set that begins on the 23rd has a short first month, which is no ramp up from nothing.
   var lead=!!(p.first&&cut>2&&keys[0]<p.first),from=lead?1:0;
-  var t=[{x:keys.slice(from,cut),y:vals.slice(from,cut),type:'scatter',mode:'lines+markers',name:_lab(p.metric||p.value),line:{color:s.color,width:2},marker:{size:4},
+  // The look's line: its width and curve, and whether the points are marked (none, the ends, every one).
+  var ch=_T().chart||{},mk=ch.markers||'all',n0=cut-from;
+  var t=[{x:keys.slice(from,cut),y:vals.slice(from,cut),type:'scatter',mode:mk==='none'?'lines':'lines+markers',name:_lab(p.metric||p.value),
+    line:{color:s.color,width:ch.line_width||2,shape:ch.line_shape||'linear'},
+    marker:{size:mk==='ends'?vals.slice(from,cut).map(function(_,i){return i===0||i===n0-1?7:0;}):4},
     customdata:vals.slice(from,cut).map(function(v){return _fmtu(v,p);}),hovertemplate:'%{customdata}<extra>%{fullData.name}</extra>'}];
   if(w>0){
     var ma=vals.slice(from,cut).map(function(_,i){if(i<w-1)return null;var a=0;for(var j=i-w+1;j<=i;j++)a+=vals[from+j];return a/w;});
@@ -552,7 +558,7 @@ FIG.ts=function(p,d){
   // Hovering anywhere along a period reads every series at it, not only a point under the cursor.
   lay.hovermode='x unified';
   if(grain==='month')lay.xaxis=_merge(lay.xaxis||{},{hoverformat:'%b %Y'});
-  if(s.fill){t[0].mode='lines';t[0].fill='tozeroy';t[0].fillcolor=_rgba(s.color,0.12);}
+  if(s.fill){t[0].mode='lines';t[0].fill='tozeroy';t[0].fillcolor=_rgba(s.color,ch.area!==undefined?ch.area/100:0.12);}
   var med=(function(){var a=vals.slice(from,cut).filter(isFinite).sort(function(x,y){return x-y;});return a.length?a[a.length>>1]:0;})();
   if(s.peak&&cut-from>2){
     var pk=from;for(var i=from;i<cut;i++)if(vals[i]>vals[pk])pk=i;

@@ -33,7 +33,45 @@ DENSITIES = ("compact", "comfortable", "airy")
 CARDS = ("flat", "outlined", "raised", "glass")
 FRAMES = ("plain", "rail", "sidebar", "banner")
 HEADERS = ("bar", "plain", "gradient")
-KPIS = ("plain", "tile", "gradient")
+KPIS = ("plain", "tile", "gradient", "outline", "bar", "minimal")
+TABS = ("pills", "underline", "segmented")
+BACKGROUNDS = ("solid", "gradient", "dots", "grid")
+KPI_DELTAS = ("pill", "text")
+GRIDS = ("none", "soft", "dotted", "strong")
+LINE_SHAPES = ("linear", "spline")
+MARKERS = ("none", "ends", "all")
+HOVERS = ("card", "dark")
+TITLE_CASES = ("normal", "upper")
+NUMERALS = ("tabular", "proportional")
+TITLE_WEIGHTS = (400, 500, 600, 700, 800)
+_NUM, _CHOICE, _BOOL = "number", "choice", "bool"
+# What a look may say about the marks, the type and the spacing: group -> key -> (kind, the choices or the (low, high)).
+# Every value is one of a named set or a number in a range, so none can carry a rule, a URL or a script into the page.
+GRAMMAR: dict[str, dict[str, tuple[str, Any]]] = {
+    "chart": {
+        "line_width": (_NUM, (1, 4)),  # pixels
+        "line_shape": (_CHOICE, LINE_SHAPES),
+        "markers": (_CHOICE, MARKERS),  # on a line: none, the first and last point, every point
+        "area": (_NUM, (0, 40)),  # percent opacity of the area under a filled line
+        "bar_radius": (_NUM, (0, 12)),  # pixels
+        "bar_gap": (_NUM, (5, 80)),  # percent of a bar's slot left empty
+        "grid": (_CHOICE, GRIDS),
+        "axis_line": (_BOOL, None),
+        "font_size": (_NUM, (10, 14)),  # pixels, for the text inside a chart
+        "hover": (_CHOICE, HOVERS),  # a tooltip on the card's colour, or dark
+    },
+    "type": {
+        "scale": (_NUM, (0.9, 1.15)),  # the page's text size, times this
+        "title_weight": (_CHOICE, TITLE_WEIGHTS),
+        "title_case": (_CHOICE, TITLE_CASES),  # card titles as written, or small capitals-style uppercase
+        "tracking": (_NUM, (-0.02, 0.1)),  # letter spacing of card titles, in em
+        "numerals": (_CHOICE, NUMERALS),  # equal-width digits (tabular) or each digit its own width
+    },
+    "space": {
+        "gap": (_NUM, (0.4, 2.5)),  # rem between cards; overrides the density's
+        "max_width": (_NUM, (0, 140)),  # rem the page may be across, centred; 0 is the full window, else 60 to 140
+    },
+}
 # System stacks, and five bundled faces (shared/fonts, SIL OFL): a web font is a fetch and the page is carried
 # whole, so a bundled face travels inside the page as a data: URI. Any other family name falls back to its stack.
 STACKS: dict[str, str] = {
@@ -102,6 +140,57 @@ def _choice(where: str, value: Any, allowed: tuple[str, ...]) -> str:
     return str(value)
 
 
+def _says(kind: str, allowed: Any) -> str:
+    if kind == _BOOL:
+        return "true or false"
+    if kind == _CHOICE:
+        return "one of " + ", ".join(str(a) for a in allowed)
+    return f"a number from {allowed[0]} to {allowed[1]}"
+
+
+def _group(where: str, value: Any, group: str) -> dict[str, Any]:
+    """One group of a look's grammar (chart, type, space), each value checked against what it may be."""
+    grammar = GRAMMAR[group]
+    if not isinstance(value, dict):
+        raise LookError(
+            f"{where} is a dict; it takes: " + "; ".join(f"{k} ({_says(*grammar[k])})" for k in grammar) + "."
+        )
+    unknown = sorted(str(k) for k in value if k not in grammar)
+    if unknown:
+        raise LookError(f"{where} has unknown key(s): {', '.join(unknown)}. It takes: {', '.join(grammar)}.")
+    out: dict[str, Any] = {}
+    for key, item in value.items():
+        kind, allowed = grammar[key]
+        ok = False
+        if kind == _BOOL:
+            ok = isinstance(item, bool)
+        elif kind == _CHOICE:
+            ok = not isinstance(item, bool) and item in allowed
+        else:
+            ok = isinstance(item, (int, float)) and not isinstance(item, bool) and allowed[0] <= item <= allowed[1]
+            if group == "space" and key == "max_width":
+                ok = isinstance(item, (int, float)) and not isinstance(item, bool) and (item == 0 or 60 <= item <= 140)
+        if not ok:
+            says = "0 (the full window) or a number from 60 to 140" if (group, key) == ("space", "max_width") else _says(kind, allowed)
+            raise LookError(f"{where}.{key} is {says}; got {item!r}.")
+        out[key] = round(item, 3) if kind == _NUM else item
+    return out
+
+
+def grammar() -> dict[str, Any]:
+    """What a look may say, for a caller defining its own: every key, with the values it takes."""
+    top = {
+        "mode": list(MODES), "font": list(STACKS), "display": "a font, as font", "radius": "0 to 40 (px)",
+        "shadow": list(SHADOWS), "density": list(DENSITIES), "card": list(CARDS), "frame": list(FRAMES),
+        "header": list(HEADERS), "kpi": list(KPIS), "kpi_spark": "true or false: the line in a KPI tile",
+        "kpi_delta": list(KPI_DELTAS), "tabs": list(TABS), "bg": list(BACKGROUNDS), "border_width": "0 to 3 (px)",
+        "inset": "true or false", "palette": f"1 to {MAX_PALETTE} colours", "light": list(TOKENS), "dark": list(TOKENS),
+    }  # fmt: skip
+    described = {g: {k: _says(*v) for k, v in keys.items()} for g, keys in GRAMMAR.items()}
+    described["space"]["max_width"] = "0 (the full window) or a number from 60 to 140 (rem)"
+    return {**top, **described}
+
+
 @functools.cache
 def _font_face(key: str) -> str:
     family, filename, weights = BUNDLED[key]
@@ -124,7 +213,9 @@ def _face(where: str, value: Any) -> str:
         return str(value)
     if isinstance(value, str) and 0 < len(value) <= 120 and re.fullmatch(r"[A-Za-z0-9 ,'\"-]+", value):
         return value
-    raise LookError(f"{where} is one of {', '.join(STACKS)} or a list of font names (system fonts: a web font is a fetch).")
+    raise LookError(
+        f"{where} is one of {', '.join(STACKS)} or a list of font names (system fonts: a web font is a fetch)."
+    )
 
 
 def _tokens(where: str, tokens: Any, mode: str, *, need_all: bool) -> dict[str, str]:
@@ -150,7 +241,8 @@ def validate_look(look: Any) -> dict[str, Any]:
         raise LookError("a look is a dict (or the name of a built-in look).")
     allowed = {
         "label", "about", "mode", "light", "dark", "font", "display", "radius", "shadow", "density", "card",
-        "frame", "inset", "header", "kpi", "palette",
+        "frame", "inset", "header", "kpi", "palette", "kpi_spark", "kpi_delta", "tabs", "bg", "border_width",
+        *GRAMMAR,
     }  # fmt: skip
     unknown = sorted(str(k) for k in look if k not in allowed)
     if unknown:
@@ -181,6 +273,22 @@ def validate_look(look: Any) -> dict[str, Any]:
     out["frame"] = _choice("look.frame", look.get("frame", "plain"), FRAMES)
     out["header"] = _choice("look.header", look.get("header", "bar"), HEADERS)
     out["kpi"] = _choice("look.kpi", look.get("kpi", "plain"), KPIS)
+    # What a look adds beyond the old vocabulary is kept only when it is said, so a look that never says it is drawn as before.
+    if "kpi_spark" in look:
+        if not isinstance(look["kpi_spark"], bool):
+            raise LookError("look.kpi_spark is true or false: the line in a KPI tile.")
+        out["kpi_spark"] = look["kpi_spark"]
+    for key, allowed_values in (("kpi_delta", KPI_DELTAS), ("tabs", TABS), ("bg", BACKGROUNDS)):
+        if key in look:
+            out[key] = _choice(f"look.{key}", look[key], allowed_values)
+    if "border_width" in look:
+        width = look["border_width"]
+        if isinstance(width, bool) or not isinstance(width, (int, float)) or not 0 <= width <= 3:
+            raise LookError("look.border_width is a card border in pixels, 0 to 3.")
+        out["border_width"] = width
+    for group in GRAMMAR:
+        if group in look:
+            out[group] = _group(f"look.{group}", look[group], group)
     inset = look.get("inset", False)
     if not isinstance(inset, bool):
         raise LookError("look.inset is true or false: the page sits in a rounded frame on a ground colour.")
@@ -209,17 +317,42 @@ BUILTIN: dict[str, dict[str, Any]] = {
         "about": "The default: white cards on a cool grey page, Source Sans, one blue accent, colour-blind-safe series colours, soft shadows; light and dark.",
         "mode": "device",
         "light": {
-            "ground": "#f3f5f9", "bg": "#f3f5f9", "surface": "#ffffff", "border": "#e4e9f0", "text": "#152033",
-            "text-muted": "#64748b", "accent": "#0072b2", "green": "#15803d", "orange": "#b45309", "red": "#dc2626",
-            "header": "#f3f5f9", "header-ink": "#152033",
+            "ground": "#f3f5f9",
+            "bg": "#f3f5f9",
+            "surface": "#ffffff",
+            "border": "#e4e9f0",
+            "text": "#152033",
+            "text-muted": "#64748b",
+            "accent": "#0072b2",
+            "green": "#15803d",
+            "orange": "#b45309",
+            "red": "#dc2626",
+            "header": "#f3f5f9",
+            "header-ink": "#152033",
         },
         "dark": {
-            "ground": "#0d131c", "bg": "#0d131c", "surface": "#161f2c", "border": "#243044", "text": "#e6ecf5",
-            "text-muted": "#93a1b7", "accent": "#56b4e9", "green": "#4cc38a", "orange": "#e8a347", "red": "#f27474",
-            "header": "#0d131c", "header-ink": "#e6ecf5",
+            "ground": "#0d131c",
+            "bg": "#0d131c",
+            "surface": "#161f2c",
+            "border": "#243044",
+            "text": "#e6ecf5",
+            "text-muted": "#93a1b7",
+            "accent": "#56b4e9",
+            "green": "#4cc38a",
+            "orange": "#e8a347",
+            "red": "#f27474",
+            "header": "#0d131c",
+            "header-ink": "#e6ecf5",
         },
-        "font": "source-sans-3", "display": "source-sans-3", "radius": 12, "shadow": "soft", "density": "comfortable",
-        "card": "raised", "frame": "plain", "header": "plain", "kpi": "plain",
+        "font": "source-sans-3",
+        "display": "source-sans-3",
+        "radius": 12,
+        "shadow": "soft",
+        "density": "comfortable",
+        "card": "raised",
+        "frame": "plain",
+        "header": "plain",
+        "kpi": "plain",
         # Okabe-Ito: a reader with any common colour vision can tell the series apart (the story's own palette).
         "palette": ["#0072B2", "#E69F00", "#009E73", "#D55E00", "#56B4E9", "#CC79A7", "#F0E442", "#999999"],
     },
@@ -228,17 +361,43 @@ BUILTIN: dict[str, dict[str, Any]] = {
         "about": "Pastel cards in a rounded app frame with a teal icon rail; light and dark.",
         "mode": "device",
         "light": {
-            "ground": "#d7eeef", "bg": "#f3fafa", "surface": "#ffffff", "border": "#e2edf0", "text": "#1c3946",
-            "text-muted": "#66838f", "accent": "#11a9ba", "green": "#18a56b", "orange": "#c98a10", "red": "#e8615e",
-            "rail": "#15b0bf", "rail-ink": "#ffffff",
+            "ground": "#d7eeef",
+            "bg": "#f3fafa",
+            "surface": "#ffffff",
+            "border": "#e2edf0",
+            "text": "#1c3946",
+            "text-muted": "#66838f",
+            "accent": "#11a9ba",
+            "green": "#18a56b",
+            "orange": "#c98a10",
+            "red": "#e8615e",
+            "rail": "#15b0bf",
+            "rail-ink": "#ffffff",
         },
         "dark": {
-            "ground": "#0b181d", "bg": "#10232a", "surface": "#15303a", "border": "#224450", "text": "#e1f0f3",
-            "text-muted": "#8eacb7", "accent": "#2ec6d3", "green": "#47d49a", "orange": "#f6c45b", "red": "#f38884",
-            "rail": "#0d8995", "rail-ink": "#e9fbfc",
+            "ground": "#0b181d",
+            "bg": "#10232a",
+            "surface": "#15303a",
+            "border": "#224450",
+            "text": "#e1f0f3",
+            "text-muted": "#8eacb7",
+            "accent": "#2ec6d3",
+            "green": "#47d49a",
+            "orange": "#f6c45b",
+            "red": "#f38884",
+            "rail": "#0d8995",
+            "rail-ink": "#e9fbfc",
         },
-        "font": "nunito-sans", "display": "nunito", "radius": 20, "shadow": "soft", "density": "airy", "card": "raised",
-        "frame": "rail", "inset": True, "header": "plain", "kpi": "tile",
+        "font": "nunito-sans",
+        "display": "nunito",
+        "radius": 20,
+        "shadow": "soft",
+        "density": "airy",
+        "card": "raised",
+        "frame": "rail",
+        "inset": True,
+        "header": "plain",
+        "kpi": "tile",
         "palette": ["#11a9ba", "#5b59e0", "#f2b33d", "#e8615e", "#18a56b", "#8f8cff", "#2ec6d3", "#f38884"],
     },
     "harbor": {
@@ -246,17 +405,46 @@ BUILTIN: dict[str, dict[str, Any]] = {
         "about": "An admin console: navy sidebar for the filters, crisp white cards, blue accent; light and dark.",
         "mode": "device",
         "light": {
-            "ground": "#f2f4f8", "bg": "#f2f4f8", "surface": "#ffffff", "border": "#e5e9f0", "text": "#172133",
-            "text-muted": "#66748a", "accent": "#1f7cf0", "green": "#1e9a61", "orange": "#c77f12", "red": "#d8474c",
-            "rail": "#0d1f3e", "rail-ink": "#b6c4dc", "header": "#ffffff", "header-ink": "#172133",
+            "ground": "#f2f4f8",
+            "bg": "#f2f4f8",
+            "surface": "#ffffff",
+            "border": "#e5e9f0",
+            "text": "#172133",
+            "text-muted": "#66748a",
+            "accent": "#1f7cf0",
+            "green": "#1e9a61",
+            "orange": "#c77f12",
+            "red": "#d8474c",
+            "rail": "#0d1f3e",
+            "rail-ink": "#b6c4dc",
+            "header": "#ffffff",
+            "header-ink": "#172133",
         },
         "dark": {
-            "ground": "#0a111c", "bg": "#0a111c", "surface": "#111a29", "border": "#1f2b3e", "text": "#e3e9f3",
-            "text-muted": "#8b99af", "accent": "#3d94ff", "green": "#36bf80", "orange": "#e0a13a", "red": "#f06a6e",
-            "rail": "#060c17", "rail-ink": "#8ea0bf", "header": "#111a29", "header-ink": "#e3e9f3",
+            "ground": "#0a111c",
+            "bg": "#0a111c",
+            "surface": "#111a29",
+            "border": "#1f2b3e",
+            "text": "#e3e9f3",
+            "text-muted": "#8b99af",
+            "accent": "#3d94ff",
+            "green": "#36bf80",
+            "orange": "#e0a13a",
+            "red": "#f06a6e",
+            "rail": "#060c17",
+            "rail-ink": "#8ea0bf",
+            "header": "#111a29",
+            "header-ink": "#e3e9f3",
         },
-        "font": "source-sans-3", "display": "source-sans-3", "radius": 8, "shadow": "soft", "density": "comfortable",
-        "card": "raised", "frame": "sidebar", "header": "bar", "kpi": "plain",
+        "font": "source-sans-3",
+        "display": "source-sans-3",
+        "radius": 8,
+        "shadow": "soft",
+        "density": "comfortable",
+        "card": "raised",
+        "frame": "sidebar",
+        "header": "bar",
+        "kpi": "plain",
         "palette": ["#1f7cf0", "#6aa8f6", "#1e9a61", "#d8474c", "#c77f12", "#8b5cf6", "#0ea5a5", "#b9d7fb"],
     },
     "nocturne": {
@@ -264,12 +452,28 @@ BUILTIN: dict[str, dict[str, Any]] = {
         "about": "Dark gradient with a banner header, glowing gradient KPI tiles and glass cards; dark only.",
         "mode": "dark",
         "dark": {
-            "ground": "#0f111c", "bg": "#0f111c", "surface": "#1f2337", "border": "#2a2f47", "text": "#eceefb",
-            "text-muted": "#969cba", "accent": "#a855f7", "green": "#34d399", "orange": "#fbbf24", "red": "#fb7185",
-            "header": "#3b1d6e", "header-ink": "#ffffff",
+            "ground": "#0f111c",
+            "bg": "#0f111c",
+            "surface": "#1f2337",
+            "border": "#2a2f47",
+            "text": "#eceefb",
+            "text-muted": "#969cba",
+            "accent": "#a855f7",
+            "green": "#34d399",
+            "orange": "#fbbf24",
+            "red": "#fb7185",
+            "header": "#3b1d6e",
+            "header-ink": "#ffffff",
         },
-        "font": "manrope", "display": "sora", "radius": 18, "shadow": "glow", "density": "comfortable",
-        "card": "glass", "frame": "banner", "header": "gradient", "kpi": "gradient",
+        "font": "manrope",
+        "display": "sora",
+        "radius": 18,
+        "shadow": "glow",
+        "density": "comfortable",
+        "card": "glass",
+        "frame": "banner",
+        "header": "gradient",
+        "kpi": "gradient",
         "palette": ["#a855f7", "#e046c4", "#22d3ee", "#3b82f6", "#34d399", "#fbbf24", "#fb7185", "#818cf8"],
     },
     "ledger": {
@@ -277,17 +481,40 @@ BUILTIN: dict[str, dict[str, Any]] = {
         "about": "Warm paper, serif headings and thin rules: a printed management report; light and dark.",
         "mode": "device",
         "light": {
-            "bg": "#faf7f2", "surface": "#fffdf9", "border": "#e6dfd2", "text": "#2b2620", "text-muted": "#7a6f60",
-            "accent": "#9c3d1f", "green": "#3f7d4e", "orange": "#b7791f", "red": "#b3261e",
-            "header": "#faf7f2", "header-ink": "#2b2620",
+            "bg": "#faf7f2",
+            "surface": "#fffdf9",
+            "border": "#e6dfd2",
+            "text": "#2b2620",
+            "text-muted": "#7a6f60",
+            "accent": "#9c3d1f",
+            "green": "#3f7d4e",
+            "orange": "#b7791f",
+            "red": "#b3261e",
+            "header": "#faf7f2",
+            "header-ink": "#2b2620",
         },
         "dark": {
-            "bg": "#1b1814", "surface": "#25211b", "border": "#3a342b", "text": "#efe8da", "text-muted": "#a89c88",
-            "accent": "#e08a63", "green": "#79b88a", "orange": "#e0b04f", "red": "#e5736b",
-            "header": "#1b1814", "header-ink": "#efe8da",
+            "bg": "#1b1814",
+            "surface": "#25211b",
+            "border": "#3a342b",
+            "text": "#efe8da",
+            "text-muted": "#a89c88",
+            "accent": "#e08a63",
+            "green": "#79b88a",
+            "orange": "#e0b04f",
+            "red": "#e5736b",
+            "header": "#1b1814",
+            "header-ink": "#efe8da",
         },
-        "font": "serif", "display": "serif", "radius": 3, "shadow": "none", "density": "comfortable",
-        "card": "outlined", "frame": "plain", "header": "plain", "kpi": "plain",
+        "font": "serif",
+        "display": "serif",
+        "radius": 3,
+        "shadow": "none",
+        "density": "comfortable",
+        "card": "outlined",
+        "frame": "plain",
+        "header": "plain",
+        "kpi": "plain",
         "palette": ["#9c3d1f", "#2f6f8f", "#3f7d4e", "#b7791f", "#6b4c9a", "#8a8a3a", "#c0576b", "#4d4d4d"],
     },
     "slate": {
@@ -295,17 +522,40 @@ BUILTIN: dict[str, dict[str, Any]] = {
         "about": "Neutral and compact: flat grey-blue cards, tight spacing, nothing decorative; light and dark.",
         "mode": "device",
         "light": {
-            "bg": "#eef1f5", "surface": "#f9fafc", "border": "#d9dee7", "text": "#1d2733", "text-muted": "#5f6d7e",
-            "accent": "#3b6fb6", "green": "#2f855a", "orange": "#b7791f", "red": "#c53030",
-            "header": "#f9fafc", "header-ink": "#1d2733",
+            "bg": "#eef1f5",
+            "surface": "#f9fafc",
+            "border": "#d9dee7",
+            "text": "#1d2733",
+            "text-muted": "#5f6d7e",
+            "accent": "#3b6fb6",
+            "green": "#2f855a",
+            "orange": "#b7791f",
+            "red": "#c53030",
+            "header": "#f9fafc",
+            "header-ink": "#1d2733",
         },
         "dark": {
-            "bg": "#141a22", "surface": "#1c242f", "border": "#2b3644", "text": "#dbe3ee", "text-muted": "#8a98ab",
-            "accent": "#6c9bd8", "green": "#4caf82", "orange": "#d9a441", "red": "#e06666",
-            "header": "#1c242f", "header-ink": "#dbe3ee",
+            "bg": "#141a22",
+            "surface": "#1c242f",
+            "border": "#2b3644",
+            "text": "#dbe3ee",
+            "text-muted": "#8a98ab",
+            "accent": "#6c9bd8",
+            "green": "#4caf82",
+            "orange": "#d9a441",
+            "red": "#e06666",
+            "header": "#1c242f",
+            "header-ink": "#dbe3ee",
         },
-        "font": "system", "display": "system", "radius": 6, "shadow": "none", "density": "compact",
-        "card": "flat", "frame": "plain", "header": "bar", "kpi": "plain",
+        "font": "system",
+        "display": "system",
+        "radius": 6,
+        "shadow": "none",
+        "density": "compact",
+        "card": "flat",
+        "frame": "plain",
+        "header": "bar",
+        "kpi": "plain",
         "palette": ["#3b6fb6", "#2f855a", "#b7791f", "#c53030", "#6b46c1", "#2c7a7b", "#97266d", "#718096"],
     },
     "signal": {
@@ -313,17 +563,40 @@ BUILTIN: dict[str, dict[str, Any]] = {
         "about": "High contrast and large type, colour-blind-safe palette: for a screen read from across a room; light and dark.",
         "mode": "device",
         "light": {
-            "bg": "#ffffff", "surface": "#ffffff", "border": "#1a1a1a", "text": "#000000", "text-muted": "#3d3d3d",
-            "accent": "#0057b8", "green": "#007a4d", "orange": "#b45f06", "red": "#c00000",
-            "header": "#ffffff", "header-ink": "#000000",
+            "bg": "#ffffff",
+            "surface": "#ffffff",
+            "border": "#1a1a1a",
+            "text": "#000000",
+            "text-muted": "#3d3d3d",
+            "accent": "#0057b8",
+            "green": "#007a4d",
+            "orange": "#b45f06",
+            "red": "#c00000",
+            "header": "#ffffff",
+            "header-ink": "#000000",
         },
         "dark": {
-            "bg": "#000000", "surface": "#0a0a0a", "border": "#f2f2f2", "text": "#ffffff", "text-muted": "#d0d0d0",
-            "accent": "#56b4e9", "green": "#3ddc97", "orange": "#ffb000", "red": "#ff6b6b",
-            "header": "#000000", "header-ink": "#ffffff",
+            "bg": "#000000",
+            "surface": "#0a0a0a",
+            "border": "#f2f2f2",
+            "text": "#ffffff",
+            "text-muted": "#d0d0d0",
+            "accent": "#56b4e9",
+            "green": "#3ddc97",
+            "orange": "#ffb000",
+            "red": "#ff6b6b",
+            "header": "#000000",
+            "header-ink": "#ffffff",
         },
-        "font": "system", "display": "condensed", "radius": 4, "shadow": "none", "density": "airy",
-        "card": "outlined", "frame": "plain", "header": "bar", "kpi": "tile",
+        "font": "system",
+        "display": "condensed",
+        "radius": 4,
+        "shadow": "none",
+        "density": "airy",
+        "card": "outlined",
+        "frame": "plain",
+        "header": "bar",
+        "kpi": "tile",
         "palette": ["#0072B2", "#E69F00", "#009E73", "#D55E00", "#56B4E9", "#CC79A7", "#F0E442", "#999999"],
     },
 }
@@ -350,7 +623,9 @@ def resolve_look(value: Any, resolve_path: Any = None) -> dict[str, Any]:
             return validate_look(json.loads(path.read_text(encoding="utf-8")))
         except json.JSONDecodeError as exc:
             raise LookError(f"look file {path.name!r} is not JSON: {exc}") from exc
-    raise LookError(f"unknown look {name!r}. Built-in: {', '.join(BUILTIN)}; or a saved look (.json), or a look as a dict.")
+    raise LookError(
+        f"unknown look {name!r}. Built-in: {', '.join(BUILTIN)}; or a saved look (.json), or a look as a dict."
+    )
 
 
 def effective_theme(look: dict[str, Any] | None, theme: str) -> str:
@@ -379,7 +654,10 @@ def chart_theme(look: dict[str, Any], mode: str) -> dict[str, Any]:
     """What a Plotly figure needs to sit on this look's cards: their colour, the text colour, the grid."""
     t = mode_tokens(look, mode)
     family = STACKS.get(look["font"], look["font"])
-    return {"bg": t["surface"], "font": t["text"], "family": family, "grid": t["border"], "palette": look.get("palette")}
+    return {
+        "bg": t["surface"], "font": t["text"], "family": family, "grid": t["border"], "palette": look.get("palette"),
+        "chart": look.get("chart") or {},
+    }  # fmt: skip
 
 
 def _vars(tokens: dict[str, str]) -> str:
@@ -467,11 +745,95 @@ def _kpi_css(look: dict[str, Any]) -> str:
             f"{tiles}{{border-color:transparent;color:#fff;background:linear-gradient(135deg,var(--c,var(--accent)),"
             "color-mix(in srgb,var(--c,var(--accent)) 55%,#000))}"
             + tones
-            + ".kpi-val,.kpi-lbl,.kpi-trend,.cc-kpi .kpi-big,.cc-kpi h3,.cc-kpi .kpi-sub,.cc-kpi .kpi-delta,"
+            + ".kpi-val,.kpi-lbl,.kpi-trend,.cc-kpi .kpi-big,.cc-kpi h3,.cc-kpi .cc-hdr h3,.cc-kpi .kpi-sub,.cc-kpi .kpi-delta,"
             ".cc-kpi .kpi-delta span{color:#fff}.kpi-lbl,.cc-kpi .kpi-sub{opacity:.8}"
             ".cc-kpi .cc-hdr{border-bottom:0}"
         )
+    if style == "outline":
+        return (
+            f"{tiles}{{background:transparent;box-shadow:none;border:1.5px solid var(--c,var(--accent))}}"
+            + tones
+            + ".kpi-val,.cc-kpi .kpi-big{color:var(--c,var(--accent))}"
+        )
+    if style == "bar":
+        return f"{tiles}{{border-left:4px solid var(--c,var(--accent))}}" + tones
+    if style == "minimal":
+        return (
+            f"{tiles}{{background:transparent;border-color:transparent;box-shadow:none}}.cc-kpi .cc-hdr{{border-bottom:0}}"
+            ".cc-kpi .kpi-big,.kpi-val{font-size:clamp(1.6rem,14cqi,2.75rem)}"
+        )
     return ""
+
+
+def _tabs_css(style: str) -> str:
+    if style == "underline":
+        return (
+            ".tabs{border-bottom:1px solid var(--border);gap:.25rem}"
+            ".tabs .tab-btn{background:transparent;border:0;border-radius:0;border-bottom:2px solid transparent;"
+            "color:var(--text-muted);padding-inline:.75rem}"
+            ".tabs .tab-btn[aria-selected=true]{background:transparent;color:var(--accent);border-bottom-color:var(--accent)}"
+        )
+    if style == "segmented":
+        return (
+            ".tabs{display:inline-flex;gap:0;padding:.25rem;border-radius:calc(var(--r)*.8);"
+            "background:color-mix(in srgb,var(--text) 7%,var(--surface))}"
+            ".tabs .tab-btn{background:transparent;border:0;border-radius:calc(var(--r)*.6);color:var(--text-muted)}"
+            ".tabs .tab-btn[aria-selected=true]{background:var(--surface);color:var(--text);"
+            "box-shadow:0 1px 3px rgba(0,0,0,.14)}"
+        )
+    return ""
+
+
+_BACKGROUND_CSS = {
+    "gradient": "body{background-image:linear-gradient(160deg,var(--bg),color-mix(in srgb,var(--bg) 80%,var(--accent)));"
+    "background-attachment:fixed}",
+    "dots": "body{background-image:radial-gradient(color-mix(in srgb,var(--text) 15%,transparent) 1px,transparent 1.3px);"
+    "background-size:18px 18px}",
+    "grid": "body{background-image:linear-gradient(color-mix(in srgb,var(--text) 7%,transparent) 1px,transparent 1px),"
+    "linear-gradient(90deg,color-mix(in srgb,var(--text) 7%,transparent) 1px,transparent 1px);background-size:28px 28px}",
+}
+
+
+def _extras_css(look: dict[str, Any]) -> str:
+    """What a look says beyond the base vocabulary: type, spacing, the page's ground, tabs and the KPI's parts."""
+    css = ""
+    typ, space = look.get("type") or {}, look.get("space") or {}
+    if "scale" in typ:
+        css += f"html{{font-size:{round(typ['scale'] * 100, 1)}%}}"
+    titles = ""
+    if "title_weight" in typ:
+        titles += f"font-weight:{typ['title_weight']};"
+    if typ.get("title_case") == "upper":
+        titles += f"text-transform:uppercase;letter-spacing:{typ.get('tracking', 0.06)}em;font-size:.75rem;"
+    elif "tracking" in typ:
+        titles += f"letter-spacing:{typ['tracking']}em;"
+    if titles:
+        css += f".cc-hdr h3,.sec-hdr,.cc-sec{{{titles}}}"
+    if "numerals" in typ:
+        css += (
+            ".kpi-big,.kpi-val,.ptable .num,.kpi-delta,.fsum,.row-ctr{font-variant-numeric:"
+            f"{'tabular-nums' if typ['numerals'] == 'tabular' else 'proportional-nums'}}}"
+        )
+    if "gap" in space:
+        css += f".cgrid,.kpi-row{{gap:{space['gap']}rem}}"
+    if space.get("max_width"):
+        css += f"body{{max-width:{space['max_width']}rem;margin-inline:auto}}"
+    if "border_width" in look:
+        width = look["border_width"]
+        css += (
+            f".cc,.kpi-card,.tbl-card,.mbox{{border:{width}px solid var(--border)}}"
+            if width
+            else ".cc,.kpi-card,.tbl-card,.mbox{border:0}"
+        )
+    if look.get("bg") in _BACKGROUND_CSS:
+        css += _BACKGROUND_CSS[look["bg"]]
+    if look.get("tabs") and look["frame"] != "rail":  # a rail is the tabs' own frame
+        css += _tabs_css(look["tabs"])
+    if look.get("kpi_spark") is False:
+        css += ".kpi-spark{display:none}"
+    if look.get("kpi_delta") == "text":
+        css += ".kpi-delta b{background:none;padding:0}"
+    return css
 
 
 def _card_css(look: dict[str, Any]) -> str:
@@ -526,7 +888,16 @@ def look_css(look: dict[str, Any]) -> str:
         "border-color:color-mix(in srgb,var(--accent) 38%,transparent)}"
     )
     return (
-        "/* look */" + font_css(look) + root + shape + pills + _card_css(look) + _header_css(look) + _kpi_css(look) + _frame_css(look)
+        "/* look */"
+        + font_css(look)
+        + root
+        + shape
+        + pills
+        + _card_css(look)
+        + _header_css(look)
+        + _kpi_css(look)
+        + _frame_css(look)
+        + _extras_css(look)
     )
 
 
@@ -610,7 +981,12 @@ def _role_of(name: str) -> str:
     lowered = name.lower()
     for role, words in _ROLE_WORDS:
         for word in words:
-            if lowered == word or lowered.startswith(word + "-") or lowered.endswith("-" + word) or word in lowered.split("-"):
+            if (
+                lowered == word
+                or lowered.startswith(word + "-")
+                or lowered.endswith("-" + word)
+                or word in lowered.split("-")
+            ):
                 return role
     return ""
 
@@ -699,7 +1075,10 @@ def _pick_face(text: str) -> str:
         return "rounded"
     if "condensed" in lowered or "narrow" in lowered:
         return "condensed"
-    if any(w in lowered for w in ("segoe", "candara", "trebuchet", "optima", "source sans", "lato", "open sans", "manrope", "sora")):
+    if any(
+        w in lowered
+        for w in ("segoe", "candara", "trebuchet", "optima", "source sans", "lato", "open sans", "manrope", "sora")
+    ):
         return "humanist"
     return "system"
 
@@ -804,11 +1183,17 @@ def digest_html(text: str, name: str = "") -> tuple[dict[str, Any], dict[str, An
         look["mode"] = "dark"
         look["dark"] = look.pop("light")
         notes.append("the mockup's colours are dark and it has no light set: the look is dark only.")
-    palette = [v for k, v in blocks["light"].items() if is_colour(_resolve(v, blocks["light"])) and _role_of(k) in ("", "accent", "green", "red", "orange")]
+    palette = [
+        v
+        for k, v in blocks["light"].items()
+        if is_colour(_resolve(v, blocks["light"])) and _role_of(k) in ("", "accent", "green", "red", "orange")
+    ]
     palette = [_resolve(c, blocks["light"]) for c in palette][:8]
     if len(palette) >= 3:
         look["palette"] = list(dict.fromkeys(palette))
-    unread = sorted(k for k, v in blocks["light"].items() if is_colour(_resolve(v, blocks["light"])) and not _role_of(k))
+    unread = sorted(
+        k for k, v in blocks["light"].items() if is_colour(_resolve(v, blocks["light"])) and not _role_of(k)
+    )
     report = {
         "read_by_name": found_by_name,
         "read_from_rules": guessed,

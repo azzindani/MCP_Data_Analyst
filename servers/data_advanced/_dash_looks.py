@@ -13,14 +13,17 @@ if _ROOT not in sys.path:
 
 from shared.dashboard_looks import (
     BUILTIN,
+    GRAMMAR,
     TOKENS,
     LookError,
     digest_html,
+    grammar,
     mode_tokens,
     resolve_look,
     validate_look,
 )
 from shared.file_utils import atomic_write_text, error_text, hint_for_error, resolve_path
+from shared.look_maker import BRAND_KEYS, MOODS, look_from_brand
 from shared.mockup_layout import digest_arrangement
 from shared.progress import fail, info, ok
 from shared.receipt import append_receipt
@@ -58,14 +61,19 @@ def _refusal(error: str, hint: str, label: str = "Looks refused") -> dict:
     }
 
 
-def dashboard_looks(name: str = "", source: str = "", overrides: dict | None = None, output_path: str = "") -> dict:
+def dashboard_looks(
+    name: str = "", source: str = "", overrides: dict | None = None, output_path: str = "", brand: dict | None = None
+) -> dict:
     progress: list[dict] = []
     try:
-        if name and source:
-            return _refusal("Pass name or source, not both.", "name starts from a look; source reads an HTML mockup.")
+        if sum(bool(x) for x in (name, source, brand)) > 1:
+            return _refusal(
+                "Pass one of name, source or brand.",
+                "name starts from a look; source reads an HTML mockup; brand makes a look from an accent and a mood.",
+            )
         report: dict = {}
         arrangement: dict = {}
-        if not name and not source and not overrides:
+        if not name and not source and not overrides and not brand:
             listing = [_summary(n, validate_look(look)) for n, look in BUILTIN.items()]
             progress.append(ok("Looks listed", f"{len(listing)} built in"))
             return {
@@ -73,10 +81,14 @@ def dashboard_looks(name: str = "", source: str = "", overrides: dict | None = N
                 "op": "dashboard_looks",
                 "looks": listing,
                 "tokens": list(TOKENS),
+                "grammar": grammar(),
+                "moods": {k: v["about"] for k, v in MOODS.items()},
                 "hint": (
-                    "Use one with generate_dashboard(spec={'style': {'look': 'lagoon'}}). Start from one with "
-                    "name and overrides (a look is data: {'frame': 'banner', 'radius': 6}), or read an HTML "
-                    "mockup with source; output_path saves the result as a .json look the spec can name."
+                    "Use one with generate_dashboard(spec={'style': {'look': 'lagoon'}}). Define your own: "
+                    "brand={'accent': '#7c3aed', 'mood': 'editorial'} makes a complete look from an accent and a "
+                    "mood (contrast-checked, light and dark); name and overrides change one key by key "
+                    "(`grammar` lists every key and what it takes, e.g. {'chart': {'bar_radius': 8}, 'tabs': "
+                    "'underline'}); source reads an HTML mockup; output_path saves a .json look the spec can name."
                 ),
                 "progress": progress,
                 "token_estimate": 700,
@@ -103,6 +115,22 @@ def dashboard_looks(name: str = "", source: str = "", overrides: dict | None = N
             report["frame"] = f"{arrangement['frame']} (from {arrangement['report']['frame_from']})"
             progress.append(ok(f"Read {path.name}", f"{len(report['read_by_name'])} token(s) by name"))
             label = path.stem
+        elif brand:
+            if not isinstance(brand, dict):
+                return _refusal(
+                    "brand is a dict: {'accent': '#7c3aed', 'mood': 'calm'}.", f"Keys: {', '.join(BRAND_KEYS)}."
+                )
+            unknown = sorted(str(k) for k in brand if k not in BRAND_KEYS)
+            if unknown or "accent" not in brand:
+                return _refusal(
+                    "brand needs an accent"
+                    + (f" and has unknown key(s): {', '.join(unknown)}" if unknown else "")
+                    + ".",
+                    f"brand takes {', '.join(BRAND_KEYS)}; moods are {', '.join(MOODS)}.",
+                )
+            look, report = look_from_brand(**brand)
+            progress.append(ok("Look made", f"{brand.get('mood', 'calm')} in {brand['accent']}"))
+            label = str(look.get("label", "brand"))
         elif name:
             look = resolve_look(name, resolve_path)
             label = name
@@ -115,10 +143,13 @@ def dashboard_looks(name: str = "", source: str = "", overrides: dict | None = N
                 return _refusal(
                     "overrides is a dict of look keys, e.g. {'frame': 'banner'}.", "See `looks` for the keys."
                 )
-            merged = {**look, **{k: v for k, v in overrides.items() if k not in ("light", "dark")}}
-            for mode in ("light", "dark"):
-                if isinstance(overrides.get(mode), dict):
-                    merged[mode] = {**look.get(mode, {}), **overrides[mode]}
+            groups = ("light", "dark", *GRAMMAR)  # colour tokens and chart/type/space change key by key, not whole
+            merged = {**look, **{k: v for k, v in overrides.items() if k not in groups}}
+            for group in groups:
+                if isinstance(overrides.get(group), dict):
+                    merged[group] = {**look.get(group, {}), **overrides[group]}
+                elif group in overrides:
+                    merged[group] = overrides[group]  # not a dict: validation says so by name
             look = validate_look(merged)
             progress.append(info("Overrides applied", ", ".join(sorted(overrides))))
         result: dict = {"success": True, "op": "dashboard_looks", "look": look, "progress": progress}
@@ -135,7 +166,7 @@ def dashboard_looks(name: str = "", source: str = "", overrides: dict | None = N
             append_receipt(
                 str(out),
                 tool="dashboard_looks",
-                args={"name": name, "source": Path(source).name},
+                args={"name": name, "source": Path(source).name, "brand": bool(brand)},
                 result=label,
                 backup=backup,
             )

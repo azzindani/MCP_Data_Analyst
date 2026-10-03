@@ -6,6 +6,25 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added — a look you define yourself
+
+Four built-in looks were all a caller could pick, and a look could say little about how the marks are drawn.
+
+- A look now says how the marks are drawn (`chart`: line width, curve, markers, area, bar corners and gap, grid, axis
+  line, type size, tooltip), its type (`type`: scale, title weight and case, tracking, numerals), its spacing
+  (`space`: gap, maximum width), its `tabs` (pills, underline, segmented), the page's ground (`bg`: solid, gradient,
+  dots, grid), `border_width`, and three more KPI tiles (`outline`, `bar`, `minimal`) with `kpi_spark` and
+  `kpi_delta`. Every value is a named choice or a number in a range; a bad one is refused naming the key and what it
+  takes, and nothing a caller writes reaches the stylesheet as text. A look that says none of it is drawn as before.
+- `dashboard_looks(brand={accent, mood, mode, font})` makes a complete look from an accent and a mood (calm, bold,
+  editorial, technical, playful): the greys carry the accent's hue, text is 12:1 and secondary text and the accent
+  4.5:1 on the card in light and in dark (the accent is moved along its lightness, never its hue, and the report says
+  so), and the series colours are the colour-blind-safe set with the accent first. `overrides` then change a group
+  key by key; with no arguments the action lists the `grammar` and the `moods`.
+- Fixed: the title of a gradient KPI tile was the card's muted grey on the gradient and could not be read, and a
+  KPI number in a wide typeface wrapped under itself in a narrow tile.
+- Tests: `test_a_look_you_define_yourself.py` pins each, run once with its fix switched off.
+
 ### Fixed — a dashboard that does not freeze, and fits a desktop, a tablet and a phone
 
 A 73,100-row page spent 1.1 of every 1.6 seconds of a redraw on one scatter chart in a tab nobody had opened:
