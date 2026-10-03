@@ -131,7 +131,12 @@ def _cartesian(figures: dict) -> dict:
 class TestAxisLabelsStayLevelUnlessCrowded:
     def test_rotation_is_left_to_plotly_on_every_axis_that_has_categories(self, rendered: str):
         figures = drawn(rendered)["figures"]
-        bars = {cid: f for cid, f in figures.items() if f["data"] and f["data"][0]["type"] == "bar"}
+        # A horizontal bar's categories are on y and its x axis is values (a ranked list hides it).
+        bars = {
+            cid: f
+            for cid, f in figures.items()
+            if f["data"] and f["data"][0]["type"] == "bar" and f["data"][0].get("orientation") != "h"
+        }
         assert bars, "the fixture draws bar charts"
         for cid, f in bars.items():
             assert f["layout"]["xaxis"]["tickangle"] == "auto", cid

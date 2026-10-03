@@ -210,14 +210,6 @@ EXT_CSS = """
 .callout{border-radius:8px;padding:.625rem .875rem;border:1px solid var(--border)}
 .callout-info{background:rgba(9,105,218,.08)}.callout-good{background:rgba(45,164,78,.1)}.callout-warn{background:rgba(191,135,0,.12)}.callout-bad{background:rgba(207,34,46,.1)}
 .cc-div{grid-column:1/-1;border-top:1px solid var(--border);margin:.25rem 0}
-.rank{list-style:none;margin:0;padding:.25rem 0}
-.rank li{display:grid;grid-template-columns:1.75rem minmax(0,1fr) auto;column-gap:.5rem;row-gap:.25rem;align-items:baseline;padding:.4rem 0}
-.rank .rk{color:var(--text-muted);font-variant-numeric:tabular-nums;font-size:.8125rem}
-.rank .rn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font-size:.875rem}
-.rank .rv{font-variant-numeric:tabular-nums;font-weight:600;font-size:.875rem;color:var(--text)}
-.rank .rv i{font-style:normal;font-weight:400;color:var(--text-muted);font-size:.75rem;margin-left:.25rem}
-.rank .rb{grid-column:2/-1;height:.375rem;border-radius:999px;background:color-mix(in srgb,var(--border) 70%,transparent);overflow:hidden}
-.rank .rb b{display:block;height:100%;border-radius:999px;background:var(--accent)}
 .pimg{max-width:100%;max-height:100%;object-fit:contain;display:block;margin:auto}
 .dash-logo{height:2rem;width:auto;margin-right:.75rem;vertical-align:middle}
 .clk-chip{display:inline-flex;align-items:center;gap:.25rem;margin:0 .375rem .25rem 0;padding:.125rem .5rem;border-radius:999px;border:1px solid var(--accent);font-size:.75rem;cursor:pointer;background:transparent;color:var(--text)}
@@ -388,15 +380,21 @@ HTMLP_AFTER.kpi=function(p,d){
   var el=document.getElementById(p.id+'-sp');if(!el||!window.Plotly)return;
   var g=_rgroups(d,function(r){return _bucket(r[p.date],p.grain||'month');});
   var keys=Array.from(g.keys()).filter(function(k){return!p.complete||k<=p.complete;}).sort().slice(-24);
-  var ys=keys.map(function(k){return _measure(p,g.get(k));}).filter(function(y){return isFinite(y);});
+  var pts=keys.map(function(k){return[k,_measure(p,g.get(k))];}).filter(function(q){return isFinite(q[1]);});
+  var xs=pts.map(function(q){return q[0];}),ys=pts.map(function(q){return q[1];});
   if(ys.length<3){el.remove();return;}
   var a=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#58a6ff',
       m=/^#([0-9a-f]{6})$/i.exec(a),
       f=m?'rgba('+parseInt(m[1].slice(0,2),16)+','+parseInt(m[1].slice(2,4),16)+','+parseInt(m[1].slice(4,6),16)+',0.12)':'rgba(88,166,255,0.1)';
   var lo=Math.min.apply(null,ys),hi=Math.max.apply(null,ys),pad=Math.max((hi-lo)*0.18,Math.abs(hi)*0.02,1e-9);
-  Plotly.react(el,[{y:ys,type:'scatter',mode:'lines',line:{color:a,width:1.5},fill:'tozeroy',fillcolor:f,hoverinfo:'skip'}],
-    {paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',margin:{l:0,r:0,t:0,b:0},xaxis:{visible:false},yaxis:{visible:false,range:[lo-pad,hi+pad]},showlegend:false},
-    {responsive:true,displayModeBar:false,staticPlot:true});
+  // Not a picture: hovering it reads the period and its value, with a crosshair. It is too small to zoom or drag.
+  Plotly.react(el,[{x:xs,y:ys,type:'scatter',mode:'lines',line:{color:a,width:1.5},fill:'tozeroy',fillcolor:f,
+      customdata:ys.map(function(y){return _fmtu(y,p);}),hovertemplate:'%{x}<br><b>%{customdata}</b><extra></extra>'}],
+    {paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',margin:{l:0,r:0,t:0,b:0},showlegend:false,dragmode:false,hovermode:'x',
+      hoverlabel:{font:{size:11}},
+      xaxis:{visible:false,fixedrange:true,showspikes:true,spikemode:'across',spikethickness:1,spikedash:'dot',spikecolor:a,spikesnap:'data'},
+      yaxis:{visible:false,fixedrange:true,range:[lo-pad,hi+pad]}},
+    {responsive:true,displayModeBar:false,scrollZoom:false,doubleClick:false});
 };
 
 // Ranked groups with a metric, or with the rest folded into "Other".
@@ -520,13 +518,17 @@ FIG.ts=function(p,d){
   var partial=!!(p.complete&&keys.length>1&&keys[keys.length-1]>p.complete),cut=partial?keys.length-1:keys.length;
   // The same at the start: a data set that begins on the 23rd has a short first month, which is no ramp up from nothing.
   var lead=!!(p.first&&cut>2&&keys[0]<p.first),from=lead?1:0;
-  var t=[{x:keys.slice(from,cut),y:vals.slice(from,cut),type:'scatter',mode:'lines+markers',name:_lab(p.metric||p.value),line:{color:s.color,width:2},marker:{size:4}}];
+  var t=[{x:keys.slice(from,cut),y:vals.slice(from,cut),type:'scatter',mode:'lines+markers',name:_lab(p.metric||p.value),line:{color:s.color,width:2},marker:{size:4},
+    customdata:vals.slice(from,cut).map(function(v){return _fmtu(v,p);}),hovertemplate:'%{customdata}<extra>%{fullData.name}</extra>'}];
   if(w>0){
     var ma=vals.slice(from,cut).map(function(_,i){if(i<w-1)return null;var a=0;for(var j=i-w+1;j<=i;j++)a+=vals[from+j];return a/w;});
     t.push({x:keys.slice(from+w-1,cut),y:ma.slice(w-1),type:'scatter',mode:'lines',name:w+'-period MA',line:{color:s.accent,width:2,dash:'dot'}});
   }
   // A designed page names a chart in its card header: no axis titles, the area under the line, the peak called out.
   var designed=!!_STYLE.look,lay=_axes(_merge({xaxis:{title:s.x_title||''},yaxis:_merge({title:s.y_title||(designed?'':p.metric||p.value)},_utick(p))},_legend(s,{showlegend:true,legend:{x:0,y:1.1,orientation:'h'}})));
+  // Hovering anywhere along a period reads every series at it, not only a point under the cursor.
+  lay.hovermode='x unified';
+  if(grain==='month')lay.xaxis=_merge(lay.xaxis||{},{hoverformat:'%b %Y'});
   if(s.fill){t[0].mode='lines';t[0].fill='tozeroy';t[0].fillcolor=_rgba(s.color,0.12);}
   var med=(function(){var a=vals.slice(from,cut).filter(isFinite).sort(function(x,y){return x-y;});return a.length?a[a.length>>1]:0;})();
   if(s.peak&&cut-from>2){
@@ -555,7 +557,7 @@ FIG.ts=function(p,d){
         // A partial period far outside that axis would leave the chart as a line to nowhere: it is said in words instead.
         if(partial&&(vals[keys.length-1]<lo-pad||vals[keys.length-1]>hi+pad)){
           t=t.filter(function(x){return partials.indexOf(x)<0;});
-          lay.annotations=(lay.annotations||[]).concat([{text:'latest period incomplete',xref:'paper',yref:'paper',x:1,y:1.06,xanchor:'right',showarrow:false,font:{size:10,color:_T().font}}]);
+          lay.annotations=(lay.annotations||[]).concat([{text:'latest period incomplete',xref:'paper',yref:'paper',x:1,y:1,yshift:-4,xanchor:'right',yanchor:'top',showarrow:false,font:{size:10,color:_T().font}}]);
         }}}
   }
   if(s.events&&s.events.length){
@@ -700,7 +702,7 @@ renderPanel=function(p,d){
   el._bound=true;
   el.on('plotly_click',function(ev){
     var pt=ev&&ev.points&&ev.points[0];if(!pt)return;
-    var v=String(p.style.orientation==='h'?pt.y:(pt.label!==undefined?pt.label:pt.x));
+    var v=String(p.style.orientation==='h'||p.type==='ranking'?pt.y:(pt.label!==undefined?pt.label:pt.x));
     if(p.style.drill&&_DRILL[p.id]===undefined){_DRILL[p.id]=v;_backBtn(p);applyF();return;}
     if(!_CROSS||!p.category||v.indexOf('Other (')===0)return;
     var col=_DRILL[p.id]!==undefined?p.style.drill:p.category;
@@ -759,18 +761,30 @@ document.querySelectorAll('.tab-btn').forEach(function(b){
 })();
 
 // --- a ranked list: the leaders, each with its share and a bar -----------------
-HTMLP.ranking=function(p,d){
+// It is a Plotly figure, so it hovers, zooms, pans, expands and filters the page like every other chart.
+FIG.ranking=function(p,d){
   var s=p.style,e=_ranked(p,d).filter(function(i){return isFinite(i[1]);});
-  if(!e.length)return'<p class="ptext">Nothing to rank.</p>';
-  var top=Math.max.apply(null,e.map(function(i){return Math.abs(i[1]);}))||1,sum=e.reduce(function(a,i){return a+Math.max(i[1],0);},0);
+  if(!e.length)return{data:[],layout:{xaxis:{visible:false},yaxis:{visible:false},margin:{l:8,r:8,t:8,b:8},
+    annotations:[{text:'Nothing to rank.',showarrow:false,xref:'paper',yref:'paper',x:0.5,y:0.5,font:{size:13}}]}};
+  // The whole is every group, not only the few listed: "36% of the total" is of the total.
+  var sum=_ranked(_merge(p,{style:_merge(s,{top_n:Infinity})}),d).reduce(function(a,i){return isFinite(i[1])?a+Math.max(i[1],0):a;},0);
   // A share of the whole only means something for what adds up: sums and counts, not averages or ratios.
   var adds=!p.metric&&(!p.agg||p.agg==='sum'||p.agg==='count');
-  return'<ol class="rank">'+e.map(function(i,n){
-    var w=Math.max(2,Math.abs(i[1])/top*100),share=adds&&sum>0&&i[1]>0?(i[1]/sum*100).toFixed(1)+'%':'';
-    return'<li><span class="rk">'+(n+1)+'</span><span class="rn">'+_esc(i[0])+'</span>'
-      +'<span class="rv">'+_esc(_fmtu(i[1],p))+(share?' <i>'+share+'</i>':'')+'</span>'
-      +'<span class="rb"><b style="width:'+w.toFixed(1)+'%'+(s.color?';background:'+_esc(s.color):'')+'"></b></span></li>';
-  }).join('')+'</ol>';
+  var share=e.map(function(i){return adds&&sum>0&&i[1]>0?(i[1]/sum*100).toFixed(1)+'%':'';});
+  var names=e.map(function(i){return String(i[0]);}),vals=e.map(function(i){return i[1];});
+  var hi=Math.max.apply(null,vals.concat([0])),lo=Math.min.apply(null,vals.concat([0]));
+  // Slim bars on a pale track, as a progress list reads: the bar's thickness is about the same with 3 rows or 10.
+  var gap=Math.min(0.85,Math.max(0.35,1-14/(280/e.length)));
+  var track=lo<0?[]:[{type:'bar',orientation:'h',x:vals.map(function(){return hi;}),y:names,hoverinfo:'skip',showlegend:false,
+    marker:{color:_rgba(_T().font,0.07),line:{width:0}}}];
+  return{data:track.concat([{type:'bar',orientation:'h',x:vals,y:names,marker:{color:s.color||_pal(p)[0],line:{width:0}},
+    text:e.map(function(i,n){return _fmtu(i[1],p)+(share[n]?' · '+share[n]:'');}),textposition:'outside',cliponaxis:false,
+    customdata:e.map(function(i,n){return[n+1,_fmtu(i[1],p),share[n]?' · '+share[n]+' of the total':''];}),
+    hovertemplate:'<b>#%{customdata[0]} %{y}</b><br>%{customdata[1]}%{customdata[2]}<extra></extra>'}]),
+    layout:{margin:{l:8,r:24,t:8,b:8},bargap:gap,barmode:'overlay',showlegend:false,
+      xaxis:{visible:false,range:[lo<0?lo*1.32:0,hi>0?hi*1.32:1]},
+      yaxis:{autorange:'reversed',automargin:true,showgrid:false,zeroline:false,ticks:'',tickmode:'array',tickvals:names,
+        ticktext:names.map(function(n){return n.length>26?n.slice(0,25)+'…':n;})}}};
 };
 
 // --- a table that reads like a report ---------------------------------------

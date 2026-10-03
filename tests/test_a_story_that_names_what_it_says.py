@@ -104,5 +104,6 @@ class TestAKpiTileDrawsItsLine:
         html = (_home / "t.html").read_text(encoding="utf-8")
         block = html[html.index("HTMLP_AFTER.kpi=") :]
         block = block[: block.index("\n};") + 3]
-        assert "Plotly.react" in block and "--accent" in block and "staticPlot:true" in block
+        assert "Plotly.react" in block and "--accent" in block
+        assert "staticPlot" not in block and "hovertemplate" in block, "it is a live chart: it hovers"
         assert "<svg" not in block, "Plotly stays the chart engine, small ones too"

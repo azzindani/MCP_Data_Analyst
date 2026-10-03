@@ -6,6 +6,29 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed — a generated dashboard you can work with, not only look at
+
+The generated pages had been told `toolbar: false` ("a page for reading"), so no chart had a toolbar: no
+pan, zoom, autoscale or reset. The KPI sparklines were static pictures with hover skipped, and the ranked
+lists were HTML nobody could hover, expand or filter by.
+
+- Every chart carries its Plotly toolbar by default (zoom, pan, zoom in/out, autoscale, reset, camera) and
+  scroll-zoom; box and lasso select, which only paint points on charts of totals, and the vendor logo are
+  left out. The toolbar and the tooltip wear the page's look (quiet icons on a dark card, the page's
+  typeface). `style.toolbar: false` still hides it. Fullscreen opens the chart with the same toolbar.
+- A `ranking` is a Plotly figure: slim horizontal bars on a pale track, each with its value and share,
+  a tooltip with its rank, expand and PNG on the card, and a click that filters the page by that name.
+- Its share is of the whole: with `top_n: 3` of 4 groups the leader read 35.9% of the three shown instead of
+  its real 27.8%, and a top 8 of 100 groups overstated every share.
+- KPI sparklines hover (the period, its value in the tile's own format, a crosshair); they are too small to
+  zoom, so they do not. The detected page's KPI strip does the same.
+- Lines read every series along a period (`x unified`), in the panel's own number format and with a month
+  as "Nov 2024"; a ring's tooltip names the slice with its count and share; the "latest period incomplete"
+  note sits inside the plot, clear of the toolbar.
+- Tests: `test_a_chart_the_reader_can_work_with.py` pins each, run once with its fix switched off; the
+  ranking tests now read the figure; two older tests that assumed static sparklines and an x-axis tick angle
+  on every bar chart were re-anchored (the property each protects is kept).
+
 ### Added — a generated dashboard that reads like a person made it
 
 A generated page was right and looked a machine's: header-row spellings ("Avg lead_time",

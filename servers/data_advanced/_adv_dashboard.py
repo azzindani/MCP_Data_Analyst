@@ -229,9 +229,11 @@ PANEL_STYLE: dict[str, dict] = {
     "ranking": {"top_n": 8},
 }
 
-# Panels drawn as HTML by the renderer, and panels that are static once written.
-HTML_PANELS = ("kpi", "table", "ranking")
+# Panels drawn as HTML by the renderer, and panels that are static once written. A ranked list is a
+# Plotly figure (horizontal bars): it hovers, zooms, expands and filters like every other chart.
+HTML_PANELS = ("kpi", "table")
 STATIC_PANELS = ("section", "text")
+RANKING_HEIGHT = 340
 
 
 def _panel(spec: dict, title: str, style: dict | None = None) -> dict:
@@ -804,7 +806,7 @@ def generate_dashboard(
                 "kpis": mine.get("kpis", story["kpis"]),
                 "filters": mine.get("filters", story["filters"]),
                 "quality": mine.get("quality", False),
-                "style": {"palette": SAFE_PALETTE, "toolbar": False, **page_style_in},
+                "style": {"palette": SAFE_PALETTE, **page_style_in},
                 LAYOUT_SOURCE_KEY: "story",
             }
         period = grain_for(planned)
@@ -1772,11 +1774,11 @@ def _dash_kpi_row(df, numeric_cols, sparklines, quality, qual_clr, col_agg):
             f"Plotly.newPlot('ks-{sc}',"
             f"[{{y:{_json.dumps(sv)},type:'scatter',mode:'lines',"
             f"line:{{color:a,width:1.5}},"
-            f"fill:'tozeroy',fillcolor:f}}],"
+            f"fill:'tozeroy',fillcolor:f,hovertemplate:'%{{y:,.4g}}<extra></extra>'}}],"
             f"{{paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',"
-            f"margin:{{l:0,r:0,t:0,b:0}},xaxis:{{visible:false}},"
-            f"yaxis:{{visible:false}},showlegend:false}},"
-            f"{{responsive:true,displayModeBar:false,staticPlot:true}});"
+            f"margin:{{l:0,r:0,t:0,b:0}},xaxis:{{visible:false,fixedrange:true}},"
+            f"yaxis:{{visible:false,fixedrange:true}},showlegend:false,dragmode:false,hovermode:'x'}},"
+            f"{{responsive:true,displayModeBar:false,scrollZoom:false,doubleClick:false}});"
             f"}})();</script>"
         )
     h.append("</div>")
@@ -1988,7 +1990,7 @@ def _plan_panels(layout, df, cat_cols, numeric_cols, datetime_cols, geo, col_agg
             spec = {"id": cid, "type": kind, "category": cc, **value, "header": label}
             if cols.get("date"):
                 spec.update({"date": str(cols["date"]), "grain": extras.get("grain") or "month"})
-            plan.append((spec, f"{label} by {cc}", False, 0))
+            plan.append((spec, f"{label} by {cc}", False, RANKING_HEIGHT if kind == "ranking" else 0))
         elif kind == "geo_scatter":
             lat = pick("lat", [lat_d] if lat_d else [], "latitude column")
             lon = pick("lon", [lon_d] if lon_d else [], "longitude column")
@@ -2347,7 +2349,8 @@ _RENDERER_JS = r"""
 // and renderPanel lays the panel's style over the theme. A new option is a
 // field of the panel read here -- never a new template -- and a column name is
 // data in _PANELS, never text pasted into code.
-const PCFG={responsive:true,displayModeBar:true,scrollZoom:true};
+// Zoom, pan, zoom in/out, autoscale, reset and the camera; box and lasso select only paint points on charts of totals.
+const PCFG={responsive:true,displayModeBar:true,scrollZoom:true,displaylogo:false,modeBarButtonsToRemove:['select2d','lasso2d']};
 // The theme in force. A device page holds a light and a dark one and follows
 // the reader's setting, at every draw.
 function _dark(){return typeof window!=='undefined'&&!!window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;}
@@ -2469,7 +2472,7 @@ const FIG={
       var on=s.color||_pal(p)[0],off=_T().grid;
       mid=[{text:'<b>'+(share*100).toFixed(share<0.1?2:1)+'%</b><br><span style="font-size:12px;opacity:.7">'+Math.round(hit?hit[1]:0).toLocaleString('en-US')+' of '+Math.round(all).toLocaleString('en-US')+'</span>',x:0.5,y:0.5,xref:'paper',yref:'paper',showarrow:false,font:{size:28,color:_T().font}}];
       return{data:[{values:e.map(function(i){return i[1];}),labels:e.map(function(i){return i[0];}),type:'pie',hole:0.74,sort:false,direction:'clockwise',rotation:0,
-                    marker:{colors:e.map(function(i){return String(i[0])===focus?on:off;}),line:{width:0}},textinfo:'none',hoverinfo:'label+percent'}],
+                    marker:{colors:e.map(function(i){return String(i[0])===focus?on:off;}),line:{width:0}},textinfo:'none',hovertemplate:'<b>%{label}</b><br>%{value:,.0f} · %{percent}<extra></extra>'}],
              layout:{margin:{l:44,r:44,t:24,b:24},annotations:mid,showlegend:false}};
     }
     // The answer in the middle of the ring: the total, or the words the panel was given.
@@ -2592,7 +2595,9 @@ const FIG={
 // layout fields last so they win.
 function figure(p,d){
   var f=FIG[p.type](p,d);if(!f)return null;
-  var frame={paper_bgcolor:_T().bg,plot_bgcolor:_T().bg,font:{color:_T().font,size:12,family:_T().family},autosize:true};
+  var frame={paper_bgcolor:_T().bg,plot_bgcolor:_T().bg,font:{color:_T().font,size:12,family:_T().family},autosize:true,
+    // The toolbar and the hover label are the page's too: quiet icons that read on a dark card, the tooltip in the page's typeface.
+    modebar:{bgcolor:'rgba(0,0,0,0)',color:_rgba(_T().font,0.55),activecolor:_pal(p)[0]},hoverlabel:{font:{family:_T().family,size:12}}};
   return{data:f.data,layout:am(_merge(_merge(frame,f.layout),p.style.layout||{}))};
 }
 function renderPanel(p,d){
@@ -2865,7 +2870,7 @@ function expand(id,ttl){{
   const src=document.getElementById(id);if(!src||!src.data)return;
   document.getElementById('mttl').textContent=ttl;
   document.getElementById('modal').classList.add('open');
-  Plotly.newPlot('mdiv',src.data,Object.assign({{}},src.layout,{{height:null,autosize:true}}),{{responsive:true}});
+  Plotly.newPlot('mdiv',src.data,Object.assign({{}},src.layout,{{height:null,autosize:true}}),PCFG);
 }}
 function closeM(){{document.getElementById('modal').classList.remove('open');Plotly.purge('mdiv');}}
 document.getElementById('modal').addEventListener('click',function(e){{if(e.target===this)closeM();}});

@@ -13,6 +13,9 @@ import pytest
 
 from servers.data_advanced._adv_dashboard import generate_dashboard
 from shared.dashboard_spec import CHART_KINDS, CHART_NEEDS, CHART_STYLE, SpecError, validate_panel_style
+from tests.dashboard_page import NODE, drawn
+
+needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
 
 @pytest.fixture
@@ -49,7 +52,9 @@ class TestTheRanking:
         )
         panel = result["spec"]["layout"][0]
         assert panel["chart"] == "ranking" and panel["style"]["top_n"] == 3
-        assert "HTMLP.ranking=function" in html and '"type":"ranking"' in html and ".rank{" in html
+        # A Plotly figure, not markup: the page carries its drawing as a figure and no list of its own.
+        assert "FIG.ranking=function" in html and '"type":"ranking"' in html
+        assert "HTMLP.ranking" not in html and ".rank{" not in html
 
     def test_a_missing_role_is_refused_by_name(self, data, tmp_path):
         result = generate_dashboard(
@@ -69,6 +74,44 @@ class TestTheRanking:
         from servers.data_advanced._dash_ext import EXT_JS
 
         assert "var adds=!p.metric&&(!p.agg||p.agg==='sum'||p.agg==='count')" in EXT_JS
+
+    def _figure(self, data, tmp_path, style=None, agg=None, rows=None):
+        panel = {"chart": "ranking", "cols": {"category": "region", "value": "spend"}, "style": style or {"top_n": 3}}
+        if agg:
+            panel["agg"] = agg
+        _, html = _page(data, tmp_path, [panel])
+        return html, drawn(html, rows=rows)["figures"]["p0_ranking"]
+
+    @needs_node
+    def test_it_draws_the_leaders_as_bars_that_say_their_value_and_share(self, data, tmp_path):
+        frame = pd.read_csv(data)
+        sums = frame.groupby("region")["spend"].sum().sort_values(ascending=False)
+        html, fig = self._figure(data, tmp_path)
+        track, bar = fig["data"]  # a pale track the width of the leader, and the bars on it
+        assert (bar["type"], bar["orientation"]) == ("bar", "h") and track["hoverinfo"] == "skip"
+        assert track["x"] == [bar["x"][0]] * 3 and fig["layout"]["barmode"] == "overlay"
+        assert bar["y"] == list(sums.index[:3]) and bar["x"] == [int(v) for v in sums.iloc[:3]]
+        assert fig["layout"]["yaxis"]["autorange"] == "reversed", "the leader is on top"
+        first_share = f"{sums.iloc[0] / sums.sum() * 100:.1f}%"
+        assert bar["text"][0].endswith(first_share)
+        assert "%{customdata[0]}" in bar["hovertemplate"] and "%{y}" in bar["hovertemplate"]
+        assert 'data-expand="p0_ranking"' in html and 'data-png="p0_ranking"' in html  # it has the card's tools
+
+    @needs_node
+    def test_an_average_has_no_share_of_a_whole(self, data, tmp_path):
+        _, fig = self._figure(data, tmp_path, agg="mean")
+        assert all("%" not in t and "·" not in t for t in fig["data"][-1]["text"])
+
+    @needs_node
+    def test_it_follows_the_filters(self, data, tmp_path):
+        rows = [r for r in pd.read_csv(data).to_dict(orient="records") if r["region"] in ("North", "East")]
+        _, fig = self._figure(data, tmp_path, rows=rows)
+        assert sorted(fig["data"][0]["y"]) == ["East", "North"]
+
+    @needs_node
+    def test_a_ranking_with_nothing_to_rank_says_so(self, data, tmp_path):
+        _, fig = self._figure(data, tmp_path, rows=[])
+        assert fig["data"] == [] and fig["layout"]["annotations"][0]["text"] == "Nothing to rank."
 
 
 class TestTheDonut:
