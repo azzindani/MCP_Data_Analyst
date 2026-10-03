@@ -89,7 +89,7 @@ def test_a_storyline_draws_in_colours_a_colour_blind_reader_tells_apart(page):
 def test_it_reflows_on_a_phone(page):
     _, html = page
     assert 'name="viewport"' in html and "width=device-width" in html
-    assert "@media(max-width:68.75rem){.cgrid.g12{grid-template-columns:minmax(0,1fr)}" in html
+    assert "@media(max-width:68.75rem){.cgrid.g12>.cc{grid-column:span 12!important;grid-row:auto!important}" in html
 
 
 def test_it_prints_as_cards_without_its_controls():

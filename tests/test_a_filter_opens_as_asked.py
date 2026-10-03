@@ -171,7 +171,7 @@ class TestThePageOpensOnItsDefaults:
     def test_a_line_says_what_is_filtered(self, sales):
         opened = run_js(_page(sales, layout=LAYOUT, filters=self.FILTERS), OPENED)
         assert opened["said"] == (
-            "Filtered: region: North, South · day ≥ 2024-03-01 · units ≤ 10 (on Total units by region)"
+            "Filtered: Region: North, South · Day ≥ 2024-03-01 · Units ≤ 10 (on Total units by region)"
         )
 
     def test_a_page_with_no_defaults_says_nothing_and_shows_everything(self, sales):
@@ -231,7 +231,7 @@ class TestTheTabsSavedFiltersAreThisPagesOwn:
         df = _frame(sales)
         keep = df[(df["units"] <= 10) & (df["region"] == "East")]
         assert opened["rows"] == f"{len(keep)} of {len(df)} rows"
-        assert opened["said"] == "Filtered: region: East · units ≤ 10"
+        assert opened["said"] == "Filtered: Region: East · Units ≤ 10"  # said as the filter bar labels them
 
     def test_the_session_wins_over_the_defaults(self, sales):
         html = _page(sales, filters=[{"column": "region", "default": ["North"]}])

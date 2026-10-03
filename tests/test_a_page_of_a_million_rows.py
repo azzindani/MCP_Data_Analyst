@@ -83,7 +83,7 @@ def test_a_sample_of_every_row_is_not_called_a_sample(big, monkeypatch):
     monkeypatch.setattr(cube, "SAMPLE_ROWS", N)
     r, html = _make(folder)
     assert r["cube"]["sample_rows"] == N
-    assert "box panels draw all 6,000 rows." in html and "a sample of" not in html
+    assert "box panels draw all 6,000 rows." in html and "draw a sample of" not in html
 
 
 @needs_node

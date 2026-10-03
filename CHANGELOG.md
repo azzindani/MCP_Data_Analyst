@@ -6,6 +6,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed — a dashboard that does not freeze, and fits a desktop, a tablet and a phone
+
+A 73,100-row page spent 1.1 of every 1.6 seconds of a redraw on one scatter chart in a tab nobody had opened:
+every filter click re-plotted all 73,100 points in SVG. Under a 4x CPU slowdown (a phone, an older laptop) a
+filter click blocked the page for 7-10 s and a tab for 3-6 s; it is now about 1 s and 1.5-2 s, and the page
+opens in 13 s instead of 22 s. At 820 px the layout had collapsed to one column, four KPI numbers took 700 px
+of scrolling, and on a phone the filters filled two screens before the first chart.
+
+- A chart in a tab nobody has opened is not drawn; it is drawn, with the filters then in force, when its tab
+  opens. Print lays out every tab, so it draws what was never drawn first.
+- A scatter draws an even sample (6,000 marks, shared between its groups) and says so on the chart; its
+  fitted line and r are still computed from every row.
+- A tablet (under 1100 px) halves any card of up to half a row (tiles two across, a ring beside a ranked list)
+  and gives a wider card the row; a phone (under 640 px) keeps only the small tiles two across. A tile reads
+  its own width (a container query) to stack its number over its line when it is narrow.
+- On a phone the filters fold behind one "Filters" button that counts what is on; the filter summary says
+  columns as the bar labels them ("Region", not `region`).
+- A finger is bigger than a pointer: on a coarse pointer the page's controls and the chart toolbar grow to
+  40 px, and on a phone the toolbar appears when a chart is touched. A chart narrower than 480 px stacks its
+  legend down the left, clear of the toolbar, and draws again if the window crosses that width.
+- Tests: `test_a_dashboard_that_does_not_freeze.py` and `test_a_dashboard_that_fits_any_screen.py` pin each,
+  run once with its fix switched off; the tests that encoded the single-column breakpoint, the card markup and
+  raw column names in the filter summary were re-anchored.
+
 ### Fixed — a generated dashboard you can work with, not only look at
 
 The generated pages had been told `toolbar: false` ("a page for reading"), so no chart had a toolbar: no

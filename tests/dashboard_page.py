@@ -36,7 +36,8 @@ var document={getElementById:__el,querySelector(){return null;},querySelectorAll
 var __store=__STORE__;
 var sessionStorage={getItem(k){return k in __store?__store[k]:null;},setItem(k,v){__store[k]=String(v);}};
 var CSS={escape:function(s){return s;}};
-var window={addEventListener(){},matchMedia(){return{matches:__DARK__,addEventListener(){}};}};
+var __lis={};
+var window={addEventListener(ev,fn){(__lis[ev]=__lis[ev]||[]).push(fn);},matchMedia(){return{matches:__DARK__,addEventListener(){}};}};
 var Plotly={react:function(id,data,layout,config){__figs[id]={data:data,layout:layout,config:config};},newPlot(){},purge(){},relayout(){}};
 console.warn=function(){__warn.push(Array.prototype.map.call(arguments,String).join(' '));};
 """

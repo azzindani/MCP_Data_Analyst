@@ -226,6 +226,27 @@ body.slide .cgrid{aspect-ratio:16/9;overflow:hidden}
 .cc-hdr .png+.exp{margin-left:0}
 /* A retention matrix is read whole, not scrolled. */
 .cc-body--auto:has(> .cohort-wrap){max-height:none}
+/* A tile reads its own width, not the screen's: the number and its line side by side, or one over the other. */
+.cc-kpi{container-type:inline-size}
+@container (max-width:15rem){
+  .kpi-main{flex-direction:column;align-items:stretch;gap:.25rem}
+  .kpi-main .kpi-spark{flex:none;width:100%;height:2.25rem}
+  .cc-kpi .kpi-big{font-size:1.625rem}
+}
+/* On a phone the filters fold behind one button. */
+.ftoggle{display:none;align-items:center;gap:.375rem;font:inherit;font-weight:600;font-size:.875rem;min-height:2.5rem;
+  padding:.5rem .875rem;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer}
+.ftoggle::after{content:'▾';font-size:.75rem}
+.filter-bar.open .ftoggle::after{content:'▴'}
+.fcount{font-weight:400;color:var(--accent)}
+@media(max-width:40rem){.ftoggle{display:inline-flex}.filter-bar:not(.open)>.fgrp{display:none}}
+/* A finger is bigger than a pointer: the page's controls and the chart toolbar grow to it. */
+@media(pointer:coarse){
+  .pill,.btn,.tab-btn,.drill-back,.ddbtn,.ninp,.dinp,.cc-hdr .png,.cc-hdr .exp{min-height:2.5rem}
+  .pill,.btn,.tab-btn{padding-inline:.875rem}
+  .cc-hdr .exp{min-width:2.5rem}
+  .js-plotly-plot .modebar-btn{font-size:22px!important;padding:6px 8px}
+}
 /* The filters as a column down the left, on a screen wide enough for one. */
 @media(min-width:68.75rem){
   body.sidebar .filter-bar{position:fixed;top:0;left:0;bottom:0;width:16rem;overflow:auto;display:flex;flex-direction:column;
@@ -247,6 +268,8 @@ body.slide .cgrid{aspect-ratio:16/9;overflow:hidden}
 EXT_JS = r"""
 // A page for reading, not exploring, carries no chart toolbars.
 if(_STYLE.toolbar===false)PCFG.displayModeBar=false;
+// On a phone the toolbar shows when a chart is touched: always on, it would sit over a legend as wide as the screen.
+else if((typeof window!=='undefined'&&window.innerWidth||1024)<640)PCFG.displayModeBar='hover';
 // --- a large page's rows are cells ------------------------------------------
 // Above 100,000 rows each embedded row is a cell of the server's cube
 // (shared/cube.py): a measure's sum, with its count, min and max beside it,

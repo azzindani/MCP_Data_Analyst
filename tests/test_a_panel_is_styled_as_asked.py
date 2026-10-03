@@ -200,19 +200,24 @@ class TestTitleAndPlace:
         spec = {"layout": [{**BAR, "place": {"span": 8, "height": 420}}, {"chart": "histogram"}, {"chart": "line"}]}
         html = _page(sales, spec=spec)
         assert '<div class="cgrid g12">' in html
-        spans = re.findall(r'<div class="cc[^"]*" style="grid-column:span (\d+)">', html)
+        spans = re.findall(r'<div class="cc[^"]*" style="grid-column:span (\d+)" data-span="\1">', html)
         assert spans == ["8", "6", "12"], "unplaced panels keep their default width: half, and full for a line"
         assert 'style="height:420px"' in html
 
     def test_an_unplaced_page_keeps_its_grid(self, sales):
         html = _page(sales, spec={"layout": [BAR]})
-        assert '<div class="cgrid">' in html and "grid-column:span" not in html
+        assert '<div class="cgrid">' in html and 'style="grid-column:span' not in html
 
-    def test_a_phone_puts_every_placed_card_full_width(self):
+    def test_a_narrow_screen_remaps_every_placed_cards_span(self):
         from servers.data_advanced._adv_dashboard import _PLACE_CSS
 
+        # Below the 12-column placement a card takes the whole row, unless it is half a row or less (a tablet).
         assert "@media(max-width:68.75rem)" in _PLACE_CSS
-        assert ".cgrid.g12>.cc{grid-column:1/-1!important;grid-row:auto!important}" in _PLACE_CSS
+        assert ".cgrid.g12>.cc{grid-column:span 12!important;grid-row:auto!important}" in _PLACE_CSS
+        assert '.cgrid.g12>.cc[data-span="6"]{grid-column:span 6!important}' in _PLACE_CSS
+        # On a phone only the small tiles (3 or less) still share a row, two across.
+        phone = _PLACE_CSS[_PLACE_CSS.index("@media(max-width:40rem)") :]
+        assert 'data-span="4"' in phone and 'data-span="3"' not in phone and "span 12" in phone
 
     def test_a_panel_two_rows_tall_sits_beside_a_column_of_two(self, sales):
         hist = {"chart": "histogram", "cols": {"value": "units"}, "place": {"span": 6}}

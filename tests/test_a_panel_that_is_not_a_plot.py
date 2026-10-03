@@ -138,7 +138,8 @@ class TestTheyLiveOnThePageLikeAnyCard:
         ]
         html = _html(sales, layout, tabs=[{"name": "A", "slots": [0, 1, 2]}, {"name": "B", "slots": [3]}])
         assert 'data-cards="p0_section,p1_kpi,p2_text"' in html and 'data-cards="p3_table"' in html
-        assert re.findall(r"grid-column:span (\d+)", html) == ["4", "8", "6"]
+        # the cards' own inline spans (the page CSS names spans too, for the narrower screens)
+        assert re.findall(r'style="grid-column:span (\d+)', html) == ["4", "8", "6"]
 
     @needs_node
     def test_nothing_is_drawn_twice_and_nothing_warns(self, sales):

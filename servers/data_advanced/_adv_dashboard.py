@@ -256,8 +256,15 @@ _PLACE_CSS = (
     ".ptable th,.ptable td{padding:.375rem .5rem;border-bottom:1px solid var(--border);text-align:left}"
     ".ptable .num{text-align:right;font-variant-numeric:tabular-nums}"
     ".cgrid.g12{grid-template-columns:repeat(12,minmax(0,1fr))}"
-    "@media(max-width:68.75rem){.cgrid.g12{grid-template-columns:minmax(0,1fr)}"
-    ".cgrid.g12>.cc{grid-column:1/-1!important;grid-row:auto!important}}"
+    # A screen too narrow for the placement keeps the 12 columns and remaps each card's span from its data-span: on a
+    # tablet a card of up to half the row (a tile, a ring, a ranked list) takes half a row and a wider one the whole
+    # row; on a phone only the small tiles (3 or less) share a row, two across.
+    "@media(max-width:68.75rem){.cgrid.g12>.cc{grid-column:span 12!important;grid-row:auto!important}"
+    + "".join(f'.cgrid.g12>.cc[data-span="{n}"],' for n in range(1, 6))
+    + '.cgrid.g12>.cc[data-span="6"]{grid-column:span 6!important}}'
+    "@media(max-width:40rem){"
+    + ",".join(f'.cgrid.g12>.cc[data-span="{n}"]' for n in range(4, 7))
+    + "{grid-column:span 12!important}}"
     # The filter bar's date range, and the line saying what is filtered.
     ".nrng .dinp{flex:1 1 8.5rem;min-width:8.5rem}"
     ".fsum{flex-basis:100%;font-size:.75rem;color:var(--text-muted);line-height:1.4}"
@@ -1597,7 +1604,11 @@ def _dash_header(
 def _dash_filterbar(filters: list[dict], theme: str = "device"):
     if not filters:
         return ""
-    h = ['<div class="filter-bar">']
+    h = [
+        '<div class="filter-bar">',
+        '<button type="button" class="ftoggle" aria-expanded="false" onclick="fbToggle(this)">'
+        'Filters <span class="fcount"></span></button>',
+    ]
     # The date picker's own icons follow the page, not the operating system.
     scheme = {"dark": "dark", "light": "light"}.get(theme, "light dark")
     for fc in filters:
@@ -1816,6 +1827,7 @@ def _card(
         span = int(place.get("span") or (12 if full else 6))
         rows = int(place.get("rows") or 1)
         card_style = f' style="grid-column:span {span}' + (f';grid-row:span {rows}"' if rows > 1 else '"')
+        card_style += f' data-span="{span}"'  # what the narrower screens' span rules read
         one = int(place.get("height") or height)
         if rows > 1 and one:
             # Tall enough to fill the rows it spans: their bodies, headers and gaps.
@@ -2494,16 +2506,29 @@ const FIG={
       var lo=_min(xs),hi=_max(xs);
       return{x:[lo,hi],y:[sl*lo+ic,sl*hi+ic],r:r};
     }
+    // The marks drawn are an even sample: tens of thousands of SVG points make the page crawl and show nothing a
+    // few thousand do not. The fitted line and its r still use every point.
+    var keys=Array.from(g.keys()).slice(0,p.group?s.series||8:1),cap=Math.max(1500,Math.floor(6000/Math.max(1,keys.length))),shown=0,total=0;
+    function thin(v){
+      var n=v.x.length;total+=n;
+      if(n<=cap){shown+=n;return v;}
+      var x=[],y=[],st=n/cap;
+      for(var i=0;i<cap;i++){var j=Math.floor(i*st);x.push(v.x[j]);y.push(v.y[j]);}
+      shown+=cap;return{x:x,y:y};
+    }
     var t=[];
-    Array.from(g.keys()).slice(0,p.group?s.series||8:1).forEach(function(k,i){
-      var v=g.get(k),c=p.group?_seriesColor(p,k,i):s.color;
-      t.push({x:v.x,y:v.y,type:'scatter',mode:'markers',marker:{color:c,opacity:0.5,size:5},name:p.group?k:'data',legendgroup:k});
+    keys.forEach(function(k,i){
+      var v=g.get(k),w=thin(v),c=p.group?_seriesColor(p,k,i):s.color;
+      t.push({x:w.x,y:w.y,type:'scatter',mode:'markers',marker:{color:c,opacity:0.5,size:5},name:p.group?k:'data',legendgroup:k});
       if(v.x.length>1){
         var f=fit(v.x,v.y);
         t.push({x:f.x,y:f.y,type:'scatter',mode:'lines',line:{color:p.group?c:s.accent,width:2,dash:'dash'},name:(p.group?k+' ':'')+'r='+f.r.toFixed(2),legendgroup:k});
       }
     });
-    return{data:t,layout:_axes(_merge({xaxis:{title:p.x},yaxis:_merge({title:p.y},_vaxis(s))},_legend(s,{showlegend:true,legend:{x:0,y:1.1,orientation:'h'}})))};
+    var lay=_axes(_merge({xaxis:{title:p.x},yaxis:_merge({title:p.y},_vaxis(s))},_legend(s,{showlegend:true,legend:{x:0,y:1.1,orientation:'h'}})));
+    if(shown<total)lay.annotations=(lay.annotations||[]).concat([{text:'a sample of '+shown.toLocaleString('en-US')+' of '+total.toLocaleString('en-US')+' points; the line is fitted to all',
+      xref:'paper',yref:'paper',x:1,y:0,xanchor:'right',yanchor:'bottom',showarrow:false,font:{size:10,color:_T().font},opacity:0.7}]);
+    return{data:t,layout:lay};
   },
   grouped_bar:function(p,d){
     var s=p.style,how=p.agg||'sum',a=new Map(),gs=[],seen=new Set();
@@ -2593,12 +2618,20 @@ const FIG={
 
 // The panel's figure, drawn over the theme's frame, with the panel's own
 // layout fields last so they win.
+// A chart narrower than a phone's width (a card on a phone, a tile on a tablet) stacks its legend down the left: a legend
+// across the top runs under the toolbar there. A legend the panel placed itself stays where it was put.
+var _NW={};
+function _narrowChart(p){var el=document.getElementById(p.id);return!!(el&&el.clientWidth&&el.clientWidth<480);}
 function figure(p,d){
   var f=FIG[p.type](p,d);if(!f)return null;
   var frame={paper_bgcolor:_T().bg,plot_bgcolor:_T().bg,font:{color:_T().font,size:12,family:_T().family},autosize:true,
     // The toolbar and the hover label are the page's too: quiet icons that read on a dark card, the tooltip in the page's typeface.
     modebar:{bgcolor:'rgba(0,0,0,0)',color:_rgba(_T().font,0.55),activecolor:_pal(p)[0]},hoverlabel:{font:{family:_T().family,size:12}}};
-  return{data:f.data,layout:am(_merge(_merge(frame,f.layout),p.style.layout||{}))};
+  var lay=am(_merge(_merge(frame,f.layout),p.style.layout||{}));
+  _NW[p.id]=_narrowChart(p);
+  if(_NW[p.id]&&!p.style.legend&&lay.showlegend!==false&&lay.legend&&lay.legend.orientation==='h')
+    lay.legend=_merge(lay.legend,{orientation:'v',x:0,y:1,xanchor:'left',yanchor:'bottom'});
+  return{data:f.data,layout:lay};
 }
 function renderPanel(p,d){
   if(HTMLP[p.type]){var el=document.getElementById(p.id);if(el){el.innerHTML=HTMLP[p.type](p,d);if(HTMLP_AFTER[p.type])HTMLP_AFTER[p.type](p,d);}return;}
@@ -2613,10 +2646,40 @@ function updKPIs(d){
   });
 }
 
+// A chart in a tab nobody has opened is not drawn: drawing it costs the time of the whole data set and sizes it
+// to a box with no width. It is marked stale and drawn, with the filters then in force, when its tab opens.
+var _STALE={};
+function _hiddenPanel(p){var el=document.getElementById(p.id),c=el&&el.closest&&el.closest('.cc');return!!(c&&c.style&&c.style.display==='none');}
+function renderStale(all){
+  var d=null;
+  _PANELS.forEach(function(p){
+    if(!_STALE[p.id]||(!all&&_hiddenPanel(p)))return;
+    delete _STALE[p.id];d=d||getFilt();
+    try{renderPanel(p,_rowsFor(p,d));}catch(_e){console.warn('chart '+p.id,_e);}
+  });
+}
 function renderAll(d){
   updKPIs(d);
-  _PANELS.forEach(function(p){try{renderPanel(p,_rowsFor(p,d));}catch(_e){console.warn('chart '+p.id,_e);}});
+  _PANELS.forEach(function(p){
+    if(_hiddenPanel(p)){_STALE[p.id]=true;return;}
+    delete _STALE[p.id];
+    try{renderPanel(p,_rowsFor(p,d));}catch(_e){console.warn('chart '+p.id,_e);}
+  });
 }
+// Turning a phone or resizing a window can move a chart across that width: it is drawn again for it.
+(function(){
+  if(typeof window==='undefined'||!window.addEventListener)return;
+  var t=null;
+  window.addEventListener('resize',function(){
+    clearTimeout(t);
+    t=setTimeout(function(){
+      var moved=_PANELS.some(function(p){return FIG[p.type]&&!_hiddenPanel(p)&&_narrowChart(p)!==!!_NW[p.id];});
+      if(moved)renderAll(getFilt());
+    },250);
+  });
+})();
+// Print lays out every tab's cards, so what was never drawn is drawn first.
+if(typeof window!=='undefined'&&window.addEventListener)window.addEventListener('beforeprint',function(){renderStale(true);});
 // A device page redraws when the reader switches light and dark.
 if(_THEME.device&&typeof window!=='undefined'&&window.matchMedia){
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',function(){renderAll(getFilt());});
@@ -2774,11 +2837,11 @@ function _fsum(){{
   var el=document.getElementById('fsum');if(!el)return;
   function n(v){{return typeof v==='number'?v.toLocaleString():v;}}
   var parts=_on().map(function(f){{
-    var c=f.col,s=_CF[c],t;
-    if(s&&s.size>0){{var v=Array.from(s);t=c+': '+(v.length<=3?v.join(', '):v.length+' of '+f.n);}}
+    var c=f.col,s=_CF[c],t,L=_lab(c);
+    if(s&&s.size>0){{var v=Array.from(s);t=L+': '+(v.length<=3?v.join(', '):v.length+' of '+f.n);}}
     else{{
       var r=_NF[c];
-      t=(r.min!==null&&r.max!==null)?c+' '+n(r.min)+' – '+n(r.max):r.min!==null?c+' ≥ '+n(r.min):c+' ≤ '+n(r.max);
+      t=(r.min!==null&&r.max!==null)?L+' '+n(r.min)+' – '+n(r.max):r.min!==null?L+' ≥ '+n(r.min):L+' ≤ '+n(r.max);
     }}
     if(f.scope)t+=' (on '+f.scope.map(function(id){{
       var p=_PANELS.filter(function(q){{return q.id===id;}})[0];return(p&&p.title)||id;
@@ -2786,6 +2849,13 @@ function _fsum(){{
     return t;
   }});
   el.textContent=parts.length?'Filtered: '+parts.join(' · '):'';
+  document.querySelectorAll('.fcount').forEach(function(c){{c.textContent=parts.length?'· '+parts.length+' on':'';}});
+}}
+
+// On a phone the filters fold behind one button, so the charts are not two screens down.
+function fbToggle(b){{
+  var bar=b.closest('.filter-bar');if(!bar)return;
+  var open=bar.classList.toggle('open');b.setAttribute('aria-expanded',open?'true':'false');
 }}
 
 function applyF(){{
@@ -2945,6 +3015,7 @@ function renderTable(rows){{
       var id=(card.querySelector('[id]')||{{}}).id||card.id||'';
       card.style.display=(!keep.length||keep.indexOf(id)>=0)?'':'none';
     }});
+    renderStale();
   }}
   btns.forEach(function(b){{b.addEventListener('click',function(){{show(b);}});}});
   show(btns[0]);
