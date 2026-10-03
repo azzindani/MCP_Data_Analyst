@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed — native controls follow the theme, and a page wears the theme it was asked for
+
+- The report CSS declared no `color-scheme`, so a dark page kept light scrollbars, dropdown lists and date icons;
+  the light and dark palettes now carry it.
+- `theme="dark"` (or `"light"`) on a generated dashboard drew the charts in that theme over cards that followed the
+  OS, since the studio look became the default. `look_css` now takes the page's theme.
+
 ### Fixed — a page you can scroll
 
 - The Lagoon look could not be scrolled, on a desktop or a phone. An inset look drew the page as a rounded card with

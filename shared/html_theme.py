@@ -93,11 +93,15 @@ _DARK_VARS = (
     "--bg:#0d1117;--surface:#161b22;--border:#21262d;--text:#c9d1d9;"
     "--text-muted:#8b949e;--accent:#58a6ff;--green:#3fb950;"
     "--orange:#f0883e;--red:#f85149;"
+    # Native controls (a dropdown's list, scrollbars, a date picker) take their colours from this, not from the
+    # tokens above: without it a dark page keeps a white option list under light text.
+    "color-scheme:dark;"
 )
 _LIGHT_VARS = (
     "--bg:#ffffff;--surface:#f6f8fa;--border:#d0d7de;--text:#1f2328;"
     "--text-muted:#636c76;--accent:#0969da;--green:#1a7f37;"
     "--orange:#9a6700;--red:#cf222e;"
+    "color-scheme:light;"
 )
 _LAYOUT_VARS = (
     "--sidebar-w:16.25rem;"

@@ -857,9 +857,13 @@ def _card_css(look: dict[str, Any]) -> str:
     return css
 
 
-def look_css(look: dict[str, Any]) -> str:
-    """The stylesheet for a validated look, to follow the engine's own CSS."""
-    mode = look["mode"]
+def look_css(look: dict[str, Any], theme: str = "device") -> str:
+    """The stylesheet for a validated look, to follow the engine's own CSS.
+
+    `theme` is the page's own, as asked: a look that follows the device still wears the light or the dark it was
+    told to, so its cards agree with the charts drawn over them; a look that is light or dark only keeps its mode.
+    """
+    mode = effective_theme(look, theme)
     light, dark = mode_tokens(look, "light"), mode_tokens(look, "dark")
     if mode == "light":
         root = f":root{{{_vars(light)}color-scheme:light}}"

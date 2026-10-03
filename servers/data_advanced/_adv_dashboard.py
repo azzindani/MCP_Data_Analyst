@@ -1086,7 +1086,7 @@ def generate_dashboard(
             data_hash=data_hash,
             tool="generate_dashboard",
         )
-        h.append(_dash_head(_css, dashboard_title, out.parent, page_header, resolved, look, look_name))
+        h.append(_dash_head(_css, dashboard_title, out.parent, page_header, resolved, look, look_name, theme))
         full_call = f'generate_dashboard(file_path="{path.name}", spec={{"interactions": {{"embed_rows": 0}}}})'
         h.append(_dash_header(dashboard_title, embed_df, was_sampled, len(df), full_call, logo_src, cube_info))
         # Extra datasets are read before anything is written, so a missing or
@@ -1506,7 +1506,7 @@ def _trend(df, col: str) -> tuple[str, str]:
     return "→", "trend-flat"
 
 
-def _dash_head(_css, dashboard_title, output_dir, header=None, spec=None, look=None, look_name=""):
+def _dash_head(_css, dashboard_title, output_dir, header=None, spec=None, look=None, look_name="", theme="device"):
     import html as _html
 
     page_style = (spec or {}).get("style") or {}
@@ -1524,7 +1524,7 @@ def _dash_head(_css, dashboard_title, output_dir, header=None, spec=None, look=N
             css_dashboard(_css)
             + _PLACE_CSS
             + EXT_CSS
-            + look_css(look)
+            + look_css(look, theme)
             + (f"body{{font-family:{font}}}" if font else "")
         )
     plotly_script = plotly_script_tag(output_dir)
